@@ -7,33 +7,48 @@
 
 ---
 
+## ✅ Completed Improvements
+
+### Phase 1: Quick Wins (Completed)
+- ✅ **Logging Infrastructure** - File and console logging with timestamps
+- ✅ **Custom Exception Classes** - KnowledgeBaseError hierarchy for better error handling
+- ✅ **Search Term Highlighting** - Markdown bold highlighting in search results
+- ✅ **PDF Metadata Extraction** - Author, subject, creator, creation date extraction
+
+### Phase 2: Search Quality (Completed)
+- ✅ **BM25 Search Algorithm** - Industry-standard ranking with rank-bm25 library
+- ✅ **Phrase Search Support** - Exact phrase matching with quote detection
+- ✅ **PDF Page Number Tracking** - Estimated page numbers in search results
+- ✅ **Score Filtering Fix** - Handles negative BM25 scores for small documents
+
+### Additional Completions
+- ✅ **CI/CD Pipeline** - GitHub Actions workflow for multi-platform testing
+- ✅ **Comprehensive Test Suite** - 18 tests covering all functionality
+- ✅ **Documentation** - Updated README, CLAUDE.md with all new features
+
+---
+
 ## 1. Search Quality Improvements
 
-### P0: Implement Better Search Algorithms
-**Current Issue**: Simple term frequency scoring is not very accurate
+### ✅ COMPLETED: P0: Implement Better Search Algorithms
+**Status**: ✅ Implemented with BM25Okapi
 
-**Recommendations**:
-- **BM25 Algorithm**: Industry-standard for text search, better than TF-IDF
-  ```python
-  # Pseudo-code
-  def bm25_score(term_freq, doc_length, avg_doc_length, k1=1.5, b=0.75):
-      return (term_freq * (k1 + 1)) / (term_freq + k1 * (1 - b + b * (doc_length / avg_doc_length)))
-  ```
-- **Benefits**: Much more accurate ranking, handles document length bias
-- **Effort**: Medium (1-2 days)
-- **Library**: Consider `rank-bm25` package
+**Implementation Details**:
+- Using `rank-bm25` package with BM25Okapi algorithm
+- Default k1=1.2, b=0.75 parameters
+- Handles negative scores for small documents with `abs(score) > 0.0001` filter
+- Enabled by default, can disable with `USE_BM25=0` environment variable
+- Falls back to simple search if rank-bm25 not available
 
-### P1: Add Phrase Search Support
-**Current Issue**: Cannot search for exact phrases like "VIC-II register"
+### ✅ COMPLETED: P1: Add Phrase Search Support
+**Status**: ✅ Implemented with regex pattern matching
 
-**Recommendations**:
+**Implementation Details**:
 ```python
-def search_phrase(self, query: str):
-    """Search for exact phrase match."""
-    if '"' in query:
-        # Extract phrases in quotes
-        phrases = re.findall(r'"([^"]*)"', query)
-        # Score higher for exact phrase matches
+# Extract phrases in quotes
+phrase_pattern = r'"([^"]*)"'
+phrases = re.findall(phrase_pattern, query)
+# Boost phrase matches 2x in BM25, 10x in simple search
 ```
 
 ### P1: Implement Query Preprocessing
@@ -176,20 +191,16 @@ class KnowledgeBase:
 **Effort**: Medium (2-3 days)
 **Libraries**: `sentence-transformers`, `faiss-cpu`, or `chromadb`
 
-### P1: Highlight Search Terms in Results
-```python
-def _extract_snippet(self, content: str, query_terms: set, snippet_size: int = 300):
-    # ... existing code ...
+### ✅ COMPLETED: P1: Highlight Search Terms in Results
+**Status**: ✅ Implemented in `_extract_snippet()` method
 
-    # Highlight matching terms
-    for term in query_terms:
-        snippet = re.sub(
-            f'({re.escape(term)})',
-            r'**\1**',  # Bold in markdown
-            snippet,
-            flags=re.IGNORECASE
-        )
-    return snippet
+**Implementation Details**:
+```python
+# Highlight matching terms (case-insensitive)
+for term in query_terms:
+    if len(term) >= 2:
+        pattern = re.compile(f'({re.escape(term)})', re.IGNORECASE)
+        snippet = pattern.sub(r'**\1**', snippet)
 ```
 
 ### P1: Add "More Like This" Tool
@@ -253,39 +264,44 @@ Tool(
 
 ## 4. Data Quality & Processing
 
-### P0: Track Page Numbers in PDFs
-**Current Issue**: Line 183 has `page=None` comment
+### ✅ COMPLETED: P0: Track Page Numbers in PDFs
+**Status**: ✅ Implemented with PAGE BREAK marker estimation
 
-**Recommendations**:
+**Implementation Details**:
+- PDF text extraction uses `--- PAGE BREAK ---` markers between pages
+- Chunk creation estimates page number by counting PAGE BREAK markers
+- Page numbers stored in `DocumentChunk.page` field
+- Search results include page numbers when available
+
 ```python
-def _extract_pdf_text(self, filepath: str) -> tuple[list[tuple[str, int]], int]:
-    """Extract text with page numbers."""
-    reader = PdfReader(filepath)
-    pages_with_numbers = []
-    for page_num, page in enumerate(reader.pages, 1):
-        text = page.extract_text() or ""
-        pages_with_numbers.append((text, page_num))
-    return pages_with_numbers, len(reader.pages)
-
-def _chunk_text_with_pages(self, pages_with_numbers: list[tuple[str, int]], ...):
-    """Chunk text while preserving page information."""
-    # Track which page each chunk came from
+# Estimate page number for PDFs based on PAGE BREAK markers
+if file_type == 'pdf' and '--- PAGE BREAK ---' in text:
+    chunk_start_pos = text.find(chunk_text[:100])
+    if chunk_start_pos >= 0:
+        page_breaks_before = text[:chunk_start_pos].count('--- PAGE BREAK ---')
+        page_num = page_breaks_before + 1
 ```
 
-**Benefits**: Users can reference exact page numbers
+### ✅ COMPLETED: P1: Extract Document Metadata
+**Status**: ✅ Implemented in `_extract_pdf_text()` method
 
-### P1: Extract Document Metadata
+**Implementation Details**:
 ```python
-def _extract_pdf_metadata(self, reader: PdfReader) -> dict:
-    """Extract PDF metadata."""
-    metadata = reader.metadata
-    return {
-        'author': metadata.get('/Author'),
-        'title': metadata.get('/Title'),
-        'subject': metadata.get('/Subject'),
-        'creation_date': metadata.get('/CreationDate')
-    }
+# Extract PDF metadata
+metadata = {}
+if reader.metadata:
+    metadata['author'] = reader.metadata.get('/Author')
+    metadata['subject'] = reader.metadata.get('/Subject')
+    metadata['creator'] = reader.metadata.get('/Creator')
+    creation_date = reader.metadata.get('/CreationDate')
+    # Parse PDF date format: D:YYYYMMDDHHmmSS
 ```
+
+Metadata fields added to `DocumentMeta` dataclass:
+- `author: Optional[str]`
+- `subject: Optional[str]`
+- `creator: Optional[str]`
+- `creation_date: Optional[str]`
 
 ### P1: Duplicate Detection
 **Current Issue**: Same document can be indexed multiple times with different paths
@@ -309,53 +325,57 @@ def _generate_doc_id(self, filepath: str) -> str:
 
 ## 5. Error Handling & Robustness
 
-### P0: Better Error Handling in Async Functions
-**Current Issue**: Generic exceptions don't provide context
+### ✅ COMPLETED: P0: Better Error Handling in Async Functions
+**Status**: ✅ Implemented custom exception hierarchy
 
-**Recommendations**:
+**Implementation Details**:
 ```python
 class KnowledgeBaseError(Exception):
-    """Base exception for KB errors."""
+    """Base exception for knowledge base errors."""
     pass
 
 class DocumentNotFoundError(KnowledgeBaseError):
+    """Raised when a document is not found."""
+    pass
+
+class ChunkNotFoundError(KnowledgeBaseError):
+    """Raised when a chunk is not found."""
+    pass
+
+class UnsupportedFileTypeError(KnowledgeBaseError):
+    """Raised when file type is not supported."""
     pass
 
 class IndexCorruptedError(KnowledgeBaseError):
+    """Raised when the index is corrupted."""
     pass
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    try:
-        # ... tool logic ...
-    except DocumentNotFoundError as e:
-        return [TextContent(type="text", text=f"Document not found: {e}")]
-    except KnowledgeBaseError as e:
-        return [TextContent(type="text", text=f"Error: {e}")]
-    except Exception as e:
-        # Log unexpected errors
-        logger.exception("Unexpected error in tool call")
-        return [TextContent(type="text", text=f"Unexpected error: {str(e)}")]
 ```
 
-### P1: Add Logging
+All custom exceptions are tested in `test_custom_exceptions()` test case.
+
+### ✅ COMPLETED: P1: Add Logging
+**Status**: ✅ Implemented with file and console logging
+
+**Implementation Details**:
 ```python
-import logging
-
+# Setup in __init__
+log_file = self.data_dir / "server.log"
 logging.basicConfig(
-    filename=DATA_DIR / 'server.log',
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(sys.stderr)
+    ]
 )
-
-logger = logging.getLogger(__name__)
-
-def search(self, query: str, ...):
-    logger.info(f"Search query: '{query}', tags={tags}")
-    results = # ... search logic ...
-    logger.info(f"Found {len(results)} results")
-    return results
+self.logger = logging.getLogger(__name__)
 ```
+
+Logs include:
+- Document additions/removals
+- Search queries and result counts
+- BM25 index building
+- Error conditions
 
 ### P1: Index Validation & Repair
 ```python

@@ -39,11 +39,23 @@ Documents are split into overlapping chunks (default 1500 words, 200 word overla
 
 ### Search Implementation
 
-Simple term-frequency scoring:
-- Query split into terms
-- Exact word matches score 2x partial matches
-- Results sorted by score, limited by max_results
-- Snippet extraction centers on first query term occurrence
+**BM25 (Okapi BM25)** - Industry-standard probabilistic ranking (default):
+- Uses rank-bm25 library for accurate relevance scoring
+- Handles document length normalization
+- Tokenizes documents and queries for matching
+- Accepts negative scores for small documents (filters by abs(score) > 0.0001)
+- Can be disabled with `USE_BM25=0` environment variable
+
+**Phrase Search**:
+- Detects quoted phrases with regex pattern `r'"([^"]*)"'`
+- Exact phrase matches get 2x score boost
+- Combined with term search for comprehensive results
+
+**Additional Features**:
+- Search term highlighting in snippets (markdown bold)
+- PDF page number tracking in results
+- Tag-based filtering
+- Comprehensive logging to server.log
 
 ## Development Commands
 
@@ -52,7 +64,10 @@ Simple term-frequency scoring:
 # Create virtual environment and install dependencies
 python -m venv .venv
 .venv\Scripts\activate
-pip install mcp pypdf
+pip install mcp pypdf rank-bm25
+
+# For development (includes pytest)
+pip install -e ".[dev]"
 ```
 
 ### Testing the Server
@@ -89,8 +104,15 @@ python cli.py remove <doc_id>
 ## Environment Configuration
 
 **TDZ_DATA_DIR** - Directory for index and chunks storage (default: `~/.tdz-c64-knowledge`)
+**USE_BM25** - Enable/disable BM25 search algorithm (default: `1` for enabled, set to `0` to disable)
 
-When adding to Claude Code or Claude Desktop, set this in the MCP config `env` section to specify where the knowledge base files are stored.
+When adding to Claude Code or Claude Desktop, set these in the MCP config `env` section:
+```json
+"env": {
+  "TDZ_DATA_DIR": "C:\\Users\\YourName\\c64-knowledge-data",
+  "USE_BM25": "1"
+}
+```
 
 ## Code Patterns
 
@@ -101,12 +123,28 @@ When adding to Claude Code or Claude Desktop, set this in the MCP config `env` s
 3. Use KnowledgeBase methods for data operations
 4. Return list of `TextContent` objects
 
-### Modifying Search Algorithm
+### Search Algorithm Architecture
 
-Search is in `KnowledgeBase.search()` at server.py:227. Current implementation is simple term frequency. To enhance:
-- Consider implementing BM25 or TF-IDF
-- Add phrase matching
-- Implement semantic search with embeddings
+Search is implemented in `KnowledgeBase.search()` starting at server.py line ~350.
+
+**Current Implementation:**
+- BM25 ranking via `_search_bm25()` method (default)
+- Simple term frequency via `_search_simple()` method (fallback)
+- Phrase detection and boosting
+- Search term highlighting via `_extract_snippet()`
+
+**Key Methods:**
+- `search()` - Main entry point, dispatches to BM25 or simple search
+- `_search_bm25()` - BM25 scoring with phrase boosting
+- `_search_simple()` - Fallback term frequency scoring
+- `_build_bm25_index()` - Builds BM25 index from chunks on init/update
+- `_extract_snippet()` - Extracts context with term highlighting
+
+**Future Enhancements:**
+- Implement semantic search with embeddings (sentence-transformers)
+- Add query preprocessing (stemming, stopwords)
+- Fuzzy search / typo tolerance (Levenshtein distance)
+- See IMPROVEMENTS.md for detailed recommendations
 
 ### Extending File Type Support
 

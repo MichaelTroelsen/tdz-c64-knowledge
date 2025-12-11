@@ -5,10 +5,15 @@ An MCP (Model Context Protocol) server for managing and searching Commodore 64 d
 ## Features
 
 - **PDF and text file ingestion** - Extract and index content from documentation
-- **Full-text search** - Find relevant information across all documents
+- **BM25 search algorithm** - Industry-standard ranking for accurate results
+- **Phrase search** - Use quotes for exact phrase matching (e.g., `"VIC-II chip"`)
+- **Search term highlighting** - Matching terms highlighted in search results
 - **Tag-based filtering** - Organize docs by topic (memory-map, sid, vic-ii, basic, assembly, etc.)
 - **Chunked retrieval** - Get specific sections without loading entire documents
+- **PDF metadata extraction** - Author, subject, creator, and creation date
+- **Page number tracking** - Results show PDF page numbers for easy reference
 - **Persistent index** - Documents stay indexed between sessions
+- **Comprehensive logging** - File and console logging for debugging
 
 ## Installation (Windows)
 
@@ -32,16 +37,16 @@ An MCP (Model Context Protocol) server for managing and searching Commodore 64 d
 2. **Create virtual environment and install dependencies:**
    ```cmd
    cd C:\Users\YourName\mcp-servers\tdz-c64-knowledge
-   
+
    # Using uv (faster)
    uv venv
    .venv\Scripts\activate
-   uv pip install mcp pypdf
-   
+   uv pip install mcp pypdf rank-bm25
+
    # Or using pip
    python -m venv .venv
    .venv\Scripts\activate
-   pip install mcp pypdf
+   pip install mcp pypdf rank-bm25
    ```
 
 3. **Test the server:**
@@ -98,6 +103,46 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `TDZ_DATA_DIR` | Directory to store index and chunks | `~/.tdz-c64-knowledge` |
+| `USE_BM25` | Enable BM25 search algorithm (0=disabled, 1=enabled) | `1` (enabled) |
+
+## Search Features
+
+### BM25 Ranking Algorithm
+
+By default, the server uses the **BM25 (Okapi BM25)** algorithm for search ranking. BM25 is an industry-standard probabilistic ranking function that provides much better relevance scoring than simple term frequency.
+
+**Benefits:**
+- More accurate ranking of search results
+- Better handling of document length variations
+- Improved scoring for multi-term queries
+
+**How it works:**
+- Tokenizes documents and queries into words
+- Scores based on term frequency, document frequency, and document length
+- Handles small documents (may produce negative scores, which are handled correctly)
+
+To disable BM25 and use simple term frequency search, set `USE_BM25=0` in your environment.
+
+### Phrase Search
+
+Use double quotes to search for exact phrases:
+
+```
+search_docs(query='"VIC-II chip" registers')
+```
+
+This will:
+- Match documents containing the exact phrase "VIC-II chip"
+- Also search for the term "registers"
+- Boost scores for documents with exact phrase matches
+
+### Search Term Highlighting
+
+Search results automatically highlight matching terms in snippets using markdown bold (`**term**`). This makes it easy to see why a result matched your query.
+
+### Page Number Tracking
+
+For PDF documents, search results include the estimated page number where the content appears. This helps you quickly find the information in the original document.
 
 ## Tools
 
@@ -162,7 +207,16 @@ Once configured, you can ask Claude Code things like:
 - "Search the C64 docs for SID voice registers"
 - "What does the memory map say about $D400?"
 - "Find information about sprite multiplexing"
+- "Search for the exact phrase 'VIC-II chip' in the docs"
+- "Find documentation about 'raster interrupts' in graphics-related docs"
 - "Add C:/docs/c64/mapping_the_c64.pdf to the knowledge base with tags memory-map, reference"
+
+**Phrase search examples:**
+```
+search_docs(query='"VIC-II chip"')
+search_docs(query='"raster interrupt" timing')
+search_docs(query='"SID register" $D400')
+```
 
 ## Data Storage
 
@@ -174,8 +228,8 @@ Default location: `~/.tdz-c64-knowledge` (or set via `TDZ_DATA_DIR`)
 
 ## Troubleshooting
 
-### "pypdf not installed"
-Run: `pip install pypdf` (in your virtual environment)
+### "pypdf not installed" or "rank_bm25 not found"
+Run: `pip install pypdf rank-bm25` (in your virtual environment)
 
 ### "mcp module not found"
 Run: `pip install mcp` (in your virtual environment)
@@ -185,6 +239,12 @@ Make sure you're using the Python from your virtual environment, not the system 
 
 ### PDF extraction issues
 Some scanned PDFs may not extract text well. Consider using OCR tools to convert them first, or add the plain text version instead.
+
+### BM25 issues
+If you experience search problems with BM25:
+1. Check the logs in `TDZ_DATA_DIR/server.log`
+2. Try disabling BM25 with `USE_BM25=0` environment variable
+3. Ensure rank-bm25 is installed: `pip show rank-bm25`
 
 ## Development
 

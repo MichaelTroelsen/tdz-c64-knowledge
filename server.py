@@ -356,9 +356,9 @@ class KnowledgeBase:
         query_terms = set(query_without_phrases.lower().split())
         query_terms = {term for term in query_terms if term}  # Remove empty strings
 
-        # Use BM25 if available and enabled, otherwise fall back to simple search
-        # BM25 can be enabled with environment variable: USE_BM25=1
-        use_bm25 = os.environ.get('USE_BM25', '0') == '1'
+        # Use BM25 if available, otherwise fall back to simple search
+        # BM25 can be disabled with environment variable: USE_BM25=0
+        use_bm25 = os.environ.get('USE_BM25', '1') == '1'
         if use_bm25 and BM25_SUPPORT and self.bm25 is not None:
             results = self._search_bm25(query, query_terms, phrases, tags, max_results)
         else:
@@ -408,9 +408,11 @@ class KnowledgeBase:
                 'word_count': chunk.word_count
             })
 
-        # Sort by score and return top results (filter out very low scores)
-        # BM25 scores can be small but meaningful, so use a low threshold
-        results = [r for r in results if r['score'] > 0.0001]
+        # Sort by score and return top results
+        # BM25 scores can be negative for very small documents
+        # Accept any non-zero score (positive or moderately negative)
+        # Filter only exact zeros (true non-matches)
+        results = [r for r in results if abs(r['score']) > 0.0001]
         results.sort(key=lambda x: x['score'], reverse=True)
         return results[:max_results]
 

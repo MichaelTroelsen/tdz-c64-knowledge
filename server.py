@@ -279,18 +279,26 @@ class KnowledgeBase:
         # Extract metadata
         metadata = {}
         if reader.metadata:
-            metadata['author'] = reader.metadata.get('/Author')
-            metadata['subject'] = reader.metadata.get('/Subject')
-            metadata['creator'] = reader.metadata.get('/Creator')
+            # Convert metadata values to strings to handle IndirectObject references
+            author = reader.metadata.get('/Author')
+            metadata['author'] = str(author) if author else None
+
+            subject = reader.metadata.get('/Subject')
+            metadata['subject'] = str(subject) if subject else None
+
+            creator = reader.metadata.get('/Creator')
+            metadata['creator'] = str(creator) if creator else None
+
             creation_date = reader.metadata.get('/CreationDate')
             if creation_date:
                 # Try to parse PDF date format (D:YYYYMMDDHHmmSS)
                 try:
-                    if isinstance(creation_date, str) and creation_date.startswith('D:'):
-                        date_str = creation_date[2:16]  # Extract YYYYMMDDHHmmSS
+                    creation_date_str = str(creation_date)
+                    if creation_date_str.startswith('D:'):
+                        date_str = creation_date_str[2:16]  # Extract YYYYMMDDHHmmSS
                         metadata['creation_date'] = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
                     else:
-                        metadata['creation_date'] = str(creation_date)
+                        metadata['creation_date'] = creation_date_str
                 except:
                     metadata['creation_date'] = str(creation_date)
 

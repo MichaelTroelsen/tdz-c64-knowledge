@@ -175,6 +175,57 @@ The SID chip handles sound generation with 3 voices.
         assert "vic-ii" in stats["all_tags"]
 
 
+    def test_search_highlighting(self, kb, sample_text_file):
+        """Test that search terms are highlighted in snippets."""
+        kb.add_document(sample_text_file, "Test Doc", ["test"])
+
+        results = kb.search("VIC-II", max_results=5)
+        assert len(results) > 0
+
+        # Check that terms are highlighted with **term**
+        snippet = results[0]["snippet"]
+        assert "**VIC" in snippet or "**vic" in snippet  # Case-insensitive highlighting
+
+    def test_pdf_metadata(self, kb):
+        """Test PDF metadata extraction."""
+        # This test would require an actual PDF with metadata
+        # For now, we'll just verify that the metadata fields exist in DocumentMeta
+        import server
+        from dataclasses import fields
+
+        field_names = {f.name for f in fields(server.DocumentMeta)}
+        assert "author" in field_names
+        assert "subject" in field_names
+        assert "creator" in field_names
+        assert "creation_date" in field_names
+
+    def test_custom_exceptions(self):
+        """Test that custom exceptions are defined."""
+        from server import (
+            KnowledgeBaseError,
+            DocumentNotFoundError,
+            ChunkNotFoundError,
+            UnsupportedFileTypeError,
+            IndexCorruptedError
+        )
+
+        # Verify exception hierarchy
+        assert issubclass(DocumentNotFoundError, KnowledgeBaseError)
+        assert issubclass(ChunkNotFoundError, KnowledgeBaseError)
+        assert issubclass(UnsupportedFileTypeError, KnowledgeBaseError)
+        assert issubclass(IndexCorruptedError, KnowledgeBaseError)
+
+    def test_unsupported_file_type(self, kb, temp_data_dir):
+        """Test that unsupported file types raise appropriate exception."""
+        from server import UnsupportedFileTypeError
+
+        unsupported_file = Path(temp_data_dir) / "test.xyz"
+        unsupported_file.write_text("some content")
+
+        with pytest.raises(UnsupportedFileTypeError):
+            kb.add_document(str(unsupported_file))
+
+
 def test_imports():
     """Test that required modules can be imported."""
     import server

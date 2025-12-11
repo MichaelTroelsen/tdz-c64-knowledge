@@ -5,9 +5,12 @@ A Model Context Protocol server for searching C64 documentation.
 """
 
 import os
+import sys
 import json
 import re
 import hashlib
+import logging
+import time
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, asdict
@@ -28,7 +31,33 @@ try:
     PDF_SUPPORT = True
 except ImportError:
     PDF_SUPPORT = False
-    print("Warning: pypdf not installed. PDF support disabled.", file=__import__('sys').stderr)
+    print("Warning: pypdf not installed. PDF support disabled.", file=sys.stderr)
+
+
+# Custom Exceptions
+class KnowledgeBaseError(Exception):
+    """Base exception for knowledge base errors."""
+    pass
+
+
+class DocumentNotFoundError(KnowledgeBaseError):
+    """Raised when a document is not found."""
+    pass
+
+
+class ChunkNotFoundError(KnowledgeBaseError):
+    """Raised when a chunk is not found."""
+    pass
+
+
+class UnsupportedFileTypeError(KnowledgeBaseError):
+    """Raised when an unsupported file type is provided."""
+    pass
+
+
+class IndexCorruptedError(KnowledgeBaseError):
+    """Raised when the index is corrupted."""
+    pass
 
 
 @dataclass
@@ -43,7 +72,7 @@ class DocumentChunk:
     word_count: int
 
 
-@dataclass 
+@dataclass
 class DocumentMeta:
     """Metadata about an indexed document."""
     doc_id: str
@@ -55,23 +84,42 @@ class DocumentMeta:
     total_chunks: int
     indexed_at: str
     tags: list[str]
+    # PDF metadata (optional)
+    author: Optional[str] = None
+    subject: Optional[str] = None
+    creator: Optional[str] = None
+    creation_date: Optional[str] = None
 
 
 class KnowledgeBase:
     """Manages the document index and search."""
-    
+
     def __init__(self, data_dir: str):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Setup logging
+        log_file = self.data_dir / "server.log"
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler(sys.stderr)
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f"Initializing KnowledgeBase at {data_dir}")
+
         self.index_file = self.data_dir / "index.json"
         self.chunks_dir = self.data_dir / "chunks"
         self.chunks_dir.mkdir(exist_ok=True)
-        
+
         self.documents: dict[str, DocumentMeta] = {}
         self.chunks: list[DocumentChunk] = []
-        
+
         self._load_index()
+        self.logger.info(f"Loaded {len(self.documents)} documents with {len(self.chunks)} chunks")
     
     def _load_index(self):
         """Load existing index from disk."""
@@ -125,18 +173,36 @@ class KnowledgeBase:
             
         return chunks
     
-    def _extract_pdf_text(self, filepath: str) -> tuple[str, int]:
-        """Extract text from PDF, returns (text, page_count)."""
+    def _extract_pdf_text(self, filepath: str) -> tuple[str, int, dict]:
+        """Extract text from PDF, returns (text, page_count, metadata)."""
         if not PDF_SUPPORT:
             raise RuntimeError("PDF support not available. Install pypdf: pip install pypdf")
-        
+
         reader = PdfReader(filepath)
         pages = []
         for page in reader.pages:
             text = page.extract_text() or ""
             pages.append(text)
-        
-        return "\n\n--- PAGE BREAK ---\n\n".join(pages), len(reader.pages)
+
+        # Extract metadata
+        metadata = {}
+        if reader.metadata:
+            metadata['author'] = reader.metadata.get('/Author')
+            metadata['subject'] = reader.metadata.get('/Subject')
+            metadata['creator'] = reader.metadata.get('/Creator')
+            creation_date = reader.metadata.get('/CreationDate')
+            if creation_date:
+                # Try to parse PDF date format (D:YYYYMMDDHHmmSS)
+                try:
+                    if isinstance(creation_date, str) and creation_date.startswith('D:'):
+                        date_str = creation_date[2:16]  # Extract YYYYMMDDHHmmSS
+                        metadata['creation_date'] = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+                    else:
+                        metadata['creation_date'] = str(creation_date)
+                except:
+                    metadata['creation_date'] = str(creation_date)
+
+        return "\n\n--- PAGE BREAK ---\n\n".join(pages), len(reader.pages), metadata
     
     def _extract_text_file(self, filepath: str) -> str:
         """Extract text from a text file."""
@@ -152,24 +218,35 @@ class KnowledgeBase:
     def add_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None) -> DocumentMeta:
         """Add a document to the knowledge base."""
         filepath = str(Path(filepath).resolve())
-        
+        self.logger.info(f"Adding document: {filepath}")
+
         if not os.path.exists(filepath):
-            raise FileNotFoundError(f"File not found: {filepath}")
-        
+            self.logger.error(f"File not found: {filepath}")
+            raise DocumentNotFoundError(f"File not found: {filepath}")
+
         doc_id = self._generate_doc_id(filepath)
         filename = os.path.basename(filepath)
         file_ext = os.path.splitext(filename)[1].lower()
-        
+
         # Extract text based on file type
         total_pages = None
-        if file_ext == '.pdf':
-            text, total_pages = self._extract_pdf_text(filepath)
-            file_type = 'pdf'
-        elif file_ext in ['.txt', '.md', '.asm', '.bas', '.inc', '.s']:
-            text = self._extract_text_file(filepath)
-            file_type = 'text'
-        else:
-            raise ValueError(f"Unsupported file type: {file_ext}")
+        pdf_metadata = {}
+        try:
+            if file_ext == '.pdf':
+                text, total_pages, pdf_metadata = self._extract_pdf_text(filepath)
+                file_type = 'pdf'
+                self.logger.info(f"Extracted {total_pages} pages from PDF")
+            elif file_ext in ['.txt', '.md', '.asm', '.bas', '.inc', '.s']:
+                text = self._extract_text_file(filepath)
+                file_type = 'text'
+                self.logger.info(f"Extracted text file ({len(text)} characters)")
+            else:
+                raise UnsupportedFileTypeError(f"Unsupported file type: {file_ext}")
+        except (UnsupportedFileTypeError, DocumentNotFoundError):
+            raise
+        except Exception as e:
+            self.logger.error(f"Error extracting {filepath}: {e}")
+            raise KnowledgeBaseError(f"Error extracting document: {e}")
         
         # Create chunks
         text_chunks = self._chunk_text(text)
@@ -200,35 +277,48 @@ class KnowledgeBase:
             total_pages=total_pages,
             total_chunks=len(chunks),
             indexed_at=datetime.now().isoformat(),
-            tags=tags or []
+            tags=tags or [],
+            author=pdf_metadata.get('author'),
+            subject=pdf_metadata.get('subject'),
+            creator=pdf_metadata.get('creator'),
+            creation_date=pdf_metadata.get('creation_date')
         )
-        
+
         self.documents[doc_id] = doc_meta
         self._save_chunks(doc_id, chunks)
         self._save_index()
-        
+
+        self.logger.info(f"Successfully indexed document {doc_id}: {filename} ({len(chunks)} chunks)")
         return doc_meta
     
     def remove_document(self, doc_id: str) -> bool:
         """Remove a document from the knowledge base."""
+        self.logger.info(f"Removing document: {doc_id}")
+
         if doc_id not in self.documents:
+            self.logger.warning(f"Document not found for removal: {doc_id}")
             return False
-        
+
+        filename = self.documents[doc_id].filename
         del self.documents[doc_id]
         self.chunks = [c for c in self.chunks if c.doc_id != doc_id]
-        
+
         chunk_file = self.chunks_dir / f"{doc_id}.json"
         if chunk_file.exists():
             chunk_file.unlink()
-        
+
         self._save_index()
+        self.logger.info(f"Successfully removed document {doc_id}: {filename}")
         return True
     
     def search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
         """Search the knowledge base."""
+        start_time = time.time()
+        self.logger.info(f"Search query: '{query}' (max_results={max_results}, tags={tags})")
+
         query_terms = set(query.lower().split())
         results = []
-        
+
         for chunk in self.chunks:
             # Filter by tags if specified
             if tags:
@@ -261,32 +351,46 @@ class KnowledgeBase:
         
         # Sort by score and return top results
         results.sort(key=lambda x: x['score'], reverse=True)
-        return results[:max_results]
+        final_results = results[:max_results]
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        self.logger.info(f"Search completed: {len(final_results)} results in {elapsed_ms:.2f}ms")
+
+        return final_results
     
     def _extract_snippet(self, content: str, query_terms: set, snippet_size: int = 300) -> str:
-        """Extract a relevant snippet from content."""
+        """Extract a relevant snippet from content with highlighted search terms."""
         content_lower = content.lower()
-        
+
         # Find the first occurrence of any query term
         best_pos = len(content)
         for term in query_terms:
             pos = content_lower.find(term)
             if pos != -1 and pos < best_pos:
                 best_pos = pos
-        
+
         if best_pos == len(content):
             best_pos = 0
-        
+
         # Extract snippet around that position
         start = max(0, best_pos - snippet_size // 2)
         end = min(len(content), start + snippet_size)
-        
+
         snippet = content[start:end]
+
+        # Highlight matching terms (case-insensitive)
+        for term in query_terms:
+            if len(term) >= 2:  # Only highlight terms with 2+ characters
+                # Use regex to match whole words and preserve case
+                pattern = re.compile(f'({re.escape(term)})', re.IGNORECASE)
+                snippet = pattern.sub(r'**\1**', snippet)
+
+        # Add ellipsis if truncated
         if start > 0:
             snippet = "..." + snippet
         if end < len(content):
             snippet = snippet + "..."
-        
+
         return snippet
     
     def get_chunk(self, doc_id: str, chunk_id: int) -> Optional[DocumentChunk]:

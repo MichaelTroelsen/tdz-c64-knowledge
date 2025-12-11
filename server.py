@@ -41,6 +41,25 @@ except ImportError:
     BM25_SUPPORT = False
     print("Warning: rank-bm25 not installed. Using simple search.", file=sys.stderr)
 
+# NLTK for query preprocessing
+try:
+    import nltk
+    from nltk.corpus import stopwords
+    from nltk.stem import PorterStemmer
+    from nltk.tokenize import word_tokenize
+    NLTK_SUPPORT = True
+
+    # Ensure NLTK data is available
+    try:
+        stopwords.words('english')
+    except LookupError:
+        nltk.download('stopwords', quiet=True)
+        nltk.download('punkt', quiet=True)
+        nltk.download('punkt_tab', quiet=True)
+except ImportError:
+    NLTK_SUPPORT = False
+    print("Warning: nltk not installed. Query preprocessing disabled.", file=sys.stderr)
+
 
 # Custom Exceptions
 class KnowledgeBaseError(Exception):
@@ -127,6 +146,18 @@ class KnowledgeBase:
         self.chunks: list[DocumentChunk] = []
         self.bm25 = None  # BM25 index, built on demand
 
+        # Initialize query preprocessing
+        self.use_preprocessing = NLTK_SUPPORT and os.getenv('USE_QUERY_PREPROCESSING', '1') == '1'
+        if self.use_preprocessing:
+            self.stemmer = PorterStemmer()
+            self.stop_words = set(stopwords.words('english'))
+            self.logger.info("Query preprocessing enabled (stemming + stopwords)")
+        else:
+            self.stemmer = None
+            self.stop_words = set()
+            if NLTK_SUPPORT:
+                self.logger.info("Query preprocessing disabled via USE_QUERY_PREPROCESSING=0")
+
         self._load_index()
         self._build_bm25_index()
         self.logger.info(f"Loaded {len(self.documents)} documents with {len(self.chunks)} chunks")
@@ -153,10 +184,50 @@ class KnowledgeBase:
             self.logger.info("BM25 index not built (no support or no chunks)")
             return
 
-        # Tokenize all chunk content
-        tokenized_corpus = [chunk.content.lower().split() for chunk in self.chunks]
+        # Tokenize all chunk content with preprocessing if enabled
+        tokenized_corpus = [self._preprocess_text(chunk.content) for chunk in self.chunks]
         self.bm25 = BM25Okapi(tokenized_corpus)
-        self.logger.info(f"Built BM25 index with {len(self.chunks)} chunks")
+
+        preprocessing_status = "with preprocessing" if self.use_preprocessing else "without preprocessing"
+        self.logger.info(f"Built BM25 index with {len(self.chunks)} chunks ({preprocessing_status})")
+
+    def _preprocess_text(self, text: str) -> list[str]:
+        """Preprocess text for searching: tokenize, lowercase, remove stopwords, stem.
+
+        Args:
+            text: The text to preprocess
+
+        Returns:
+            List of processed tokens
+        """
+        if not self.use_preprocessing:
+            # No preprocessing - just lowercase and split
+            return text.lower().split()
+
+        # Tokenize and lowercase
+        try:
+            tokens = word_tokenize(text.lower())
+        except Exception:
+            # Fallback if tokenization fails
+            tokens = text.lower().split()
+
+        # Remove stopwords and apply stemming
+        processed_tokens = []
+        for token in tokens:
+            # Keep alphanumeric tokens and hyphenated words (like VIC-II, 6502)
+            # Remove pure punctuation tokens
+            if token.isalnum() or ('-' in token and any(c.isalnum() for c in token)):
+                # Remove stopwords (but keep technical terms with hyphens)
+                if token not in self.stop_words:
+                    # Apply stemming only to pure alphanumeric tokens
+                    # Don't stem technical terms with hyphens/numbers
+                    if self.stemmer and token.isalpha():
+                        stemmed = self.stemmer.stem(token)
+                        processed_tokens.append(stemmed)
+                    else:
+                        processed_tokens.append(token)
+
+        return processed_tokens
 
     def _save_index(self):
         """Save index to disk."""
@@ -353,7 +424,10 @@ class KnowledgeBase:
         phrases = re.findall(phrase_pattern, query)
         # Remove phrases from query to get regular terms
         query_without_phrases = re.sub(phrase_pattern, '', query)
-        query_terms = set(query_without_phrases.lower().split())
+
+        # Preprocess query terms (tokenize, remove stopwords, stem)
+        query_terms_list = self._preprocess_text(query_without_phrases)
+        query_terms = set(query_terms_list)
         query_terms = {term for term in query_terms if term}  # Remove empty strings
 
         # Use BM25 if available, otherwise fall back to simple search
@@ -371,8 +445,8 @@ class KnowledgeBase:
 
     def _search_bm25(self, query: str, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int) -> list[dict]:
         """Search using BM25 algorithm."""
-        # Tokenize query
-        tokenized_query = query.lower().split()
+        # Preprocess query for BM25
+        tokenized_query = self._preprocess_text(query)
 
         # Get BM25 scores for all chunks
         bm25_scores = self.bm25.get_scores(tokenized_query)

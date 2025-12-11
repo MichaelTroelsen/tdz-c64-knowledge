@@ -18,6 +18,7 @@
 ### Phase 2: Search Quality (Completed)
 - ✅ **BM25 Search Algorithm** - Industry-standard ranking with rank-bm25 library
 - ✅ **Phrase Search Support** - Exact phrase matching with quote detection
+- ✅ **Query Preprocessing** - NLTK-powered stemming and stopword removal
 - ✅ **PDF Page Number Tracking** - Estimated page numbers in search results
 - ✅ **Score Filtering Fix** - Handles negative BM25 scores for small documents
 
@@ -51,14 +52,24 @@ phrases = re.findall(phrase_pattern, query)
 # Boost phrase matches 2x in BM25, 10x in simple search
 ```
 
-### P1: Implement Query Preprocessing
-**Current Issue**: No stemming, lemmatization, or stopword removal
+### ✅ COMPLETED: P1: Implement Query Preprocessing
+**Status**: ✅ Implemented with NLTK
 
-**Recommendations**:
-- Add `nltk` or `spacy` for text processing
-- Stem words ("running" → "run")
-- Remove stopwords ("the", "a", "is")
-- Handle synonyms (SID = Sound Interface Device)
+**Implementation Details**:
+- Using NLTK for tokenization, stemming, and stopword removal
+- Porter Stemmer for word normalization
+- English stopwords corpus for filtering
+- Preserves technical terms (hyphenated words, numbers)
+- Applied to both queries and BM25 corpus
+- Configurable via `USE_QUERY_PREPROCESSING` environment variable
+
+```python
+# Preprocessing features:
+- word_tokenize() for smart tokenization
+- PorterStemmer for stemming ("running" → "run")
+- stopwords.words('english') for filtering
+- Special handling for "VIC-II", "6502", etc.
+```
 
 ### P2: Fuzzy Search / Typo Tolerance
 **Current Issue**: "VIC-I" won't find "VIC-II"

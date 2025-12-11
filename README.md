@@ -6,6 +6,7 @@ An MCP (Model Context Protocol) server for managing and searching Commodore 64 d
 
 - **PDF and text file ingestion** - Extract and index content from documentation
 - **BM25 search algorithm** - Industry-standard ranking for accurate results
+- **Query preprocessing** - Intelligent stemming and stopword removal with NLTK
 - **Phrase search** - Use quotes for exact phrase matching (e.g., `"VIC-II chip"`)
 - **Search term highlighting** - Matching terms highlighted in search results
 - **Tag-based filtering** - Organize docs by topic (memory-map, sid, vic-ii, basic, assembly, etc.)
@@ -41,12 +42,12 @@ An MCP (Model Context Protocol) server for managing and searching Commodore 64 d
    # Using uv (faster)
    uv venv
    .venv\Scripts\activate
-   uv pip install mcp pypdf rank-bm25
+   uv pip install mcp pypdf rank-bm25 nltk
 
    # Or using pip
    python -m venv .venv
    .venv\Scripts\activate
-   pip install mcp pypdf rank-bm25
+   pip install mcp pypdf rank-bm25 nltk
    ```
 
 3. **Test the server:**
@@ -104,6 +105,7 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 |----------|-------------|---------|
 | `TDZ_DATA_DIR` | Directory to store index and chunks | `~/.tdz-c64-knowledge` |
 | `USE_BM25` | Enable BM25 search algorithm (0=disabled, 1=enabled) | `1` (enabled) |
+| `USE_QUERY_PREPROCESSING` | Enable query preprocessing with NLTK (0=disabled, 1=enabled) | `1` (enabled) |
 
 ## Search Features
 
@@ -143,6 +145,32 @@ Search results automatically highlight matching terms in snippets using markdown
 ### Page Number Tracking
 
 For PDF documents, search results include the estimated page number where the content appears. This helps you quickly find the information in the original document.
+
+### Query Preprocessing
+
+The server uses NLTK for intelligent query preprocessing to improve search accuracy:
+
+**Features:**
+- **Stemming** - Matches word variations (searching "running" finds "run", "runs", "runner")
+- **Stopword removal** - Filters out common words ("the", "a", "is") that don't add meaning
+- **Technical term preservation** - Keeps hyphenated terms like "VIC-II" and numbers like "6502"
+- **Smart tokenization** - Properly handles punctuation and special characters
+
+**Benefits:**
+- Find more relevant results with natural language queries
+- Matches conceptually similar terms (plural/singular, verb tenses)
+- Reduces noise from common words
+- Preserves important technical terminology
+
+**Configuration:**
+- Enabled by default when NLTK is installed
+- Disable with environment variable: `USE_QUERY_PREPROCESSING=0`
+- Works with both BM25 and simple search algorithms
+
+**Example:**
+- Query: "How does the SID chip generate sounds?"
+- Preprocessed: ["sid", "chip", "generat", "sound"]
+- Matches: "generate", "generating", "generated", "sounds", "sound"
 
 ## Tools
 

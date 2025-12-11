@@ -51,6 +51,15 @@ Documents are split into overlapping chunks (default 1500 words, 200 word overla
 - Exact phrase matches get 2x score boost
 - Combined with term search for comprehensive results
 
+**Query Preprocessing** (NLTK-powered):
+- Tokenization with word_tokenize()
+- Stopword removal using English stopwords corpus
+- Porter Stemmer for word normalization
+- Preserves technical terms (hyphenated words like "VIC-II", numbers like "6502")
+- Applied to both queries and corpus during BM25 indexing
+- Can be disabled with `USE_QUERY_PREPROCESSING=0` environment variable
+- Implemented in `_preprocess_text()` method
+
 **Additional Features**:
 - Search term highlighting in snippets (markdown bold)
 - PDF page number tracking in results
@@ -64,7 +73,7 @@ Documents are split into overlapping chunks (default 1500 words, 200 word overla
 # Create virtual environment and install dependencies
 python -m venv .venv
 .venv\Scripts\activate
-pip install mcp pypdf rank-bm25
+pip install mcp pypdf rank-bm25 nltk
 
 # For development (includes pytest)
 pip install -e ".[dev]"
@@ -105,12 +114,14 @@ python cli.py remove <doc_id>
 
 **TDZ_DATA_DIR** - Directory for index and chunks storage (default: `~/.tdz-c64-knowledge`)
 **USE_BM25** - Enable/disable BM25 search algorithm (default: `1` for enabled, set to `0` to disable)
+**USE_QUERY_PREPROCESSING** - Enable/disable NLTK query preprocessing (default: `1` for enabled, set to `0` to disable)
 
 When adding to Claude Code or Claude Desktop, set these in the MCP config `env` section:
 ```json
 "env": {
   "TDZ_DATA_DIR": "C:\\Users\\YourName\\c64-knowledge-data",
-  "USE_BM25": "1"
+  "USE_BM25": "1",
+  "USE_QUERY_PREPROCESSING": "1"
 }
 ```
 

@@ -226,6 +226,35 @@ The SID chip handles sound generation with 3 voices.
             kb.add_document(str(unsupported_file))
 
 
+def test_query_preprocessing(tmpdir):
+    """Test query preprocessing (stemming, stopword removal)."""
+    from server import KnowledgeBase
+
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Test with preprocessing enabled (default)
+    if kb.use_preprocessing:
+        # Test stopword removal
+        tokens = kb._preprocess_text("the quick brown fox")
+        assert "the" not in tokens  # Stopword removed
+        assert "quick" in tokens or "quickli" in tokens  # May be stemmed
+
+        # Test stemming
+        tokens = kb._preprocess_text("running runs runner")
+        # All should stem to "run"
+        assert all(t.startswith("run") for t in tokens)
+
+        # Test hyphenated technical terms preserved
+        tokens = kb._preprocess_text("VIC-II chip")
+        assert "vic-ii" in tokens
+        assert "chip" in tokens
+
+        # Test that numbers are preserved
+        tokens = kb._preprocess_text("6502 processor")
+        assert "6502" in tokens
+        assert "processor" in tokens or "process" in tokens  # May be stemmed
+
+
 def test_imports():
     """Test that required modules can be imported."""
     import server

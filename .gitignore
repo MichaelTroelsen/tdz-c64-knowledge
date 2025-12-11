@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Knowledge base data
+.tdz-c64-knowledge/
+*.db
+
+# Document input folders (user data)
+pdf/
+txt/
+input/
+codebase64_latest/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Logs
+*.log

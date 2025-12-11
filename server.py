@@ -33,6 +33,14 @@ except ImportError:
     PDF_SUPPORT = False
     print("Warning: pypdf not installed. PDF support disabled.", file=sys.stderr)
 
+# BM25 search support
+try:
+    from rank_bm25 import BM25Okapi
+    BM25_SUPPORT = True
+except ImportError:
+    BM25_SUPPORT = False
+    print("Warning: rank-bm25 not installed. Using simple search.", file=sys.stderr)
+
 
 # Custom Exceptions
 class KnowledgeBaseError(Exception):
@@ -117,8 +125,10 @@ class KnowledgeBase:
 
         self.documents: dict[str, DocumentMeta] = {}
         self.chunks: list[DocumentChunk] = []
+        self.bm25 = None  # BM25 index, built on demand
 
         self._load_index()
+        self._build_bm25_index()
         self.logger.info(f"Loaded {len(self.documents)} documents with {len(self.chunks)} chunks")
     
     def _load_index(self):
@@ -136,7 +146,18 @@ class KnowledgeBase:
                     chunk_data = json.load(f)
                     for c in chunk_data:
                         self.chunks.append(DocumentChunk(**c))
-    
+
+    def _build_bm25_index(self):
+        """Build BM25 index from chunks for fast searching."""
+        if not BM25_SUPPORT or not self.chunks:
+            self.logger.info("BM25 index not built (no support or no chunks)")
+            return
+
+        # Tokenize all chunk content
+        tokenized_corpus = [chunk.content.lower().split() for chunk in self.chunks]
+        self.bm25 = BM25Okapi(tokenized_corpus)
+        self.logger.info(f"Built BM25 index with {len(self.chunks)} chunks")
+
     def _save_index(self):
         """Save index to disk."""
         data = {
@@ -252,12 +273,21 @@ class KnowledgeBase:
         text_chunks = self._chunk_text(text)
         chunks = []
         for i, chunk_text in enumerate(text_chunks):
+            # Estimate page number for PDFs based on PAGE BREAK markers
+            page_num = None
+            if file_type == 'pdf' and '--- PAGE BREAK ---' in text:
+                # Count PAGE BREAK markers before this chunk
+                chunk_start_pos = text.find(chunk_text[:100])  # Find chunk in full text
+                if chunk_start_pos >= 0:
+                    page_breaks_before = text[:chunk_start_pos].count('--- PAGE BREAK ---')
+                    page_num = page_breaks_before + 1  # Pages are 1-indexed
+
             chunk = DocumentChunk(
                 doc_id=doc_id,
                 filename=filename,
                 title=title or filename,
                 chunk_id=i,
-                page=None,  # Could be enhanced to track page numbers
+                page=page_num,
                 content=chunk_text,
                 word_count=len(chunk_text.split())
             )
@@ -287,6 +317,7 @@ class KnowledgeBase:
         self.documents[doc_id] = doc_meta
         self._save_chunks(doc_id, chunks)
         self._save_index()
+        self._build_bm25_index()  # Rebuild BM25 index
 
         self.logger.info(f"Successfully indexed document {doc_id}: {filename} ({len(chunks)} chunks)")
         return doc_meta
@@ -308,15 +339,83 @@ class KnowledgeBase:
             chunk_file.unlink()
 
         self._save_index()
+        self._build_bm25_index()  # Rebuild BM25 index
         self.logger.info(f"Successfully removed document {doc_id}: {filename}")
         return True
     
     def search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
-        """Search the knowledge base."""
+        """Search the knowledge base using BM25 ranking or simple term frequency."""
         start_time = time.time()
         self.logger.info(f"Search query: '{query}' (max_results={max_results}, tags={tags})")
 
-        query_terms = set(query.lower().split())
+        # Extract phrase queries (text in quotes)
+        phrase_pattern = r'"([^"]*)"'
+        phrases = re.findall(phrase_pattern, query)
+        # Remove phrases from query to get regular terms
+        query_without_phrases = re.sub(phrase_pattern, '', query)
+        query_terms = set(query_without_phrases.lower().split())
+        query_terms = {term for term in query_terms if term}  # Remove empty strings
+
+        # Use BM25 if available and enabled, otherwise fall back to simple search
+        # BM25 can be enabled with environment variable: USE_BM25=1
+        use_bm25 = os.environ.get('USE_BM25', '0') == '1'
+        if use_bm25 and BM25_SUPPORT and self.bm25 is not None:
+            results = self._search_bm25(query, query_terms, phrases, tags, max_results)
+        else:
+            results = self._search_simple(query_terms, phrases, tags, max_results)
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        self.logger.info(f"Search completed: {len(results)} results in {elapsed_ms:.2f}ms")
+
+        return results
+
+    def _search_bm25(self, query: str, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int) -> list[dict]:
+        """Search using BM25 algorithm."""
+        # Tokenize query
+        tokenized_query = query.lower().split()
+
+        # Get BM25 scores for all chunks
+        bm25_scores = self.bm25.get_scores(tokenized_query)
+
+        # Build results with scores
+        results = []
+        for idx, chunk in enumerate(self.chunks):
+            # Filter by tags if specified
+            if tags:
+                doc = self.documents.get(chunk.doc_id)
+                if doc and not any(t in doc.tags for t in tags):
+                    continue
+
+            score = bm25_scores[idx]
+
+            # Boost score for phrase matches
+            if phrases:
+                content_lower = chunk.content.lower()
+                for phrase in phrases:
+                    if phrase.lower() in content_lower:
+                        score *= 2  # 2x boost for phrase match
+
+            # Combine query_terms and phrases for snippet extraction
+            all_terms = query_terms | {p.lower() for p in phrases}
+            snippet = self._extract_snippet(chunk.content, all_terms)
+            results.append({
+                'doc_id': chunk.doc_id,
+                'filename': chunk.filename,
+                'title': chunk.title,
+                'chunk_id': chunk.chunk_id,
+                'score': float(score),
+                'snippet': snippet,
+                'word_count': chunk.word_count
+            })
+
+        # Sort by score and return top results (filter out very low scores)
+        # BM25 scores can be small but meaningful, so use a low threshold
+        results = [r for r in results if r['score'] > 0.0001]
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results[:max_results]
+
+    def _search_simple(self, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int) -> list[dict]:
+        """Simple term frequency search (fallback when BM25 not available)."""
         results = []
 
         for chunk in self.chunks:
@@ -325,9 +424,9 @@ class KnowledgeBase:
                 doc = self.documents.get(chunk.doc_id)
                 if doc and not any(t in doc.tags for t in tags):
                     continue
-            
+
             content_lower = chunk.content.lower()
-            
+
             # Score based on term frequency
             score = 0
             for term in query_terms:
@@ -335,10 +434,16 @@ class KnowledgeBase:
                 score += len(re.findall(r'\b' + re.escape(term) + r'\b', content_lower)) * 2
                 # Partial match
                 score += content_lower.count(term)
-            
+
+            # Boost score for phrase matches
+            for phrase in phrases:
+                if phrase.lower() in content_lower:
+                    score += len(phrase.split()) * 10  # High boost for phrase match
+
             if score > 0:
-                # Find the best snippet around the query terms
-                snippet = self._extract_snippet(chunk.content, query_terms)
+                # Combine query_terms and phrases for snippet extraction
+                all_terms = query_terms | {p.lower() for p in phrases}
+                snippet = self._extract_snippet(chunk.content, all_terms)
                 results.append({
                     'doc_id': chunk.doc_id,
                     'filename': chunk.filename,
@@ -348,15 +453,10 @@ class KnowledgeBase:
                     'snippet': snippet,
                     'word_count': chunk.word_count
                 })
-        
+
         # Sort by score and return top results
         results.sort(key=lambda x: x['score'], reverse=True)
-        final_results = results[:max_results]
-
-        elapsed_ms = (time.time() - start_time) * 1000
-        self.logger.info(f"Search completed: {len(final_results)} results in {elapsed_ms:.2f}ms")
-
-        return final_results
+        return results[:max_results]
     
     def _extract_snippet(self, content: str, query_terms: set, snippet_size: int = 300) -> str:
         """Extract a relevant snippet from content with highlighted search terms."""

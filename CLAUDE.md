@@ -23,11 +23,18 @@ This is an MCP (Model Context Protocol) server for managing and searching Commod
 
 ### Data Storage Model
 
-The knowledge base uses a simple file-based storage:
-- **index.json** - Document metadata (DocumentMeta objects serialized)
-- **chunks/\<doc_id\>.json** - Content chunks for each document (DocumentChunk objects)
+The knowledge base uses **SQLite database** for efficient storage and querying:
+- **knowledge_base.db** - SQLite database with two main tables:
+  - `documents` table - Stores DocumentMeta objects (13 fields including doc_id, title, tags, metadata)
+  - `chunks` table - Stores DocumentChunk objects (5 fields: doc_id, chunk_id, page, content, word_count)
+  - Foreign key relationship: chunks.doc_id → documents.doc_id (CASCADE delete)
+  - Indexes on filepath, file_type, and doc_id for fast queries
 
-Documents are split into overlapping chunks (default 1500 words, 200 word overlap) to enable granular search and retrieval.
+**Migration from JSON**: Legacy JSON files (index.json, chunks/*.json) are automatically migrated to SQLite on first run. JSON files are preserved as backup.
+
+**Lazy Loading**: Only document metadata is loaded at startup. Chunks are loaded on-demand for search (building BM25 index) and retrieval operations. This enables the system to scale to 100k+ documents without memory issues.
+
+**Chunking Strategy**: Documents are split into overlapping chunks (default 1500 words, 200 word overlap) to enable granular search and retrieval.
 
 ### Document Processing Pipeline
 
@@ -35,7 +42,7 @@ Documents are split into overlapping chunks (default 1500 words, 200 word overla
 2. Text extraction (pages joined with "--- PAGE BREAK ---")
 3. Chunking with overlap (_chunk_text method)
 4. Index generation (doc_id from MD5 hash of filepath)
-5. Persistence (chunks + metadata saved separately)
+5. Database persistence (document + chunks inserted in ACID transaction via `_add_document_db()`)
 
 ### Search Implementation
 
@@ -112,7 +119,7 @@ python cli.py remove <doc_id>
 
 ## Environment Configuration
 
-**TDZ_DATA_DIR** - Directory for index and chunks storage (default: `~/.tdz-c64-knowledge`)
+**TDZ_DATA_DIR** - Directory for database file storage (default: `~/.tdz-c64-knowledge`)
 **USE_BM25** - Enable/disable BM25 search algorithm (default: `1` for enabled, set to `0` to disable)
 **USE_QUERY_PREPROCESSING** - Enable/disable NLTK query preprocessing (default: `1` for enabled, set to `0` to disable)
 
@@ -157,9 +164,46 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 - Fuzzy search / typo tolerance (Levenshtein distance)
 - See IMPROVEMENTS.md for detailed recommendations
 
+### Database Access Patterns
+
+All database operations go through KnowledgeBase methods:
+
+**Adding Documents**:
+```python
+# server.py add_document() -> _add_document_db()
+# Uses transaction for ACID guarantees
+cursor.execute("BEGIN TRANSACTION")
+# Insert document + chunks
+cursor.execute("INSERT INTO documents ...")
+cursor.execute("INSERT INTO chunks ...")
+self.db_conn.commit()
+```
+
+**Retrieving Data**:
+```python
+# Lazy loading - only load what's needed
+chunks = self._get_chunks_db(doc_id)  # Load chunks for one document
+chunks = self._get_chunks_db()        # Load all chunks (for BM25)
+```
+
+**Search Flow**:
+1. `search()` called → checks if `self.bm25` is None
+2. If None → `_build_bm25_index()` → `_get_chunks_db()` loads all chunks
+3. BM25 scores calculated → results filtered and sorted
+4. Subsequent searches use cached BM25 index (fast)
+5. Add/remove operations invalidate cache (`self.bm25 = None`)
+
+**Key Methods**:
+- `_init_database()` - Create schema and tables
+- `_add_document_db(doc, chunks)` - Insert with transaction
+- `_remove_document_db(doc_id)` - Delete (chunks cascade)
+- `_get_chunks_db(doc_id)` - Load chunks with JOIN to get filename/title
+- `get_chunk(doc_id, chunk_id)` - Query single chunk
+- `close()` - Close database connection (important for tests)
+
 ### Extending File Type Support
 
-File type detection is in `add_document()` at server.py:152. To add new formats:
+File type detection is in `add_document()` at server.py:~560. To add new formats:
 1. Add file extension to condition check
 2. Implement extraction method (like `_extract_pdf_text`)
 3. Update tool description and README

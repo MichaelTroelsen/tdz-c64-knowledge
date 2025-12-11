@@ -22,9 +22,15 @@
 - ✅ **PDF Page Number Tracking** - Estimated page numbers in search results
 - ✅ **Score Filtering Fix** - Handles negative BM25 scores for small documents
 
+### Phase 3: Storage & Scalability (Completed)
+- ✅ **SQLite Database Migration** - Migrated from JSON files to SQLite for better scalability
+- ✅ **Lazy Loading** - Only loads document metadata at startup, chunks loaded on-demand
+- ✅ **ACID Transactions** - Database transactions ensure data integrity
+- ✅ **Automatic Migration** - Seamless upgrade from JSON to SQLite on first run
+
 ### Additional Completions
 - ✅ **CI/CD Pipeline** - GitHub Actions workflow for multi-platform testing
-- ✅ **Comprehensive Test Suite** - 18 tests covering all functionality
+- ✅ **Comprehensive Test Suite** - 19 tests covering all functionality including SQLite
 - ✅ **Documentation** - Updated README, CLAUDE.md with all new features
 
 ---
@@ -87,10 +93,11 @@ if fuzz.ratio(term, token) > 85:  # 85% similarity
 
 ## 2. Performance & Scalability
 
-### P0: Move to SQLite Database
-**Current Issue**: All chunks loaded into memory, doesn't scale beyond ~1000 docs
+### ✅ COMPLETED: P0: Move to SQLite Database
+**Status**: ✅ Implemented with automatic migration
+**Completed**: December 2025
 
-**Recommendations**:
+**Implementation Details**:
 ```sql
 CREATE TABLE documents (
     doc_id TEXT PRIMARY KEY,

@@ -28,7 +28,10 @@ class TestKnowledgeBase:
     @pytest.fixture
     def kb(self, temp_data_dir):
         """Create a KnowledgeBase instance with temp directory."""
-        return KnowledgeBase(temp_data_dir)
+        kb = KnowledgeBase(temp_data_dir)
+        yield kb
+        # Clean up: close database connection
+        kb.close()
 
     @pytest.fixture
     def sample_text_file(self, temp_data_dir):
@@ -54,8 +57,10 @@ The SID chip handles sound generation with 3 voices.
         """Test KnowledgeBase initialization."""
         kb = KnowledgeBase(temp_data_dir)
         assert kb.data_dir == Path(temp_data_dir)
-        assert (kb.data_dir / "chunks").exists()
+        assert (kb.data_dir / "knowledge_base.db").exists()
+        assert kb.db_conn is not None
         assert len(kb.documents) == 0
+        kb.close()
 
     def test_add_text_document(self, kb, sample_text_file):
         """Test adding a text file."""
@@ -143,12 +148,14 @@ The SID chip handles sound generation with 3 voices.
         kb1 = KnowledgeBase(temp_data_dir)
         doc = kb1.add_document(sample_text_file, "Test Doc", ["test"])
         doc_id = doc.doc_id
+        kb1.close()
 
         # Create new instance and verify data is still there
         kb2 = KnowledgeBase(temp_data_dir)
         docs = kb2.list_documents()
         assert len(docs) == 1
         assert docs[0].doc_id == doc_id
+        kb2.close()
 
     def test_chunking(self, kb, temp_data_dir):
         """Test document chunking with larger text."""
@@ -253,6 +260,8 @@ def test_query_preprocessing(tmpdir):
         tokens = kb._preprocess_text("6502 processor")
         assert "6502" in tokens
         assert "processor" in tokens or "process" in tokens  # May be stemmed
+
+    kb.close()
 
 
 def test_imports():

@@ -11,6 +11,7 @@ import re
 import hashlib
 import logging
 import time
+import sqlite3
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, asdict
@@ -138,12 +139,17 @@ class KnowledgeBase:
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"Initializing KnowledgeBase at {data_dir}")
 
+        # Database setup
+        self.db_file = self.data_dir / "knowledge_base.db"
+        self.db_conn = None
+        self._init_database()
+
+        # Legacy file paths (for migration)
         self.index_file = self.data_dir / "index.json"
         self.chunks_dir = self.data_dir / "chunks"
-        self.chunks_dir.mkdir(exist_ok=True)
 
         self.documents: dict[str, DocumentMeta] = {}
-        self.chunks: list[DocumentChunk] = []
+        self.chunks: list[DocumentChunk] = []  # Only loaded on demand for BM25
         self.bm25 = None  # BM25 index, built on demand
 
         # Initialize query preprocessing
@@ -158,10 +164,240 @@ class KnowledgeBase:
             if NLTK_SUPPORT:
                 self.logger.info("Query preprocessing disabled via USE_QUERY_PREPROCESSING=0")
 
-        self._load_index()
-        self._build_bm25_index()
-        self.logger.info(f"Loaded {len(self.documents)} documents with {len(self.chunks)} chunks")
-    
+        # Load documents (with automatic migration if needed)
+        self._load_documents()
+        self.logger.info(f"Loaded {len(self.documents)} documents")
+
+    def _init_database(self):
+        """Initialize SQLite database and create schema if needed."""
+        db_exists = self.db_file.exists()
+
+        # Connect to database with enable foreign keys
+        self.db_conn = sqlite3.connect(str(self.db_file), check_same_thread=False)
+        self.db_conn.execute("PRAGMA foreign_keys = ON")
+
+        if not db_exists:
+            self.logger.info("Creating new database schema")
+            cursor = self.db_conn.cursor()
+
+            # Create documents table
+            cursor.execute("""
+                CREATE TABLE documents (
+                    doc_id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    filepath TEXT NOT NULL UNIQUE,
+                    file_type TEXT NOT NULL,
+                    total_pages INTEGER,
+                    total_chunks INTEGER NOT NULL,
+                    indexed_at TEXT NOT NULL,
+                    tags TEXT NOT NULL,
+                    author TEXT,
+                    subject TEXT,
+                    creator TEXT,
+                    creation_date TEXT
+                )
+            """)
+
+            # Create indexes on documents table
+            cursor.execute("CREATE INDEX idx_documents_filepath ON documents(filepath)")
+            cursor.execute("CREATE INDEX idx_documents_file_type ON documents(file_type)")
+
+            # Create chunks table
+            cursor.execute("""
+                CREATE TABLE chunks (
+                    doc_id TEXT NOT NULL,
+                    chunk_id INTEGER NOT NULL,
+                    page INTEGER,
+                    content TEXT NOT NULL,
+                    word_count INTEGER NOT NULL,
+                    PRIMARY KEY (doc_id, chunk_id),
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create index on chunks table
+            cursor.execute("CREATE INDEX idx_chunks_doc_id ON chunks(doc_id)")
+
+            self.db_conn.commit()
+            self.logger.info("Database schema created successfully")
+        else:
+            self.logger.info("Using existing database")
+
+    def _load_documents(self):
+        """Load documents from database, with automatic migration from JSON if needed."""
+        cursor = self.db_conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM documents")
+        doc_count = cursor.fetchone()[0]
+
+        # Check if database is empty but JSON files exist (migration needed)
+        if doc_count == 0 and self.index_file.exists():
+            self.logger.info("Found legacy JSON index, performing automatic migration to SQLite")
+            self._migrate_from_json()
+        else:
+            # Load documents from database
+            self.logger.info(f"Loading {doc_count} documents from database")
+            cursor.execute("SELECT * FROM documents")
+            rows = cursor.fetchall()
+
+            for row in rows:
+                doc = DocumentMeta(
+                    doc_id=row[0],
+                    filename=row[1],
+                    title=row[2],
+                    filepath=row[3],
+                    file_type=row[4],
+                    total_pages=row[5],
+                    total_chunks=row[6],
+                    indexed_at=row[7],
+                    tags=json.loads(row[8]),
+                    author=row[9],
+                    subject=row[10],
+                    creator=row[11],
+                    creation_date=row[12]
+                )
+                self.documents[doc.doc_id] = doc
+
+    def _migrate_from_json(self):
+        """Migrate existing JSON index and chunks to SQLite database."""
+        self.logger.info("Starting migration from JSON to SQLite")
+
+        try:
+            with open(self.index_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            migrated_count = 0
+            for doc_data in data.get('documents', []):
+                doc_id = doc_data['doc_id']
+
+                # Load chunks from chunks/{doc_id}.json
+                chunk_file = self.chunks_dir / f"{doc_id}.json"
+                if not chunk_file.exists():
+                    self.logger.warning(f"Missing chunk file for {doc_id}, skipping")
+                    continue
+
+                with open(chunk_file, 'r', encoding='utf-8') as f:
+                    chunk_list = json.load(f)
+
+                # Insert into database
+                doc_meta = DocumentMeta(**doc_data)
+                chunks = [DocumentChunk(**c) for c in chunk_list]
+                self._add_document_db(doc_meta, chunks)
+
+                self.documents[doc_id] = doc_meta
+                migrated_count += 1
+
+            self.logger.info(f"Successfully migrated {migrated_count} documents to SQLite")
+            self.logger.info("JSON files preserved as backup (can be manually deleted)")
+
+        except Exception as e:
+            self.logger.error(f"Migration failed: {e}")
+            raise KnowledgeBaseError(f"Failed to migrate from JSON: {e}")
+
+    def _add_document_db(self, doc_meta: DocumentMeta, chunks: list[DocumentChunk]):
+        """Add a document and its chunks to the database using a transaction."""
+        cursor = self.db_conn.cursor()
+
+        try:
+            # Start transaction
+            cursor.execute("BEGIN TRANSACTION")
+
+            # Insert document
+            cursor.execute("""
+                INSERT OR REPLACE INTO documents
+                (doc_id, filename, title, filepath, file_type, total_pages, total_chunks,
+                 indexed_at, tags, author, subject, creator, creation_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                doc_meta.doc_id,
+                doc_meta.filename,
+                doc_meta.title,
+                doc_meta.filepath,
+                doc_meta.file_type,
+                doc_meta.total_pages,
+                doc_meta.total_chunks,
+                doc_meta.indexed_at,
+                json.dumps(doc_meta.tags),
+                doc_meta.author,
+                doc_meta.subject,
+                doc_meta.creator,
+                doc_meta.creation_date
+            ))
+
+            # Delete old chunks if re-indexing
+            cursor.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_meta.doc_id,))
+
+            # Insert chunks
+            for chunk in chunks:
+                cursor.execute("""
+                    INSERT INTO chunks
+                    (doc_id, chunk_id, page, content, word_count)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    chunk.doc_id,
+                    chunk.chunk_id,
+                    chunk.page,
+                    chunk.content,
+                    chunk.word_count
+                ))
+
+            # Commit transaction
+            self.db_conn.commit()
+
+        except Exception as e:
+            # Rollback on error
+            self.db_conn.rollback()
+            self.logger.error(f"Error adding document to database: {e}")
+            raise KnowledgeBaseError(f"Failed to add document to database: {e}")
+
+    def _remove_document_db(self, doc_id: str) -> bool:
+        """Remove a document from the database (chunks cascade automatically)."""
+        cursor = self.db_conn.cursor()
+
+        try:
+            cursor.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
+            self.db_conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            self.db_conn.rollback()
+            self.logger.error(f"Error removing document from database: {e}")
+            raise KnowledgeBaseError(f"Failed to remove document from database: {e}")
+
+    def _get_chunks_db(self, doc_id: Optional[str] = None) -> list[DocumentChunk]:
+        """Load chunks from database. If doc_id is None, load all chunks."""
+        cursor = self.db_conn.cursor()
+
+        if doc_id:
+            cursor.execute("""
+                SELECT c.doc_id, d.filename, d.title, c.chunk_id, c.page, c.content, c.word_count
+                FROM chunks c
+                JOIN documents d ON c.doc_id = d.doc_id
+                WHERE c.doc_id = ?
+                ORDER BY c.chunk_id
+            """, (doc_id,))
+        else:
+            cursor.execute("""
+                SELECT c.doc_id, d.filename, d.title, c.chunk_id, c.page, c.content, c.word_count
+                FROM chunks c
+                JOIN documents d ON c.doc_id = d.doc_id
+                ORDER BY c.doc_id, c.chunk_id
+            """)
+
+        chunks = []
+        for row in cursor.fetchall():
+            chunk = DocumentChunk(
+                doc_id=row[0],
+                filename=row[1],
+                title=row[2],
+                chunk_id=row[3],
+                page=row[4],
+                content=row[5],
+                word_count=row[6]
+            )
+            chunks.append(chunk)
+
+        return chunks
+
     def _load_index(self):
         """Load existing index from disk."""
         if self.index_file.exists():
@@ -179,9 +415,18 @@ class KnowledgeBase:
                         self.chunks.append(DocumentChunk(**c))
 
     def _build_bm25_index(self):
-        """Build BM25 index from chunks for fast searching."""
-        if not BM25_SUPPORT or not self.chunks:
-            self.logger.info("BM25 index not built (no support or no chunks)")
+        """Build BM25 index from chunks for fast searching (lazy loading from database)."""
+        if not BM25_SUPPORT:
+            self.logger.info("BM25 index not built (no support)")
+            return
+
+        # Lazy load all chunks from database if not already in memory
+        if not self.chunks:
+            self.logger.info("Loading all chunks from database for BM25 index")
+            self.chunks = self._get_chunks_db()
+
+        if not self.chunks:
+            self.logger.info("BM25 index not built (no chunks)")
             return
 
         # Tokenize all chunk content with preprocessing if enabled
@@ -371,11 +616,7 @@ class KnowledgeBase:
                 word_count=len(chunk_text.split())
             )
             chunks.append(chunk)
-        
-        # Remove old chunks if re-indexing
-        self.chunks = [c for c in self.chunks if c.doc_id != doc_id]
-        self.chunks.extend(chunks)
-        
+
         # Create metadata
         doc_meta = DocumentMeta(
             doc_id=doc_id,
@@ -393,10 +634,12 @@ class KnowledgeBase:
             creation_date=pdf_metadata.get('creation_date')
         )
 
+        # Add to database
+        self._add_document_db(doc_meta, chunks)
         self.documents[doc_id] = doc_meta
-        self._save_chunks(doc_id, chunks)
-        self._save_index()
-        self._build_bm25_index()  # Rebuild BM25 index
+
+        # Invalidate BM25 index (will be rebuilt on next search)
+        self.bm25 = None
 
         self.logger.info(f"Successfully indexed document {doc_id}: {filename} ({len(chunks)} chunks)")
         return doc_meta
@@ -410,17 +653,20 @@ class KnowledgeBase:
             return False
 
         filename = self.documents[doc_id].filename
-        del self.documents[doc_id]
-        self.chunks = [c for c in self.chunks if c.doc_id != doc_id]
 
-        chunk_file = self.chunks_dir / f"{doc_id}.json"
-        if chunk_file.exists():
-            chunk_file.unlink()
+        # Remove from database (chunks cascade automatically)
+        success = self._remove_document_db(doc_id)
 
-        self._save_index()
-        self._build_bm25_index()  # Rebuild BM25 index
-        self.logger.info(f"Successfully removed document {doc_id}: {filename}")
-        return True
+        if success:
+            # Remove from in-memory index
+            del self.documents[doc_id]
+
+            # Invalidate BM25 index (will be rebuilt on next search)
+            self.bm25 = None
+
+            self.logger.info(f"Successfully removed document {doc_id}: {filename}")
+
+        return success
     
     def search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
         """Search the knowledge base using BM25 ranking or simple term frequency."""
@@ -441,8 +687,15 @@ class KnowledgeBase:
         # Use BM25 if available, otherwise fall back to simple search
         # BM25 can be disabled with environment variable: USE_BM25=0
         use_bm25 = os.environ.get('USE_BM25', '1') == '1'
-        if use_bm25 and BM25_SUPPORT and self.bm25 is not None:
-            results = self._search_bm25(query, query_terms, phrases, tags, max_results)
+        if use_bm25 and BM25_SUPPORT:
+            # Build BM25 index if not already built
+            if self.bm25 is None:
+                self._build_bm25_index()
+
+            if self.bm25 is not None:
+                results = self._search_bm25(query, query_terms, phrases, tags, max_results)
+            else:
+                results = self._search_simple(query_terms, phrases, tags, max_results)
         else:
             results = self._search_simple(query_terms, phrases, tags, max_results)
 
@@ -578,35 +831,63 @@ class KnowledgeBase:
         return snippet
     
     def get_chunk(self, doc_id: str, chunk_id: int) -> Optional[DocumentChunk]:
-        """Get a specific chunk."""
-        for chunk in self.chunks:
-            if chunk.doc_id == doc_id and chunk.chunk_id == chunk_id:
-                return chunk
-        return None
-    
-    def get_document_content(self, doc_id: str) -> Optional[str]:
-        """Get the full content of a document."""
-        doc_chunks = sorted(
-            [c for c in self.chunks if c.doc_id == doc_id],
-            key=lambda x: x.chunk_id
-        )
-        if not doc_chunks:
+        """Get a specific chunk from database."""
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            SELECT c.doc_id, d.filename, d.title, c.chunk_id, c.page, c.content, c.word_count
+            FROM chunks c
+            JOIN documents d ON c.doc_id = d.doc_id
+            WHERE c.doc_id = ? AND c.chunk_id = ?
+        """, (doc_id, chunk_id))
+
+        row = cursor.fetchone()
+        if not row:
             return None
-        return "\n\n".join(c.content for c in doc_chunks)
+
+        return DocumentChunk(
+            doc_id=row[0],
+            filename=row[1],
+            title=row[2],
+            chunk_id=row[3],
+            page=row[4],
+            content=row[5],
+            word_count=row[6]
+        )
+
+    def get_document_content(self, doc_id: str) -> Optional[str]:
+        """Get the full content of a document from database."""
+        chunks = self._get_chunks_db(doc_id)
+        if not chunks:
+            return None
+        return "\n\n".join(c.content for c in chunks)
     
     def list_documents(self) -> list[DocumentMeta]:
         """List all indexed documents."""
         return list(self.documents.values())
     
     def get_stats(self) -> dict:
-        """Get knowledge base statistics."""
+        """Get knowledge base statistics from database."""
+        cursor = self.db_conn.cursor()
+
+        # Count total chunks and words
+        cursor.execute("SELECT COUNT(*), SUM(word_count) FROM chunks")
+        total_chunks, total_words = cursor.fetchone()
+        total_chunks = total_chunks or 0
+        total_words = total_words or 0
+
         return {
             'total_documents': len(self.documents),
-            'total_chunks': len(self.chunks),
-            'total_words': sum(c.word_count for c in self.chunks),
+            'total_chunks': total_chunks,
+            'total_words': total_words,
             'file_types': list(set(d.file_type for d in self.documents.values())),
             'all_tags': list(set(t for d in self.documents.values() for t in d.tags))
         }
+
+    def close(self):
+        """Close the database connection."""
+        if self.db_conn:
+            self.db_conn.close()
+            self.logger.info("Database connection closed")
 
 
 # Initialize the MCP server

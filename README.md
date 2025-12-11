@@ -248,9 +248,18 @@ search_docs(query='"SID register" $D400')
 
 ## Data Storage
 
-The knowledge base stores:
-- `index.json` - Document metadata
-- `chunks/*.json` - Chunked document content
+The knowledge base uses an **SQLite database** for efficient storage and querying:
+- `knowledge_base.db` - SQLite database containing documents and chunks
+  - `documents` table - Document metadata with full-text indexes
+  - `chunks` table - Chunked document content with foreign key relationships
+
+**Automatic Migration**: If you're upgrading from a previous version with JSON files (`index.json` and `chunks/*.json`), the server will automatically migrate your data to SQLite on first run. The JSON files are preserved as backup and can be manually deleted after verification.
+
+**Benefits of SQLite**:
+- Lazy loading - Only loads document metadata at startup, not all chunks
+- ACID transactions - Data integrity guaranteed
+- Efficient queries - Fast chunk retrieval and statistics
+- Scalable - Supports 100,000+ documents without memory issues
 
 Default location: `~/.tdz-c64-knowledge` (or set via `TDZ_DATA_DIR`)
 

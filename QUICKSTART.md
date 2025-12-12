@@ -82,11 +82,23 @@ For best performance, enable these features in your MCP config:
 
 ## 🚀 Advanced Features (Optional)
 
-### Enable Semantic Search
-```bash
-pip install sentence-transformers faiss-cpu
+### Enable Semantic Search (Meaning-Based Search)
+```cmd
+# Install dependencies
+.venv\Scripts\python.exe -m pip install sentence-transformers faiss-cpu
+
+# Pre-build embeddings index (takes 1-2 minutes)
+.venv\Scripts\python.exe enable_semantic_search.py
+
+# Add to your MCP config env section:
+"USE_SEMANTIC_SEARCH": "1"
 ```
-Add to config: `"USE_SEMANTIC_SEARCH": "1"`
+
+**What you get:**
+- Search by meaning, not just keywords
+- Example: "How do I create graphics?" finds VIC-II documentation
+- ~7-16ms search speed after embeddings are built
+- Particularly useful for natural language questions
 
 ### Enable OCR for Scanned PDFs
 ```bash

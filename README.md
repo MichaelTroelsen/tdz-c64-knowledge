@@ -200,9 +200,11 @@ For conceptual/meaning-based search, enable **semantic search** by setting `USE_
 - Example: searching "movable objects" will find documents about "sprites"
 
 **Performance:**
-- First search: ~1 minute (builds embeddings index for all chunks)
+- First search: ~7-16ms per query (if embeddings pre-built)
+- First search without embeddings: ~1-2 minutes (builds embeddings index for all chunks)
 - Subsequent searches: ~7-16ms per query
 - Embeddings are persisted to disk (embeddings.faiss, embeddings_map.json)
+- **Tip:** Pre-build embeddings with `python enable_semantic_search.py` before first use
 
 **Requirements:**
 - Install with: `pip install sentence-transformers faiss-cpu`

@@ -11,8 +11,8 @@ This is an MCP (Model Context Protocol) server for managing and searching Commod
 ### Main Components
 
 **server.py** - MCP server implementation
-- `KnowledgeBase` class: Core data management (index + chunks storage)
-- MCP tool handlers: `search_docs`, `semantic_search`, `hybrid_search` (NEW), `add_document`, `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`, `health_check` (NEW), `find_similar`, `check_updates`, `add_documents_bulk`, `remove_documents_bulk`
+- `KnowledgeBase` class: Core data management (index + chunks storage + tables + code blocks)
+- MCP tool handlers: `search_docs`, `semantic_search`, `hybrid_search`, `add_document`, `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`, `health_check`, `find_similar`, `check_updates`, `add_documents_bulk`, `remove_documents_bulk`, `search_tables` (NEW), `search_code` (NEW)
 - MCP resource handlers: Exposes documents as `c64kb://` URIs
 - Async server running on stdio transport
 
@@ -24,10 +24,13 @@ This is an MCP (Model Context Protocol) server for managing and searching Commod
 ### Data Storage Model
 
 The knowledge base uses **SQLite database** for efficient storage and querying:
-- **knowledge_base.db** - SQLite database with two main tables:
+- **knowledge_base.db** - SQLite database with four main tables:
   - `documents` table - Stores DocumentMeta objects (13 fields including doc_id, title, tags, metadata)
   - `chunks` table - Stores DocumentChunk objects (5 fields: doc_id, chunk_id, page, content, word_count)
-  - Foreign key relationship: chunks.doc_id → documents.doc_id (CASCADE delete)
+  - `document_tables` table (NEW) - Stores extracted tables from PDFs (7 fields: doc_id, table_id, page, markdown, searchable_text, row_count, col_count)
+  - `document_code_blocks` table (NEW) - Stores detected code blocks (7 fields: doc_id, block_id, page, block_type, code, searchable_text, line_count)
+  - Foreign key relationships: all child tables reference documents.doc_id with CASCADE delete
+  - FTS5 indexes: `chunks_fts5`, `tables_fts` (NEW), `code_fts` (NEW) for full-text search
   - Indexes on filepath, file_type, and doc_id for fast queries
 
 **Migration from JSON**: Legacy JSON files (index.json, chunks/*.json) are automatically migrated to SQLite on first run. JSON files are preserved as backup.
@@ -40,10 +43,12 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 
 1. File ingestion (PDF via pypdf, text files with encoding detection)
 2. Text extraction (pages joined with "--- PAGE BREAK ---")
-3. Chunking with overlap (_chunk_text method)
-4. **Content-based ID generation** (doc_id from MD5 hash of normalized text content, first 10k words)
-5. **Duplicate detection** (checks if content hash already exists, returns existing doc if duplicate)
-6. Database persistence (document + chunks inserted in ACID transaction via `_add_document_db()`)
+3. **Table extraction** (NEW) - For PDFs, extracts structured tables using pdfplumber, converts to markdown
+4. **Code block detection** (NEW) - Detects BASIC, Assembly, and Hex dump code blocks using regex patterns
+5. Chunking with overlap (_chunk_text method)
+6. **Content-based ID generation** (doc_id from MD5 hash of normalized text content, first 10k words)
+7. **Duplicate detection** (checks if content hash already exists, returns existing doc if duplicate)
+8. Database persistence (document + chunks + tables + code blocks inserted in ACID transaction via `_add_document_db()`)
 
 **Duplicate Detection Details**:
 - `_generate_doc_id()` accepts optional `text_content` parameter
@@ -126,6 +131,27 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 - Performance metrics: cache utilization, index status
 - Disk space warnings (< 1GB free)
 - Returns structured health report with status, metrics, and issues
+
+**Table Extraction from PDFs** (NEW in v2.1.0):
+- Automatic extraction of structured tables from PDF documents using pdfplumber
+- Tables converted to markdown format for display
+- FTS5 full-text search on table content via `tables_fts` index
+- Searchable via `search_tables()` method and `search_tables` MCP tool
+- Results include page number, row/column count, and relevance scores
+- Critical for C64 documentation (memory maps, register tables, opcode references)
+- Stored in `document_tables` database table with automatic FTS5 synchronization
+
+**Code Block Detection** (NEW in v2.1.0):
+- Automatic detection of code blocks in all document types (PDFs and text files)
+- Supports three code types:
+  - **BASIC**: Line-numbered BASIC programs (e.g., "10 PRINT", "20 GOTO")
+  - **Assembly**: 6502 assembly mnemonics (LDA, STA, JMP, etc.)
+  - **Hex dumps**: Memory dumps with addresses (e.g., "D000: 00 01 02 03")
+- Uses regex pattern matching (requires 3+ consecutive lines for detection)
+- FTS5 full-text search on code content via `code_fts` index
+- Searchable via `search_code()` method and `search_code` MCP tool
+- Results include block type, line count, page number, and relevance scores
+- Stored in `document_code_blocks` database table with automatic FTS5 synchronization
 
 **Additional Features**:
 - Search term highlighting in snippets (markdown bold)
@@ -247,8 +273,13 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 **Key Methods:**
 - `search()` - Main entry point, dispatches to FTS5, BM25, or simple search based on environment variables
 - `semantic_search()` - Semantic/conceptual search using embeddings and FAISS
-- `hybrid_search()` - **NEW** Combines FTS5 + semantic with configurable weighting (default: 0.3)
-- `health_check()` - **NEW** Comprehensive system diagnostics (database, features, performance)
+- `hybrid_search()` - Combines FTS5 + semantic with configurable weighting (default: 0.3)
+- `health_check()` - Comprehensive system diagnostics (database, features, performance)
+- `search_tables()` - **NEW** Search for tables in PDFs using FTS5 with tag filtering
+- `search_code()` - **NEW** Search for code blocks (BASIC/Assembly/Hex) with type filtering
+- `_extract_tables()` - **NEW** Extract tables from PDFs using pdfplumber, convert to markdown
+- `_table_to_markdown()` - **NEW** Convert table data to markdown format
+- `_detect_code_blocks()` - **NEW** Detect BASIC, Assembly, and Hex dump code blocks via regex
 - `_build_embeddings()` - Generates embeddings for all chunks and builds FAISS index
 - `_load_embeddings()` - Loads persisted FAISS index from disk
 - `_save_embeddings()` - Saves FAISS index to disk
@@ -257,12 +288,14 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 - `_search_bm25()` - BM25 scoring with phrase boosting
 - `_search_simple()` - Fallback term frequency scoring
 - `_build_bm25_index()` - Builds BM25 index from chunks on init/update
-- `_extract_snippet()` - **ENHANCED** Extracts context with term density scoring, complete sentences, code preservation
+- `_extract_snippet()` - Extracts context with term density scoring, complete sentences, code preservation
 
-**Completed Enhancements (v2.0.0):**
-- ✅ Hybrid search combining FTS5 + semantic (configurable weighting)
-- ✅ Enhanced snippet extraction (term density, complete sentences, code blocks)
-- ✅ Health monitoring system (diagnostics, metrics, status reporting)
+**Completed Enhancements:**
+- ✅ v2.0.0: Hybrid search combining FTS5 + semantic (configurable weighting)
+- ✅ v2.0.0: Enhanced snippet extraction (term density, complete sentences, code blocks)
+- ✅ v2.0.0: Health monitoring system (diagnostics, metrics, status reporting)
+- ✅ v2.1.0: Table extraction from PDFs (pdfplumber, markdown conversion, FTS5 search)
+- ✅ v2.1.0: Code block detection (BASIC/Assembly/Hex, regex patterns, FTS5 search)
 
 **Future Enhancements:**
 - Query autocompletion based on indexed content

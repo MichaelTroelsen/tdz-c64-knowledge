@@ -42,6 +42,14 @@ except ImportError:
     PDF_SUPPORT = False
     print("Warning: pypdf not installed. PDF support disabled.", file=sys.stderr)
 
+# PDF table extraction support
+try:
+    import pdfplumber
+    PDFPLUMBER_SUPPORT = True
+except ImportError:
+    PDFPLUMBER_SUPPORT = False
+    print("Warning: pdfplumber not installed. Table extraction disabled.", file=sys.stderr)
+
 # BM25 search support
 try:
     from rank_bm25 import BM25Okapi
@@ -389,8 +397,107 @@ class KnowledgeBase:
                 END
             """)
 
+            # Create document_tables table
+            cursor.execute("""
+                CREATE TABLE document_tables (
+                    doc_id TEXT NOT NULL,
+                    table_id INTEGER NOT NULL,
+                    page INTEGER,
+                    markdown TEXT NOT NULL,
+                    searchable_text TEXT NOT NULL,
+                    row_count INTEGER,
+                    col_count INTEGER,
+                    PRIMARY KEY (doc_id, table_id),
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create FTS5 index for table search
+            cursor.execute("""
+                CREATE VIRTUAL TABLE tables_fts USING fts5(
+                    doc_id UNINDEXED,
+                    table_id UNINDEXED,
+                    searchable_text,
+                    tokenize='porter unicode61'
+                )
+            """)
+
+            # Triggers for tables_fts
+            cursor.execute("""
+                CREATE TRIGGER tables_fts_insert AFTER INSERT ON document_tables BEGIN
+                    INSERT INTO tables_fts(rowid, doc_id, table_id, searchable_text)
+                    VALUES ((SELECT COALESCE(MAX(rowid), 0) + 1 FROM tables_fts),
+                            new.doc_id, new.table_id, new.searchable_text);
+                END
+            """)
+
+            cursor.execute("""
+                CREATE TRIGGER tables_fts_delete AFTER DELETE ON document_tables BEGIN
+                    DELETE FROM tables_fts WHERE doc_id = old.doc_id AND table_id = old.table_id;
+                END
+            """)
+
+            cursor.execute("""
+                CREATE TRIGGER tables_fts_update AFTER UPDATE ON document_tables BEGIN
+                    DELETE FROM tables_fts WHERE doc_id = old.doc_id AND table_id = old.table_id;
+                    INSERT INTO tables_fts(rowid, doc_id, table_id, searchable_text)
+                    VALUES ((SELECT COALESCE(MAX(rowid), 0) + 1 FROM tables_fts),
+                            new.doc_id, new.table_id, new.searchable_text);
+                END
+            """)
+
+            # Create document_code_blocks table
+            cursor.execute("""
+                CREATE TABLE document_code_blocks (
+                    doc_id TEXT NOT NULL,
+                    block_id INTEGER NOT NULL,
+                    page INTEGER,
+                    block_type TEXT NOT NULL,
+                    code TEXT NOT NULL,
+                    searchable_text TEXT NOT NULL,
+                    line_count INTEGER,
+                    PRIMARY KEY (doc_id, block_id),
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create FTS5 index for code search
+            cursor.execute("""
+                CREATE VIRTUAL TABLE code_fts USING fts5(
+                    doc_id UNINDEXED,
+                    block_id UNINDEXED,
+                    block_type UNINDEXED,
+                    searchable_text,
+                    tokenize='porter unicode61'
+                )
+            """)
+
+            # Triggers for code_fts
+            cursor.execute("""
+                CREATE TRIGGER code_fts_insert AFTER INSERT ON document_code_blocks BEGIN
+                    INSERT INTO code_fts(rowid, doc_id, block_id, block_type, searchable_text)
+                    VALUES ((SELECT COALESCE(MAX(rowid), 0) + 1 FROM code_fts),
+                            new.doc_id, new.block_id, new.block_type, new.searchable_text);
+                END
+            """)
+
+            cursor.execute("""
+                CREATE TRIGGER code_fts_delete AFTER DELETE ON document_code_blocks BEGIN
+                    DELETE FROM code_fts WHERE doc_id = old.doc_id AND block_id = old.block_id;
+                END
+            """)
+
+            cursor.execute("""
+                CREATE TRIGGER code_fts_update AFTER UPDATE ON document_code_blocks BEGIN
+                    DELETE FROM code_fts WHERE doc_id = old.doc_id AND block_id = old.block_id;
+                    INSERT INTO code_fts(rowid, doc_id, block_id, block_type, searchable_text)
+                    VALUES ((SELECT COALESCE(MAX(rowid), 0) + 1 FROM code_fts),
+                            new.doc_id, new.block_id, new.block_type, new.searchable_text);
+                END
+            """)
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully (with FTS5)")
+            self.logger.info("Database schema created successfully (with FTS5, tables, and code blocks)")
         else:
             self.logger.info("Using existing database")
 
@@ -471,6 +578,120 @@ class KnowledgeBase:
 
                 self.db_conn.commit()
                 self.logger.info("FTS5 table created and populated for existing database")
+
+            # Migrate: Add document_tables table if not exists
+            cursor = self.db_conn.cursor()
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='document_tables'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating document_tables table")
+                cursor.execute("""
+                    CREATE TABLE document_tables (
+                        doc_id TEXT NOT NULL,
+                        table_id INTEGER NOT NULL,
+                        page INTEGER,
+                        markdown TEXT NOT NULL,
+                        searchable_text TEXT NOT NULL,
+                        row_count INTEGER,
+                        col_count INTEGER,
+                        PRIMARY KEY (doc_id, table_id),
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Create FTS5 index for table search
+                cursor.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS tables_fts USING fts5(
+                        doc_id UNINDEXED,
+                        table_id UNINDEXED,
+                        searchable_text,
+                        tokenize='porter unicode61'
+                    )
+                """)
+
+                # Triggers for tables_fts
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS tables_fts_insert AFTER INSERT ON document_tables BEGIN
+                        INSERT INTO tables_fts(rowid, doc_id, table_id, searchable_text)
+                        VALUES (new.rowid, new.doc_id, new.table_id, new.searchable_text);
+                    END
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS tables_fts_delete AFTER DELETE ON document_tables BEGIN
+                        DELETE FROM tables_fts WHERE rowid = old.rowid;
+                    END
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS tables_fts_update AFTER UPDATE ON document_tables BEGIN
+                        DELETE FROM tables_fts WHERE rowid = old.rowid;
+                        INSERT INTO tables_fts(rowid, doc_id, table_id, searchable_text)
+                        VALUES (new.rowid, new.doc_id, new.table_id, new.searchable_text);
+                    END
+                """)
+
+                self.db_conn.commit()
+                self.logger.info("document_tables and tables_fts created")
+
+            # Migrate: Add document_code_blocks table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='document_code_blocks'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating document_code_blocks table")
+                cursor.execute("""
+                    CREATE TABLE document_code_blocks (
+                        doc_id TEXT NOT NULL,
+                        block_id INTEGER NOT NULL,
+                        page INTEGER,
+                        block_type TEXT NOT NULL,
+                        code TEXT NOT NULL,
+                        searchable_text TEXT NOT NULL,
+                        line_count INTEGER,
+                        PRIMARY KEY (doc_id, block_id),
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Create FTS5 index for code search
+                cursor.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(
+                        doc_id UNINDEXED,
+                        block_id UNINDEXED,
+                        block_type UNINDEXED,
+                        searchable_text,
+                        tokenize='porter unicode61'
+                    )
+                """)
+
+                # Triggers for code_fts
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS code_fts_insert AFTER INSERT ON document_code_blocks BEGIN
+                        INSERT INTO code_fts(rowid, doc_id, block_id, block_type, searchable_text)
+                        VALUES (new.rowid, new.doc_id, new.block_id, new.block_type, new.searchable_text);
+                    END
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS code_fts_delete AFTER DELETE ON document_code_blocks BEGIN
+                        DELETE FROM code_fts WHERE rowid = old.rowid;
+                    END
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS code_fts_update AFTER UPDATE ON document_code_blocks BEGIN
+                        DELETE FROM code_fts WHERE rowid = old.rowid;
+                        INSERT INTO code_fts(rowid, doc_id, block_id, block_type, searchable_text)
+                        VALUES (new.rowid, new.doc_id, new.block_id, new.block_type, new.searchable_text);
+                    END
+                """)
+
+                self.db_conn.commit()
+                self.logger.info("document_code_blocks and code_fts created")
 
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
@@ -553,8 +774,9 @@ class KnowledgeBase:
             self.logger.error(f"Migration failed: {e}")
             raise KnowledgeBaseError(f"Failed to migrate from JSON: {e}")
 
-    def _add_document_db(self, doc_meta: DocumentMeta, chunks: list[DocumentChunk]):
-        """Add a document and its chunks to the database using a transaction."""
+    def _add_document_db(self, doc_meta: DocumentMeta, chunks: list[DocumentChunk],
+                         tables: Optional[list[dict]] = None, code_blocks: Optional[list[dict]] = None):
+        """Add a document, chunks, tables, and code blocks to the database using a transaction."""
         cursor = self.db_conn.cursor()
 
         try:
@@ -601,6 +823,46 @@ class KnowledgeBase:
                     chunk.content,
                     chunk.word_count
                 ))
+
+            # Delete old tables if re-indexing
+            cursor.execute("DELETE FROM document_tables WHERE doc_id = ?", (doc_meta.doc_id,))
+
+            # Insert tables
+            if tables:
+                for table in tables:
+                    cursor.execute("""
+                        INSERT INTO document_tables
+                        (doc_id, table_id, page, markdown, searchable_text, row_count, col_count)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        doc_meta.doc_id,
+                        table['table_id'],
+                        table['page'],
+                        table['markdown'],
+                        table['searchable_text'],
+                        table['row_count'],
+                        table['col_count']
+                    ))
+
+            # Delete old code blocks if re-indexing
+            cursor.execute("DELETE FROM document_code_blocks WHERE doc_id = ?", (doc_meta.doc_id,))
+
+            # Insert code blocks
+            if code_blocks:
+                for block in code_blocks:
+                    cursor.execute("""
+                        INSERT INTO document_code_blocks
+                        (doc_id, block_id, page, block_type, code, searchable_text, line_count)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        doc_meta.doc_id,
+                        block['block_id'],
+                        block['page'],
+                        block['block_type'],
+                        block['code'],
+                        block['searchable_text'],
+                        block['line_count']
+                    ))
 
             # Commit transaction
             self.db_conn.commit()
@@ -944,6 +1206,160 @@ class KnowledgeBase:
                 continue
         raise RuntimeError(f"Could not decode {filepath}")
 
+    def _extract_tables(self, filepath: str) -> list[dict]:
+        """Extract tables from PDF using pdfplumber.
+
+        Returns a list of table dictionaries with structure:
+        {
+            'table_id': int,
+            'page': int,
+            'markdown': str,
+            'searchable_text': str,
+            'row_count': int,
+            'col_count': int
+        }
+        """
+        if not PDFPLUMBER_SUPPORT:
+            self.logger.debug("pdfplumber not available, skipping table extraction")
+            return []
+
+        tables = []
+        table_id = 0
+
+        try:
+            with pdfplumber.open(filepath) as pdf:
+                for page_num, page in enumerate(pdf.pages, start=1):
+                    # Extract tables from this page
+                    page_tables = page.extract_tables()
+
+                    if page_tables:
+                        for table_data in page_tables:
+                            if not table_data or len(table_data) == 0:
+                                continue
+
+                            # Convert table to markdown
+                            markdown = self._table_to_markdown(table_data)
+
+                            # Create searchable text (all cells joined with spaces)
+                            searchable_text = " ".join(
+                                str(cell).strip()
+                                for row in table_data
+                                for cell in row
+                                if cell and str(cell).strip()
+                            )
+
+                            tables.append({
+                                'table_id': table_id,
+                                'page': page_num,
+                                'markdown': markdown,
+                                'searchable_text': searchable_text,
+                                'row_count': len(table_data),
+                                'col_count': len(table_data[0]) if table_data else 0
+                            })
+                            table_id += 1
+
+        except Exception as e:
+            self.logger.warning(f"Error extracting tables from {filepath}: {e}")
+            return []
+
+        self.logger.info(f"Extracted {len(tables)} tables from PDF")
+        return tables
+
+    def _table_to_markdown(self, table_data: list[list]) -> str:
+        """Convert a table (list of lists) to markdown format."""
+        if not table_data or len(table_data) == 0:
+            return ""
+
+        lines = []
+
+        # Header row
+        header = table_data[0]
+        lines.append("| " + " | ".join(str(cell or "").strip() for cell in header) + " |")
+
+        # Separator row
+        lines.append("| " + " | ".join("---" for _ in header) + " |")
+
+        # Data rows
+        for row in table_data[1:]:
+            lines.append("| " + " | ".join(str(cell or "").strip() for cell in row) + " |")
+
+        return "\n".join(lines)
+
+    def _detect_code_blocks(self, text: str) -> list[dict]:
+        """Detect code blocks in text (BASIC, Assembly, Hex dumps).
+
+        Returns a list of code block dictionaries with structure:
+        {
+            'block_id': int,
+            'page': None,  # Page detection happens in add_document
+            'block_type': str,  # 'basic', 'assembly', or 'hex'
+            'code': str,
+            'searchable_text': str,
+            'line_count': int
+        }
+        """
+        code_blocks = []
+        block_id = 0
+
+        # Pattern 1: BASIC code (lines starting with line numbers)
+        # Example: "10 PRINT "HELLO"", "20 GOTO 10"
+        basic_pattern = r'(?:^|\n)((?:\d+\s+[A-Z]+[^\n]*\n?){3,})'
+
+        for match in re.finditer(basic_pattern, text, re.MULTILINE):
+            code = match.group(1).strip()
+            lines = code.split('\n')
+
+            code_blocks.append({
+                'block_id': block_id,
+                'page': None,
+                'block_type': 'basic',
+                'code': code,
+                'searchable_text': code,
+                'line_count': len(lines)
+            })
+            block_id += 1
+
+        # Pattern 2: Assembly code (mnemonics: LDA, STA, JMP, etc.)
+        # Example: "    LDA #$00", "    STA $D020"
+        assembly_pattern = r'(?:^|\n)((?:\s*(?:LDA|STA|LDX|STX|LDY|STY|JMP|JSR|RTS|BEQ|BNE|BCC|BCS|ADC|SBC|AND|ORA|EOR|INC|DEC|CMP|CPX|CPY|ASL|LSR|ROL|ROR|BIT|NOP|CLC|SEC|CLI|SEI|CLD|SED|CLV|PHA|PLA|PHP|PLP|TAX|TAY|TXA|TYA|TSX|TXS|INX|INY|DEX|DEY|BMI|BPL|BVC|BVS)[^\n]*\n?){3,})'
+
+        for match in re.finditer(assembly_pattern, text, re.MULTILINE | re.IGNORECASE):
+            code = match.group(1).strip()
+            lines = code.split('\n')
+
+            # Avoid duplicates (check if this code is already captured)
+            if not any(block['code'] == code for block in code_blocks):
+                code_blocks.append({
+                    'block_id': block_id,
+                    'page': None,
+                    'block_type': 'assembly',
+                    'code': code,
+                    'searchable_text': code,
+                    'line_count': len(lines)
+                })
+                block_id += 1
+
+        # Pattern 3: Hex dumps (lines with hex values)
+        # Example: "D000: 00 01 02 03 04 05 06 07"
+        hex_pattern = r'(?:^|\n)((?:[0-9A-F]{4}:\s*(?:[0-9A-F]{2}\s*){8,}\n?){3,})'
+
+        for match in re.finditer(hex_pattern, text, re.MULTILINE | re.IGNORECASE):
+            code = match.group(1).strip()
+            lines = code.split('\n')
+
+            code_blocks.append({
+                'block_id': block_id,
+                'page': None,
+                'block_type': 'hex',
+                'code': code,
+                'searchable_text': code,
+                'line_count': len(lines)
+            })
+            block_id += 1
+
+        self.logger.info(f"Detected {len(code_blocks)} code blocks ({sum(1 for b in code_blocks if b['block_type']=='basic')} BASIC, {sum(1 for b in code_blocks if b['block_type']=='assembly')} Assembly, {sum(1 for b in code_blocks if b['block_type']=='hex')} Hex)")
+        return code_blocks
+
     def _cache_key(self, method: str, **kwargs) -> str:
         """Generate a cache key from method name and arguments."""
         # Sort kwargs for consistent hashing
@@ -1044,6 +1460,18 @@ class KnowledgeBase:
                 item=filename
             ))
 
+        # Extract tables from PDFs
+        tables = []
+        if file_type == 'pdf':
+            tables = self._extract_tables(filepath)
+            if tables:
+                self.logger.info(f"Extracted {len(tables)} tables from PDF")
+
+        # Detect code blocks in text
+        code_blocks = self._detect_code_blocks(text)
+        if code_blocks:
+            self.logger.info(f"Detected {len(code_blocks)} code blocks")
+
         # Generate content-based doc_id for deduplication
         doc_id = self._generate_doc_id(filepath, text)
 
@@ -1112,8 +1540,8 @@ class KnowledgeBase:
             file_hash=file_hash
         )
 
-        # Add to database
-        self._add_document_db(doc_meta, chunks)
+        # Add to database (with tables and code blocks)
+        self._add_document_db(doc_meta, chunks, tables=tables, code_blocks=code_blocks)
         self.documents[doc_id] = doc_meta
 
         # Report progress: Database insertion complete
@@ -2451,6 +2879,163 @@ class KnowledgeBase:
 
         return health
 
+    def search_tables(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
+        """Search for tables in documents using FTS5.
+
+        Returns a list of table dictionaries with structure:
+        {
+            'doc_id': str,
+            'doc_title': str,
+            'table_id': int,
+            'page': int,
+            'markdown': str,
+            'row_count': int,
+            'col_count': int,
+            'score': float
+        }
+        """
+        cursor = self.db_conn.cursor()
+
+        # Check if tables_fts exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='tables_fts'
+        """)
+        if not cursor.fetchone():
+            self.logger.warning("tables_fts index not found, no tables to search")
+            return []
+
+        # Build FTS5 query
+        # Escape special characters in query
+        fts_query = query.replace('"', '""')
+        fts_query = f'"{fts_query}"' if ' ' in fts_query else fts_query
+
+        # Search tables_fts
+        sql = """
+            SELECT t.doc_id, d.title, t.table_id, t.page, t.markdown, t.row_count, t.col_count,
+                   tables_fts.rank as score
+            FROM tables_fts
+            JOIN document_tables t ON tables_fts.doc_id = t.doc_id AND tables_fts.table_id = t.table_id
+            JOIN documents d ON t.doc_id = d.doc_id
+            WHERE tables_fts MATCH ?
+        """
+
+        # Add tag filtering if specified
+        if tags:
+            tag_conditions = " OR ".join(["d.tags LIKE ?" for _ in tags])
+            sql += f" AND ({tag_conditions})"
+
+        sql += " ORDER BY score DESC LIMIT ?"
+
+        # Execute query
+        params = [fts_query]
+        if tags:
+            params.extend([f'%"{tag}"%' for tag in tags])
+        params.append(max_results)
+
+        cursor.execute(sql, params)
+        results = []
+
+        for row in cursor.fetchall():
+            results.append({
+                'doc_id': row[0],
+                'doc_title': row[1],
+                'table_id': row[2],
+                'page': row[3],
+                'markdown': row[4],
+                'row_count': row[5],
+                'col_count': row[6],
+                'score': abs(row[7])  # FTS5 rank is negative, take absolute value
+            })
+
+        self.logger.info(f"Table search for '{query}' returned {len(results)} results")
+        return results
+
+    def search_code(self, query: str, max_results: int = 5, block_type: Optional[str] = None,
+                    tags: Optional[list[str]] = None) -> list[dict]:
+        """Search for code blocks in documents using FTS5.
+
+        Args:
+            query: Search query
+            max_results: Maximum number of results
+            block_type: Filter by code type ('basic', 'assembly', 'hex')
+            tags: Filter by document tags
+
+        Returns a list of code block dictionaries with structure:
+        {
+            'doc_id': str,
+            'doc_title': str,
+            'block_id': int,
+            'page': int,
+            'block_type': str,
+            'code': str,
+            'line_count': int,
+            'score': float
+        }
+        """
+        cursor = self.db_conn.cursor()
+
+        # Check if code_fts exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='code_fts'
+        """)
+        if not cursor.fetchone():
+            self.logger.warning("code_fts index not found, no code blocks to search")
+            return []
+
+        # Build FTS5 query
+        # Escape special characters in query
+        fts_query = query.replace('"', '""')
+        fts_query = f'"{fts_query}"' if ' ' in fts_query else fts_query
+
+        # Search code_fts
+        sql = """
+            SELECT c.doc_id, d.title, c.block_id, c.page, c.block_type, c.code, c.line_count,
+                   code_fts.rank as score
+            FROM code_fts
+            JOIN document_code_blocks c ON code_fts.doc_id = c.doc_id AND code_fts.block_id = c.block_id
+            JOIN documents d ON c.doc_id = d.doc_id
+            WHERE code_fts MATCH ?
+        """
+
+        # Add block type filtering if specified
+        if block_type:
+            sql += " AND c.block_type = ?"
+
+        # Add tag filtering if specified
+        if tags:
+            tag_conditions = " OR ".join(["d.tags LIKE ?" for _ in tags])
+            sql += f" AND ({tag_conditions})"
+
+        sql += " ORDER BY score DESC LIMIT ?"
+
+        # Execute query
+        params = [fts_query]
+        if block_type:
+            params.append(block_type)
+        if tags:
+            params.extend([f'%"{tag}"%' for tag in tags])
+        params.append(max_results)
+
+        cursor.execute(sql, params)
+        results = []
+
+        for row in cursor.fetchall():
+            results.append({
+                'doc_id': row[0],
+                'doc_title': row[1],
+                'block_id': row[2],
+                'page': row[3],
+                'block_type': row[4],
+                'code': row[5],
+                'line_count': row[6],
+                'score': abs(row[7])  # FTS5 rank is negative, take absolute value
+            })
+
+        self.logger.info(f"Code search for '{query}' returned {len(results)} results (type={block_type or 'all'})")
+        return results
+
     def close(self):
         """Close the database connection."""
         if self.db_conn:
@@ -2733,6 +3318,59 @@ async def list_tools() -> list[Tool]:
                         "description": "Remove all documents with these tags (optional)"
                     }
                 }
+            }
+        ),
+        Tool(
+            name="search_tables",
+            description="Search for tables in PDF documents. Tables contain structured data like memory maps, register definitions, and command references. Returns tables in markdown format with page numbers.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query for table content"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 5)",
+                        "default": 5
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by document tags (optional)"
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="search_code",
+            description="Search for code blocks in documents (BASIC, Assembly, Hex dumps). Finds programming examples and code snippets. Returns code with type (basic/assembly/hex), line count, and page numbers.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query for code content"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 5)",
+                        "default": 5
+                    },
+                    "block_type": {
+                        "type": "string",
+                        "description": "Filter by code type: 'basic', 'assembly', or 'hex' (optional)",
+                        "enum": ["basic", "assembly", "hex"]
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by document tags (optional)"
+                    }
+                },
+                "required": ["query"]
             }
         )
     ]
@@ -3080,6 +3718,61 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += "\n"
 
         output += f"Total: {len(results['removed'])} removed, {len(results['failed'])} failed"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "search_tables":
+        query = arguments.get("query", "")
+        max_results = arguments.get("max_results", 5)
+        tags = arguments.get("tags")
+
+        try:
+            results = kb.search_tables(query, max_results, tags)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error searching tables: {str(e)}")]
+
+        if not results:
+            return [TextContent(type="text", text=f"No tables found for query: '{query}'")]
+
+        output = f"Found {len(results)} table(s) for '{query}':\n\n"
+
+        for i, result in enumerate(results, 1):
+            output += f"Result {i}:\n"
+            output += f"  Document: {result['doc_title']}\n"
+            output += f"  Page: {result['page']}\n"
+            output += f"  Size: {result['row_count']} rows × {result['col_count']} columns\n"
+            output += f"  Score: {result['score']:.2f}\n\n"
+            output += f"Table content:\n{result['markdown']}\n\n"
+            output += "-" * 80 + "\n\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "search_code":
+        query = arguments.get("query", "")
+        max_results = arguments.get("max_results", 5)
+        block_type = arguments.get("block_type")
+        tags = arguments.get("tags")
+
+        try:
+            results = kb.search_code(query, max_results, block_type, tags)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error searching code: {str(e)}")]
+
+        if not results:
+            type_filter = f" (type: {block_type})" if block_type else ""
+            return [TextContent(type="text", text=f"No code blocks found for query: '{query}'{type_filter}")]
+
+        output = f"Found {len(results)} code block(s) for '{query}':\n\n"
+
+        for i, result in enumerate(results, 1):
+            output += f"Result {i}:\n"
+            output += f"  Document: {result['doc_title']}\n"
+            output += f"  Page: {result['page'] or 'N/A'}\n"
+            output += f"  Type: {result['block_type']}\n"
+            output += f"  Lines: {result['line_count']}\n"
+            output += f"  Score: {result['score']:.2f}\n\n"
+            output += f"Code:\n```{result['block_type']}\n{result['code']}\n```\n\n"
+            output += "-" * 80 + "\n\n"
 
         return [TextContent(type="text", text=output)]
 

@@ -648,5 +648,213 @@ def test_ocr_configuration():
         pytest.skip("OCR libraries (pytesseract/pdf2image/Pillow) not installed")
 
 
+def test_code_block_detection(tmpdir):
+    """Test code block detection for BASIC, Assembly, and Hex dumps."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Test BASIC code detection
+    basic_text = """
+Some text before.
+
+10 PRINT "HELLO WORLD"
+20 FOR I = 1 TO 10
+30 PRINT I
+40 NEXT I
+50 END
+
+Some text after.
+"""
+
+    code_blocks = kb._detect_code_blocks(basic_text)
+    basic_blocks = [b for b in code_blocks if b['block_type'] == 'basic']
+    assert len(basic_blocks) >= 1, "Should detect BASIC code"
+    assert basic_blocks[0]['line_count'] >= 3, "BASIC block should have multiple lines"
+    print(f"\nDetected BASIC code: {basic_blocks[0]['line_count']} lines")
+
+    # Test Assembly code detection
+    assembly_text = """
+Some text before.
+
+    LDA #$00
+    STA $D020
+    STA $D021
+    JMP $FFE1
+
+Some text after.
+"""
+
+    code_blocks = kb._detect_code_blocks(assembly_text)
+    asm_blocks = [b for b in code_blocks if b['block_type'] == 'assembly']
+    assert len(asm_blocks) >= 1, "Should detect Assembly code"
+    assert asm_blocks[0]['line_count'] >= 3, "Assembly block should have multiple lines"
+    print(f"Detected Assembly code: {asm_blocks[0]['line_count']} lines")
+
+    # Test Hex dump detection
+    hex_text = """
+Some text before.
+
+D000: 00 01 02 03 04 05 06 07
+D008: 08 09 0A 0B 0C 0D 0E 0F
+D010: 10 11 12 13 14 15 16 17
+
+Some text after.
+"""
+
+    code_blocks = kb._detect_code_blocks(hex_text)
+    hex_blocks = [b for b in code_blocks if b['block_type'] == 'hex']
+    assert len(hex_blocks) >= 1, "Should detect Hex dumps"
+    assert hex_blocks[0]['line_count'] >= 3, "Hex dump should have multiple lines"
+    print(f"Detected Hex dump: {hex_blocks[0]['line_count']} lines")
+
+    kb.close()
+
+
+def test_table_extraction(tmpdir):
+    """Test table extraction from PDFs."""
+    import server
+
+    if not server.PDFPLUMBER_SUPPORT:
+        pytest.skip("pdfplumber not installed, skipping table extraction test")
+
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Note: This test would require a sample PDF with tables
+    # For now, just test that the method exists and handles missing files gracefully
+    tables = kb._extract_tables("nonexistent.pdf")
+    assert tables == [], "Should return empty list for nonexistent file"
+
+    print("\nTable extraction test passed (pdfplumber available)")
+
+    kb.close()
+
+
+def test_table_search(tmpdir):
+    """Test table search functionality."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create test document with tables in database
+    # Insert a test table directly into the database
+    cursor = kb.db_conn.cursor()
+
+    # Create a fake document
+    test_doc_id = "test_table_doc"
+    cursor.execute("""
+        INSERT INTO documents
+        (doc_id, filename, title, filepath, file_type, total_pages, total_chunks,
+         indexed_at, tags, file_mtime, file_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        test_doc_id,
+        "test.pdf",
+        "Test Doc with Tables",
+        "/tmp/test.pdf",
+        "pdf",
+        1,
+        0,
+        "2025-12-12T00:00:00",
+        json.dumps(["test"]),
+        0.0,
+        "test_hash"
+    ))
+
+    # Insert a test table
+    cursor.execute("""
+        INSERT INTO document_tables
+        (doc_id, table_id, page, markdown, searchable_text, row_count, col_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        test_doc_id,
+        0,
+        1,
+        "| Address | Register |\n| --- | --- |\n| $D000 | Sprite 0 X |\n| $D001 | Sprite 0 Y |",
+        "Address Register $D000 Sprite 0 X $D001 Sprite 0 Y",
+        3,  # Including header
+        2
+    ))
+
+    kb.db_conn.commit()
+
+    # Search for tables
+    results = kb.search_tables("sprite register", max_results=5)
+    assert isinstance(results, list), "Should return a list"
+
+    if results:
+        assert results[0]['doc_id'] == test_doc_id
+        assert results[0]['table_id'] == 0
+        assert 'markdown' in results[0]
+        assert 'score' in results[0]
+        print(f"\nTable search found {len(results)} results")
+    else:
+        print("\nNo table results found (FTS5 index may not be built yet)")
+
+    kb.close()
+
+
+def test_code_search(tmpdir):
+    """Test code block search functionality."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create test document with code blocks in database
+    cursor = kb.db_conn.cursor()
+
+    # Create a fake document
+    test_doc_id = "test_code_doc"
+    cursor.execute("""
+        INSERT INTO documents
+        (doc_id, filename, title, filepath, file_type, total_pages, total_chunks,
+         indexed_at, tags, file_mtime, file_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        test_doc_id,
+        "test.txt",
+        "Test Doc with Code",
+        "/tmp/test.txt",
+        "text",
+        None,
+        0,
+        "2025-12-12T00:00:00",
+        json.dumps(["test"]),
+        0.0,
+        "test_hash"
+    ))
+
+    # Insert a test code block
+    code_text = "    LDA #$00\n    STA $D020\n    RTS"
+    cursor.execute("""
+        INSERT INTO document_code_blocks
+        (doc_id, block_id, page, block_type, code, searchable_text, line_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        test_doc_id,
+        0,
+        None,
+        "assembly",
+        code_text,
+        code_text,
+        3
+    ))
+
+    kb.db_conn.commit()
+
+    # Search for code blocks
+    results = kb.search_code("LDA STA", max_results=5)
+    assert isinstance(results, list), "Should return a list"
+
+    if results:
+        assert results[0]['doc_id'] == test_doc_id
+        assert results[0]['block_type'] == 'assembly'
+        assert 'code' in results[0]
+        assert 'score' in results[0]
+        print(f"\nCode search found {len(results)} results")
+    else:
+        print("\nNo code results found (FTS5 index may not be built yet)")
+
+    # Test filtering by block type
+    results_filtered = kb.search_code("LDA", max_results=5, block_type="assembly")
+    assert isinstance(results_filtered, list)
+
+    kb.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -213,7 +213,8 @@ The SID chip handles sound generation with 3 voices.
             DocumentNotFoundError,
             ChunkNotFoundError,
             UnsupportedFileTypeError,
-            IndexCorruptedError
+            IndexCorruptedError,
+            SecurityError
         )
 
         # Verify exception hierarchy
@@ -221,6 +222,7 @@ The SID chip handles sound generation with 3 voices.
         assert issubclass(ChunkNotFoundError, KnowledgeBaseError)
         assert issubclass(UnsupportedFileTypeError, KnowledgeBaseError)
         assert issubclass(IndexCorruptedError, KnowledgeBaseError)
+        assert issubclass(SecurityError, KnowledgeBaseError)
 
     def test_unsupported_file_type(self, kb, temp_data_dir):
         """Test that unsupported file types raise appropriate exception."""
@@ -231,6 +233,48 @@ The SID chip handles sound generation with 3 voices.
 
         with pytest.raises(UnsupportedFileTypeError):
             kb.add_document(str(unsupported_file))
+
+    def test_path_traversal_protection(self, temp_data_dir):
+        """Test path traversal protection with allowed directories."""
+        import os
+        from server import KnowledgeBase, SecurityError
+
+        # Create allowed and restricted directories
+        allowed_dir = Path(temp_data_dir) / "allowed"
+        allowed_dir.mkdir(parents=True, exist_ok=True)
+
+        restricted_dir = Path(temp_data_dir) / "restricted"
+        restricted_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create test files
+        allowed_file = allowed_dir / "test.txt"
+        allowed_file.write_text("Allowed content")
+
+        restricted_file = restricted_dir / "test.txt"
+        restricted_file.write_text("Restricted content")
+
+        # Initialize KB with allowed directory restriction
+        os.environ['ALLOWED_DOCS_DIRS'] = str(allowed_dir)
+        kb_restricted = KnowledgeBase(str(Path(temp_data_dir) / "kb_restricted"))
+
+        # Test 1: Adding file from allowed directory should succeed
+        doc = kb_restricted.add_document(str(allowed_file), title="Allowed Doc")
+        assert doc.filename == "test.txt"
+        kb_restricted.remove_document(doc.doc_id)
+
+        # Test 2: Adding file from restricted directory should fail
+        with pytest.raises(SecurityError) as exc_info:
+            kb_restricted.add_document(str(restricted_file))
+        assert "outside allowed directories" in str(exc_info.value).lower()
+
+        # Test 3: Path traversal attempt should fail
+        traversal_path = str(allowed_dir / ".." / "restricted" / "test.txt")
+        with pytest.raises(SecurityError):
+            kb_restricted.add_document(traversal_path)
+
+        # Clean up
+        del os.environ['ALLOWED_DOCS_DIRS']
+        kb_restricted.close()
 
 
 def test_query_preprocessing(tmpdir):

@@ -88,6 +88,11 @@ class IndexCorruptedError(KnowledgeBaseError):
     pass
 
 
+class SecurityError(KnowledgeBaseError):
+    """Raised when a security violation is detected."""
+    pass
+
+
 @dataclass
 class DocumentChunk:
     """A searchable chunk of a document."""
@@ -163,6 +168,15 @@ class KnowledgeBase:
             self.stop_words = set()
             if NLTK_SUPPORT:
                 self.logger.info("Query preprocessing disabled via USE_QUERY_PREPROCESSING=0")
+
+        # Security: Allowed directories for document ingestion (optional)
+        # Set via ALLOWED_DOCS_DIRS environment variable (comma-separated paths)
+        allowed_dirs_env = os.getenv('ALLOWED_DOCS_DIRS', '')
+        if allowed_dirs_env:
+            self.allowed_dirs = [Path(d.strip()).resolve() for d in allowed_dirs_env.split(',') if d.strip()]
+            self.logger.info(f"Path traversal protection enabled for: {self.allowed_dirs}")
+        else:
+            self.allowed_dirs = None  # No restrictions
 
         # Load documents (with automatic migration if needed)
         self._load_documents()
@@ -668,7 +682,23 @@ class KnowledgeBase:
     
     def add_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None) -> DocumentMeta:
         """Add a document to the knowledge base."""
-        filepath = str(Path(filepath).resolve())
+        # Resolve to absolute path to prevent path traversal
+        resolved_path = Path(filepath).resolve()
+
+        # Security: Validate path is within allowed directories
+        if self.allowed_dirs:
+            # Check if path is within any allowed directory
+            is_allowed = any(
+                resolved_path.is_relative_to(allowed_dir)
+                for allowed_dir in self.allowed_dirs
+            )
+            if not is_allowed:
+                self.logger.error(f"Security violation: Path outside allowed directories: {resolved_path}")
+                raise SecurityError(
+                    f"Path outside allowed directories. File must be within: {self.allowed_dirs}"
+                )
+
+        filepath = str(resolved_path)
         self.logger.info(f"Adding document: {filepath}")
 
         if not os.path.exists(filepath):

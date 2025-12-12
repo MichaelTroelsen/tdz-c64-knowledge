@@ -219,10 +219,116 @@ class KnowledgeBase:
             # Create index on chunks table
             cursor.execute("CREATE INDEX idx_chunks_doc_id ON chunks(doc_id)")
 
+            # Create FTS5 virtual table for full-text search
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts5 USING fts5(
+                    doc_id UNINDEXED,
+                    chunk_id UNINDEXED,
+                    content,
+                    tokenize='porter unicode61'
+                )
+            """)
+
+            # Trigger: Keep FTS5 in sync on INSERT
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS chunks_fts5_insert AFTER INSERT ON chunks BEGIN
+                    INSERT INTO chunks_fts5(rowid, doc_id, chunk_id, content)
+                    VALUES (new.rowid, new.doc_id, new.chunk_id, new.content);
+                END
+            """)
+
+            # Trigger: Keep FTS5 in sync on DELETE
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS chunks_fts5_delete AFTER DELETE ON chunks BEGIN
+                    DELETE FROM chunks_fts5 WHERE rowid = old.rowid;
+                END
+            """)
+
+            # Trigger: Keep FTS5 in sync on UPDATE
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS chunks_fts5_update AFTER UPDATE ON chunks BEGIN
+                    DELETE FROM chunks_fts5 WHERE rowid = old.rowid;
+                    INSERT INTO chunks_fts5(rowid, doc_id, chunk_id, content)
+                    VALUES (new.rowid, new.doc_id, new.chunk_id, new.content);
+                END
+            """)
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully")
+            self.logger.info("Database schema created successfully (with FTS5)")
         else:
             self.logger.info("Using existing database")
+
+            # Check if FTS5 table exists and populate if needed
+            try:
+                cursor = self.db_conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM chunks_fts5")
+                fts5_count = cursor.fetchone()[0]
+
+                # If FTS5 table is empty but chunks exist, populate it
+                if fts5_count == 0:
+                    cursor.execute("SELECT COUNT(*) FROM chunks")
+                    chunks_count = cursor.fetchone()[0]
+
+                    if chunks_count > 0:
+                        self.logger.info(f"Populating FTS5 index with {chunks_count} existing chunks")
+                        cursor.execute("""
+                            INSERT INTO chunks_fts5(rowid, doc_id, chunk_id, content)
+                            SELECT rowid, doc_id, chunk_id, content FROM chunks
+                        """)
+                        self.db_conn.commit()
+                        self.logger.info("FTS5 index populated successfully")
+            except Exception as e:
+                # FTS5 table doesn't exist, create it
+                self.logger.info(f"Creating FTS5 table for existing database: {e}")
+                cursor = self.db_conn.cursor()
+
+                cursor.execute("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts5 USING fts5(
+                        doc_id UNINDEXED,
+                        chunk_id UNINDEXED,
+                        content,
+                        tokenize='porter unicode61'
+                    )
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_fts5_insert AFTER INSERT ON chunks BEGIN
+                        INSERT INTO chunks_fts5(rowid, doc_id, chunk_id, content)
+                        VALUES (new.rowid, new.doc_id, new.chunk_id, new.content);
+                    END
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_fts5_delete AFTER DELETE ON chunks BEGIN
+                        DELETE FROM chunks_fts5 WHERE rowid = old.rowid;
+                    END
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER IF NOT EXISTS chunks_fts5_update AFTER UPDATE ON chunks BEGIN
+                        DELETE FROM chunks_fts5 WHERE rowid = old.rowid;
+                        INSERT INTO chunks_fts5(rowid, doc_id, chunk_id, content)
+                        VALUES (new.rowid, new.doc_id, new.chunk_id, new.content);
+                    END
+                """)
+
+                # Populate FTS5 from existing chunks
+                cursor.execute("""
+                    INSERT INTO chunks_fts5(rowid, doc_id, chunk_id, content)
+                    SELECT rowid, doc_id, chunk_id, content FROM chunks
+                """)
+
+                self.db_conn.commit()
+                self.logger.info("FTS5 table created and populated for existing database")
+
+    def _fts5_available(self) -> bool:
+        """Check if FTS5 is available and table exists."""
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM chunks_fts5 LIMIT 1")
+            return True
+        except Exception:
+            return False
 
     def _load_documents(self):
         """Load documents from database, with automatic migration from JSON if needed."""
@@ -684,10 +790,27 @@ class KnowledgeBase:
         query_terms = set(query_terms_list)
         query_terms = {term for term in query_terms if term}  # Remove empty strings
 
-        # Use BM25 if available, otherwise fall back to simple search
+        # Check search backend preference (in priority order)
+        # FTS5 can be enabled with environment variable: USE_FTS5=1
         # BM25 can be disabled with environment variable: USE_BM25=0
+        use_fts5 = os.environ.get('USE_FTS5', '0') == '1'
         use_bm25 = os.environ.get('USE_BM25', '1') == '1'
-        if use_bm25 and BM25_SUPPORT:
+
+        if use_fts5 and self._fts5_available():
+            # Use SQLite FTS5 full-text search
+            results = self._search_fts5(query, query_terms, phrases, tags, max_results)
+            # Fall back to BM25/simple if FTS5 returns no results
+            if not results:
+                if use_bm25 and BM25_SUPPORT:
+                    if self.bm25 is None:
+                        self._build_bm25_index()
+                    if self.bm25 is not None:
+                        results = self._search_bm25(query, query_terms, phrases, tags, max_results)
+                    else:
+                        results = self._search_simple(query_terms, phrases, tags, max_results)
+                else:
+                    results = self._search_simple(query_terms, phrases, tags, max_results)
+        elif use_bm25 and BM25_SUPPORT:
             # Build BM25 index if not already built
             if self.bm25 is None:
                 self._build_bm25_index()
@@ -794,7 +917,68 @@ class KnowledgeBase:
         # Sort by score and return top results
         results.sort(key=lambda x: x['score'], reverse=True)
         return results[:max_results]
-    
+
+    def _search_fts5(self, query: str, query_terms: set, phrases: list,
+                     tags: Optional[list[str]], max_results: int) -> list[dict]:
+        """Search using SQLite FTS5 full-text search."""
+        cursor = self.db_conn.cursor()
+
+        # Build FTS5 query (FTS5 supports boolean operators and phrases natively)
+        fts_query = query
+
+        try:
+            # Execute FTS5 search with BM25 ranking
+            cursor.execute("""
+                SELECT
+                    c.doc_id,
+                    c.chunk_id,
+                    c.content,
+                    c.word_count,
+                    c.page,
+                    d.filename,
+                    d.title,
+                    fts.rank as score
+                FROM chunks_fts5 fts
+                JOIN chunks c ON c.rowid = fts.rowid
+                JOIN documents d ON d.doc_id = c.doc_id
+                WHERE chunks_fts5 MATCH ?
+                ORDER BY rank
+                LIMIT ?
+            """, (fts_query, max_results * 2))  # Get 2x for tag filtering
+
+            results = []
+            for row in cursor.fetchall():
+                doc_id, chunk_id, content, word_count, page, filename, title, score = row
+
+                # Filter by tags if specified
+                if tags:
+                    doc = self.documents.get(doc_id)
+                    if doc and not any(t in doc.tags for t in tags):
+                        continue
+
+                # Extract snippet with highlighting
+                snippet = self._extract_snippet(content, query_terms | {p.lower() for p in phrases})
+
+                results.append({
+                    'doc_id': doc_id,
+                    'filename': filename,
+                    'title': title,
+                    'chunk_id': chunk_id,
+                    'score': abs(score),  # FTS5 returns negative scores (lower is better)
+                    'snippet': snippet,
+                    'word_count': word_count
+                })
+
+                if len(results) >= max_results:
+                    break
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"FTS5 search failed: {e}")
+            # Fall back to simple search
+            return []
+
     def _extract_snippet(self, content: str, query_terms: set, snippet_size: int = 300) -> str:
         """Extract a relevant snippet from content with highlighted search terms."""
         content_lower = content.lower()

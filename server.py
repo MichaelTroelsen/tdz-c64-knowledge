@@ -282,11 +282,14 @@ class KnowledgeBase:
 
         # OCR initialization
         self.use_ocr = OCR_SUPPORT and os.getenv('USE_OCR', '1') == '1'
+        self.poppler_path = os.getenv('POPPLER_PATH', None)  # Optional Poppler path for pdf2image
         if self.use_ocr:
             # Check if Tesseract is installed
             try:
                 pytesseract.get_tesseract_version()
                 self.logger.info("OCR enabled (Tesseract found)")
+                if self.poppler_path:
+                    self.logger.info(f"Using Poppler from: {self.poppler_path}")
             except Exception as e:
                 self.logger.warning(f"OCR libraries installed but Tesseract not found: {e}")
                 self.logger.warning("Install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki")
@@ -844,7 +847,10 @@ class KnowledgeBase:
         try:
             self.logger.info(f"Using OCR to extract text from scanned PDF: {filepath}")
             # Convert PDF pages to images
-            images = convert_from_path(filepath)
+            if self.poppler_path:
+                images = convert_from_path(filepath, poppler_path=self.poppler_path)
+            else:
+                images = convert_from_path(filepath)
 
             pages = []
             for i, image in enumerate(images):
@@ -1656,7 +1662,18 @@ class KnowledgeBase:
         cursor = self.db_conn.cursor()
 
         # Build FTS5 query (FTS5 supports boolean operators and phrases natively)
-        fts_query = query
+        # Escape special characters that could cause syntax errors
+        # Quote terms with hyphens or other special chars to treat them as phrases
+        import re
+        words = query.split()
+        escaped_words = []
+        for word in words:
+            # If word contains hyphen or other special chars, quote it
+            if re.search(r'[-:]', word):
+                escaped_words.append(f'"{word}"')
+            else:
+                escaped_words.append(word)
+        fts_query = ' '.join(escaped_words)
 
         try:
             # Execute FTS5 search with BM25 ranking

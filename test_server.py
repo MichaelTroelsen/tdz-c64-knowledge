@@ -477,5 +477,25 @@ def test_imports():
     assert hasattr(server, 'DocumentChunk')
 
 
+def test_ocr_configuration():
+    """Test OCR configuration and Tesseract availability."""
+    import server
+
+    # Check if OCR libraries are available
+    assert server.OCR_SUPPORT is not None, "OCR_SUPPORT should be defined"
+
+    if server.OCR_SUPPORT:
+        # Libraries are installed, check if Tesseract is available
+        import pytesseract
+        try:
+            version = pytesseract.get_tesseract_version()
+            print(f"\nTesseract found: version {version}")
+            assert version is not None, "Tesseract version should be retrievable"
+        except Exception as e:
+            pytest.skip(f"Tesseract not found: {e}")
+    else:
+        pytest.skip("OCR libraries (pytesseract/pdf2image/Pillow) not installed")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

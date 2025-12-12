@@ -30,6 +30,16 @@ pdf/
 txt/
 input/
 codebase64_latest/
+SIDin/
+
+# Binary dependencies
+poppler-*/
+
+# Temporary test files
+test_*.py
+check_*.py
+reimport_*.py
+debug_*.py
 
 # OS
 .DS_Store

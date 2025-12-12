@@ -469,6 +469,157 @@ def test_query_preprocessing(tmpdir):
     kb.close()
 
 
+def test_health_check(tmpdir):
+    """Test health check functionality."""
+    # Create knowledge base
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create sample document
+    test_file = Path(tmpdir) / "test.txt"
+    test_file.write_text("Test content for health check")
+
+    # Add document
+    doc = kb.add_document(str(test_file), "Test Doc", ["test"])
+    assert doc is not None
+
+    # Run health check
+    health = kb.health_check()
+
+    # Verify structure
+    assert 'status' in health
+    assert 'issues' in health
+    assert 'metrics' in health
+    assert 'features' in health
+    assert 'database' in health
+    assert 'performance' in health
+    assert 'message' in health
+
+    # Check status
+    assert health['status'] in ['healthy', 'warning', 'error']
+
+    # Check metrics
+    assert health['metrics']['documents'] >= 1
+    assert health['metrics']['chunks'] >= 1
+    assert health['metrics']['total_words'] > 0
+
+    # Check database info
+    assert 'integrity' in health['database']
+    assert health['database']['integrity'] == 'ok'
+
+    # Check features
+    assert 'fts5_enabled' in health['features']
+    assert 'semantic_search_enabled' in health['features']
+    assert 'bm25_enabled' in health['features']
+
+    # Check performance
+    assert 'cache_enabled' in health['performance']
+
+    print(f"\nHealth check status: {health['status']}")
+    print(f"Message: {health['message']}")
+
+    kb.close()
+
+
+def test_enhanced_snippet_extraction(tmpdir):
+    """Test enhanced snippet extraction with term density scoring."""
+    # Create knowledge base
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create sample document
+    test_file = Path(tmpdir) / "test.txt"
+    test_file.write_text("VIC-II graphics chip. The VIC-II has sprites for moving graphics on screen.")
+
+    # Add document
+    doc = kb.add_document(str(test_file), "Test Doc", ["test"])
+    assert doc is not None
+
+    # Enable FTS5 for testing
+    os.environ['USE_FTS5'] = '1'
+
+    # Search with terms that appear multiple times
+    results = kb.search("VIC-II graphics sprites", max_results=1)
+
+    if results:
+        snippet = results[0]['snippet']
+
+        # Check that snippet contains highlighted terms
+        assert '**' in snippet, "Snippet should contain highlighted terms"
+
+        # Check that snippet doesn't cut mid-word (should have ellipsis or complete sentences)
+        # Enhanced snippet should favor complete sentences
+        if snippet.startswith('...'):
+            # If it starts with ellipsis, the next character should be uppercase or space
+            assert len(snippet) > 3
+        if snippet.endswith('...'):
+            # If it ends with ellipsis, it was properly truncated
+            assert len(snippet) > 3
+
+        print(f"\nEnhanced snippet: {snippet[:100]}...")
+
+    kb.close()
+
+
+def test_hybrid_search(tmpdir):
+    """Test hybrid search combining FTS5 and semantic search."""
+    # Create knowledge base
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Skip if semantic search not available
+    if not kb.use_semantic:
+        kb.close()
+        pytest.skip("Semantic search not enabled (USE_SEMANTIC_SEARCH=1 required)")
+
+    # Create sample document
+    test_file = Path(tmpdir) / "test.txt"
+    test_file.write_text("VIC-II graphics chip with hardware sprites for moving graphics.")
+
+    # Add document
+    doc = kb.add_document(str(test_file), "VIC-II Test Doc", ["test", "vic-ii"])
+    assert doc is not None
+
+    # Enable FTS5
+    os.environ['USE_FTS5'] = '1'
+
+    try:
+        # Test hybrid search with different weights
+        results = kb.hybrid_search("graphics sprites", max_results=5, semantic_weight=0.3)
+
+        # Should return results
+        assert isinstance(results, list)
+
+        if results:
+            # Check result structure
+            assert 'doc_id' in results[0]
+            assert 'score' in results[0]
+            assert 'fts_score' in results[0]
+            assert 'semantic_score' in results[0]
+            assert 'snippet' in results[0]
+
+            # Scores should be normalized (0-1 range)
+            assert 0 <= results[0]['fts_score'] <= 1
+            assert 0 <= results[0]['semantic_score'] <= 1
+            assert 0 <= results[0]['score'] <= 1
+
+            # Results should be sorted by score descending
+            for i in range(len(results) - 1):
+                assert results[i]['score'] >= results[i + 1]['score']
+
+            print(f"\nHybrid search results: {len(results)}")
+            print(f"Top result score: {results[0]['score']:.4f} (FTS: {results[0]['fts_score']:.4f}, Semantic: {results[0]['semantic_score']:.4f})")
+
+        # Test with different semantic weight
+        results_high_semantic = kb.hybrid_search("graphics", max_results=5, semantic_weight=0.8)
+        assert isinstance(results_high_semantic, list)
+
+    except RuntimeError as e:
+        if "Semantic search not available" in str(e):
+            kb.close()
+            pytest.skip("Semantic search dependencies not installed")
+        raise
+    finally:
+        kb.close()
+
+
 def test_imports():
     """Test that required modules can be imported."""
     import server

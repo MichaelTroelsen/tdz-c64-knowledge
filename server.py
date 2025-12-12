@@ -1729,30 +1729,76 @@ class KnowledgeBase:
             return []
 
     def _extract_snippet(self, content: str, query_terms: set, snippet_size: int = 300) -> str:
-        """Extract a relevant snippet from content with highlighted search terms."""
+        """
+        Extract a relevant snippet from content with highlighted search terms.
+        Enhanced to extract complete sentences and find regions with high term density.
+        """
         content_lower = content.lower()
 
-        # Find the first occurrence of any query term
-        best_pos = len(content)
-        for term in query_terms:
-            pos = content_lower.find(term)
-            if pos != -1 and pos < best_pos:
-                best_pos = pos
+        # Calculate term density across content in sliding windows
+        window_size = snippet_size
+        best_score = 0
+        best_pos = 0
 
-        if best_pos == len(content):
+        # Slide through content and score each window by term matches
+        for i in range(0, max(1, len(content) - window_size + 1), 50):  # Step by 50 chars
+            window = content_lower[i:i + window_size]
+            score = sum(window.count(term) for term in query_terms if term)
+            if score > best_score:
+                best_score = score
+                best_pos = i
+
+        # If no matches found, use beginning
+        if best_score == 0:
             best_pos = 0
 
-        # Extract snippet around that position
-        start = max(0, best_pos - snippet_size // 2)
+        # Expand to complete sentences
+        # Find sentence boundaries (., !, ?, or newline followed by capital letter or code)
+        sentence_pattern = r'[.!?\n][\s\n]+'
+
+        # Find start of sentence
+        start = best_pos
+        # Look backwards for sentence start
+        for match in re.finditer(sentence_pattern, content[:best_pos]):
+            start = match.end()
+
+        # If we're too far from best_pos, adjust
+        if best_pos - start > snippet_size // 2:
+            start = max(0, best_pos - snippet_size // 3)
+
+        # Find end of sentence
         end = min(len(content), start + snippet_size)
+        matches = list(re.finditer(sentence_pattern, content[start:]))
+        for match in matches:
+            potential_end = start + match.end()
+            if potential_end - start >= snippet_size * 0.8:  # At least 80% of desired size
+                end = potential_end
+                break
 
-        snippet = content[start:end]
+        # If we couldn't find sentence end, use hard cutoff
+        if end - start < snippet_size * 0.5:
+            end = min(len(content), start + snippet_size)
 
-        # Highlight matching terms (case-insensitive)
+        snippet = content[start:end].strip()
+
+        # Preserve code blocks (lines starting with spaces/tabs)
+        # Don't break in the middle of code
+        lines = snippet.split('\n')
+        if lines and (lines[0].startswith('    ') or lines[0].startswith('\t')):
+            # Start of snippet is code, find complete code block
+            code_end = 0
+            for i, line in enumerate(lines):
+                if line and not line[0].isspace():
+                    code_end = i
+                    break
+            if code_end > 0:
+                snippet = '\n'.join(lines[:code_end])
+
+        # Highlight matching terms (case-insensitive, whole words)
         for term in query_terms:
             if len(term) >= 2:  # Only highlight terms with 2+ characters
-                # Use regex to match whole words and preserve case
-                pattern = re.compile(f'({re.escape(term)})', re.IGNORECASE)
+                # Use word boundary for whole word matching when possible
+                pattern = re.compile(f'\\b({re.escape(term)})\\b', re.IGNORECASE)
                 snippet = pattern.sub(r'**\1**', snippet)
 
         # Add ellipsis if truncated
@@ -1908,6 +1954,107 @@ class KnowledgeBase:
 
         elapsed = (time.time() - start_time) * 1000
         self.logger.info(f"Semantic search completed: {len(results)} results in {elapsed:.2f}ms")
+
+        return results
+
+    def hybrid_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
+                     semantic_weight: float = 0.3) -> list[dict]:
+        """
+        Perform hybrid search combining FTS5 keyword search and semantic search.
+
+        Args:
+            query: Search query
+            max_results: Maximum number of results to return
+            tags: Optional list of tags to filter by
+            semantic_weight: Weight for semantic score (0.0-1.0). Default 0.3 means 70% FTS5, 30% semantic.
+
+        Returns:
+            List of search results with combined scores
+        """
+        if not self.use_semantic or self.embeddings_model is None:
+            # Fall back to regular search if semantic not available
+            self.logger.warning("Semantic search not available, falling back to FTS5/BM25")
+            return self.search(query, max_results, tags)
+
+        self.logger.info(f"Hybrid search query: '{query}' (max_results={max_results}, tags={tags}, semantic_weight={semantic_weight})")
+        start_time = time.time()
+
+        # Get results from both search methods (request 2x max_results for better merging)
+        fts_results = self.search(query, max_results * 2, tags)
+        semantic_results = self.semantic_search(query, max_results * 2, tags)
+
+        # Normalize scores to 0-1 range
+        # FTS5 scores: higher absolute value is better, normalize by max
+        if fts_results:
+            max_fts_score = max(r['score'] for r in fts_results)
+            if max_fts_score > 0:
+                for r in fts_results:
+                    r['fts_score_normalized'] = r['score'] / max_fts_score
+            else:
+                for r in fts_results:
+                    r['fts_score_normalized'] = 0.0
+
+        # Semantic scores: already 0-1 cosine similarity
+        for r in semantic_results:
+            r['semantic_score_normalized'] = r.get('similarity', r['score'])
+
+        # Merge results by (doc_id, chunk_id)
+        merged = {}
+
+        # Add FTS5 results
+        for r in fts_results:
+            key = (r['doc_id'], r['chunk_id'])
+            merged[key] = {
+                'doc_id': r['doc_id'],
+                'filename': r['filename'],
+                'title': r['title'],
+                'chunk_id': r['chunk_id'],
+                'snippet': r['snippet'],
+                'word_count': r['word_count'],
+                'fts_score': r['fts_score_normalized'],
+                'semantic_score': 0.0  # Will be updated if found in semantic results
+            }
+
+        # Update with semantic results
+        for r in semantic_results:
+            key = (r['doc_id'], r['chunk_id'])
+            if key in merged:
+                merged[key]['semantic_score'] = r['semantic_score_normalized']
+            else:
+                # Not in FTS5 results, add it
+                merged[key] = {
+                    'doc_id': r['doc_id'],
+                    'filename': r['filename'],
+                    'title': r['title'],
+                    'chunk_id': r['chunk_id'],
+                    'snippet': r['snippet'],
+                    'word_count': r['word_count'],
+                    'fts_score': 0.0,
+                    'semantic_score': r['semantic_score_normalized']
+                }
+
+        # Calculate hybrid scores
+        results = []
+        for item in merged.values():
+            hybrid_score = (1.0 - semantic_weight) * item['fts_score'] + semantic_weight * item['semantic_score']
+            results.append({
+                'doc_id': item['doc_id'],
+                'filename': item['filename'],
+                'title': item['title'],
+                'chunk_id': item['chunk_id'],
+                'score': hybrid_score,
+                'fts_score': item['fts_score'],
+                'semantic_score': item['semantic_score'],
+                'snippet': item['snippet'],
+                'word_count': item['word_count']
+            })
+
+        # Sort by hybrid score (descending) and limit
+        results.sort(key=lambda x: x['score'], reverse=True)
+        results = results[:max_results]
+
+        elapsed = (time.time() - start_time) * 1000
+        self.logger.info(f"Hybrid search completed: {len(results)} results in {elapsed:.2f}ms")
 
         return results
 
@@ -2178,6 +2325,132 @@ class KnowledgeBase:
             'all_tags': list(set(t for d in self.documents.values() for t in d.tags))
         }
 
+    def health_check(self) -> dict:
+        """
+        Perform health check on the knowledge base system.
+
+        Returns:
+            Dictionary with health metrics and status information
+        """
+        health = {
+            'status': 'healthy',
+            'issues': [],
+            'metrics': {},
+            'features': {},
+            'database': {},
+            'performance': {}
+        }
+
+        try:
+            # Database health
+            cursor = self.db_conn.cursor()
+
+            # Check database file size
+            db_file = Path(self.data_dir) / "knowledge_base.db"
+            if db_file.exists():
+                db_size_mb = db_file.stat().st_size / (1024 * 1024)
+                health['database']['size_mb'] = round(db_size_mb, 2)
+
+                # Warn if database is very large
+                if db_size_mb > 1000:  # 1GB
+                    health['issues'].append(f"Database size is large: {db_size_mb:.2f} MB")
+
+            # Check table integrity
+            cursor.execute("PRAGMA integrity_check")
+            integrity = cursor.fetchone()[0]
+            health['database']['integrity'] = integrity
+            if integrity != 'ok':
+                health['status'] = 'warning'
+                health['issues'].append(f"Database integrity check failed: {integrity}")
+
+            # Document and chunk counts
+            cursor.execute("SELECT COUNT(*) FROM documents")
+            doc_count = cursor.fetchone()[0]
+            health['metrics']['documents'] = doc_count
+
+            cursor.execute("SELECT COUNT(*) FROM chunks")
+            chunk_count = cursor.fetchone()[0]
+            health['metrics']['chunks'] = chunk_count
+
+            cursor.execute("SELECT SUM(word_count) FROM chunks")
+            total_words = cursor.fetchone()[0] or 0
+            health['metrics']['total_words'] = total_words
+
+            # Check for orphaned chunks (shouldn't happen with foreign keys)
+            cursor.execute("""
+                SELECT COUNT(*) FROM chunks c
+                LEFT JOIN documents d ON c.doc_id = d.doc_id
+                WHERE d.doc_id IS NULL
+            """)
+            orphaned = cursor.fetchone()[0]
+            if orphaned > 0:
+                health['status'] = 'warning'
+                health['issues'].append(f"Found {orphaned} orphaned chunks")
+                health['database']['orphaned_chunks'] = orphaned
+
+            # Feature availability
+            health['features']['fts5_enabled'] = os.environ.get('USE_FTS5', '0') == '1'
+            health['features']['fts5_available'] = self._fts5_available()
+            health['features']['semantic_search_enabled'] = self.use_semantic
+            health['features']['semantic_search_available'] = self.embeddings_index is not None
+            health['features']['bm25_enabled'] = os.environ.get('USE_BM25', '1') == '1'
+            health['features']['query_preprocessing'] = os.environ.get('USE_QUERY_PREPROCESSING', '1') == '1'
+
+            # Check FTS5 index if enabled
+            if health['features']['fts5_enabled']:
+                if not health['features']['fts5_available']:
+                    health['issues'].append("FTS5 is enabled but index not found")
+                    health['status'] = 'warning'
+
+            # Check semantic search if enabled
+            if health['features']['semantic_search_enabled']:
+                if not health['features']['semantic_search_available']:
+                    health['issues'].append("Semantic search enabled but embeddings not built")
+                    health['status'] = 'warning'
+                else:
+                    # Check embeddings file size
+                    if self.embeddings_file.exists():
+                        emb_size_mb = self.embeddings_file.stat().st_size / (1024 * 1024)
+                        health['features']['embeddings_size_mb'] = round(emb_size_mb, 2)
+                        health['features']['embeddings_count'] = len(self.embeddings_doc_map)
+
+            # Performance metrics
+            health['performance']['cache_enabled'] = self._search_cache is not None
+            if self._search_cache is not None:
+                from cachetools import TTLCache
+                if isinstance(self._search_cache, TTLCache):
+                    health['performance']['cache_size'] = len(self._search_cache)
+                    health['performance']['cache_capacity'] = self._search_cache.maxsize
+
+            # BM25 index status
+            if health['features']['bm25_enabled']:
+                health['features']['bm25_index_built'] = self.bm25 is not None
+
+            # Disk space check
+            import shutil
+            disk_usage = shutil.disk_usage(self.data_dir)
+            free_gb = disk_usage.free / (1024 ** 3)
+            health['database']['disk_free_gb'] = round(free_gb, 2)
+
+            if free_gb < 1:  # Less than 1GB free
+                health['status'] = 'warning'
+                health['issues'].append(f"Low disk space: {free_gb:.2f} GB free")
+
+            # Overall status
+            if not health['issues']:
+                health['status'] = 'healthy'
+                health['message'] = 'All systems operational'
+            else:
+                health['message'] = f"System functional with {len(health['issues'])} issue(s)"
+
+        except Exception as e:
+            health['status'] = 'error'
+            health['issues'].append(f"Health check error: {str(e)}")
+            health['message'] = 'Health check failed'
+            self.logger.error(f"Health check error: {e}", exc_info=True)
+
+        return health
+
     def close(self):
         """Close the database connection."""
         if self.db_conn:
@@ -2351,8 +2624,45 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="hybrid_search",
+            description="Perform hybrid search combining FTS5 keyword search and semantic search. Best of both worlds - finds exact keyword matches AND conceptually related content. Returns results ranked by weighted combination of both scores.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 5)",
+                        "default": 5
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by document tags (optional)"
+                    },
+                    "semantic_weight": {
+                        "type": "number",
+                        "description": "Weight for semantic score, 0.0-1.0 (default: 0.3). Higher values favor conceptual matches, lower values favor exact keyword matches.",
+                        "default": 0.3
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
             name="kb_stats",
             description="Get statistics about the knowledge base.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="health_check",
+            description="Perform health check on the knowledge base system. Returns status, metrics, feature availability, and any issues detected.",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -2481,6 +2791,36 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         return [TextContent(type="text", text=output)]
 
+    elif name == "hybrid_search":
+        if not kb.use_semantic:
+            return [TextContent(
+                type="text",
+                text="Hybrid search requires semantic search. Set USE_SEMANTIC_SEARCH=1 and install sentence-transformers and faiss-cpu."
+            )]
+
+        query = arguments.get("query", "")
+        max_results = arguments.get("max_results", 5)
+        tags = arguments.get("tags")
+        semantic_weight = arguments.get("semantic_weight", 0.3)
+
+        try:
+            results = kb.hybrid_search(query, max_results, tags, semantic_weight)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Hybrid search error: {str(e)}")]
+
+        if not results:
+            return [TextContent(type="text", text=f"No results found for: {query}")]
+
+        output = f"Found {len(results)} hybrid results for '{query}' (semantic_weight={semantic_weight}):\n\n"
+        for i, r in enumerate(results, 1):
+            output += f"--- Result {i} ---\n"
+            output += f"Document: {r['title']} ({r['filename']})\n"
+            output += f"Doc ID: {r['doc_id']}, Chunk: {r['chunk_id']}\n"
+            output += f"Hybrid Score: {r['score']:.4f} (FTS: {r['fts_score']:.4f}, Semantic: {r['semantic_score']:.4f})\n"
+            output += f"Snippet:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
     elif name == "get_chunk":
         doc_id = arguments.get("doc_id")
         chunk_id = arguments.get("chunk_id")
@@ -2596,6 +2936,56 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         output += f"  Total Words: {stats['total_words']:,}\n"
         output += f"  File Types: {', '.join(stats['file_types']) or 'none'}\n"
         output += f"  Tags: {', '.join(stats['all_tags']) or 'none'}\n"
+        return [TextContent(type="text", text=output)]
+
+    elif name == "health_check":
+        health = kb.health_check()
+
+        # Format output
+        output = f"System Health Check\n{'='*50}\n\n"
+        output += f"Status: {health['status'].upper()}\n"
+        output += f"Message: {health['message']}\n\n"
+
+        # Metrics
+        if health['metrics']:
+            output += "Metrics:\n"
+            for key, value in health['metrics'].items():
+                if isinstance(value, int):
+                    output += f"  {key}: {value:,}\n"
+                else:
+                    output += f"  {key}: {value}\n"
+            output += "\n"
+
+        # Database
+        if health['database']:
+            output += "Database:\n"
+            for key, value in health['database'].items():
+                output += f"  {key}: {value}\n"
+            output += "\n"
+
+        # Features
+        if health['features']:
+            output += "Features:\n"
+            for key, value in health['features'].items():
+                status = "✓" if value else "✗"
+                output += f"  {status} {key}: {value}\n"
+            output += "\n"
+
+        # Performance
+        if health['performance']:
+            output += "Performance:\n"
+            for key, value in health['performance'].items():
+                output += f"  {key}: {value}\n"
+            output += "\n"
+
+        # Issues
+        if health['issues']:
+            output += f"Issues ({len(health['issues'])}):\n"
+            for i, issue in enumerate(health['issues'], 1):
+                output += f"  {i}. {issue}\n"
+        else:
+            output += "✓ No issues detected\n"
+
         return [TextContent(type="text", text=output)]
 
     elif name == "check_updates":

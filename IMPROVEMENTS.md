@@ -31,6 +31,10 @@
 ### Phase 4: Performance Optimization (Completed)
 - ✅ **SQLite FTS5 Full-Text Search** - Native search with 480x performance improvement
 
+### Phase 5: P0 Critical Features (Completed)
+- ✅ **Path Traversal Protection** - Security validation for document ingestion
+- ✅ **Semantic Search with Embeddings** - Conceptual search using sentence-transformers
+
 ### Additional Completions
 - ✅ **CI/CD Pipeline** - GitHub Actions workflow for multi-platform testing
 - ✅ **Comprehensive Test Suite** - 19 tests covering all functionality including SQLite
@@ -213,35 +217,67 @@ class KnowledgeBase:
 
 ## 3. Feature Enhancements
 
-### P0: Add Semantic Search with Embeddings
-**Current Issue**: Cannot find conceptually similar content
+### ✅ COMPLETED: P0: Add Semantic Search with Embeddings
+**Status**: ✅ Implemented with FAISS and sentence-transformers
+**Completed**: December 2025
 
-**Recommendations**:
+**Implementation Details**:
 ```python
-# Use sentence-transformers for semantic search
+# sentence-transformers for embeddings generation
 from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
 
 class KnowledgeBase:
     def __init__(self, data_dir):
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        # Initialize embeddings model
+        self.embeddings_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.embeddings_index = None  # FAISS index
+        self.embeddings_doc_map = []  # Maps index positions to (doc_id, chunk_id)
 
-    def add_document(self, ...):
-        # Generate embeddings for each chunk
-        chunk_embeddings = self.model.encode([c.content for c in chunks])
-        # Store in vector database (e.g., FAISS, ChromaDB)
+    def _build_embeddings(self):
+        # Generate embeddings for all chunks
+        chunks = self._get_chunks_db()
+        texts = [chunk.content for chunk in chunks]
+        embeddings = self.embeddings_model.encode(texts, convert_to_numpy=True)
 
-    def semantic_search(self, query: str, top_k: int = 5):
-        query_embedding = self.model.encode([query])
-        # Find nearest neighbors in embedding space
+        # Create FAISS index with cosine similarity
+        dimension = embeddings.shape[1]
+        self.embeddings_index = faiss.IndexFlatIP(dimension)
+        faiss.normalize_L2(embeddings)
+        self.embeddings_index.add(embeddings)
+
+    def semantic_search(self, query: str, max_results: int = 5, tags=None):
+        # Encode query and search
+        query_embedding = self.embeddings_model.encode([query], convert_to_numpy=True)
+        faiss.normalize_L2(query_embedding)
+        scores, indices = self.embeddings_index.search(query_embedding, max_results)
+        # Return results with similarity scores
 ```
 
-**Benefits**:
-- Finds "sprites" when searching for "movable objects"
-- Understands context and meaning
-- Better for natural language queries
+**Key Features**:
+- SentenceTransformer embeddings (default: all-MiniLM-L6-v2)
+- FAISS vector similarity search with cosine distance
+- Persistent embeddings storage (embeddings.faiss, embeddings_map.json)
+- Lazy embeddings generation (built on first semantic search)
+- Automatic invalidation on add/remove operations
+- Tag filtering support
 
-**Effort**: Medium (2-3 days)
-**Libraries**: `sentence-transformers`, `faiss-cpu`, or `chromadb`
+**Environment Variables**:
+- `USE_SEMANTIC_SEARCH=1` - Enable semantic search
+- `SEMANTIC_MODEL=all-MiniLM-L6-v2` - Model to use
+
+**Performance**:
+- Embeddings generation: ~1 min for 2347 chunks (one-time)
+- Search speed: ~7-16ms per query
+- Persistent storage avoids rebuilding
+
+**Benefits**:
+- ✅ Finds "sprites" when searching for "movable objects"
+- ✅ Understands context and meaning
+- ✅ Better for natural language queries
+
+**Libraries**: `sentence-transformers>=2.0.0`, `faiss-cpu>=1.7.0`
 
 ### ✅ COMPLETED: P1: Highlight Search Terms in Results
 **Status**: ✅ Implemented in `_extract_snippet()` method
@@ -586,19 +622,63 @@ async def test_mcp_tool_call():
 
 ## 9. Security Considerations
 
-### P0: Path Traversal Protection
-**Current Issue**: `add_document` could access files outside intended directory
+### ✅ COMPLETED: P0: Path Traversal Protection
+**Status**: ✅ Implemented with directory whitelisting
+**Completed**: December 2025
 
-**Recommendations**:
+**Implementation Details**:
 ```python
-def add_document(self, filepath: str, ...):
-    filepath = Path(filepath).resolve()
+class SecurityError(KnowledgeBaseError):
+    """Raised when a security violation is detected."""
+    pass
 
-    # Validate path doesn't escape allowed directories
-    if allowed_dirs:
-        if not any(filepath.is_relative_to(d) for d in allowed_dirs):
-            raise SecurityError("Path outside allowed directories")
+class KnowledgeBase:
+    def __init__(self, data_dir):
+        # Parse allowed directories from environment
+        allowed_dirs_env = os.getenv('ALLOWED_DOCS_DIRS', '')
+        if allowed_dirs_env:
+            self.allowed_dirs = [Path(d.strip()).resolve()
+                                for d in allowed_dirs_env.split(',') if d.strip()]
+        else:
+            self.allowed_dirs = None  # No restrictions (backward compatible)
+
+    def add_document(self, filepath: str, ...):
+        # Resolve to absolute path to prevent path traversal
+        resolved_path = Path(filepath).resolve()
+
+        # Validate path is within allowed directories
+        if self.allowed_dirs:
+            is_allowed = any(
+                resolved_path.is_relative_to(allowed_dir)
+                for allowed_dir in self.allowed_dirs
+            )
+            if not is_allowed:
+                raise SecurityError(
+                    f"Path outside allowed directories. File must be within: {self.allowed_dirs}"
+                )
 ```
+
+**Key Features**:
+- New `SecurityError` exception class
+- `ALLOWED_DOCS_DIRS` environment variable for directory whitelisting
+- Path resolution with `Path.resolve()` to normalize paths
+- Validation that resolved paths are within allowed directories
+- Blocks path traversal attempts (e.g., `../../../etc/passwd`)
+- Backward compatible (no restrictions if not configured)
+
+**Configuration**:
+```json
+"env": {
+  "ALLOWED_DOCS_DIRS": "C:\\docs\\allowed,C:\\other\\allowed"
+}
+```
+
+**Testing**:
+- Added comprehensive security test with 3 scenarios
+- Tests allowed directory access (passes)
+- Tests restricted directory access (blocks)
+- Tests path traversal attempts (blocks)
+- All 20 tests pass including new security test
 
 ### P1: Resource Limits
 ```python

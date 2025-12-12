@@ -4,18 +4,26 @@ An MCP (Model Context Protocol) server for managing and searching Commodore 64 d
 
 ## Features
 
-- **PDF and text file ingestion** - Extract and index content from documentation
+### Search & Retrieval
 - **SQLite FTS5 full-text search** - Native database search with 480x faster queries (50ms vs 24s)
+- **Semantic search with embeddings** - Find documents by meaning, not just keywords (e.g., "movable objects" finds "sprites")
 - **BM25 search algorithm** - Industry-standard ranking for accurate results (fallback)
 - **Query preprocessing** - Intelligent stemming and stopword removal with NLTK
 - **Phrase search** - Use quotes for exact phrase matching (e.g., `"VIC-II chip"`)
 - **Search term highlighting** - Matching terms highlighted in search results
 - **Tag-based filtering** - Organize docs by topic (memory-map, sid, vic-ii, basic, assembly, etc.)
+
+### Document Management
+- **PDF and text file ingestion** - Extract and index content from documentation
 - **Chunked retrieval** - Get specific sections without loading entire documents
 - **PDF metadata extraction** - Author, subject, creator, and creation date
 - **Page number tracking** - Results show PDF page numbers for easy reference
 - **Persistent index** - Documents stay indexed between sessions
+
+### Security & Reliability
+- **Path traversal protection** - Whitelist allowed directories for document ingestion
 - **Comprehensive logging** - File and console logging for debugging
+- **ACID transactions** - SQLite ensures data integrity
 
 ## Installation (Windows)
 
@@ -106,8 +114,11 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 |----------|-------------|---------|
 | `TDZ_DATA_DIR` | Directory to store index and chunks | `~/.tdz-c64-knowledge` |
 | `USE_FTS5` | Enable SQLite FTS5 full-text search (0=disabled, 1=enabled) | `0` (disabled) |
+| `USE_SEMANTIC_SEARCH` | Enable semantic search with embeddings (0=disabled, 1=enabled) | `0` (disabled) |
+| `SEMANTIC_MODEL` | Sentence-transformers model to use | `all-MiniLM-L6-v2` |
 | `USE_BM25` | Enable BM25 search algorithm (0=disabled, 1=enabled) | `1` (enabled) |
 | `USE_QUERY_PREPROCESSING` | Enable query preprocessing with NLTK (0=disabled, 1=enabled) | `1` (enabled) |
+| `ALLOWED_DOCS_DIRS` | Comma-separated whitelist of allowed document directories (optional) | None (no restrictions) |
 
 ## Search Features
 
@@ -138,9 +149,41 @@ For maximum performance, enable **SQLite FTS5** full-text search by setting `USE
 - Automatic triggers keep FTS5 index in sync with chunks table
 - Falls back to BM25/simple search if FTS5 returns no results
 
+### Semantic Search with Embeddings (Recommended for Natural Language)
+
+For conceptual/meaning-based search, enable **semantic search** by setting `USE_SEMANTIC_SEARCH=1`:
+
+```json
+{
+  "mcpServers": {
+    "tdz-c64-knowledge": {
+      "env": {
+        "USE_SEMANTIC_SEARCH": "1",
+        "SEMANTIC_MODEL": "all-MiniLM-L6-v2"
+      }
+    }
+  }
+}
+```
+
+**How it works:**
+- Uses sentence-transformers to generate embeddings for all chunks
+- Stores embeddings in FAISS vector index for fast similarity search
+- Finds documents based on semantic meaning, not just keywords
+- Example: searching "movable objects" will find documents about "sprites"
+
+**Performance:**
+- First search: ~1 minute (builds embeddings index for all chunks)
+- Subsequent searches: ~7-16ms per query
+- Embeddings are persisted to disk (embeddings.faiss, embeddings_map.json)
+
+**Requirements:**
+- Install with: `pip install sentence-transformers faiss-cpu`
+- Or: `pip install -e ".[semantic]"`
+
 ### BM25 Ranking Algorithm (Fallback)
 
-When FTS5 is disabled, the server uses the **BM25 (Okapi BM25)** algorithm for search ranking. BM25 is an industry-standard probabilistic ranking function that provides much better relevance scoring than simple term frequency.
+When FTS5 and semantic search are disabled, the server uses the **BM25 (Okapi BM25)** algorithm for search ranking. BM25 is an industry-standard probabilistic ranking function that provides much better relevance scoring than simple term frequency.
 
 **Benefits:**
 - More accurate ranking of search results

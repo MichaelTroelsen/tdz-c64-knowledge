@@ -46,7 +46,17 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 
 ### Search Implementation
 
-**SQLite FTS5 Full-Text Search** - Native database search (recommended):
+**Semantic Search with Embeddings** - Conceptual/meaning-based search (optional):
+- Uses sentence-transformers for generating embeddings
+- FAISS vector similarity search with cosine distance
+- Finds documents based on meaning, not just keywords
+- Example: "movable objects" finds documents about "sprites"
+- Performance: ~7-16ms per query after initial embeddings generation
+- Embeddings persisted to disk (embeddings.faiss, embeddings_map.json)
+- Can be enabled with `USE_SEMANTIC_SEARCH=1` environment variable
+- Configurable model via `SEMANTIC_MODEL` (default: all-MiniLM-L6-v2)
+
+**SQLite FTS5 Full-Text Search** - Native database search (recommended for keywords):
 - Uses SQLite's FTS5 virtual table with Porter stemming tokenizer
 - 480x faster than BM25 (50ms vs 24,000ms for typical queries)
 - Native BM25 ranking built into SQLite
@@ -61,6 +71,13 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 - Tokenizes documents and queries for matching
 - Accepts negative scores for small documents (filters by abs(score) > 0.0001)
 - Can be disabled with `USE_BM25=0` environment variable
+
+**Security - Path Traversal Protection**:
+- Optional directory whitelisting via `ALLOWED_DOCS_DIRS` environment variable
+- Validates all file paths in `add_document()` are within allowed directories
+- Blocks path traversal attacks (e.g., `../../../etc/passwd`)
+- Raises `SecurityError` on violations
+- Backward compatible (no restrictions if not configured)
 
 **Phrase Search**:
 - Detects quoted phrases with regex pattern `r'"([^"]*)"'`
@@ -130,16 +147,22 @@ python cli.py remove <doc_id>
 
 **TDZ_DATA_DIR** - Directory for database file storage (default: `~/.tdz-c64-knowledge`)
 **USE_FTS5** - Enable/disable SQLite FTS5 full-text search (default: `0` for disabled, set to `1` to enable - recommended for best performance)
+**USE_SEMANTIC_SEARCH** - Enable/disable semantic search with embeddings (default: `0` for disabled, set to `1` to enable for conceptual search)
+**SEMANTIC_MODEL** - Sentence-transformers model to use (default: `all-MiniLM-L6-v2`)
 **USE_BM25** - Enable/disable BM25 search algorithm (default: `1` for enabled, set to `0` to disable)
 **USE_QUERY_PREPROCESSING** - Enable/disable NLTK query preprocessing (default: `1` for enabled, set to `0` to disable)
+**ALLOWED_DOCS_DIRS** - Comma-separated list of allowed document directories for security (optional, no restrictions if not set)
 
 When adding to Claude Code or Claude Desktop, set these in the MCP config `env` section:
 ```json
 "env": {
   "TDZ_DATA_DIR": "C:\\Users\\YourName\\c64-knowledge-data",
   "USE_FTS5": "1",
+  "USE_SEMANTIC_SEARCH": "1",
+  "SEMANTIC_MODEL": "all-MiniLM-L6-v2",
   "USE_BM25": "1",
-  "USE_QUERY_PREPROCESSING": "1"
+  "USE_QUERY_PREPROCESSING": "1",
+  "ALLOWED_DOCS_DIRS": "C:\\Users\\YourName\\Documents\\C64Docs"
 }
 ```
 
@@ -165,6 +188,10 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 
 **Key Methods:**
 - `search()` - Main entry point, dispatches to FTS5, BM25, or simple search based on environment variables
+- `semantic_search()` - Semantic/conceptual search using embeddings and FAISS
+- `_build_embeddings()` - Generates embeddings for all chunks and builds FAISS index
+- `_load_embeddings()` - Loads persisted FAISS index from disk
+- `_save_embeddings()` - Saves FAISS index to disk
 - `_search_fts5()` - SQLite FTS5 search with native BM25 ranking (480x faster)
 - `_fts5_available()` - Checks if FTS5 table exists and is ready
 - `_search_bm25()` - BM25 scoring with phrase boosting

@@ -380,6 +380,85 @@ Document Update Check:
 Run with auto_update=true to automatically re-index changed documents.
 ```
 
+### add_documents_bulk
+Add multiple documents from a directory at once using glob patterns.
+
+```
+add_documents_bulk(
+  directory="C:/c64docs",
+  pattern="**/*.{pdf,txt}",  # Default: **/*.{pdf,txt}
+  tags=["reference", "c64"],
+  recursive=true,  # Search subdirectories
+  skip_duplicates=true  # Skip files with duplicate content
+)
+```
+
+Returns a report showing:
+- ✓ Added documents (with doc IDs and chunk counts)
+- ⊘ Skipped documents (duplicates)
+- ✗ Failed documents (with error messages)
+
+**Example output:**
+```
+Bulk Document Add Results:
+
+✓ 15 documents added:
+  - mapping_the_c64.txt (mapping_the_c64)
+    ID: a1b2c3d4, Chunks: 8
+  - programmers_reference.pdf (programmers_reference)
+    ID: e5f6g7h8, Chunks: 45
+  ...
+
+⊘ 2 documents skipped (duplicates):
+  - C:/c64docs/backup/mapping_the_c64_copy.txt
+
+✗ 1 documents failed:
+  - C:/c64docs/corrupted.pdf: Error extracting document
+
+Total: 15 added, 2 skipped, 1 failed
+```
+
+**Benefits:**
+- Efficiently import large document collections
+- Automatic duplicate detection during bulk operations
+- Graceful error handling (failures don't stop the operation)
+- Supports glob patterns for flexible file matching
+
+### remove_documents_bulk
+Remove multiple documents by IDs or tags.
+
+```
+# Remove by document IDs
+remove_documents_bulk(doc_ids=["abc123", "def456", "ghi789"])
+
+# Remove by tags
+remove_documents_bulk(tags=["outdated", "test"])
+
+# Remove by both
+remove_documents_bulk(doc_ids=["abc123"], tags=["test"])
+```
+
+Returns a report showing:
+- ✓ Removed documents (by doc ID)
+- ✗ Failed removals (with error messages)
+
+**Example output:**
+```
+Bulk Document Remove Results:
+
+✓ 3 documents removed:
+  - abc123
+  - def456
+  - ghi789
+
+Total: 3 removed, 0 failed
+```
+
+**Benefits:**
+- Clean up multiple documents at once
+- Tag-based removal for flexible document management
+- Detailed failure reporting
+
 ## Duplicate Detection
 
 The knowledge base automatically detects and prevents duplicate content from being indexed multiple times. When you add a document, the system:

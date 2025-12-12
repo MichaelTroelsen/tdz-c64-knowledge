@@ -13,7 +13,7 @@ import logging
 import time
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
@@ -143,6 +143,26 @@ class DocumentMeta:
     # Update detection fields
     file_mtime: Optional[float] = None  # File modification time
     file_hash: Optional[str] = None  # MD5 hash of file content
+
+
+@dataclass
+class ProgressUpdate:
+    """Progress update for long-running operations."""
+    operation: str  # Operation name (e.g., "add_document", "add_documents_bulk")
+    current: int  # Current progress (items processed)
+    total: int  # Total items to process
+    message: str  # Status message
+    item: Optional[str] = None  # Current item being processed (e.g., filename)
+    percentage: float = 0.0  # Percentage complete (0-100)
+
+    def __post_init__(self):
+        """Calculate percentage after initialization."""
+        if self.total > 0:
+            self.percentage = (self.current / self.total) * 100.0
+
+
+# Type alias for progress callback function
+ProgressCallback = Optional[Callable[[ProgressUpdate], None]]
 
 
 class KnowledgeBase:
@@ -801,8 +821,26 @@ class KnowledgeBase:
                 md5_hash.update(chunk)
         return md5_hash.hexdigest()
 
-    def add_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None) -> DocumentMeta:
-        """Add a document to the knowledge base."""
+    def add_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
+                     progress_callback: ProgressCallback = None) -> DocumentMeta:
+        """Add a document to the knowledge base.
+
+        Args:
+            filepath: Path to the document file
+            title: Optional title for the document
+            tags: Optional list of tags
+            progress_callback: Optional callback for progress updates
+        """
+        # Report progress: Start
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="add_document",
+                current=0,
+                total=4,
+                message="Starting document ingestion",
+                item=filepath
+            ))
+
         # Resolve to absolute path to prevent path traversal
         resolved_path = Path(filepath).resolve()
 
@@ -849,6 +887,16 @@ class KnowledgeBase:
             self.logger.error(f"Error extracting {filepath}: {e}")
             raise KnowledgeBaseError(f"Error extracting document: {e}")
 
+        # Report progress: Text extraction complete
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="add_document",
+                current=1,
+                total=4,
+                message=f"Text extraction complete ({len(text)} characters)",
+                item=filename
+            ))
+
         # Generate content-based doc_id for deduplication
         doc_id = self._generate_doc_id(filepath, text)
 
@@ -884,6 +932,16 @@ class KnowledgeBase:
             )
             chunks.append(chunk)
 
+        # Report progress: Chunking complete
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="add_document",
+                current=2,
+                total=4,
+                message=f"Created {len(chunks)} chunks",
+                item=filename
+            ))
+
         # Compute file modification time and content hash for update detection
         file_mtime = os.path.getmtime(resolved_path)
         file_hash = self._compute_file_hash(resolved_path)
@@ -911,6 +969,16 @@ class KnowledgeBase:
         self._add_document_db(doc_meta, chunks)
         self.documents[doc_id] = doc_meta
 
+        # Report progress: Database insertion complete
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="add_document",
+                current=3,
+                total=4,
+                message="Stored in database",
+                item=filename
+            ))
+
         # Invalidate BM25 index (will be rebuilt on next search)
         self.bm25 = None
 
@@ -923,6 +991,17 @@ class KnowledgeBase:
         self._invalidate_caches()
 
         self.logger.info(f"Successfully indexed document {doc_id}: {filename} ({len(chunks)} chunks)")
+
+        # Report progress: Complete
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="add_document",
+                current=4,
+                total=4,
+                message="Document indexed successfully",
+                item=filename
+            ))
+
         return doc_meta
     
     def remove_document(self, doc_id: str) -> bool:
@@ -1090,6 +1169,171 @@ class KnowledgeBase:
                     'filepath': filepath,
                     'title': doc.title
                 })
+
+        return results
+
+    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt}",
+                           tags: Optional[list[str]] = None, recursive: bool = True,
+                           skip_duplicates: bool = True, progress_callback: ProgressCallback = None) -> dict:
+        """
+        Add multiple documents from a directory matching a glob pattern.
+
+        Args:
+            directory: Directory to search for documents
+            pattern: Glob pattern (default: **/*.{pdf,txt})
+            tags: Tags to apply to all documents
+            recursive: Search subdirectories (default: True)
+            skip_duplicates: Skip files with duplicate content (default: True)
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            Dictionary with lists of added, skipped, and failed documents
+        """
+        from pathlib import Path
+
+        dir_path = Path(directory).resolve()
+        if not dir_path.exists():
+            raise ValueError(f"Directory does not exist: {directory}")
+
+        # Find matching files
+        if recursive:
+            files = list(dir_path.glob(pattern))
+        else:
+            # Non-recursive: remove ** from pattern
+            non_recursive_pattern = pattern.replace('**/', '')
+            files = list(dir_path.glob(non_recursive_pattern))
+
+        results = {
+            'added': [],
+            'skipped': [],
+            'failed': []
+        }
+
+        self.logger.info(f"Bulk add: found {len(files)} files matching pattern '{pattern}' in {directory}")
+
+        # Report progress: Start
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="add_documents_bulk",
+                current=0,
+                total=len(files),
+                message=f"Starting bulk add of {len(files)} files",
+                item=directory
+            ))
+
+        for idx, file_path in enumerate(files, 1):
+            if not file_path.is_file():
+                continue
+
+            # Report progress: Processing file
+            if progress_callback:
+                progress_callback(ProgressUpdate(
+                    operation="add_documents_bulk",
+                    current=idx,
+                    total=len(files),
+                    message=f"Processing file {idx}/{len(files)}",
+                    item=str(file_path.name)
+                ))
+
+            try:
+                # Generate title from filename
+                title = file_path.stem
+
+                doc = self.add_document(str(file_path), title=title, tags=tags)
+
+                # Check if this was a duplicate
+                if skip_duplicates:
+                    # Check if any previously added doc has same doc_id
+                    is_duplicate = any(d['doc_id'] == doc.doc_id for d in results['added'])
+                    if is_duplicate:
+                        results['skipped'].append({
+                            'filepath': str(file_path),
+                            'reason': 'duplicate content',
+                            'doc_id': doc.doc_id
+                        })
+                        continue
+
+                results['added'].append({
+                    'doc_id': doc.doc_id,
+                    'filepath': str(file_path),
+                    'title': title,
+                    'chunks': doc.total_chunks
+                })
+
+            except Exception as e:
+                results['failed'].append({
+                    'filepath': str(file_path),
+                    'error': str(e)
+                })
+                self.logger.error(f"Failed to add {file_path}: {e}")
+
+        self.logger.info(f"Bulk add complete: {len(results['added'])} added, "
+                        f"{len(results['skipped'])} skipped, {len(results['failed'])} failed")
+
+        # Report progress: Complete
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="add_documents_bulk",
+                current=len(files),
+                total=len(files),
+                message=f"Bulk add complete: {len(results['added'])} added, "
+                        f"{len(results['skipped'])} skipped, {len(results['failed'])} failed"
+            ))
+
+        return results
+
+    def remove_documents_bulk(self, doc_ids: Optional[list[str]] = None,
+                              tags: Optional[list[str]] = None) -> dict:
+        """
+        Remove multiple documents by doc IDs or tags.
+
+        Args:
+            doc_ids: List of document IDs to remove
+            tags: Remove all documents with any of these tags
+
+        Returns:
+            Dictionary with lists of removed and failed document IDs
+        """
+        if not doc_ids and not tags:
+            raise ValueError("Must provide either doc_ids or tags")
+
+        results = {
+            'removed': [],
+            'failed': []
+        }
+
+        # Collect doc_ids to remove
+        ids_to_remove = set()
+
+        if doc_ids:
+            ids_to_remove.update(doc_ids)
+
+        if tags:
+            # Find all documents with any of the specified tags
+            for doc_id, doc in self.documents.items():
+                if any(tag in doc.tags for tag in tags):
+                    ids_to_remove.add(doc_id)
+
+        self.logger.info(f"Bulk remove: removing {len(ids_to_remove)} documents")
+
+        for doc_id in ids_to_remove:
+            try:
+                if self.remove_document(doc_id):
+                    results['removed'].append(doc_id)
+                else:
+                    results['failed'].append({
+                        'doc_id': doc_id,
+                        'error': 'Document not found'
+                    })
+            except Exception as e:
+                results['failed'].append({
+                    'doc_id': doc_id,
+                    'error': str(e)
+                })
+                self.logger.error(f"Failed to remove {doc_id}: {e}")
+
+        self.logger.info(f"Bulk remove complete: {len(results['removed'])} removed, "
+                        f"{len(results['failed'])} failed")
 
         return results
 
@@ -1962,6 +2206,59 @@ async def list_tools() -> list[Tool]:
                     }
                 }
             }
+        ),
+        Tool(
+            name="add_documents_bulk",
+            description="Add multiple documents from a directory at once. Supports glob patterns for file matching.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "directory": {
+                        "type": "string",
+                        "description": "Directory to search for documents"
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob pattern (default: **/*.{pdf,txt})",
+                        "default": "**/*.{pdf,txt}"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags to apply to all documents (optional)"
+                    },
+                    "recursive": {
+                        "type": "boolean",
+                        "description": "Search subdirectories (default: true)",
+                        "default": True
+                    },
+                    "skip_duplicates": {
+                        "type": "boolean",
+                        "description": "Skip files with duplicate content (default: true)",
+                        "default": True
+                    }
+                },
+                "required": ["directory"]
+            }
+        ),
+        Tool(
+            name="remove_documents_bulk",
+            description="Remove multiple documents by IDs or tags. Useful for cleaning up the knowledge base.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of document IDs to remove (optional)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Remove all documents with these tags (optional)"
+                    }
+                }
+            }
         )
     ]
 
@@ -2164,6 +2461,70 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         if not auto_update and results['changed']:
             output += "\nRun with auto_update=true to automatically re-index changed documents.\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "add_documents_bulk":
+        directory = arguments.get("directory")
+        pattern = arguments.get("pattern", "**/*.{pdf,txt}")
+        tags = arguments.get("tags")
+        recursive = arguments.get("recursive", True)
+        skip_duplicates = arguments.get("skip_duplicates", True)
+
+        try:
+            results = kb.add_documents_bulk(directory, pattern, tags, recursive, skip_duplicates)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error in bulk add: {str(e)}")]
+
+        output = "Bulk Document Add Results:\n\n"
+
+        if results['added']:
+            output += f"✓ {len(results['added'])} documents added:\n"
+            for doc in results['added']:
+                output += f"  - {doc['title']} ({doc['filename']})\n"
+                output += f"    ID: {doc['doc_id']}, Chunks: {doc['chunks']}\n"
+            output += "\n"
+
+        if results['skipped']:
+            output += f"⊘ {len(results['skipped'])} documents skipped (duplicates):\n"
+            for doc in results['skipped']:
+                output += f"  - {doc['filepath']}\n"
+            output += "\n"
+
+        if results['failed']:
+            output += f"✗ {len(results['failed'])} documents failed:\n"
+            for failure in results['failed']:
+                output += f"  - {failure['filepath']}: {failure['error']}\n"
+            output += "\n"
+
+        output += f"Total: {len(results['added'])} added, {len(results['skipped'])} skipped, {len(results['failed'])} failed"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "remove_documents_bulk":
+        doc_ids = arguments.get("doc_ids")
+        tags = arguments.get("tags")
+
+        try:
+            results = kb.remove_documents_bulk(doc_ids, tags)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error in bulk remove: {str(e)}")]
+
+        output = "Bulk Document Remove Results:\n\n"
+
+        if results['removed']:
+            output += f"✓ {len(results['removed'])} documents removed:\n"
+            for doc_id in results['removed']:
+                output += f"  - {doc_id}\n"
+            output += "\n"
+
+        if results['failed']:
+            output += f"✗ {len(results['failed'])} documents failed to remove:\n"
+            for failure in results['failed']:
+                output += f"  - {failure['doc_id']}: {failure['error']}\n"
+            output += "\n"
+
+        output += f"Total: {len(results['removed'])} removed, {len(results['failed'])} failed"
 
         return [TextContent(type="text", text=output)]
 

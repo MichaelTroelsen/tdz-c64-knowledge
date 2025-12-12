@@ -314,6 +314,129 @@ The SID chip handles sound generation with 3 voices.
         kb.remove_document(doc1.doc_id)
         kb.remove_document(doc3.doc_id)
 
+    def test_add_documents_bulk(self, kb, temp_data_dir):
+        """Test bulk document addition."""
+        # Create multiple test files in a subdirectory
+        test_dir = Path(temp_data_dir) / "test_docs"
+        test_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create PDF and TXT files
+        for i in range(3):
+            txt_file = test_dir / f"doc_{i}.txt"
+            txt_file.write_text(f"This is test document number {i} about VIC-II and sprites.")
+
+        # Bulk add all txt files
+        results = kb.add_documents_bulk(str(test_dir), pattern="*.txt", tags=["bulk-test"], recursive=False)
+
+        # Verify results
+        assert len(results['added']) == 3
+        assert len(results['skipped']) == 0
+        assert len(results['failed']) == 0
+
+        # Verify documents are in the knowledge base
+        docs = kb.list_documents()
+        bulk_docs = [d for d in docs if "bulk-test" in d.tags]
+        assert len(bulk_docs) == 3
+
+        # Test with recursive pattern
+        subdir = test_dir / "subdir"
+        subdir.mkdir(parents=True, exist_ok=True)
+        (subdir / "nested.txt").write_text("Nested document about SID chip.")
+
+        results = kb.add_documents_bulk(str(test_dir), pattern="**/*.txt", tags=["nested-test"], recursive=True)
+        # Should find 1 new document (the nested one, others are duplicates)
+        assert len(results['added']) >= 1
+
+        # Clean up
+        for doc in kb.list_documents():
+            if "bulk-test" in doc.tags or "nested-test" in doc.tags:
+                kb.remove_document(doc.doc_id)
+
+    def test_remove_documents_bulk(self, kb, temp_data_dir):
+        """Test bulk document removal."""
+        # Create and add multiple test documents
+        docs_to_add = []
+        for i in range(5):
+            test_file = Path(temp_data_dir) / f"bulk_remove_{i}.txt"
+            test_file.write_text(f"Document {i} for bulk removal testing.")
+            if i < 3:
+                doc = kb.add_document(str(test_file), f"Doc {i}", ["remove-test", "group-a"])
+            else:
+                doc = kb.add_document(str(test_file), f"Doc {i}", ["remove-test", "group-b"])
+            docs_to_add.append(doc.doc_id)
+
+        # Test removal by doc_ids
+        results = kb.remove_documents_bulk(doc_ids=docs_to_add[:2])
+        assert len(results['removed']) == 2
+        assert len(results['failed']) == 0
+
+        # Test removal by tags
+        results = kb.remove_documents_bulk(tags=["group-b"])
+        assert len(results['removed']) == 2  # 2 docs with group-b tag
+
+        # Verify only 1 document remains (index 2, which has group-a)
+        remaining_docs = [d for d in kb.list_documents() if "remove-test" in d.tags]
+        assert len(remaining_docs) == 1
+
+        # Clean up remaining document
+        kb.remove_document(remaining_docs[0].doc_id)
+
+    def test_progress_reporting(self, kb, temp_data_dir):
+        """Test progress reporting for add_document and add_documents_bulk."""
+        from server import ProgressUpdate
+
+        # Test progress reporting for add_document
+        test_file = Path(temp_data_dir) / "progress_test.txt"
+        test_file.write_text("Testing progress reporting for document ingestion.")
+
+        progress_updates = []
+
+        def progress_callback(update: ProgressUpdate):
+            """Capture progress updates."""
+            progress_updates.append(update)
+
+        # Add document with progress callback
+        doc = kb.add_document(str(test_file), title="Progress Test", tags=["test"],
+                             progress_callback=progress_callback)
+
+        # Verify progress updates were called
+        assert len(progress_updates) > 0
+        assert progress_updates[0].operation == "add_document"
+        assert progress_updates[0].current == 0
+        assert progress_updates[0].total == 4
+        assert progress_updates[-1].current == 4  # Final update
+        assert progress_updates[-1].percentage == 100.0
+
+        # Clean up
+        kb.remove_document(doc.doc_id)
+
+        # Test progress reporting for add_documents_bulk
+        test_dir = Path(temp_data_dir) / "bulk_progress"
+        test_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create 3 test files
+        for i in range(3):
+            bulk_file = test_dir / f"bulk_{i}.txt"
+            bulk_file.write_text(f"Bulk test file {i}")
+
+        progress_updates.clear()
+
+        # Bulk add with progress callback
+        results = kb.add_documents_bulk(str(test_dir), pattern="*.txt",
+                                       tags=["bulk-progress-test"],
+                                       progress_callback=progress_callback)
+
+        # Verify bulk progress updates
+        assert len(progress_updates) > 0
+        assert progress_updates[0].operation == "add_documents_bulk"
+        assert progress_updates[0].total == 3
+        assert progress_updates[-1].percentage == 100.0
+
+        # Clean up
+        for doc in kb.list_documents():
+            if "bulk-progress-test" in doc.tags:
+                kb.remove_document(doc.doc_id)
+
 
 def test_query_preprocessing(tmpdir):
     """Test query preprocessing (stemming, stopword removal)."""

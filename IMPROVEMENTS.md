@@ -465,6 +465,178 @@ ALTER TABLE documents ADD COLUMN file_hash TEXT;
 - ✅ Batch operations for efficient workflow
 - ✅ Automatic schema migration for existing databases
 
+### ✅ COMPLETED: P1: Bulk Operations
+**Status**: ✅ Implemented with comprehensive error handling
+**Completed**: December 2025
+
+**Implementation Details**:
+```python
+def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt}",
+                       tags: Optional[list[str]] = None, recursive: bool = True,
+                       skip_duplicates: bool = True,
+                       progress_callback: ProgressCallback = None) -> dict:
+    """Add multiple documents from a directory matching a glob pattern."""
+    dir_path = Path(directory).resolve()
+    files = list(dir_path.glob(pattern))
+
+    results = {'added': [], 'skipped': [], 'failed': []}
+
+    for idx, file_path in enumerate(files, 1):
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="add_documents_bulk",
+                current=idx,
+                total=len(files),
+                message=f"Processing file {idx}/{len(files)}",
+                item=str(file_path.name)
+            ))
+
+        try:
+            doc = self.add_document(str(file_path), title=file_path.stem, tags=tags)
+            # Duplicate detection logic...
+            results['added'].append({...})
+        except Exception as e:
+            results['failed'].append({'filepath': str(file_path), 'error': str(e)})
+
+    return results
+
+def remove_documents_bulk(self, doc_ids: Optional[list[str]] = None,
+                          tags: Optional[list[str]] = None) -> dict:
+    """Remove multiple documents by doc IDs or tags."""
+    results = {'removed': [], 'failed': []}
+    ids_to_remove = set()
+
+    if doc_ids:
+        ids_to_remove.update(doc_ids)
+    if tags:
+        for doc_id, doc in self.documents.items():
+            if any(tag in doc.tags for tag in tags):
+                ids_to_remove.add(doc_id)
+
+    for doc_id in ids_to_remove:
+        try:
+            if self.remove_document(doc_id):
+                results['removed'].append(doc_id)
+        except Exception as e:
+            results['failed'].append({'doc_id': doc_id, 'error': str(e)})
+
+    return results
+```
+
+**MCP Tools**:
+- `add_documents_bulk(directory, pattern, tags, recursive, skip_duplicates)` - Bulk add documents from directory
+- `remove_documents_bulk(doc_ids, tags)` - Bulk remove by IDs or tags
+
+**Key Features**:
+- Glob pattern matching with recursive/non-recursive search
+- Duplicate detection during bulk operations
+- Comprehensive error handling (failed files don't stop the operation)
+- Detailed results reporting (added, skipped, failed counts)
+- Tag-based removal for flexible document management
+- Transaction-based operations for data integrity
+
+**Benefits**:
+- ✅ Efficient batch importing of large document collections
+- ✅ Flexible removal by IDs or tags
+- ✅ Graceful error handling with detailed failure reporting
+- ✅ Progress reporting integration for long operations
+
+### ✅ COMPLETED: P1: Progress Reporting
+**Status**: ✅ Implemented with callback-based architecture
+**Completed**: December 2025
+
+**Implementation Details**:
+```python
+@dataclass
+class ProgressUpdate:
+    """Progress update for long-running operations."""
+    operation: str  # Operation name (e.g., "add_document", "add_documents_bulk")
+    current: int  # Current progress (items processed)
+    total: int  # Total items to process
+    message: str  # Status message
+    item: Optional[str] = None  # Current item being processed (e.g., filename)
+    percentage: float = 0.0  # Percentage complete (0-100)
+
+    def __post_init__(self):
+        """Calculate percentage after initialization."""
+        if self.total > 0:
+            self.percentage = (self.current / self.total) * 100.0
+
+# Type alias for progress callback function
+ProgressCallback = Optional[Callable[[ProgressUpdate], None]]
+
+# Usage in add_document()
+def add_document(self, filepath: str, title: Optional[str] = None,
+                 tags: Optional[list[str]] = None,
+                 progress_callback: ProgressCallback = None) -> DocumentMeta:
+    if progress_callback:
+        progress_callback(ProgressUpdate(
+            operation="add_document",
+            current=0,
+            total=4,
+            message="Starting document ingestion",
+            item=filepath
+        ))
+
+    # ... extract text ...
+    if progress_callback:
+        progress_callback(ProgressUpdate(
+            operation="add_document",
+            current=1,
+            total=4,
+            message=f"Text extraction complete ({len(text)} characters)",
+            item=filename
+        ))
+
+    # ... chunking ...
+    if progress_callback:
+        progress_callback(ProgressUpdate(
+            operation="add_document",
+            current=2,
+            total=4,
+            message=f"Created {len(chunks)} chunks",
+            item=filename
+        ))
+
+    # ... database insertion ...
+    if progress_callback:
+        progress_callback(ProgressUpdate(
+            operation="add_document",
+            current=3,
+            total=4,
+            message="Stored in database",
+            item=filename
+        ))
+
+    # ... complete ...
+    if progress_callback:
+        progress_callback(ProgressUpdate(
+            operation="add_document",
+            current=4,
+            total=4,
+            message="Document indexed successfully",
+            item=filename
+        ))
+```
+
+**Key Features**:
+- ProgressUpdate dataclass with automatic percentage calculation
+- Non-blocking callback architecture
+- Detailed progress reporting at each operation stage
+- Item-level tracking for bulk operations
+- Optional callbacks (backwards compatible)
+
+**Integration Points**:
+- `add_document()` - Reports 4 stages (start, extract, chunk, store, complete)
+- `add_documents_bulk()` - Reports per-file progress with item names
+- Extensible for future operations (e.g., `_build_embeddings()`)
+
+**Benefits**:
+- ✅ Real-time progress visibility for long operations
+- ✅ Better user experience during bulk imports
+- ✅ Flexible callback architecture for different UIs
+- ✅ Backwards compatible (callbacks are optional)
+
 ### P2: Pagination for Large Result Sets
 ```python
 def search(self, query: str, max_results: int = 5, offset: int = 0, tags=None):

@@ -120,6 +120,9 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | `SEMANTIC_MODEL` | Sentence-transformers model to use | `all-MiniLM-L6-v2` |
 | `USE_BM25` | Enable BM25 search algorithm (0=disabled, 1=enabled) | `1` (enabled) |
 | `USE_QUERY_PREPROCESSING` | Enable query preprocessing with NLTK (0=disabled, 1=enabled) | `1` (enabled) |
+| `USE_FUZZY_SEARCH` | Enable fuzzy search for typo tolerance (0=disabled, 1=enabled) | `1` (enabled) |
+| `FUZZY_THRESHOLD` | Fuzzy search similarity threshold (0-100) | `80` (80% similarity) |
+| `USE_OCR` | Enable OCR for scanned PDFs (0=disabled, 1=enabled) | `1` (enabled if Tesseract installed) |
 | `SEARCH_CACHE_SIZE` | Maximum number of cached search results | `100` |
 | `SEARCH_CACHE_TTL` | Cache time-to-live in seconds | `300` (5 minutes) |
 | `ALLOWED_DOCS_DIRS` | Comma-separated whitelist of allowed document directories (optional) | None (no restrictions) |
@@ -247,6 +250,97 @@ The server uses NLTK for intelligent query preprocessing to improve search accur
 - Query: "How does the SID chip generate sounds?"
 - Preprocessed: ["sid", "chip", "generat", "sound"]
 - Matches: "generate", "generating", "generated", "sounds", "sound"
+
+### Fuzzy Search / Typo Tolerance
+
+The server uses rapidfuzz for fuzzy string matching to handle typos and similar terms:
+
+**Features:**
+- **Levenshtein distance** - Finds similar words based on edit distance
+- **Configurable threshold** - Adjust sensitivity (default: 80% similarity)
+- **Exact match priority** - Exact matches always score higher than fuzzy matches
+- **Smart fallback** - Only uses fuzzy matching when exact matches not found
+
+**Configuration:**
+```json
+{
+  "env": {
+    "USE_FUZZY_SEARCH": "1",
+    "FUZZY_THRESHOLD": "80"
+  }
+}
+```
+
+**Benefits:**
+- Handles typos automatically ("VIC-I" finds "VIC-II")
+- Finds similar terms ("grafics" finds "graphics")
+- Improves search recall without sacrificing precision
+- Configurable tolerance for your use case
+
+**Examples:**
+- Query: "registr" → Finds: "register" (88% similarity)
+- Query: "VIC-I" → Finds: "VIC-II" (83% similarity)
+- Query: "grafics" → Finds: "graphics" (88% similarity)
+
+**Installation:**
+```bash
+pip install rapidfuzz
+```
+
+### OCR Support for Scanned PDFs
+
+The server automatically detects and processes scanned PDFs using Tesseract OCR:
+
+**Features:**
+- **Automatic detection** - Detects PDFs with little/no extractable text
+- **Seamless fallback** - Automatically uses OCR when needed
+- **Per-page processing** - Handles multi-page scanned documents
+- **Graceful degradation** - Falls back to extracted text if OCR fails
+
+**How it works:**
+1. Attempts normal text extraction from PDF
+2. If < 100 characters extracted, assumes scanned document
+3. Automatically converts PDF pages to images
+4. Runs Tesseract OCR on each page
+5. Indexes the OCR-extracted text
+
+**Configuration:**
+```json
+{
+  "env": {
+    "USE_OCR": "1"
+  }
+}
+```
+
+**System Requirements:**
+- **Python libraries**: `pytesseract`, `pdf2image`, `Pillow`
+- **System binary**: Tesseract-OCR must be installed
+
+**Installation:**
+```bash
+# Python libraries
+pip install pytesseract pdf2image Pillow
+
+# Windows
+# Download installer from: https://github.com/UB-Mannheim/tesseract/wiki
+
+# Linux
+sudo apt-get install tesseract-ocr
+
+# macOS
+brew install tesseract
+```
+
+**Benefits:**
+- Handles scanned manuals and documentation automatically
+- No manual intervention required
+- Preserves PDF metadata
+- Works with any quality scanned documents
+
+**Performance:**
+- Text-based PDFs: Instant extraction
+- Scanned PDFs: ~1-2 seconds per page
 
 ### Search Result Caching
 

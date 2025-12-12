@@ -79,6 +79,24 @@ except ImportError:
     SEMANTIC_SUPPORT = False
     print("Warning: sentence-transformers or faiss-cpu not installed. Semantic search disabled.", file=sys.stderr)
 
+# Fuzzy search support
+try:
+    from rapidfuzz import fuzz
+    FUZZY_SUPPORT = True
+except ImportError:
+    FUZZY_SUPPORT = False
+    print("Warning: rapidfuzz not installed. Fuzzy search disabled.", file=sys.stderr)
+
+# OCR support
+try:
+    import pytesseract
+    from pdf2image import convert_from_path
+    from PIL import Image
+    OCR_SUPPORT = True
+except ImportError:
+    OCR_SUPPORT = False
+    print("Warning: pytesseract/pdf2image/Pillow not installed. OCR disabled.", file=sys.stderr)
+
 
 # Custom Exceptions
 class KnowledgeBaseError(Exception):
@@ -251,6 +269,31 @@ class KnowledgeBase:
         else:
             if SEMANTIC_SUPPORT:
                 self.logger.info("Semantic search disabled via USE_SEMANTIC_SEARCH=0")
+
+        # Fuzzy search initialization
+        self.use_fuzzy = FUZZY_SUPPORT and os.getenv('USE_FUZZY_SEARCH', '1') == '1'
+        self.fuzzy_threshold = int(os.getenv('FUZZY_THRESHOLD', '80'))  # 0-100, default 80%
+
+        if self.use_fuzzy:
+            self.logger.info(f"Fuzzy search enabled (threshold={self.fuzzy_threshold}%)")
+        else:
+            if FUZZY_SUPPORT:
+                self.logger.info("Fuzzy search disabled via USE_FUZZY_SEARCH=0")
+
+        # OCR initialization
+        self.use_ocr = OCR_SUPPORT and os.getenv('USE_OCR', '1') == '1'
+        if self.use_ocr:
+            # Check if Tesseract is installed
+            try:
+                pytesseract.get_tesseract_version()
+                self.logger.info("OCR enabled (Tesseract found)")
+            except Exception as e:
+                self.logger.warning(f"OCR libraries installed but Tesseract not found: {e}")
+                self.logger.warning("Install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki")
+                self.use_ocr = False
+        else:
+            if OCR_SUPPORT:
+                self.logger.info("OCR disabled via USE_OCR=0")
 
         # Load documents (with automatic migration if needed)
         self._load_documents()
@@ -651,6 +694,52 @@ class KnowledgeBase:
         preprocessing_status = "with preprocessing" if self.use_preprocessing else "without preprocessing"
         self.logger.info(f"Built BM25 index with {len(self.chunks)} chunks ({preprocessing_status})")
 
+    def _fuzzy_match_terms(self, query_terms: list[str], content: str) -> tuple[bool, float]:
+        """
+        Check if query terms fuzzy match content using rapidfuzz.
+
+        Args:
+            query_terms: List of query terms to match
+            content: Content to search in
+
+        Returns:
+            Tuple of (match_found, average_similarity_score)
+        """
+        if not self.use_fuzzy:
+            # Fuzzy search disabled, do exact matching
+            content_lower = content.lower()
+            matches = sum(1 for term in query_terms if term.lower() in content_lower)
+            return (matches > 0, matches / len(query_terms) if query_terms else 0.0)
+
+        # Split content into words for fuzzy matching
+        content_words = content.lower().split()
+
+        match_scores = []
+        for query_term in query_terms:
+            query_term_lower = query_term.lower()
+
+            # Check for exact match first (fastest)
+            if query_term_lower in content.lower():
+                match_scores.append(100.0)
+                continue
+
+            # Try fuzzy matching against content words
+            best_score = 0.0
+            for content_word in content_words:
+                score = fuzz.ratio(query_term_lower, content_word)
+                if score > best_score:
+                    best_score = score
+                if score >= self.fuzzy_threshold:
+                    break  # Found a good enough match
+
+            match_scores.append(best_score)
+
+        # Consider it a match if at least one term meets the threshold
+        match_found = any(score >= self.fuzzy_threshold for score in match_scores)
+        avg_score = sum(match_scores) / len(match_scores) if match_scores else 0.0
+
+        return (match_found, avg_score)
+
     def _preprocess_text(self, text: str) -> list[str]:
         """Preprocess text for searching: tokenize, lowercase, remove stopwords, stem.
 
@@ -747,16 +836,68 @@ class KnowledgeBase:
             
         return chunks
     
+    def _extract_pdf_with_ocr(self, filepath: str) -> tuple[str, int]:
+        """Extract text from scanned PDF using OCR, returns (text, page_count)."""
+        if not self.use_ocr:
+            raise RuntimeError("OCR not enabled. Set USE_OCR=1 and install Tesseract.")
+
+        try:
+            self.logger.info(f"Using OCR to extract text from scanned PDF: {filepath}")
+            # Convert PDF pages to images
+            images = convert_from_path(filepath)
+
+            pages = []
+            for i, image in enumerate(images):
+                try:
+                    # Extract text using Tesseract OCR
+                    text = pytesseract.image_to_string(image)
+                    pages.append(text)
+                    self.logger.debug(f"OCR processed page {i + 1}/{len(images)}")
+                except Exception as e:
+                    self.logger.error(f"OCR failed for page {i + 1}: {e}")
+                    pages.append("")  # Empty text for failed page
+
+            full_text = "\n\n--- PAGE BREAK ---\n\n".join(pages)
+            self.logger.info(f"OCR extraction complete: {len(full_text)} characters from {len(images)} pages")
+            return full_text, len(images)
+
+        except Exception as e:
+            self.logger.error(f"OCR extraction failed: {e}")
+            raise RuntimeError(f"OCR extraction failed: {e}")
+
     def _extract_pdf_text(self, filepath: str) -> tuple[str, int, dict]:
-        """Extract text from PDF, returns (text, page_count, metadata)."""
+        """Extract text from PDF with automatic OCR fallback for scanned PDFs.
+
+        Returns (text, page_count, metadata).
+        """
         if not PDF_SUPPORT:
             raise RuntimeError("PDF support not available. Install pypdf: pip install pypdf")
 
         reader = PdfReader(filepath)
         pages = []
+        total_text_length = 0
+
         for page in reader.pages:
             text = page.extract_text() or ""
             pages.append(text)
+            total_text_length += len(text.strip())
+
+        # Check if PDF appears to be scanned (very little or no text extracted)
+        # Threshold: if we get less than 100 characters total, likely scanned
+        is_scanned = total_text_length < 100 and len(reader.pages) > 0
+
+        if is_scanned and self.use_ocr:
+            self.logger.info(f"PDF appears to be scanned ({total_text_length} chars extracted), falling back to OCR")
+            try:
+                ocr_text, page_count = self._extract_pdf_with_ocr(filepath)
+                # Use OCR text instead
+                full_text = ocr_text
+                # Still extract metadata from PDF
+            except Exception as e:
+                self.logger.warning(f"OCR fallback failed: {e}, using extracted text anyway")
+                full_text = "\n\n--- PAGE BREAK ---\n\n".join(pages)
+        else:
+            full_text = "\n\n--- PAGE BREAK ---\n\n".join(pages)
 
         # Extract metadata
         metadata = {}
@@ -1459,7 +1600,7 @@ class KnowledgeBase:
         return results[:max_results]
 
     def _search_simple(self, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int) -> list[dict]:
-        """Simple term frequency search (fallback when BM25 not available)."""
+        """Simple term frequency search with fuzzy matching support (fallback when BM25 not available)."""
         results = []
 
         for chunk in self.chunks:
@@ -1471,13 +1612,20 @@ class KnowledgeBase:
 
             content_lower = chunk.content.lower()
 
-            # Score based on term frequency
+            # Score based on term frequency (exact matches)
             score = 0
             for term in query_terms:
                 # Exact word match (higher score)
                 score += len(re.findall(r'\b' + re.escape(term) + r'\b', content_lower)) * 2
                 # Partial match
                 score += content_lower.count(term)
+
+            # If fuzzy search is enabled and no exact matches, try fuzzy matching
+            if self.use_fuzzy and score == 0:
+                match_found, fuzzy_score = self._fuzzy_match_terms(list(query_terms), chunk.content)
+                if match_found:
+                    # Use fuzzy score (scaled down since it's less reliable than exact match)
+                    score = fuzzy_score / 10.0
 
             # Boost score for phrase matches
             for phrase in phrases:

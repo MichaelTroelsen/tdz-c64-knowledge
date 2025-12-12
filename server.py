@@ -496,8 +496,42 @@ class KnowledgeBase:
                 END
             """)
 
+            # Create document_facets table for faceted search
+            cursor.execute("""
+                CREATE TABLE document_facets (
+                    doc_id TEXT NOT NULL,
+                    facet_type TEXT NOT NULL,
+                    facet_value TEXT NOT NULL,
+                    PRIMARY KEY (doc_id, facet_type, facet_value),
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create indexes for faceted search
+            cursor.execute("CREATE INDEX idx_facets_type_value ON document_facets(facet_type, facet_value)")
+            cursor.execute("CREATE INDEX idx_facets_doc_id ON document_facets(doc_id)")
+
+            # Create search_log table for analytics
+            cursor.execute("""
+                CREATE TABLE search_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    query TEXT NOT NULL,
+                    search_mode TEXT NOT NULL,
+                    results_count INTEGER NOT NULL,
+                    clicked_doc_id TEXT,
+                    execution_time_ms REAL,
+                    tags TEXT
+                )
+            """)
+
+            # Create indexes for search analytics
+            cursor.execute("CREATE INDEX idx_search_log_query ON search_log(query)")
+            cursor.execute("CREATE INDEX idx_search_log_timestamp ON search_log(timestamp)")
+            cursor.execute("CREATE INDEX idx_search_log_mode ON search_log(search_mode)")
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully (with FTS5, tables, and code blocks)")
+            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, and analytics)")
         else:
             self.logger.info("Using existing database")
 
@@ -693,6 +727,56 @@ class KnowledgeBase:
                 self.db_conn.commit()
                 self.logger.info("document_code_blocks and code_fts created")
 
+            # Migrate: Add document_facets table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='document_facets'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating document_facets table for faceted search")
+                cursor.execute("""
+                    CREATE TABLE document_facets (
+                        doc_id TEXT NOT NULL,
+                        facet_type TEXT NOT NULL,
+                        facet_value TEXT NOT NULL,
+                        PRIMARY KEY (doc_id, facet_type, facet_value),
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                    )
+                """)
+
+                cursor.execute("CREATE INDEX idx_facets_type_value ON document_facets(facet_type, facet_value)")
+                cursor.execute("CREATE INDEX idx_facets_doc_id ON document_facets(doc_id)")
+
+                self.db_conn.commit()
+                self.logger.info("document_facets table created")
+
+            # Migrate: Add search_log table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='search_log'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating search_log table for analytics")
+                cursor.execute("""
+                    CREATE TABLE search_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                        query TEXT NOT NULL,
+                        search_mode TEXT NOT NULL,
+                        results_count INTEGER NOT NULL,
+                        clicked_doc_id TEXT,
+                        execution_time_ms REAL,
+                        tags TEXT
+                    )
+                """)
+
+                cursor.execute("CREATE INDEX idx_search_log_query ON search_log(query)")
+                cursor.execute("CREATE INDEX idx_search_log_timestamp ON search_log(timestamp)")
+                cursor.execute("CREATE INDEX idx_search_log_mode ON search_log(search_mode)")
+
+                self.db_conn.commit()
+                self.logger.info("search_log table created")
+
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
         try:
@@ -775,8 +859,9 @@ class KnowledgeBase:
             raise KnowledgeBaseError(f"Failed to migrate from JSON: {e}")
 
     def _add_document_db(self, doc_meta: DocumentMeta, chunks: list[DocumentChunk],
-                         tables: Optional[list[dict]] = None, code_blocks: Optional[list[dict]] = None):
-        """Add a document, chunks, tables, and code blocks to the database using a transaction."""
+                         tables: Optional[list[dict]] = None, code_blocks: Optional[list[dict]] = None,
+                         facets: Optional[dict[str, set[str]]] = None):
+        """Add a document, chunks, tables, code blocks, and facets to the database using a transaction."""
         cursor = self.db_conn.cursor()
 
         try:
@@ -863,6 +948,18 @@ class KnowledgeBase:
                         block['searchable_text'],
                         block['line_count']
                     ))
+
+            # Delete old facets if re-indexing
+            cursor.execute("DELETE FROM document_facets WHERE doc_id = ?", (doc_meta.doc_id,))
+
+            # Insert facets
+            if facets:
+                for facet_type, facet_values in facets.items():
+                    for facet_value in facet_values:
+                        cursor.execute("""
+                            INSERT INTO document_facets (doc_id, facet_type, facet_value)
+                            VALUES (?, ?, ?)
+                        """, (doc_meta.doc_id, facet_type, facet_value))
 
             # Commit transaction
             self.db_conn.commit()
@@ -1357,8 +1454,101 @@ class KnowledgeBase:
             })
             block_id += 1
 
-        self.logger.info(f"Detected {len(code_blocks)} code blocks ({sum(1 for b in code_blocks if b['block_type']=='basic')} BASIC, {sum(1 for b in code_blocks if b['block_type']=='assembly')} Assembly, {sum(1 for b in code_blocks if b['block_type']=='hex')} Hex)")
+        basic_count = sum(1 for b in code_blocks if b['block_type'] == 'basic')
+        assembly_count = sum(1 for b in code_blocks if b['block_type'] == 'assembly')
+        hex_count = sum(1 for b in code_blocks if b['block_type'] == 'hex')
+        self.logger.info(f"Detected {len(code_blocks)} code blocks ({basic_count} BASIC, {assembly_count} Assembly, {hex_count} Hex)")
         return code_blocks
+
+    def _extract_facets(self, text: str) -> dict[str, set[str]]:
+        """Extract categorizable terms for faceted search.
+
+        Returns a dictionary of facet types to sets of values:
+        {
+            'hardware': {'SID', 'VIC-II', 'CIA'},
+            'instruction': {'LDA', 'STA', 'JMP'},
+            'register': {'$D000', '$D400'}
+        }
+        """
+        facets = {
+            'hardware': set(),
+            'instruction': set(),
+            'register': set()
+        }
+
+        # Extract hardware components
+        facets['hardware'] = self._extract_hardware_refs(text)
+
+        # Extract 6502 instructions
+        facets['instruction'] = self._extract_instructions(text)
+
+        # Extract register addresses
+        facets['register'] = self._extract_registers(text)
+
+        return facets
+
+    def _extract_hardware_refs(self, text: str) -> set[str]:
+        """Extract hardware component mentions from text."""
+        hardware = set()
+
+        # Hardware patterns (case-insensitive)
+        patterns = {
+            'SID': r'\b(?:SID|6581|8580|Sound\s+Interface\s+Device)\b',
+            'VIC-II': r'\b(?:VIC-?II|VIC\s*2|6569|6567|Video\s+Interface\s+Chip)\b',
+            'CIA': r'\b(?:CIA|6526|Complex\s+Interface\s+Adapter)\b',
+            '6502': r'\b6502\b',
+            'PLA': r'\b(?:PLA|82S100|Programmable\s+Logic\s+Array)\b',
+            'Datasette': r'\b(?:Datasette|1530|C2N)\b',
+            'Disk Drive': r'\b(?:1541|1571|1581|Disk\s+Drive)\b',
+        }
+
+        for component, pattern in patterns.items():
+            if re.search(pattern, text, re.IGNORECASE):
+                hardware.add(component)
+
+        return hardware
+
+    def _extract_instructions(self, text: str) -> set[str]:
+        """Extract 6502 assembly instructions from text."""
+        instructions = set()
+
+        # Common 6502 mnemonics
+        mnemonics = [
+            'LDA', 'STA', 'LDX', 'STX', 'LDY', 'STY',
+            'JMP', 'JSR', 'RTS', 'RTI',
+            'BEQ', 'BNE', 'BCC', 'BCS', 'BMI', 'BPL', 'BVC', 'BVS',
+            'ADC', 'SBC', 'AND', 'ORA', 'EOR',
+            'INC', 'DEC', 'INX', 'INY', 'DEX', 'DEY',
+            'CMP', 'CPX', 'CPY',
+            'ASL', 'LSR', 'ROL', 'ROR',
+            'BIT', 'NOP',
+            'CLC', 'SEC', 'CLI', 'SEI', 'CLD', 'SED', 'CLV',
+            'PHA', 'PLA', 'PHP', 'PLP',
+            'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS'
+        ]
+
+        for mnemonic in mnemonics:
+            # Look for mnemonic as whole word (not part of another word)
+            pattern = r'\b' + mnemonic + r'\b'
+            if re.search(pattern, text, re.IGNORECASE):
+                instructions.add(mnemonic)
+
+        return instructions
+
+    def _extract_registers(self, text: str) -> set[str]:
+        """Extract memory register addresses from text."""
+        registers = set()
+
+        # Find all 4-digit hex addresses with $ prefix
+        # Common C64 ranges: $D000-$DFFF (I/O), $A000-$BFFF (BASIC ROM), $E000-$FFFF (KERNAL ROM)
+        register_pattern = r'\$[0-9A-Fa-f]{4}'
+        matches = re.findall(register_pattern, text)
+
+        # Normalize to uppercase and add to set
+        for match in matches:
+            registers.add(match.upper())
+
+        return registers
 
     def _cache_key(self, method: str, **kwargs) -> str:
         """Generate a cache key from method name and arguments."""
@@ -1472,6 +1662,12 @@ class KnowledgeBase:
         if code_blocks:
             self.logger.info(f"Detected {len(code_blocks)} code blocks")
 
+        # Extract facets for faceted search
+        facets = self._extract_facets(text)
+        facet_count = sum(len(values) for values in facets.values())
+        if facet_count > 0:
+            self.logger.info(f"Extracted {facet_count} facets ({len(facets['hardware'])} hardware, {len(facets['instruction'])} instructions, {len(facets['register'])} registers)")
+
         # Generate content-based doc_id for deduplication
         doc_id = self._generate_doc_id(filepath, text)
 
@@ -1540,8 +1736,8 @@ class KnowledgeBase:
             file_hash=file_hash
         )
 
-        # Add to database (with tables and code blocks)
-        self._add_document_db(doc_meta, chunks, tables=tables, code_blocks=code_blocks)
+        # Add to database (with tables, code blocks, and facets)
+        self._add_document_db(doc_meta, chunks, tables=tables, code_blocks=code_blocks, facets=facets)
         self.documents[doc_id] = doc_meta
 
         # Report progress: Database insertion complete
@@ -1984,6 +2180,10 @@ class KnowledgeBase:
         elapsed_ms = (time.time() - start_time) * 1000
         self.logger.info(f"Search completed: {len(results)} results in {elapsed_ms:.2f}ms")
 
+        # Log search for analytics
+        search_mode = 'fts5' if (use_fts5 and self._fts5_available() and results) else ('bm25' if use_bm25 else 'simple')
+        self._log_search(query, search_mode, len(results), elapsed_ms, tags)
+
         return results
 
     def _search_bm25(self, query: str, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int) -> list[dict]:
@@ -2383,6 +2583,9 @@ class KnowledgeBase:
         elapsed = (time.time() - start_time) * 1000
         self.logger.info(f"Semantic search completed: {len(results)} results in {elapsed:.2f}ms")
 
+        # Log search for analytics
+        self._log_search(query, 'semantic', len(results), elapsed, tags)
+
         return results
 
     def hybrid_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
@@ -2484,7 +2687,87 @@ class KnowledgeBase:
         elapsed = (time.time() - start_time) * 1000
         self.logger.info(f"Hybrid search completed: {len(results)} results in {elapsed:.2f}ms")
 
+        # Log search for analytics
+        self._log_search(query, 'hybrid', len(results), elapsed, tags)
+
         return results
+
+    def faceted_search(self, query: str, facet_filters: Optional[dict[str, list[str]]] = None,
+                      max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
+        """
+        Perform search with faceted filtering.
+
+        Args:
+            query: Search query
+            facet_filters: Dict of facet_type -> list of values to filter by.
+                          Example: {'hardware': ['SID', 'VIC-II'], 'instruction': ['LDA', 'STA']}
+            max_results: Maximum number of results to return
+            tags: Optional list of tags to filter by
+
+        Returns:
+            List of search results filtered by facets, with facets included
+        """
+        self.logger.info(f"Faceted search query: '{query}' (facets={facet_filters}, max_results={max_results}, tags={tags})")
+        start_time = time.time()
+
+        # First get regular search results (request more for filtering)
+        results = self.search(query, max_results * 3, tags)
+
+        # If no facet filters specified, just return regular results with facets added
+        if not facet_filters:
+            # Add facets to each result
+            for result in results:
+                result['facets'] = self._get_document_facets(result['doc_id'])
+            elapsed = (time.time() - start_time) * 1000
+            self.logger.info(f"Faceted search (no filters) completed: {len(results[:max_results])} results in {elapsed:.2f}ms")
+            return results[:max_results]
+
+        # Filter results by facets
+        filtered_results = []
+        for result in results:
+            # Get document facets
+            doc_facets = self._get_document_facets(result['doc_id'])
+
+            # Check if document matches all facet filters
+            matches = True
+            for facet_type, required_values in facet_filters.items():
+                doc_values = doc_facets.get(facet_type, set())
+                # Document must have at least one of the required values for this facet type
+                if not any(val in doc_values for val in required_values):
+                    matches = False
+                    break
+
+            if matches:
+                result['facets'] = doc_facets
+                filtered_results.append(result)
+
+                if len(filtered_results) >= max_results:
+                    break
+
+        elapsed = (time.time() - start_time) * 1000
+        self.logger.info(f"Faceted search completed: {len(filtered_results)} results in {elapsed:.2f}ms")
+
+        # Log search for analytics
+        self._log_search(query, 'faceted', len(filtered_results), elapsed, tags)
+
+        return filtered_results
+
+    def _get_document_facets(self, doc_id: str) -> dict[str, set[str]]:
+        """Get all facets for a document from the database."""
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            SELECT facet_type, facet_value
+            FROM document_facets
+            WHERE doc_id = ?
+        """, (doc_id,))
+
+        facets = {'hardware': set(), 'instruction': set(), 'register': set()}
+        for row in cursor.fetchall():
+            facet_type, facet_value = row
+            if facet_type in facets:
+                facets[facet_type].add(facet_value)
+
+        return facets
 
     def find_similar_documents(self, doc_id: str, chunk_id: Optional[int] = None,
                                max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
@@ -2878,6 +3161,162 @@ class KnowledgeBase:
             self.logger.error(f"Health check error: {e}", exc_info=True)
 
         return health
+
+    def _log_search(self, query: str, search_mode: str, results_count: int, execution_time_ms: float,
+                    tags: Optional[list[str]] = None, clicked_doc_id: Optional[str] = None):
+        """Log a search query to the search_log table."""
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute("""
+                INSERT INTO search_log (query, search_mode, results_count, execution_time_ms, tags, clicked_doc_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                query,
+                search_mode,
+                results_count,
+                execution_time_ms,
+                ','.join(tags) if tags else None,
+                clicked_doc_id
+            ))
+            self.db_conn.commit()
+        except Exception as e:
+            self.logger.error(f"Error logging search: {e}")
+
+    def get_search_analytics(self, days: int = 30, limit: int = 100) -> dict:
+        """
+        Get search analytics and insights.
+
+        Args:
+            days: Number of days to analyze (default: 30)
+            limit: Maximum number of results for top queries (default: 100)
+
+        Returns:
+            Dictionary with analytics data including:
+            - total_searches: Total number of searches
+            - unique_queries: Number of unique queries
+            - avg_results: Average number of results per search
+            - avg_execution_time_ms: Average execution time
+            - top_queries: Most frequent queries
+            - failed_searches: Queries with zero results
+            - search_modes: Breakdown by search mode
+            - popular_tags: Most frequently used tags
+        """
+        cursor = self.db_conn.cursor()
+
+        # Calculate cutoff date
+        from datetime import datetime, timedelta
+        cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+
+        analytics = {}
+
+        try:
+            # Total searches
+            cursor.execute("""
+                SELECT COUNT(*) FROM search_log
+                WHERE timestamp >= ?
+            """, (cutoff_date,))
+            analytics['total_searches'] = cursor.fetchone()[0]
+
+            # Unique queries
+            cursor.execute("""
+                SELECT COUNT(DISTINCT query) FROM search_log
+                WHERE timestamp >= ?
+            """, (cutoff_date,))
+            analytics['unique_queries'] = cursor.fetchone()[0]
+
+            # Average results count
+            cursor.execute("""
+                SELECT AVG(results_count) FROM search_log
+                WHERE timestamp >= ?
+            """, (cutoff_date,))
+            avg_results = cursor.fetchone()[0]
+            analytics['avg_results'] = round(avg_results, 2) if avg_results else 0
+
+            # Average execution time
+            cursor.execute("""
+                SELECT AVG(execution_time_ms) FROM search_log
+                WHERE timestamp >= ? AND execution_time_ms IS NOT NULL
+            """, (cutoff_date,))
+            avg_time = cursor.fetchone()[0]
+            analytics['avg_execution_time_ms'] = round(avg_time, 2) if avg_time else 0
+
+            # Top queries (most frequent)
+            cursor.execute("""
+                SELECT query, COUNT(*) as count, AVG(results_count) as avg_results
+                FROM search_log
+                WHERE timestamp >= ?
+                GROUP BY query
+                ORDER BY count DESC
+                LIMIT ?
+            """, (cutoff_date, limit))
+            analytics['top_queries'] = [
+                {
+                    'query': row[0],
+                    'count': row[1],
+                    'avg_results': round(row[2], 1) if row[2] else 0
+                }
+                for row in cursor.fetchall()
+            ]
+
+            # Failed searches (zero results)
+            cursor.execute("""
+                SELECT query, COUNT(*) as count
+                FROM search_log
+                WHERE timestamp >= ? AND results_count = 0
+                GROUP BY query
+                ORDER BY count DESC
+                LIMIT ?
+            """, (cutoff_date, min(limit, 20)))
+            analytics['failed_searches'] = [
+                {'query': row[0], 'count': row[1]}
+                for row in cursor.fetchall()
+            ]
+
+            # Search mode breakdown
+            cursor.execute("""
+                SELECT search_mode, COUNT(*) as count, AVG(results_count) as avg_results
+                FROM search_log
+                WHERE timestamp >= ?
+                GROUP BY search_mode
+                ORDER BY count DESC
+            """, (cutoff_date,))
+            analytics['search_modes'] = [
+                {
+                    'mode': row[0],
+                    'count': row[1],
+                    'avg_results': round(row[2], 1) if row[2] else 0
+                }
+                for row in cursor.fetchall()
+            ]
+
+            # Popular tags
+            cursor.execute("""
+                SELECT tags, COUNT(*) as count
+                FROM search_log
+                WHERE timestamp >= ? AND tags IS NOT NULL
+                GROUP BY tags
+                ORDER BY count DESC
+                LIMIT ?
+            """, (cutoff_date, 20))
+            tag_counts = {}
+            for row in cursor.fetchall():
+                tags_str = row[0]
+                count = row[1]
+                # Split tags and count individually
+                for tag in tags_str.split(','):
+                    tag = tag.strip()
+                    tag_counts[tag] = tag_counts.get(tag, 0) + count
+
+            analytics['popular_tags'] = [
+                {'tag': tag, 'count': count}
+                for tag, count in sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:20]
+            ]
+
+        except Exception as e:
+            self.logger.error(f"Error getting search analytics: {e}")
+            analytics['error'] = str(e)
+
+        return analytics
 
     def search_tables(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
         """Search for tables in documents using FTS5.
@@ -3372,6 +3811,57 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["query"]
             }
+        ),
+        Tool(
+            name="faceted_search",
+            description="Search with faceted filtering. Filter results by hardware components (SID, VIC-II, CIA, etc.), assembly instructions (LDA, STA, etc.), or memory registers ($D000, etc.). Great for narrowing down search results to specific technical domains.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query"
+                    },
+                    "facet_filters": {
+                        "type": "object",
+                        "description": "Facet filters as dict of facet_type -> list of values. Example: {'hardware': ['SID', 'VIC-II'], 'instruction': ['LDA', 'STA']}",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 5)",
+                        "default": 5
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by document tags (optional)"
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="search_analytics",
+            description="Get search analytics and insights. Shows popular queries, failed searches, search mode usage, and performance metrics.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of days to analyze (default: 30)",
+                        "default": 30
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of results for top queries (default: 100)",
+                        "default": 100
+                    }
+                }
+            }
         )
     ]
 
@@ -3455,6 +3945,55 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += f"Document: {r['title']} ({r['filename']})\n"
             output += f"Doc ID: {r['doc_id']}, Chunk: {r['chunk_id']}\n"
             output += f"Hybrid Score: {r['score']:.4f} (FTS: {r['fts_score']:.4f}, Semantic: {r['semantic_score']:.4f})\n"
+            output += f"Snippet:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "faceted_search":
+        query = arguments.get("query", "")
+        facet_filters = arguments.get("facet_filters")
+        max_results = arguments.get("max_results", 5)
+        tags = arguments.get("tags")
+
+        try:
+            results = kb.faceted_search(query, facet_filters, max_results, tags)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Faceted search error: {str(e)}")]
+
+        if not results:
+            if facet_filters:
+                return [TextContent(type="text", text=f"No results found for '{query}' with facet filters: {facet_filters}")]
+            else:
+                return [TextContent(type="text", text=f"No results found for: {query}")]
+
+        # Format output
+        filter_desc = f" with facets: {facet_filters}" if facet_filters else ""
+        output = f"Found {len(results)} results for '{query}'{filter_desc}:\n\n"
+
+        for i, r in enumerate(results, 1):
+            output += f"--- Result {i} ---\n"
+            output += f"Document: {r['title']} ({r['filename']})\n"
+            output += f"Doc ID: {r['doc_id']}, Chunk: {r['chunk_id']}\n"
+            output += f"Score: {r['score']:.4f}\n"
+
+            # Show document facets
+            if 'facets' in r:
+                facets = r['facets']
+                facet_parts = []
+                if facets.get('hardware'):
+                    facet_parts.append(f"Hardware: {', '.join(sorted(facets['hardware']))}")
+                if facets.get('instruction'):
+                    facet_parts.append(f"Instructions: {', '.join(sorted(facets['instruction']))}")
+                if facets.get('register'):
+                    # Show only first 5 registers if many
+                    regs = sorted(facets['register'])
+                    if len(regs) > 5:
+                        facet_parts.append(f"Registers: {', '.join(regs[:5])} (+{len(regs)-5} more)")
+                    else:
+                        facet_parts.append(f"Registers: {', '.join(regs)}")
+                if facet_parts:
+                    output += f"Facets: {' | '.join(facet_parts)}\n"
+
             output += f"Snippet:\n{r['snippet']}\n\n"
 
         return [TextContent(type="text", text=output)]
@@ -3623,6 +4162,54 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output += f"  {i}. {issue}\n"
         else:
             output += "✓ No issues detected\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "search_analytics":
+        days = arguments.get("days", 30)
+        limit = arguments.get("limit", 100)
+
+        analytics = kb.get_search_analytics(days, limit)
+
+        if 'error' in analytics:
+            return [TextContent(type="text", text=f"Error getting analytics: {analytics['error']}")]
+
+        # Format output
+        output = f"Search Analytics (Last {days} days)\n{'='*50}\n\n"
+
+        # Overall stats
+        output += "Overview:\n"
+        output += f"  Total Searches: {analytics.get('total_searches', 0):,}\n"
+        output += f"  Unique Queries: {analytics.get('unique_queries', 0):,}\n"
+        output += f"  Avg Results per Search: {analytics.get('avg_results', 0)}\n"
+        output += f"  Avg Execution Time: {analytics.get('avg_execution_time_ms', 0):.2f}ms\n\n"
+
+        # Search modes
+        if analytics.get('search_modes'):
+            output += "Search Mode Usage:\n"
+            for mode in analytics['search_modes']:
+                output += f"  {mode['mode']}: {mode['count']:,} searches (avg {mode['avg_results']} results)\n"
+            output += "\n"
+
+        # Top queries
+        if analytics.get('top_queries'):
+            output += f"Top {min(10, len(analytics['top_queries']))} Most Popular Queries:\n"
+            for i, query in enumerate(analytics['top_queries'][:10], 1):
+                output += f"  {i}. \"{query['query']}\" - {query['count']} times (avg {query['avg_results']} results)\n"
+            output += "\n"
+
+        # Failed searches
+        if analytics.get('failed_searches'):
+            output += f"Top {min(10, len(analytics['failed_searches']))} Failed Searches (0 results):\n"
+            for i, failed in enumerate(analytics['failed_searches'][:10], 1):
+                output += f"  {i}. \"{failed['query']}\" - {failed['count']} times\n"
+            output += "\n"
+
+        # Popular tags
+        if analytics.get('popular_tags'):
+            output += f"Top {min(10, len(analytics['popular_tags']))} Most Used Tags:\n"
+            for i, tag in enumerate(analytics['popular_tags'][:10], 1):
+                output += f"  {i}. {tag['tag']}: {tag['count']} searches\n"
 
         return [TextContent(type="text", text=output)]
 

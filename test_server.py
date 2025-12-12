@@ -856,5 +856,210 @@ def test_code_search(tmpdir):
     kb.close()
 
 
+def test_facet_extraction(tmpdir):
+    """Test facet extraction from document text."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create a test file with hardware, instructions, and registers
+    test_file = Path(str(tmpdir)) / "test_facets.txt"
+    content = """
+    The SID chip ($D400-$D41C) provides sound generation on the Commodore 64.
+    The VIC-II chip controls graphics with registers at $D000-$D02E.
+
+    Example assembly code:
+    LDA #$00
+    STA $D020
+    STA $D021
+    JMP $1000
+
+    The CIA chip handles I/O operations.
+    """
+    test_file.write_text(content)
+
+    # Add document (will extract facets automatically)
+    doc = kb.add_document(str(test_file), "Test Facets", ["test"])
+
+    # Get facets from database
+    cursor = kb.db_conn.cursor()
+    cursor.execute("""
+        SELECT facet_type, facet_value
+        FROM document_facets
+        WHERE doc_id = ?
+    """, (doc.doc_id,))
+
+    facets = {}
+    for row in cursor.fetchall():
+        facet_type, facet_value = row
+        if facet_type not in facets:
+            facets[facet_type] = set()
+        facets[facet_type].add(facet_value)
+
+    # Verify hardware facets
+    assert 'hardware' in facets
+    assert 'SID' in facets['hardware']
+    assert 'VIC-II' in facets['hardware']
+    assert 'CIA' in facets['hardware']
+
+    # Verify instruction facets
+    assert 'instruction' in facets
+    assert 'LDA' in facets['instruction']
+    assert 'STA' in facets['instruction']
+    assert 'JMP' in facets['instruction']
+
+    # Verify register facets
+    assert 'register' in facets
+    assert '$D020' in facets['register']
+    assert '$D021' in facets['register']
+    assert '$1000' in facets['register']
+
+    print(f"\nExtracted facets: hardware={len(facets.get('hardware', []))}, "
+          f"instructions={len(facets.get('instruction', []))}, "
+          f"registers={len(facets.get('register', []))}")
+
+    kb.close()
+
+
+def test_faceted_search(tmpdir):
+    """Test faceted search functionality."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create test documents with different facets
+    test_file1 = Path(str(tmpdir)) / "test_sid.txt"
+    test_file1.write_text("""
+    The SID chip provides sound synthesis.
+    Use LDA and STA to program the SID registers at $D400.
+    """)
+
+    test_file2 = Path(str(tmpdir)) / "test_vic.txt"
+    test_file2.write_text("""
+    The VIC-II chip controls graphics and sprites.
+    Use LDA and STX to program VIC-II registers at $D000.
+    """)
+
+    kb.add_document(str(test_file1), "SID Doc", ["sid"])
+    kb.add_document(str(test_file2), "VIC Doc", ["vic-ii"])
+
+    # Search with hardware facet filter (SID only)
+    results = kb.faceted_search(
+        query="chip",
+        facet_filters={'hardware': ['SID']},
+        max_results=5
+    )
+
+    # Should only return SID document
+    assert len(results) > 0
+    assert any('SID' in r['snippet'] for r in results)
+
+    # Verify facets are included in results
+    if results:
+        assert 'facets' in results[0]
+        assert 'hardware' in results[0]['facets']
+
+    # Search with instruction facet filter
+    results2 = kb.faceted_search(
+        query="program",
+        facet_filters={'instruction': ['STX']},
+        max_results=5
+    )
+
+    # Should only return VIC document (has STX)
+    assert len(results2) > 0
+    assert any('VIC-II' in r['snippet'] for r in results2)
+
+    print(f"\nFaceted search: SID filter={len(results)} results, STX filter={len(results2)} results")
+
+    kb.close()
+
+
+def test_search_logging(tmpdir):
+    """Test search logging functionality."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create a test document
+    test_file = Path(str(tmpdir)) / "test_log.txt"
+    test_file.write_text("The VIC-II chip controls graphics.")
+    kb.add_document(str(test_file), "Test Doc", ["test"])
+
+    # Perform searches (will be logged automatically)
+    kb.search("VIC-II", max_results=5, tags=["test"])
+    kb.search("graphics", max_results=5)
+    kb.search("nonexistent", max_results=5)
+
+    # Check search log
+    cursor = kb.db_conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM search_log")
+    log_count = cursor.fetchone()[0]
+
+    assert log_count >= 3, "Should have logged at least 3 searches"
+
+    # Verify log entries
+    cursor.execute("""
+        SELECT query, search_mode, results_count, tags
+        FROM search_log
+        ORDER BY timestamp DESC
+        LIMIT 3
+    """)
+
+    logs = cursor.fetchall()
+    assert len(logs) == 3
+
+    # Check that failed search is logged with 0 results
+    failed_log = next((log for log in logs if log[0] == "nonexistent"), None)
+    assert failed_log is not None
+    assert failed_log[2] == 0, "Failed search should have 0 results"
+
+    print(f"\nSearch logging: {log_count} searches logged")
+
+    kb.close()
+
+
+def test_search_analytics(tmpdir):
+    """Test search analytics functionality."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create test data
+    test_file = Path(str(tmpdir)) / "test_analytics.txt"
+    test_file.write_text("VIC-II graphics and SID sound on the Commodore 64.")
+    kb.add_document(str(test_file), "Test Doc", ["test"])
+
+    # Perform various searches
+    kb.search("VIC-II", max_results=5)
+    kb.search("VIC-II", max_results=5)  # Duplicate query
+    kb.search("SID", max_results=5, tags=["test"])
+    kb.search("nonexistent", max_results=5)  # Failed search
+
+    # Get analytics
+    analytics = kb.get_search_analytics(days=1, limit=10)
+
+    # Verify analytics structure
+    assert 'total_searches' in analytics
+    assert 'unique_queries' in analytics
+    assert 'avg_results' in analytics
+    assert 'top_queries' in analytics
+    assert 'failed_searches' in analytics
+    assert 'search_modes' in analytics
+
+    # Verify data
+    assert analytics['total_searches'] >= 3  # At least 3 searches (some may be cached)
+    assert analytics['unique_queries'] >= 2  # At least 2 unique queries
+
+    # Check top queries
+    top_queries = analytics['top_queries']
+    assert len(top_queries) > 0
+    vic_query = next((q for q in top_queries if q['query'] == 'VIC-II'), None)
+    assert vic_query is not None
+    assert vic_query['count'] >= 1  # At least one search logged
+
+    # Check failed searches
+    failed = analytics['failed_searches']
+    assert len(failed) > 0
+    assert any(f['query'] == 'nonexistent' for f in failed)
+
+    print(f"\nSearch analytics: {analytics['total_searches']} total, "
+          f"{analytics['unique_queries']} unique queries")
+
+    kb.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

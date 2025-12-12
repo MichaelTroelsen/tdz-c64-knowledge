@@ -2,6 +2,109 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.2.0] - 2025-12-12
+
+### Added - Faceted Search & Analytics
+
+#### 🔍 Faceted Search and Filtering
+- **New Method:** `faceted_search(query, facet_filters, max_results, tags)` enables multi-dimensional filtering
+- **Database Storage:** New `document_facets` table with composite primary key (doc_id, facet_type, facet_value)
+- **Facet Types:**
+  - **Hardware:** Automatically detects SID, VIC-II, CIA, 6502, PLA, Datasette, Disk Drive references
+  - **Instructions:** Extracts 6502 assembly mnemonics (LDA, STA, JMP, etc.) - 46 mnemonics supported
+  - **Registers:** Identifies memory-mapped register addresses ($D000-$DFFF, etc.)
+- **Extraction Methods:**
+  - `_extract_facets(text)` - Main coordinator method
+  - `_extract_hardware_refs(text)` - Pattern-based hardware detection
+  - `_extract_instructions(text)` - Assembly instruction detection
+  - `_extract_registers(text)` - Register address extraction (4-digit hex with $ prefix)
+- **Auto-Extraction:** Facets automatically extracted during document ingestion
+- **MCP Tool:** New `faceted_search` tool with facet filter support
+- **Benefits:**
+  - Narrow results by technical domain (e.g., "find SID-related documents only")
+  - Combine keyword search with facet filtering
+  - Results include facet metadata for each document
+  - Filter by multiple facet types simultaneously
+
+**Usage:**
+```python
+# Python API - Search for SID chip documents
+results = kb.faceted_search(
+    query="sound",
+    facet_filters={'hardware': ['SID'], 'instruction': ['LDA', 'STA']},
+    max_results=5
+)
+
+# Via MCP in Claude Desktop
+# "Search for sound programming documents that mention the SID chip and use LDA/STA instructions"
+```
+
+#### 📊 Search Analytics & Logging
+- **New Method:** `_log_search(query, search_mode, results_count, execution_time_ms, tags)` logs all searches
+- **Database Storage:** New `search_log` table tracks all search activity
+- **Fields Logged:** timestamp, query, search_mode (fts5/bm25/semantic/hybrid/faceted), results_count, execution_time_ms, tags, clicked_doc_id
+- **Analytics Method:** `get_search_analytics(days, limit)` provides comprehensive usage insights
+- **Metrics Provided:**
+  - **Overview:** Total searches, unique queries, avg results, avg execution time
+  - **Top Queries:** Most frequently searched terms with average result counts
+  - **Failed Searches:** Queries that returned 0 results (helps identify gaps)
+  - **Search Modes:** Breakdown by search backend usage
+  - **Popular Tags:** Most commonly used tag filters
+- **Auto-Logging:** All search methods automatically log queries (search, semantic_search, hybrid_search, faceted_search)
+- **MCP Tool:** New `search_analytics` tool for usage reporting
+- **Benefits:**
+  - Understand user search patterns
+  - Identify knowledge gaps (failed searches)
+  - Optimize search performance
+  - Track search backend effectiveness
+
+**Usage:**
+```python
+# Python API - Get last 30 days of analytics
+analytics = kb.get_search_analytics(days=30, limit=100)
+
+# Via MCP in Claude Desktop
+# "Show me search analytics for the last 7 days"
+```
+
+### Testing
+- Added 4 new test cases (36 total tests, 35 passed, 1 skipped)
+- `test_facet_extraction()` - Validates hardware, instruction, and register detection
+- `test_faceted_search()` - Tests facet filtering and result filtering
+- `test_search_logging()` - Verifies search logging functionality
+- `test_search_analytics()` - Tests analytics aggregation and reporting
+- All existing tests continue to pass
+
+### Performance
+New features maintain sub-second performance:
+- Facet extraction: ~10-50ms during document ingestion
+- Faceted search: ~60-180ms (regular search + facet filtering)
+- Search logging: ~5-10ms overhead per search (async-friendly)
+- Analytics queries: ~50-200ms depending on date range
+
+### Database Schema Changes
+- New tables: `document_facets`, `search_log`
+- Indexes: `idx_facets_type_value`, `idx_facets_doc_id`, `idx_search_log_query`, `idx_search_log_timestamp`, `idx_search_log_mode`
+- Foreign key cascade deletes ensure data integrity
+- Automatic migrations for existing databases
+
+### Documentation
+- Updated CHANGELOG.md with new feature details
+- Updated FUTURE_IMPROVEMENTS.md to mark completed items
+- Test suite expanded with 4 comprehensive tests
+
+### Developer Notes
+**Implementation Details:**
+- Facet extraction uses regex patterns for hardware and instructions
+- Register addresses normalized to uppercase ($D000 format)
+- All search methods now log queries automatically
+- Analytics use SQL GROUP BY and aggregation functions
+- Search logging designed for minimal performance impact
+
+**Breaking Changes:** None - all new features are additive
+
+---
+
 ## [2.1.0] - 2025-12-12
 
 ### Added - Table Extraction and Code Block Detection

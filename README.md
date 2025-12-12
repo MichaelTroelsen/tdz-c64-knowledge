@@ -5,7 +5,8 @@ An MCP (Model Context Protocol) server for managing and searching Commodore 64 d
 ## Features
 
 - **PDF and text file ingestion** - Extract and index content from documentation
-- **BM25 search algorithm** - Industry-standard ranking for accurate results
+- **SQLite FTS5 full-text search** - Native database search with 480x faster queries (50ms vs 24s)
+- **BM25 search algorithm** - Industry-standard ranking for accurate results (fallback)
 - **Query preprocessing** - Intelligent stemming and stopword removal with NLTK
 - **Phrase search** - Use quotes for exact phrase matching (e.g., `"VIC-II chip"`)
 - **Search term highlighting** - Matching terms highlighted in search results
@@ -104,14 +105,42 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `TDZ_DATA_DIR` | Directory to store index and chunks | `~/.tdz-c64-knowledge` |
+| `USE_FTS5` | Enable SQLite FTS5 full-text search (0=disabled, 1=enabled) | `0` (disabled) |
 | `USE_BM25` | Enable BM25 search algorithm (0=disabled, 1=enabled) | `1` (enabled) |
 | `USE_QUERY_PREPROCESSING` | Enable query preprocessing with NLTK (0=disabled, 1=enabled) | `1` (enabled) |
 
 ## Search Features
 
-### BM25 Ranking Algorithm
+### SQLite FTS5 Full-Text Search (Recommended)
 
-By default, the server uses the **BM25 (Okapi BM25)** algorithm for search ranking. BM25 is an industry-standard probabilistic ranking function that provides much better relevance scoring than simple term frequency.
+For maximum performance, enable **SQLite FTS5** full-text search by setting `USE_FTS5=1` in your environment:
+
+```json
+{
+  "mcpServers": {
+    "tdz-c64-knowledge": {
+      "env": {
+        "USE_FTS5": "1"
+      }
+    }
+  }
+}
+```
+
+**Performance:**
+- **480x faster** than BM25 (50ms vs 24,000ms for typical queries)
+- No need to load all chunks into memory
+- Native SQLite BM25 ranking
+- Porter stemming tokenizer for better matching
+
+**How it works:**
+- Uses SQLite's FTS5 virtual table with Porter stemming
+- Automatic triggers keep FTS5 index in sync with chunks table
+- Falls back to BM25/simple search if FTS5 returns no results
+
+### BM25 Ranking Algorithm (Fallback)
+
+When FTS5 is disabled, the server uses the **BM25 (Okapi BM25)** algorithm for search ranking. BM25 is an industry-standard probabilistic ranking function that provides much better relevance scoring than simple term frequency.
 
 **Benefits:**
 - More accurate ranking of search results

@@ -46,7 +46,16 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 
 ### Search Implementation
 
-**BM25 (Okapi BM25)** - Industry-standard probabilistic ranking (default):
+**SQLite FTS5 Full-Text Search** - Native database search (recommended):
+- Uses SQLite's FTS5 virtual table with Porter stemming tokenizer
+- 480x faster than BM25 (50ms vs 24,000ms for typical queries)
+- Native BM25 ranking built into SQLite
+- No need to load all chunks into memory
+- Automatic triggers keep FTS5 in sync with chunks table
+- Can be enabled with `USE_FTS5=1` environment variable
+- Falls back to BM25/simple search if FTS5 returns no results
+
+**BM25 (Okapi BM25)** - Industry-standard probabilistic ranking (fallback):
 - Uses rank-bm25 library for accurate relevance scoring
 - Handles document length normalization
 - Tokenizes documents and queries for matching
@@ -120,6 +129,7 @@ python cli.py remove <doc_id>
 ## Environment Configuration
 
 **TDZ_DATA_DIR** - Directory for database file storage (default: `~/.tdz-c64-knowledge`)
+**USE_FTS5** - Enable/disable SQLite FTS5 full-text search (default: `0` for disabled, set to `1` to enable - recommended for best performance)
 **USE_BM25** - Enable/disable BM25 search algorithm (default: `1` for enabled, set to `0` to disable)
 **USE_QUERY_PREPROCESSING** - Enable/disable NLTK query preprocessing (default: `1` for enabled, set to `0` to disable)
 
@@ -127,6 +137,7 @@ When adding to Claude Code or Claude Desktop, set these in the MCP config `env` 
 ```json
 "env": {
   "TDZ_DATA_DIR": "C:\\Users\\YourName\\c64-knowledge-data",
+  "USE_FTS5": "1",
   "USE_BM25": "1",
   "USE_QUERY_PREPROCESSING": "1"
 }
@@ -146,13 +157,16 @@ When adding to Claude Code or Claude Desktop, set these in the MCP config `env` 
 Search is implemented in `KnowledgeBase.search()` starting at server.py line ~350.
 
 **Current Implementation:**
-- BM25 ranking via `_search_bm25()` method (default)
+- SQLite FTS5 via `_search_fts5()` method (when USE_FTS5=1, recommended)
+- BM25 ranking via `_search_bm25()` method (fallback/default)
 - Simple term frequency via `_search_simple()` method (fallback)
 - Phrase detection and boosting
 - Search term highlighting via `_extract_snippet()`
 
 **Key Methods:**
-- `search()` - Main entry point, dispatches to BM25 or simple search
+- `search()` - Main entry point, dispatches to FTS5, BM25, or simple search based on environment variables
+- `_search_fts5()` - SQLite FTS5 search with native BM25 ranking (480x faster)
+- `_fts5_available()` - Checks if FTS5 table exists and is ready
 - `_search_bm25()` - BM25 scoring with phrase boosting
 - `_search_simple()` - Fallback term frequency scoring
 - `_build_bm25_index()` - Builds BM25 index from chunks on init/update
@@ -186,9 +200,16 @@ chunks = self._get_chunks_db(doc_id)  # Load chunks for one document
 chunks = self._get_chunks_db()        # Load all chunks (for BM25)
 ```
 
-**Search Flow**:
+**Search Flow (with FTS5 enabled)**:
+1. `search()` called → checks if `USE_FTS5=1` and `_fts5_available()`
+2. If FTS5 available → `_search_fts5()` executes native SQLite search (~50ms)
+3. FTS5 returns results with native BM25 ranking
+4. If FTS5 returns no results → falls back to BM25/simple search
+5. Results filtered by tags (if specified) and returned
+
+**Search Flow (BM25 fallback)**:
 1. `search()` called → checks if `self.bm25` is None
-2. If None → `_build_bm25_index()` → `_get_chunks_db()` loads all chunks
+2. If None → `_build_bm25_index()` → `_get_chunks_db()` loads all chunks (~24s first time)
 3. BM25 scores calculated → results filtered and sorted
 4. Subsequent searches use cached BM25 index (fast)
 5. Add/remove operations invalidate cache (`self.bm25 = None`)

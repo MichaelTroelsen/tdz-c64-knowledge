@@ -12,10 +12,12 @@ import hashlib
 import logging
 import time
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Optional, Callable
 from dataclasses import dataclass, asdict
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Caching support
 try:
@@ -210,6 +212,9 @@ class KnowledgeBase:
         )
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"Initializing KnowledgeBase at {data_dir}")
+
+        # Thread safety for parallel document processing
+        self._lock = threading.Lock()
 
         # Database setup
         self.db_file = self.data_dir / "knowledge_base.db"
@@ -530,6 +535,23 @@ class KnowledgeBase:
             cursor.execute("CREATE INDEX idx_search_log_timestamp ON search_log(timestamp)")
             cursor.execute("CREATE INDEX idx_search_log_mode ON search_log(search_mode)")
 
+            # Create cross_references table for content linking
+            cursor.execute("""
+                CREATE TABLE cross_references (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    doc_id TEXT NOT NULL,
+                    chunk_id INTEGER NOT NULL,
+                    ref_type TEXT NOT NULL,
+                    ref_value TEXT NOT NULL,
+                    context TEXT,
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create indexes for cross-reference lookup
+            cursor.execute("CREATE INDEX idx_xref_type_value ON cross_references(ref_type, ref_value)")
+            cursor.execute("CREATE INDEX idx_xref_doc_id ON cross_references(doc_id)")
+
             self.db_conn.commit()
             self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, and analytics)")
         else:
@@ -777,6 +799,31 @@ class KnowledgeBase:
                 self.db_conn.commit()
                 self.logger.info("search_log table created")
 
+            # Migrate: Add cross_references table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='cross_references'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating cross_references table for content linking")
+                cursor.execute("""
+                    CREATE TABLE cross_references (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        doc_id TEXT NOT NULL,
+                        chunk_id INTEGER NOT NULL,
+                        ref_type TEXT NOT NULL,
+                        ref_value TEXT NOT NULL,
+                        context TEXT,
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                    )
+                """)
+
+                cursor.execute("CREATE INDEX idx_xref_type_value ON cross_references(ref_type, ref_value)")
+                cursor.execute("CREATE INDEX idx_xref_doc_id ON cross_references(doc_id)")
+
+                self.db_conn.commit()
+                self.logger.info("cross_references table created")
+
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
         try:
@@ -860,8 +907,8 @@ class KnowledgeBase:
 
     def _add_document_db(self, doc_meta: DocumentMeta, chunks: list[DocumentChunk],
                          tables: Optional[list[dict]] = None, code_blocks: Optional[list[dict]] = None,
-                         facets: Optional[dict[str, set[str]]] = None):
-        """Add a document, chunks, tables, code blocks, and facets to the database using a transaction."""
+                         facets: Optional[dict[str, set[str]]] = None, cross_refs: Optional[list[dict]] = None):
+        """Add a document, chunks, tables, code blocks, facets, and cross-references to the database using a transaction."""
         cursor = self.db_conn.cursor()
 
         try:
@@ -960,6 +1007,17 @@ class KnowledgeBase:
                             INSERT INTO document_facets (doc_id, facet_type, facet_value)
                             VALUES (?, ?, ?)
                         """, (doc_meta.doc_id, facet_type, facet_value))
+
+            # Delete old cross-references if re-indexing
+            cursor.execute("DELETE FROM cross_references WHERE doc_id = ?", (doc_meta.doc_id,))
+
+            # Insert cross-references
+            if cross_refs:
+                for ref in cross_refs:
+                    cursor.execute("""
+                        INSERT INTO cross_references (doc_id, chunk_id, ref_type, ref_value, context)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (ref['doc_id'], ref['chunk_id'], ref['ref_type'], ref['ref_value'], ref['context']))
 
             # Commit transaction
             self.db_conn.commit()
@@ -1550,6 +1608,113 @@ class KnowledgeBase:
 
         return registers
 
+    def _extract_cross_references(self, chunks: list[DocumentChunk], doc_id: str) -> list[dict]:
+        """
+        Extract cross-references from document chunks.
+
+        Returns list of cross-reference dictionaries with keys:
+        - doc_id, chunk_id, ref_type, ref_value, context
+        """
+        cross_refs = []
+
+        for chunk in chunks:
+            text = chunk.content
+            chunk_id = chunk.chunk_id
+
+            # Extract memory addresses ($D000-$FFFF)
+            addresses = self._extract_memory_addresses(text)
+            for addr in addresses:
+                # Get context (sentence containing the address)
+                context = self._get_reference_context(text, addr)
+                cross_refs.append({
+                    'doc_id': doc_id,
+                    'chunk_id': chunk_id,
+                    'ref_type': 'memory_address',
+                    'ref_value': addr,
+                    'context': context
+                })
+
+            # Extract register offsets (VIC+0, SID+4, etc.)
+            offsets = self._extract_register_offsets(text)
+            for offset in offsets:
+                context = self._get_reference_context(text, offset)
+                cross_refs.append({
+                    'doc_id': doc_id,
+                    'chunk_id': chunk_id,
+                    'ref_type': 'register_offset',
+                    'ref_value': offset,
+                    'context': context
+                })
+
+            # Extract page references ("see page 156")
+            page_refs = self._extract_page_references(text)
+            for page_ref in page_refs:
+                context = self._get_reference_context(text, str(page_ref))
+                cross_refs.append({
+                    'doc_id': doc_id,
+                    'chunk_id': chunk_id,
+                    'ref_type': 'page_reference',
+                    'ref_value': str(page_ref),
+                    'context': context
+                })
+
+        return cross_refs
+
+    def _extract_memory_addresses(self, text: str) -> set[str]:
+        """Extract memory addresses like $D000, $D020, etc."""
+        addresses = set()
+        # Match $xxxx format (4-digit hex)
+        pattern = r'\$[0-9A-Fa-f]{4}\b'
+        matches = re.findall(pattern, text)
+        for match in matches:
+            addresses.add(match.upper())
+        return addresses
+
+    def _extract_register_offsets(self, text: str) -> set[str]:
+        """Extract register offset references like VIC+0, SID+4, CIA1+0."""
+        offsets = set()
+        # Match patterns like: VIC+0, SID+4, CIA1+12, etc.
+        pattern = r'\b(VIC|SID|CIA[12]?|PLA)\s*\+\s*(\d+)\b'
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for chip, offset in matches:
+            offsets.add(f"{chip.upper()}+{offset}")
+        return offsets
+
+    def _extract_page_references(self, text: str) -> set[int]:
+        """Extract page number references like 'see page 156', 'page 42'."""
+        page_nums = set()
+        # Match patterns like: "page 123", "see page 456", "on page 789"
+        pattern = r'\b(?:see\s+)?page\s+(\d+)\b'
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for page_num in matches:
+            page_nums.add(int(page_num))
+        return page_nums
+
+    def _get_reference_context(self, text: str, reference: str, context_chars: int = 100) -> str:
+        """Get surrounding context for a reference."""
+        # Find the reference in text
+        pos = text.find(reference)
+        if pos == -1:
+            # Try case-insensitive
+            pos = text.lower().find(reference.lower())
+
+        if pos == -1:
+            return ""
+
+        # Get surrounding context
+        start = max(0, pos - context_chars)
+        end = min(len(text), pos + len(reference) + context_chars)
+
+        context = text[start:end].strip()
+
+        # Add ellipsis if truncated
+        if start > 0:
+            context = "..." + context
+        if end < len(text):
+            context = context + "..."
+
+        return context
+
     def _cache_key(self, method: str, **kwargs) -> str:
         """Generate a cache key from method name and arguments."""
         # Sort kwargs for consistent hashing
@@ -1671,13 +1836,15 @@ class KnowledgeBase:
         # Generate content-based doc_id for deduplication
         doc_id = self._generate_doc_id(filepath, text)
 
-        # Check for duplicate content
-        if doc_id in self.documents:
-            existing_doc = self.documents[doc_id]
-            self.logger.warning(f"Duplicate content detected: {filepath}")
-            self.logger.warning(f"  Matches existing document: {existing_doc.filepath}")
-            self.logger.info(f"Skipping duplicate - returning existing document {doc_id}")
-            return existing_doc
+        # Thread-safe duplicate check
+        with self._lock:
+            # Check for duplicate content
+            if doc_id in self.documents:
+                existing_doc = self.documents[doc_id]
+                self.logger.warning(f"Duplicate content detected: {filepath}")
+                self.logger.warning(f"  Matches existing document: {existing_doc.filepath}")
+                self.logger.info(f"Skipping duplicate - returning existing document {doc_id}")
+                return existing_doc
         
         # Create chunks
         text_chunks = self._chunk_text(text)
@@ -1717,6 +1884,11 @@ class KnowledgeBase:
         file_mtime = os.path.getmtime(resolved_path)
         file_hash = self._compute_file_hash(resolved_path)
 
+        # Extract cross-references for content linking
+        cross_refs = self._extract_cross_references(chunks, doc_id)
+        if cross_refs:
+            self.logger.info(f"Extracted {len(cross_refs)} cross-references")
+
         # Create metadata
         doc_meta = DocumentMeta(
             doc_id=doc_id,
@@ -1736,30 +1908,31 @@ class KnowledgeBase:
             file_hash=file_hash
         )
 
-        # Add to database (with tables, code blocks, and facets)
-        self._add_document_db(doc_meta, chunks, tables=tables, code_blocks=code_blocks, facets=facets)
-        self.documents[doc_id] = doc_meta
+        # Thread-safe database insertion and cache invalidation
+        with self._lock:
+            # Add to database (with tables, code blocks, facets, and cross-references)
+            self._add_document_db(doc_meta, chunks, tables=tables, code_blocks=code_blocks, facets=facets, cross_refs=cross_refs)
+            self.documents[doc_id] = doc_meta
 
-        # Report progress: Database insertion complete
-        if progress_callback:
-            progress_callback(ProgressUpdate(
-                operation="add_document",
-                current=3,
-                total=4,
-                message="Stored in database",
-                item=filename
-            ))
+            # Report progress: Database insertion complete
+            if progress_callback:
+                progress_callback(ProgressUpdate(
+                    operation="add_document",
+                    current=3,
+                    total=4,
+                    message="Stored in database",
+                    item=filename
+                ))
 
-        # Invalidate BM25 index (will be rebuilt on next search)
-        self.bm25 = None
+            # Invalidate BM25 index (will be rebuilt on next search)
+            self.bm25 = None
 
-        # Invalidate embeddings (will be rebuilt on next semantic search)
-        if self.use_semantic:
-            self.embeddings_index = None
-            self.embeddings_doc_map = []
+            # Incrementally add chunks to embeddings (faster than full rebuild)
+            if self.use_semantic:
+                self._add_chunks_to_embeddings(chunks)
 
-        # Invalidate search caches
-        self._invalidate_caches()
+            # Invalidate search caches
+            self._invalidate_caches()
 
         self.logger.info(f"Successfully indexed document {doc_id}: {filename} ({len(chunks)} chunks)")
 
@@ -1992,51 +2165,93 @@ class KnowledgeBase:
                 item=directory
             ))
 
-        for idx, file_path in enumerate(files, 1):
-            if not file_path.is_file():
-                continue
+        # Get worker count (configurable via environment variable, default to CPU count)
+        max_workers = int(os.getenv('PARALLEL_WORKERS', str(os.cpu_count() or 4)))
+        self.logger.info(f"Using {max_workers} workers for parallel processing")
 
-            # Report progress: Processing file
-            if progress_callback:
-                progress_callback(ProgressUpdate(
-                    operation="add_documents_bulk",
-                    current=idx,
-                    total=len(files),
-                    message=f"Processing file {idx}/{len(files)}",
-                    item=str(file_path.name)
-                ))
+        # Process files in parallel using ThreadPoolExecutor
+        def process_file(file_path):
+            """Process a single file and return result."""
+            if not file_path.is_file():
+                return None
 
             try:
                 # Generate title from filename
                 title = file_path.stem
-
                 doc = self.add_document(str(file_path), title=title, tags=tags)
 
-                # Check if this was a duplicate
-                if skip_duplicates:
-                    # Check if any previously added doc has same doc_id
-                    is_duplicate = any(d['doc_id'] == doc.doc_id for d in results['added'])
-                    if is_duplicate:
-                        results['skipped'].append({
-                            'filepath': str(file_path),
-                            'reason': 'duplicate content',
-                            'doc_id': doc.doc_id
-                        })
-                        continue
-
-                results['added'].append({
+                return {
+                    'status': 'added',
                     'doc_id': doc.doc_id,
                     'filepath': str(file_path),
                     'title': title,
                     'chunks': doc.total_chunks
-                })
+                }
 
             except Exception as e:
-                results['failed'].append({
+                return {
+                    'status': 'failed',
                     'filepath': str(file_path),
                     'error': str(e)
-                })
-                self.logger.error(f"Failed to add {file_path}: {e}")
+                }
+
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all files for processing
+            future_to_file = {executor.submit(process_file, fp): fp for fp in files}
+
+            # Process completed tasks as they finish
+            completed = 0
+            seen_doc_ids = set()
+
+            for future in as_completed(future_to_file):
+                completed += 1
+                file_path = future_to_file[future]
+
+                # Report progress: Processing file
+                if progress_callback:
+                    progress_callback(ProgressUpdate(
+                        operation="add_documents_bulk",
+                        current=completed,
+                        total=len(files),
+                        message=f"Processing file {completed}/{len(files)}",
+                        item=str(file_path.name)
+                    ))
+
+                try:
+                    result = future.result()
+                    if result is None:
+                        continue
+
+                    if result['status'] == 'added':
+                        # Check for duplicates
+                        if skip_duplicates and result['doc_id'] in seen_doc_ids:
+                            results['skipped'].append({
+                                'filepath': result['filepath'],
+                                'reason': 'duplicate content',
+                                'doc_id': result['doc_id']
+                            })
+                        else:
+                            seen_doc_ids.add(result['doc_id'])
+                            results['added'].append({
+                                'doc_id': result['doc_id'],
+                                'filepath': result['filepath'],
+                                'title': result['title'],
+                                'chunks': result['chunks']
+                            })
+                    elif result['status'] == 'failed':
+                        results['failed'].append({
+                            'filepath': result['filepath'],
+                            'error': result['error']
+                        })
+                        self.logger.error(f"Failed to add {result['filepath']}: {result['error']}")
+
+                except Exception as e:
+                    results['failed'].append({
+                        'filepath': str(file_path),
+                        'error': str(e)
+                    })
+                    self.logger.error(f"Failed to process {file_path}: {e}")
 
         self.logger.info(f"Bulk add complete: {len(results['added'])} added, "
                         f"{len(results['skipped'])} skipped, {len(results['failed'])} failed")
@@ -2508,6 +2723,56 @@ class KnowledgeBase:
         elapsed = time.time() - start_time
         self.logger.info(f"Built embeddings index in {elapsed:.2f}s")
 
+    def _add_chunks_to_embeddings(self, chunks: list[DocumentChunk]):
+        """
+        Incrementally add new chunks to the FAISS embeddings index.
+        This avoids rebuilding the entire index from scratch.
+
+        Args:
+            chunks: List of DocumentChunk objects to add to embeddings
+        """
+        if not self.use_semantic or self.embeddings_model is None:
+            return
+
+        if not chunks:
+            self.logger.debug("No chunks to add to embeddings")
+            return
+
+        self.logger.info(f"Adding {len(chunks)} chunks to embeddings index...")
+        start_time = time.time()
+
+        # Generate embeddings for new chunks
+        texts = [chunk.content for chunk in chunks]
+        new_embeddings = self.embeddings_model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+
+        # Normalize for cosine similarity
+        faiss.normalize_L2(new_embeddings)
+
+        # If no existing index, create one
+        if self.embeddings_index is None or len(self.embeddings_doc_map) == 0:
+            self.logger.info("Creating new embeddings index")
+            dimension = new_embeddings.shape[1]
+            self.embeddings_index = faiss.IndexFlatIP(dimension)  # Inner product (cosine similarity)
+            self.embeddings_doc_map = []
+
+        # Add to existing index
+        self.embeddings_index.add(new_embeddings)
+
+        # Update doc map
+        for chunk in chunks:
+            self.embeddings_doc_map.append((chunk.doc_id, chunk.chunk_id))
+
+        # Save updated index to disk
+        self._save_embeddings()
+
+        # Invalidate similarity cache since embeddings changed
+        if self._similar_cache is not None:
+            self._similar_cache.clear()
+            self.logger.debug("Similarity cache invalidated after adding chunks")
+
+        elapsed = time.time() - start_time
+        self.logger.info(f"Added {len(chunks)} chunks to embeddings index in {elapsed:.2f}s")
+
     def semantic_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
         """
         Perform semantic search using embeddings and vector similarity.
@@ -2768,6 +3033,60 @@ class KnowledgeBase:
                 facets[facet_type].add(facet_value)
 
         return facets
+
+    def find_by_reference(self, ref_type: str, ref_value: str, max_results: int = 10) -> list[dict]:
+        """
+        Find documents by cross-reference type and value.
+
+        Args:
+            ref_type: Type of reference ('memory_address', 'register_offset', 'page_reference')
+            ref_value: The reference value to search for (e.g., '$D020', 'VIC+0', '156')
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of results with document info, chunk info, and context
+        """
+        self.logger.info(f"Finding documents by reference: {ref_type}={ref_value}")
+        start_time = time.time()
+
+        cursor = self.db_conn.cursor()
+
+        # Query cross_references table
+        cursor.execute("""
+            SELECT
+                xr.doc_id,
+                xr.chunk_id,
+                xr.ref_type,
+                xr.ref_value,
+                xr.context,
+                d.filename,
+                d.title,
+                d.tags
+            FROM cross_references xr
+            JOIN documents d ON xr.doc_id = d.doc_id
+            WHERE xr.ref_type = ? AND xr.ref_value = ?
+            ORDER BY d.title, xr.chunk_id
+            LIMIT ?
+        """, (ref_type, ref_value, max_results))
+
+        results = []
+        for row in cursor.fetchall():
+            doc_id, chunk_id, ref_type, ref_value, context, filename, title, tags_json = row
+            results.append({
+                'doc_id': doc_id,
+                'chunk_id': chunk_id,
+                'filename': filename,
+                'title': title,
+                'ref_type': ref_type,
+                'ref_value': ref_value,
+                'context': context,
+                'tags': json.loads(tags_json) if tags_json else []
+            })
+
+        elapsed = (time.time() - start_time) * 1000
+        self.logger.info(f"Found {len(results)} references in {elapsed:.2f}ms")
+
+        return results
 
     def find_similar_documents(self, doc_id: str, chunk_id: Optional[int] = None,
                                max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
@@ -3862,6 +4181,30 @@ async def list_tools() -> list[Tool]:
                     }
                 }
             }
+        ),
+        Tool(
+            name="find_by_reference",
+            description="Find documents by cross-reference. Search for documents containing specific memory addresses ($D020), register offsets (VIC+0, SID+4), or page references (page 156). Great for tracking how specific registers or memory locations are documented.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ref_type": {
+                        "type": "string",
+                        "description": "Type of reference to search for",
+                        "enum": ["memory_address", "register_offset", "page_reference"]
+                    },
+                    "ref_value": {
+                        "type": "string",
+                        "description": "The reference value (e.g., '$D020', 'VIC+0', '156')"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 10)",
+                        "default": 10
+                    }
+                },
+                "required": ["ref_type", "ref_value"]
+            }
         )
     ]
 
@@ -4210,6 +4553,29 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += f"Top {min(10, len(analytics['popular_tags']))} Most Used Tags:\n"
             for i, tag in enumerate(analytics['popular_tags'][:10], 1):
                 output += f"  {i}. {tag['tag']}: {tag['count']} searches\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "find_by_reference":
+        ref_type = arguments.get("ref_type")
+        ref_value = arguments.get("ref_value")
+        max_results = arguments.get("max_results", 10)
+
+        if not ref_type or not ref_value:
+            return [TextContent(type="text", text="Error: ref_type and ref_value are required")]
+
+        results = kb.find_by_reference(ref_type, ref_value, max_results)
+
+        if not results:
+            return [TextContent(type="text", text=f"No references found for {ref_type}={ref_value}")]
+
+        output = f"Found {len(results)} references for {ref_type}={ref_value}:\n\n"
+        for i, r in enumerate(results, 1):
+            output += f"--- Reference {i} ---\n"
+            output += f"Document: {r['title']} ({r['filename']})\n"
+            output += f"Doc ID: {r['doc_id']}, Chunk: {r['chunk_id']}\n"
+            output += f"Type: {r['ref_type']}, Value: {r['ref_value']}\n"
+            output += f"Context:\n{r['context']}\n\n"
 
         return [TextContent(type="text", text=output)]
 

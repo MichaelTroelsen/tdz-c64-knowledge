@@ -1061,5 +1061,147 @@ def test_search_analytics(tmpdir):
     kb.close()
 
 
+def test_incremental_embeddings(tmpdir):
+    """Test that embeddings are incrementally added without full rebuild."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Skip if semantic search not available
+    if not kb.use_semantic:
+        kb.close()
+        pytest.skip("Semantic search not enabled (USE_SEMANTIC_SEARCH=1 required)")
+
+    # Create first document
+    test_file1 = Path(str(tmpdir)) / "test_doc1.txt"
+    test_file1.write_text("The VIC-II chip controls graphics and sprites on the Commodore 64.")
+    doc1 = kb.add_document(str(test_file1), "Test Doc 1", ["test"])
+
+    # Verify embeddings were created
+    assert kb.embeddings_index is not None
+    assert len(kb.embeddings_doc_map) > 0
+    initial_count = len(kb.embeddings_doc_map)
+    initial_index_total = kb.embeddings_index.ntotal
+    print(f"\nInitial embeddings: {initial_count} vectors")
+
+    # Create second document
+    test_file2 = Path(str(tmpdir)) / "test_doc2.txt"
+    test_file2.write_text("The SID chip provides sound synthesis with three voices and filters.")
+    doc2 = kb.add_document(str(test_file2), "Test Doc 2", ["test"])
+
+    # Verify embeddings were incrementally added
+    assert kb.embeddings_index is not None
+    assert len(kb.embeddings_doc_map) > initial_count
+    final_count = len(kb.embeddings_doc_map)
+    final_index_total = kb.embeddings_index.ntotal
+
+    print(f"Final embeddings: {final_count} vectors")
+    print(f"Added {final_count - initial_count} vectors incrementally")
+
+    # Verify FAISS index total matches doc map
+    assert final_index_total == final_count
+
+    # Verify both documents are searchable
+    results = kb.semantic_search("graphics", max_results=5)
+    assert len(results) > 0
+    doc_ids = [r['doc_id'] for r in results]
+    assert doc1.doc_id in doc_ids or doc2.doc_id in doc_ids
+
+    kb.close()
+
+
+def test_parallel_processing(tmpdir):
+    """Test parallel document processing with ThreadPoolExecutor."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create test directory with multiple files
+    test_dir = Path(str(tmpdir)) / "bulk_test"
+    test_dir.mkdir()
+
+    # Create 5 test files
+    test_files = []
+    for i in range(5):
+        test_file = test_dir / f"test_doc_{i}.txt"
+        test_file.write_text(f"Test document {i} about C64 programming and graphics. "
+                            f"This is chunk {i} of data for testing parallel processing.")
+        test_files.append(test_file)
+
+    # Set worker count to 2 for testing
+    import os
+    old_workers = os.getenv('PARALLEL_WORKERS')
+    os.environ['PARALLEL_WORKERS'] = '2'
+
+    try:
+        # Use bulk add with parallel processing
+        import time
+        start_time = time.time()
+        results = kb.add_documents_bulk(str(test_dir), pattern="*.txt", tags=["bulk", "test"])
+        elapsed = time.time() - start_time
+
+        # Verify results
+        assert len(results['added']) == 5
+        assert len(results['skipped']) == 0
+        assert len(results['failed']) == 0
+
+        # Verify all documents are in the knowledge base
+        assert len(kb.documents) == 5
+
+        # Verify all documents are searchable
+        search_results = kb.search("C64 programming", max_results=10)
+        assert len(search_results) >= 5
+
+        print(f"\nParallel bulk add: {len(results['added'])} files in {elapsed:.2f}s")
+
+    finally:
+        # Restore original worker count
+        if old_workers is not None:
+            os.environ['PARALLEL_WORKERS'] = old_workers
+        elif 'PARALLEL_WORKERS' in os.environ:
+            del os.environ['PARALLEL_WORKERS']
+
+    kb.close()
+
+
+def test_cross_reference_detection(tmpdir):
+    """Test cross-reference extraction and lookup."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create test document with cross-references
+    test_file = Path(str(tmpdir)) / "test_xrefs.txt"
+    content = """
+    The VIC-II border color register is at $D020 and the background color is at $D021.
+    You can set these directly using VIC+0 and VIC+1 offsets.
+    For more information, see page 156 of the manual.
+    The SID volume register is at $D418, also known as SID+24.
+    CIA timer registers start at $DC04.
+    """
+    test_file.write_text(content)
+
+    # Add document
+    doc = kb.add_document(str(test_file), "Test Cross-References", ["test"])
+
+    # Test memory address references
+    results = kb.find_by_reference("memory_address", "$D020", max_results=10)
+    assert len(results) > 0
+    assert results[0]['ref_type'] == 'memory_address'
+    assert results[0]['ref_value'] == '$D020'
+    assert '$D020' in results[0]['context']
+
+    # Test register offset references
+    results = kb.find_by_reference("register_offset", "VIC+0", max_results=10)
+    assert len(results) > 0
+    assert results[0]['ref_type'] == 'register_offset'
+    assert results[0]['ref_value'] == 'VIC+0'
+
+    # Test page references
+    results = kb.find_by_reference("page_reference", "156", max_results=10)
+    assert len(results) > 0
+    assert results[0]['ref_type'] == 'page_reference'
+    assert results[0]['ref_value'] == '156'
+    assert 'page 156' in results[0]['context'].lower()
+
+    print(f"\nCross-reference extraction successful - found references in {doc.doc_id}")
+
+    kb.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -61,6 +61,16 @@ except ImportError:
     NLTK_SUPPORT = False
     print("Warning: nltk not installed. Query preprocessing disabled.", file=sys.stderr)
 
+# Semantic search support
+try:
+    from sentence_transformers import SentenceTransformer
+    import faiss
+    import numpy as np
+    SEMANTIC_SUPPORT = True
+except ImportError:
+    SEMANTIC_SUPPORT = False
+    print("Warning: sentence-transformers or faiss-cpu not installed. Semantic search disabled.", file=sys.stderr)
+
 
 # Custom Exceptions
 class KnowledgeBaseError(Exception):
@@ -177,6 +187,28 @@ class KnowledgeBase:
             self.logger.info(f"Path traversal protection enabled for: {self.allowed_dirs}")
         else:
             self.allowed_dirs = None  # No restrictions
+
+        # Semantic search initialization
+        self.use_semantic = SEMANTIC_SUPPORT and os.getenv('USE_SEMANTIC_SEARCH', '0') == '1'
+        self.embeddings_model = None
+        self.embeddings_index = None
+        self.embeddings_doc_map = []  # Maps FAISS index positions to (doc_id, chunk_id)
+
+        if self.use_semantic:
+            try:
+                model_name = os.getenv('SEMANTIC_MODEL', 'all-MiniLM-L6-v2')
+                self.logger.info(f"Loading embeddings model: {model_name}")
+                self.embeddings_model = SentenceTransformer(model_name)
+                self.embeddings_file = self.data_dir / "embeddings.faiss"
+                self.embeddings_map_file = self.data_dir / "embeddings_map.json"
+                self._load_embeddings()
+                self.logger.info("Semantic search enabled")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize semantic search: {e}")
+                self.use_semantic = False
+        else:
+            if SEMANTIC_SUPPORT:
+                self.logger.info("Semantic search disabled via USE_SEMANTIC_SEARCH=0")
 
         # Load documents (with automatic migration if needed)
         self._load_documents()
@@ -777,6 +809,11 @@ class KnowledgeBase:
         # Invalidate BM25 index (will be rebuilt on next search)
         self.bm25 = None
 
+        # Invalidate embeddings (will be rebuilt on next semantic search)
+        if self.use_semantic:
+            self.embeddings_index = None
+            self.embeddings_doc_map = []
+
         self.logger.info(f"Successfully indexed document {doc_id}: {filename} ({len(chunks)} chunks)")
         return doc_meta
     
@@ -799,6 +836,11 @@ class KnowledgeBase:
 
             # Invalidate BM25 index (will be rebuilt on next search)
             self.bm25 = None
+
+            # Invalidate embeddings (will be rebuilt on next semantic search)
+            if self.use_semantic:
+                self.embeddings_index = None
+                self.embeddings_doc_map = []
 
             self.logger.info(f"Successfully removed document {doc_id}: {filename}")
 
@@ -1043,7 +1085,150 @@ class KnowledgeBase:
             snippet = snippet + "..."
 
         return snippet
-    
+
+    def _load_embeddings(self):
+        """Load FAISS embeddings index from disk."""
+        if not self.use_semantic:
+            return
+
+        try:
+            if self.embeddings_file.exists() and self.embeddings_map_file.exists():
+                self.embeddings_index = faiss.read_index(str(self.embeddings_file))
+                with open(self.embeddings_map_file, 'r') as f:
+                    self.embeddings_doc_map = json.load(f)
+                self.logger.info(f"Loaded embeddings index with {len(self.embeddings_doc_map)} vectors")
+            else:
+                self.logger.info("No existing embeddings found, will build on first use")
+        except Exception as e:
+            self.logger.error(f"Error loading embeddings: {e}")
+            self.embeddings_index = None
+            self.embeddings_doc_map = []
+
+    def _save_embeddings(self):
+        """Save FAISS embeddings index to disk."""
+        if not self.use_semantic or self.embeddings_index is None:
+            return
+
+        try:
+            faiss.write_index(self.embeddings_index, str(self.embeddings_file))
+            with open(self.embeddings_map_file, 'w') as f:
+                json.dump(self.embeddings_doc_map, f)
+            self.logger.info(f"Saved embeddings index with {len(self.embeddings_doc_map)} vectors")
+        except Exception as e:
+            self.logger.error(f"Error saving embeddings: {e}")
+
+    def _build_embeddings(self):
+        """Build FAISS index from all document chunks."""
+        if not self.use_semantic or self.embeddings_model is None:
+            return
+
+        self.logger.info("Building embeddings index for all chunks...")
+        start_time = time.time()
+
+        # Load all chunks
+        chunks = self._get_chunks_db()
+        if not chunks:
+            self.logger.warning("No chunks to embed")
+            return
+
+        # Generate embeddings
+        texts = [chunk.content for chunk in chunks]
+        embeddings = self.embeddings_model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
+
+        # Create FAISS index
+        dimension = embeddings.shape[1]
+        self.embeddings_index = faiss.IndexFlatIP(dimension)  # Inner product (cosine similarity)
+
+        # Normalize embeddings for cosine similarity
+        faiss.normalize_L2(embeddings)
+        self.embeddings_index.add(embeddings)
+
+        # Build doc map
+        self.embeddings_doc_map = [(chunk.doc_id, chunk.chunk_id) for chunk in chunks]
+
+        # Save to disk
+        self._save_embeddings()
+
+        elapsed = time.time() - start_time
+        self.logger.info(f"Built embeddings index in {elapsed:.2f}s")
+
+    def semantic_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
+        """
+        Perform semantic search using embeddings and vector similarity.
+
+        Args:
+            query: Search query
+            max_results: Maximum number of results to return
+            tags: Optional list of tags to filter by
+
+        Returns:
+            List of search results with scores
+        """
+        if not self.use_semantic or self.embeddings_model is None:
+            raise RuntimeError("Semantic search not available. Enable with USE_SEMANTIC_SEARCH=1")
+
+        # Build embeddings index if not yet built
+        if self.embeddings_index is None or len(self.embeddings_doc_map) == 0:
+            self._build_embeddings()
+            if self.embeddings_index is None:
+                return []
+
+        self.logger.info(f"Semantic search query: '{query}' (max_results={max_results}, tags={tags})")
+        start_time = time.time()
+
+        # Encode query
+        query_embedding = self.embeddings_model.encode([query], convert_to_numpy=True)
+        faiss.normalize_L2(query_embedding)
+
+        # Search in FAISS index (get more results for filtering)
+        k = min(max_results * 5, len(self.embeddings_doc_map))
+        scores, indices = self.embeddings_index.search(query_embedding, k)
+
+        # Build results
+        results = []
+        seen_docs = set()
+
+        for score, idx in zip(scores[0], indices[0]):
+            if idx < 0 or idx >= len(self.embeddings_doc_map):
+                continue
+
+            doc_id, chunk_id = self.embeddings_doc_map[idx]
+
+            # Filter by tags if specified
+            if tags:
+                doc = self.documents.get(doc_id)
+                if doc and not any(t in doc.tags for t in tags):
+                    continue
+
+            # Get chunk
+            chunk = self.get_chunk(doc_id, chunk_id)
+            if not chunk:
+                continue
+
+            # Extract snippet (highlight query terms)
+            query_terms = set(query.lower().split())
+            snippet = self._extract_snippet(chunk.content, query_terms)
+
+            doc = self.documents.get(doc_id)
+            results.append({
+                'doc_id': doc_id,
+                'filename': chunk.filename,
+                'title': chunk.title,
+                'chunk_id': chunk_id,
+                'score': float(score),
+                'snippet': snippet,
+                'word_count': chunk.word_count,
+                'similarity': float(score)  # Cosine similarity score
+            })
+
+            if len(results) >= max_results:
+                break
+
+        elapsed = (time.time() - start_time) * 1000
+        self.logger.info(f"Semantic search completed: {len(results)} results in {elapsed:.2f}ms")
+
+        return results
+
     def get_chunk(self, doc_id: str, chunk_id: int) -> Optional[DocumentChunk]:
         """Get a specific chunk from database."""
         cursor = self.db_conn.cursor()
@@ -1218,6 +1403,30 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="semantic_search",
+            description="Search the knowledge base using semantic/conceptual similarity (requires USE_SEMANTIC_SEARCH=1). Finds documents based on meaning, not just keywords. Example: searching for 'movable objects' can find 'sprites'.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (natural language)"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 5)",
+                        "default": 5
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by document tags (optional)"
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
             name="kb_stats",
             description="Get statistics about the knowledge base.",
             inputSchema={
@@ -1251,7 +1460,36 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += f"Snippet:\n{r['snippet']}\n\n"
         
         return [TextContent(type="text", text=output)]
-    
+
+    elif name == "semantic_search":
+        if not kb.use_semantic:
+            return [TextContent(
+                type="text",
+                text="Semantic search is not enabled. Set USE_SEMANTIC_SEARCH=1 and install sentence-transformers and faiss-cpu."
+            )]
+
+        query = arguments.get("query", "")
+        max_results = arguments.get("max_results", 5)
+        tags = arguments.get("tags")
+
+        try:
+            results = kb.semantic_search(query, max_results, tags)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Semantic search error: {str(e)}")]
+
+        if not results:
+            return [TextContent(type="text", text=f"No results found for: {query}")]
+
+        output = f"Found {len(results)} semantic results for '{query}':\n\n"
+        for i, r in enumerate(results, 1):
+            output += f"--- Result {i} ---\n"
+            output += f"Document: {r['title']} ({r['filename']})\n"
+            output += f"Doc ID: {r['doc_id']}, Chunk: {r['chunk_id']}\n"
+            output += f"Similarity Score: {r['similarity']:.4f}\n"
+            output += f"Snippet:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
     elif name == "get_chunk":
         doc_id = arguments.get("doc_id")
         chunk_id = arguments.get("chunk_id")

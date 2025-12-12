@@ -3,6 +3,7 @@
 Complete guide for using the Commodore 64 documentation knowledge base with Claude Desktop.
 
 ## Table of Contents
+- [What's New in v2.0.0](#whats-new-in-v200) ⭐
 - [Quick Start](#quick-start)
 - [Features](#features)
 - [Search Modes](#search-modes)
@@ -10,6 +11,55 @@ Complete guide for using the Commodore 64 documentation knowledge base with Clau
 - [Command Line Usage](#command-line-usage)
 - [Performance Optimization](#performance-optimization)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## What's New in v2.0.0
+
+### 🎯 Hybrid Search
+Combines FTS5 keyword precision with semantic understanding for best results.
+
+**Key Benefits:**
+- Best of both worlds: exact matches + conceptual understanding
+- Configurable weighting (default: 70% FTS5, 30% semantic)
+- Example: "SID sound" finds exact "SID" mentions AND audio synthesis concepts
+- Performance: 60-180ms
+
+**Usage:**
+```python
+results = kb.hybrid_search("graphics programming", max_results=5, semantic_weight=0.3)
+```
+
+### ✨ Enhanced Snippet Extraction
+Smarter, more readable search result snippets.
+
+**Improvements:**
+- ✅ Complete sentences (no mid-sentence cuts)
+- ✅ Code block preservation (doesn't break indented code)
+- ✅ Term density scoring (finds best context)
+- ✅ Whole word highlighting
+
+**Example:**
+```
+Before: "...II chip controls all graphics and vi..."
+After:  "The VIC-II chip controls all graphics and video output on the Commodore 64."
+```
+
+### 🏥 Health Monitoring
+System diagnostics at your fingertips.
+
+**Provides:**
+- Database integrity and size
+- Feature availability (FTS5, semantic, embeddings)
+- Performance metrics (cache, indexes)
+- Disk space warnings
+- Issue detection
+
+**Usage:**
+```python
+health = kb.health_check()
+# Returns: {'status': 'healthy', 'metrics': {...}, 'features': {...}}
+```
 
 ---
 
@@ -67,13 +117,16 @@ pip install -e ".[dev]"
 - **Topics:** Assembly language, BASIC, hardware (SID, VIC-II, CIA), memory maps, programming guides
 
 ### Search Capabilities
-1. **FTS5 Full-Text Search** - Lightning-fast keyword matching (50-140ms)
-2. **Semantic Search** - AI-powered meaning-based search (12-25ms)
-3. **BM25 Ranking** - Industry-standard relevance scoring (fallback)
-4. **Fuzzy Matching** - Handles typos (80% threshold)
-5. **Query Preprocessing** - Stemming and stopword removal
-6. **Phrase Search** - Exact phrase matching with quotes
-7. **Tag Filtering** - Filter by document categories
+1. **Hybrid Search** ⭐ NEW - Combines FTS5 + Semantic for best results (60-180ms)
+2. **FTS5 Full-Text Search** - Lightning-fast keyword matching (50-140ms)
+3. **Semantic Search** - AI-powered meaning-based search (12-25ms)
+4. **Enhanced Snippets** ⭐ NEW - Complete sentences, code preservation, term density
+5. **BM25 Ranking** - Industry-standard relevance scoring (fallback)
+6. **Fuzzy Matching** - Handles typos (80% threshold)
+7. **Query Preprocessing** - Stemming and stopword removal
+8. **Phrase Search** - Exact phrase matching with quotes
+9. **Tag Filtering** - Filter by document categories
+10. **Health Monitoring** ⭐ NEW - System diagnostics and status reporting
 
 ---
 
@@ -125,6 +178,48 @@ Query: "movable objects"
 → Finds: Sprite documentation, VIC-II programming guides
 ```
 
+### Hybrid Search ⭐ NEW (Best of Both Worlds)
+
+**Best for:** Maximum precision and recall - combines exact keywords with conceptual understanding
+
+```python
+# Via Python API
+from server import KnowledgeBase
+kb = KnowledgeBase("~/.tdz-c64-knowledge")
+
+# Balanced (default: 70% FTS5, 30% semantic)
+results = kb.hybrid_search("SID sound programming", max_results=5)
+
+# More semantic (40% FTS5, 60% semantic)
+results = kb.hybrid_search("audio synthesis", max_results=5, semantic_weight=0.6)
+
+# More keyword-focused (90% FTS5, 10% semantic)
+results = kb.hybrid_search("$D400 register", max_results=5, semantic_weight=0.1)
+```
+
+**Performance:** 60-180ms per query (combines two searches)
+
+**Features:**
+- Combines FTS5 keyword precision + semantic recall
+- Configurable weighting (semantic_weight: 0.0-1.0)
+- Score normalization for fair comparison
+- Intelligent result merging
+- Returns combined scores: `hybrid_score`, `fts_score`, `semantic_score`
+
+**When to Use:**
+- General searches where you want best results
+- Technical terms + conceptual understanding needed
+- Example: "6502 assembler" finds exact matches AND related content about machine code, opcodes
+
+**Example Results:**
+```
+Query: "SID sound programming"
+Result 1: hybrid_score=0.85 (fts=0.95, semantic=0.45)
+  → "Programming the SID Chip" - exact keyword match
+Result 2: hybrid_score=0.72 (fts=0.40, semantic=0.95)
+  → "Audio Synthesis Techniques" - conceptually related
+```
+
 ### BM25 Search (Fallback)
 
 **Best for:** When FTS5 returns no results
@@ -162,6 +257,11 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 
 Once configured, you can ask Claude:
 
+**Hybrid Searches** ⭐ NEW (Recommended):
+- "Use hybrid search to find information about sound programming on the C64"
+- "Search for sprite collision detection using hybrid search with semantic weight 0.4"
+- "Find VIC-II graphics programming guides with hybrid search"
+
 **Keyword Searches:**
 - "Search the C64 knowledge base for sprite collision detection"
 - "Find information about SID register $D400"
@@ -171,6 +271,11 @@ Once configured, you can ask Claude:
 - "How do I make sounds on the C64?"
 - "What are the graphics capabilities?"
 - "How does memory management work?"
+
+**System Health** ⭐ NEW:
+- "Check the health of the knowledge base system"
+- "Show me system diagnostics and performance metrics"
+- "Is everything working correctly with the knowledge base?"
 
 **Document Management:**
 - "List all documents in the knowledge base"

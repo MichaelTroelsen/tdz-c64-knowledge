@@ -12,7 +12,7 @@ This is an MCP (Model Context Protocol) server for managing and searching Commod
 
 **server.py** - MCP server implementation
 - `KnowledgeBase` class: Core data management (index + chunks storage)
-- MCP tool handlers: `search_docs`, `add_document`, `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`, `find_similar`
+- MCP tool handlers: `search_docs`, `semantic_search`, `hybrid_search` (NEW), `add_document`, `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`, `health_check` (NEW), `find_similar`, `check_updates`, `add_documents_bulk`, `remove_documents_bulk`
 - MCP resource handlers: Exposes documents as `c64kb://` URIs
 - Async server running on stdio transport
 
@@ -101,6 +101,31 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 - Applied to both queries and corpus during BM25 indexing
 - Can be disabled with `USE_QUERY_PREPROCESSING=0` environment variable
 - Implemented in `_preprocess_text()` method
+
+**Hybrid Search** (NEW in v2.0.0):
+- Combines FTS5 keyword search with semantic search
+- Configurable weighting via `semantic_weight` parameter (0.0-1.0, default 0.3)
+- Score normalization for fair comparison (both normalized to 0-1 range)
+- Intelligent result merging by (doc_id, chunk_id)
+- Best of both worlds: exact keyword matching + conceptual understanding
+- Example: "SID sound programming" finds exact matches AND related content about audio synthesis
+- Performance: ~60-180ms (combines two searches)
+
+**Enhanced Snippet Extraction** (NEW in v2.0.0):
+- Term density scoring via sliding window analysis
+- Complete sentence extraction (no mid-sentence cuts)
+- Code block preservation (detects and preserves indented blocks)
+- Whole word boundary highlighting for better accuracy
+- 80% size threshold ensures adequate context
+- More natural, readable snippets with proper sentence boundaries
+
+**Health Monitoring** (NEW in v2.0.0):
+- Comprehensive system diagnostics via `health_check()` method
+- Database health: integrity checking, size monitoring, orphaned chunk detection
+- Feature status: FTS5, semantic search, BM25, embeddings availability
+- Performance metrics: cache utilization, index status
+- Disk space warnings (< 1GB free)
+- Returns structured health report with status, metrics, and issues
 
 **Additional Features**:
 - Search term highlighting in snippets (markdown bold)
@@ -222,6 +247,8 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 **Key Methods:**
 - `search()` - Main entry point, dispatches to FTS5, BM25, or simple search based on environment variables
 - `semantic_search()` - Semantic/conceptual search using embeddings and FAISS
+- `hybrid_search()` - **NEW** Combines FTS5 + semantic with configurable weighting (default: 0.3)
+- `health_check()` - **NEW** Comprehensive system diagnostics (database, features, performance)
 - `_build_embeddings()` - Generates embeddings for all chunks and builds FAISS index
 - `_load_embeddings()` - Loads persisted FAISS index from disk
 - `_save_embeddings()` - Saves FAISS index to disk
@@ -230,13 +257,18 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 - `_search_bm25()` - BM25 scoring with phrase boosting
 - `_search_simple()` - Fallback term frequency scoring
 - `_build_bm25_index()` - Builds BM25 index from chunks on init/update
-- `_extract_snippet()` - Extracts context with term highlighting
+- `_extract_snippet()` - **ENHANCED** Extracts context with term density scoring, complete sentences, code preservation
+
+**Completed Enhancements (v2.0.0):**
+- ✅ Hybrid search combining FTS5 + semantic (configurable weighting)
+- ✅ Enhanced snippet extraction (term density, complete sentences, code blocks)
+- ✅ Health monitoring system (diagnostics, metrics, status reporting)
 
 **Future Enhancements:**
-- Implement semantic search with embeddings (sentence-transformers)
-- Add query preprocessing (stemming, stopwords)
+- Query autocompletion based on indexed content
 - Fuzzy search / typo tolerance (Levenshtein distance)
-- See IMPROVEMENTS.md for detailed recommendations
+- Multi-language support beyond English
+- See FUTURE_IMPROVEMENTS.md for detailed roadmap
 
 ### Database Access Patterns
 

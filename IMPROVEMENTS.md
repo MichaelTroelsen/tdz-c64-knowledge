@@ -291,20 +291,59 @@ for term in query_terms:
         snippet = pattern.sub(r'**\1**', snippet)
 ```
 
-### P1: Add "More Like This" Tool
-**Recommendation**:
+### ✅ COMPLETED: P1: Add "More Like This" Tool
+**Status**: ✅ Implemented with semantic and TF-IDF similarity
+**Completed**: December 2025
+
+**Implementation Details**:
 ```python
+# MCP Tool
 Tool(
     name="find_similar",
-    description="Find documents similar to a given document",
+    description="Find documents similar to a given document or chunk",
     inputSchema={
         "properties": {
-            "doc_id": {"type": "string"},
-            "max_results": {"type": "integer", "default": 5}
+            "doc_id": {"type": "string", "description": "Source document ID"},
+            "chunk_id": {"type": "integer", "description": "Optional chunk ID for chunk-level similarity"},
+            "max_results": {"type": "integer", "default": 5},
+            "tags": {"type": "array", "description": "Filter by tags"}
         }
     }
 )
+
+# Core implementation
+def find_similar_documents(self, doc_id: str, chunk_id: Optional[int] = None,
+                          max_results: int = 5, tags: Optional[list[str]] = None):
+    # Prefer semantic search if available
+    if self.use_semantic and self.embeddings_index is not None:
+        return self._find_similar_semantic(doc_id, chunk_id, max_results, tags)
+    else:
+        # Fall back to TF-IDF similarity
+        return self._find_similar_tfidf(doc_id, chunk_id, max_results, tags)
 ```
+
+**Key Features**:
+- **Dual-mode similarity**: Uses semantic embeddings (FAISS) if available, else TF-IDF cosine similarity
+- **Document-level similarity**: Find similar documents when chunk_id is None
+- **Chunk-level similarity**: Find chunks similar to a specific chunk when chunk_id provided
+- **Tag filtering**: Filter results by document tags
+- **Smart aggregation**: Groups chunks by document for document-level results
+
+**Semantic Similarity** (`_find_similar_semantic`):
+- Uses FAISS embeddings index for fast nearest-neighbor search
+- Aggregates chunk scores by document (mean similarity)
+- Returns documents sorted by average similarity score
+
+**TF-IDF Similarity** (`_find_similar_tfidf`):
+- Builds TF-IDF vectors for all chunks
+- Computes cosine similarity between vectors
+- Works without requiring embeddings generation
+
+**Benefits**:
+- ✅ Discover related documentation automatically
+- ✅ Navigate knowledge base by similarity
+- ✅ No external dependencies required (TF-IDF fallback)
+- ✅ Fast lookups with FAISS when available
 
 ### P1: Document Update Detection
 **Current Issue**: No way to detect if source file has changed
@@ -391,17 +430,55 @@ Metadata fields added to `DocumentMeta` dataclass:
 - `creator: Optional[str]`
 - `creation_date: Optional[str]`
 
-### P1: Duplicate Detection
-**Current Issue**: Same document can be indexed multiple times with different paths
+### ✅ COMPLETED: P1: Duplicate Detection
+**Status**: ✅ Implemented with content-based doc IDs
+**Completed**: December 2025
 
-**Recommendations**:
+**Implementation Details**:
 ```python
-def _generate_doc_id(self, filepath: str) -> str:
-    """Generate ID based on content hash, not filepath."""
-    with open(filepath, 'rb') as f:
-        file_hash = hashlib.md5(f.read()).hexdigest()
-    return file_hash[:12]
+def _generate_doc_id(self, filepath: str, text_content: str = None) -> str:
+    """Generate ID based on content hash for deduplication."""
+    if text_content:
+        # Content-based ID for deduplication
+        normalized = text_content.lower().strip()
+        words = normalized.split()[:10000]  # First 10k words
+        content_sample = ' '.join(words)
+        return hashlib.md5(content_sample.encode('utf-8')).hexdigest()[:12]
+    else:
+        # Filepath-based ID (legacy support)
+        return hashlib.md5(filepath.encode()).hexdigest()[:12]
+
+def add_document(self, filepath: str, ...):
+    # Extract text first
+    text = self._extract_pdf_text(filepath) or self._extract_text_file(filepath)
+
+    # Generate content-based doc_id for deduplication
+    doc_id = self._generate_doc_id(filepath, text)
+
+    # Check for duplicate content
+    if doc_id in self.documents:
+        existing_doc = self.documents[doc_id]
+        self.logger.warning(f"Duplicate content detected: {filepath}")
+        self.logger.warning(f"  Matches existing document: {existing_doc.filepath}")
+        self.logger.info(f"Skipping duplicate - returning existing document {doc_id}")
+        return existing_doc  # Non-destructive - returns existing doc
+
+    # Continue with normal indexing...
 ```
+
+**Key Features**:
+- **Content-based IDs**: Doc ID derived from text content (first 10k words) not filepath
+- **Automatic duplicate detection**: Same content at different paths detected and skipped
+- **Non-destructive behavior**: Returns existing document instead of creating duplicate
+- **Normalized comparison**: Lowercase normalization prevents case-sensitivity duplicates
+- **Efficient hashing**: Uses first 10k words to handle very large documents
+- **Backward compatible**: Filepath-based IDs still supported when text_content is None
+
+**Benefits**:
+- ✅ Prevents duplicate indexing of same content
+- ✅ Saves storage space and reduces index bloat
+- ✅ Improves search quality by avoiding duplicate results
+- ✅ Clear logging when duplicates are detected
 
 ### P2: OCR Support for Scanned PDFs
 **Recommendations**:

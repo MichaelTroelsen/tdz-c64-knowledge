@@ -7,6 +7,7 @@ An MCP (Model Context Protocol) server for managing and searching Commodore 64 d
 ### Search & Retrieval
 - **SQLite FTS5 full-text search** - Native database search with 480x faster queries (50ms vs 24s)
 - **Semantic search with embeddings** - Find documents by meaning, not just keywords (e.g., "movable objects" finds "sprites")
+- **Find similar documents** - Discover related documentation automatically using semantic or TF-IDF similarity
 - **BM25 search algorithm** - Industry-standard ranking for accurate results (fallback)
 - **Query preprocessing** - Intelligent stemming and stopword removal with NLTK
 - **Phrase search** - Use quotes for exact phrase matching (e.g., `"VIC-II chip"`)
@@ -15,6 +16,7 @@ An MCP (Model Context Protocol) server for managing and searching Commodore 64 d
 
 ### Document Management
 - **PDF and text file ingestion** - Extract and index content from documentation
+- **Duplicate detection** - Content-based deduplication prevents indexing the same document twice
 - **Chunked retrieval** - Get specific sections without loading entire documents
 - **PDF metadata extraction** - Author, subject, creator, and creation date
 - **Page number tracking** - Results show PDF page numbers for easy reference
@@ -284,6 +286,46 @@ Remove a document from the knowledge base.
 
 ### kb_stats
 Get statistics about the knowledge base.
+
+### find_similar
+Find documents similar to a given document or chunk.
+
+```
+find_similar(
+  doc_id="abc123",
+  chunk_id=5,  # Optional - for chunk-level similarity
+  max_results=5,
+  tags=["graphics"]  # Optional - filter by tags
+)
+```
+
+Uses semantic embeddings (FAISS) if available, otherwise falls back to TF-IDF cosine similarity. Returns documents sorted by similarity score with snippets.
+
+## Duplicate Detection
+
+The knowledge base automatically detects and prevents duplicate content from being indexed multiple times. When you add a document, the system:
+
+1. **Generates content-based ID** - Creates a hash from the document's text content (first 10,000 words)
+2. **Checks for duplicates** - Compares against existing documents using the content hash
+3. **Returns existing document** - If duplicate detected, returns the existing document instead of creating a new entry
+
+**Benefits:**
+- Prevents storage bloat from duplicate content
+- Improves search quality by eliminating duplicate results
+- Works regardless of file path or filename
+- Clear logging when duplicates are detected
+
+**Example:**
+```
+# First time - document is indexed
+doc1 = add_document("C:/docs/vic-ii-guide.pdf", title="VIC-II Guide")
+
+# Second time - same content, different path - duplicate detected
+doc2 = add_document("C:/backup/vic-ii-guide-copy.pdf", title="Copy of VIC-II Guide")
+
+# doc2.doc_id == doc1.doc_id (same content hash)
+# No duplicate entry created in knowledge base
+```
 
 ## Suggested Tags
 

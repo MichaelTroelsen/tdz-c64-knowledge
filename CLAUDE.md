@@ -12,7 +12,7 @@ This is an MCP (Model Context Protocol) server for managing and searching Commod
 
 **server.py** - MCP server implementation
 - `KnowledgeBase` class: Core data management (index + chunks storage)
-- MCP tool handlers: `search_docs`, `add_document`, `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`
+- MCP tool handlers: `search_docs`, `add_document`, `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`, `find_similar`
 - MCP resource handlers: Exposes documents as `c64kb://` URIs
 - Async server running on stdio transport
 
@@ -41,8 +41,17 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 1. File ingestion (PDF via pypdf, text files with encoding detection)
 2. Text extraction (pages joined with "--- PAGE BREAK ---")
 3. Chunking with overlap (_chunk_text method)
-4. Index generation (doc_id from MD5 hash of filepath)
-5. Database persistence (document + chunks inserted in ACID transaction via `_add_document_db()`)
+4. **Content-based ID generation** (doc_id from MD5 hash of normalized text content, first 10k words)
+5. **Duplicate detection** (checks if content hash already exists, returns existing doc if duplicate)
+6. Database persistence (document + chunks inserted in ACID transaction via `_add_document_db()`)
+
+**Duplicate Detection Details**:
+- `_generate_doc_id()` accepts optional `text_content` parameter
+- If provided, generates content-based hash from normalized text (lowercase, first 10k words)
+- In `add_document()`, checks if doc_id already exists in `self.documents`
+- If duplicate detected, logs warning and returns existing document (non-destructive)
+- Prevents duplicate indexing regardless of file path or filename
+- Backward compatible: filepath-based IDs still supported for legacy code
 
 ### Search Implementation
 
@@ -98,6 +107,30 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 - PDF page number tracking in results
 - Tag-based filtering
 - Comprehensive logging to server.log
+
+### Similarity Search (Find Similar Documents)
+
+**find_similar_documents()** - Find documents similar to a given document or chunk:
+- Dual-mode implementation: semantic embeddings (preferred) or TF-IDF (fallback)
+- Supports document-level similarity (when chunk_id is None) and chunk-level similarity
+- Tag filtering support for narrowing results
+
+**Semantic Similarity** (`_find_similar_semantic`):
+- Uses FAISS embeddings index for fast nearest-neighbor search
+- Computes cosine similarity between embedding vectors
+- Aggregates chunk scores by document (mean similarity)
+- Requires embeddings to be built (`USE_SEMANTIC_SEARCH=1`)
+
+**TF-IDF Similarity** (`_find_similar_tfidf`):
+- Builds TF-IDF vectors using sklearn's TfidfVectorizer
+- Computes cosine similarity between document/chunk vectors
+- No external dependencies beyond sklearn (included in rank-bm25)
+- Works without embeddings generation
+
+**MCP Tool**: `find_similar`
+- Input: doc_id (required), chunk_id (optional), max_results (default: 5), tags (optional)
+- Returns: List of similar documents with similarity scores and snippets
+- Automatically selects best available method (semantic > TF-IDF)
 
 ## Development Commands
 

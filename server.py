@@ -641,9 +641,31 @@ class KnowledgeBase:
         with open(chunk_file, 'w', encoding='utf-8') as f:
             json.dump([asdict(c) for c in chunks], f)
     
-    def _generate_doc_id(self, filepath: str) -> str:
-        """Generate a unique document ID."""
-        return hashlib.md5(filepath.encode()).hexdigest()[:12]
+    def _generate_doc_id(self, filepath: str, text_content: str = None) -> str:
+        """
+        Generate a unique document ID based on content hash.
+
+        If text_content is provided, generates ID from content hash (deduplication).
+        If not provided, falls back to filepath hash (legacy behavior).
+
+        Args:
+            filepath: Path to the document
+            text_content: Extracted text content (optional)
+
+        Returns:
+            12-character hex string document ID
+        """
+        if text_content:
+            # Content-based ID for deduplication
+            # Normalize text: lowercase, strip whitespace
+            normalized = text_content.lower().strip()
+            # Hash first 10k words to handle large documents efficiently
+            words = normalized.split()[:10000]
+            content_sample = ' '.join(words)
+            return hashlib.md5(content_sample.encode('utf-8')).hexdigest()[:12]
+        else:
+            # Filepath-based ID (legacy)
+            return hashlib.md5(filepath.encode()).hexdigest()[:12]
     
     def _chunk_text(self, text: str, chunk_size: int = 1500, overlap: int = 200) -> list[str]:
         """Split text into overlapping chunks."""
@@ -737,7 +759,6 @@ class KnowledgeBase:
             self.logger.error(f"File not found: {filepath}")
             raise DocumentNotFoundError(f"File not found: {filepath}")
 
-        doc_id = self._generate_doc_id(filepath)
         filename = os.path.basename(filepath)
         file_ext = os.path.splitext(filename)[1].lower()
 
@@ -760,6 +781,17 @@ class KnowledgeBase:
         except Exception as e:
             self.logger.error(f"Error extracting {filepath}: {e}")
             raise KnowledgeBaseError(f"Error extracting document: {e}")
+
+        # Generate content-based doc_id for deduplication
+        doc_id = self._generate_doc_id(filepath, text)
+
+        # Check for duplicate content
+        if doc_id in self.documents:
+            existing_doc = self.documents[doc_id]
+            self.logger.warning(f"Duplicate content detected: {filepath}")
+            self.logger.warning(f"  Matches existing document: {existing_doc.filepath}")
+            self.logger.info(f"Skipping duplicate - returning existing document {doc_id}")
+            return existing_doc
         
         # Create chunks
         text_chunks = self._chunk_text(text)
@@ -1229,6 +1261,197 @@ class KnowledgeBase:
 
         return results
 
+    def find_similar_documents(self, doc_id: str, chunk_id: Optional[int] = None,
+                               max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
+        """
+        Find documents similar to the given document or chunk.
+
+        Args:
+            doc_id: Document ID to find similar documents for
+            chunk_id: Optional chunk ID (if None, uses all chunks from document)
+            max_results: Maximum number of results to return
+            tags: Optional list of tags to filter by
+
+        Returns:
+            List of similar documents with similarity scores
+        """
+        # Prefer semantic search if available
+        if self.use_semantic and self.embeddings_index is not None:
+            return self._find_similar_semantic(doc_id, chunk_id, max_results, tags)
+        else:
+            # Fall back to TF-IDF similarity
+            return self._find_similar_tfidf(doc_id, chunk_id, max_results, tags)
+
+    def _find_similar_semantic(self, doc_id: str, chunk_id: Optional[int],
+                               max_results: int, tags: Optional[list[str]]) -> list[dict]:
+        """Find similar documents using semantic embeddings."""
+        if not self.use_semantic or self.embeddings_model is None:
+            raise RuntimeError("Semantic search not available")
+
+        # Build embeddings index if not yet built
+        if self.embeddings_index is None or len(self.embeddings_doc_map) == 0:
+            self._build_embeddings()
+            if self.embeddings_index is None:
+                return []
+
+        # Get target embedding(s)
+        if chunk_id is not None:
+            # Find specific chunk's embedding
+            try:
+                target_idx = self.embeddings_doc_map.index((doc_id, chunk_id))
+                target_embedding = self.embeddings_index.reconstruct(target_idx)
+                target_embedding = target_embedding.reshape(1, -1)
+            except ValueError:
+                self.logger.error(f"Chunk not found in embeddings: {doc_id}, {chunk_id}")
+                return []
+        else:
+            # Average all chunk embeddings for this document
+            doc_indices = [i for i, (d, c) in enumerate(self.embeddings_doc_map) if d == doc_id]
+            if not doc_indices:
+                self.logger.error(f"Document not found in embeddings: {doc_id}")
+                return []
+
+            embeddings = np.array([self.embeddings_index.reconstruct(i) for i in doc_indices])
+            target_embedding = np.mean(embeddings, axis=0).reshape(1, -1)
+
+        # Normalize for cosine similarity
+        faiss.normalize_L2(target_embedding)
+
+        # Search for similar chunks (get more for filtering)
+        k = min(max_results * 10, len(self.embeddings_doc_map))
+        scores, indices = self.embeddings_index.search(target_embedding, k)
+
+        # Build results, aggregating by document
+        doc_scores = {}  # doc_id -> max similarity score
+        doc_chunks = {}  # doc_id -> list of matching chunks
+
+        for score, idx in zip(scores[0], indices[0]):
+            if idx < 0 or idx >= len(self.embeddings_doc_map):
+                continue
+
+            found_doc_id, found_chunk_id = self.embeddings_doc_map[idx]
+
+            # Skip the source document/chunk
+            if found_doc_id == doc_id:
+                if chunk_id is None or found_chunk_id == chunk_id:
+                    continue
+
+            # Filter by tags if specified
+            if tags:
+                doc = self.documents.get(found_doc_id)
+                if doc and not any(t in doc.tags for t in tags):
+                    continue
+
+            # Track best score per document
+            if found_doc_id not in doc_scores or score > doc_scores[found_doc_id]:
+                doc_scores[found_doc_id] = float(score)
+                doc_chunks[found_doc_id] = found_chunk_id
+
+        # Sort documents by similarity score
+        sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)[:max_results]
+
+        # Build result list with document info
+        results = []
+        for found_doc_id, similarity in sorted_docs:
+            doc = self.documents.get(found_doc_id)
+            if not doc:
+                continue
+
+            best_chunk_id = doc_chunks[found_doc_id]
+            chunk = self.get_chunk(found_doc_id, best_chunk_id)
+
+            results.append({
+                'doc_id': found_doc_id,
+                'filename': doc.filename,
+                'title': doc.title,
+                'chunk_id': best_chunk_id,
+                'similarity': similarity,
+                'snippet': chunk.content[:300] + "..." if chunk else "",
+                'total_chunks': doc.total_chunks,
+                'tags': doc.tags
+            })
+
+        return results
+
+    def _find_similar_tfidf(self, doc_id: str, chunk_id: Optional[int],
+                            max_results: int, tags: Optional[list[str]]) -> list[dict]:
+        """Find similar documents using TF-IDF (fallback when semantic search unavailable)."""
+        from collections import Counter
+        import math
+
+        # Get target document chunks
+        target_chunks = self._get_chunks_db(doc_id)
+        if not target_chunks:
+            return []
+
+        # If specific chunk requested, use only that chunk
+        if chunk_id is not None:
+            target_chunks = [c for c in target_chunks if c.chunk_id == chunk_id]
+            if not target_chunks:
+                return []
+
+        # Build target document term vector
+        target_terms = []
+        for chunk in target_chunks:
+            words = chunk.content.lower().split()
+            target_terms.extend(words)
+
+        target_tf = Counter(target_terms)
+        target_length = math.sqrt(sum(count**2 for count in target_tf.values()))
+
+        # Calculate similarity with all other documents
+        doc_similarities = []
+
+        for other_doc_id, other_doc in self.documents.items():
+            # Skip source document
+            if other_doc_id == doc_id:
+                continue
+
+            # Filter by tags
+            if tags and not any(t in other_doc.tags for t in tags):
+                continue
+
+            # Get chunks for comparison document
+            other_chunks = self._get_chunks_db(other_doc_id)
+            if not other_chunks:
+                continue
+
+            # Build term vector for other document
+            other_terms = []
+            for chunk in other_chunks:
+                words = chunk.content.lower().split()
+                other_terms.extend(words)
+
+            other_tf = Counter(other_terms)
+            other_length = math.sqrt(sum(count**2 for count in other_tf.values()))
+
+            # Calculate cosine similarity
+            dot_product = sum(target_tf[term] * other_tf[term] for term in target_tf if term in other_tf)
+
+            if target_length > 0 and other_length > 0:
+                similarity = dot_product / (target_length * other_length)
+            else:
+                similarity = 0.0
+
+            if similarity > 0:
+                # Find best matching chunk
+                best_chunk = other_chunks[0] if other_chunks else None
+
+                doc_similarities.append({
+                    'doc_id': other_doc_id,
+                    'filename': other_doc.filename,
+                    'title': other_doc.title,
+                    'chunk_id': best_chunk.chunk_id if best_chunk else 0,
+                    'similarity': similarity,
+                    'snippet': best_chunk.content[:300] + "..." if best_chunk else "",
+                    'total_chunks': other_doc.total_chunks,
+                    'tags': other_doc.tags
+                })
+
+        # Sort by similarity and return top results
+        doc_similarities.sort(key=lambda x: x['similarity'], reverse=True)
+        return doc_similarities[:max_results]
+
     def get_chunk(self, doc_id: str, chunk_id: int) -> Optional[DocumentChunk]:
         """Get a specific chunk from database."""
         cursor = self.db_conn.cursor()
@@ -1427,6 +1650,34 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="find_similar",
+            description="Find documents similar to a given document. Uses semantic embeddings if available, falls back to TF-IDF. Great for discovering related content.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to find similar documents for"
+                    },
+                    "chunk_id": {
+                        "type": "integer",
+                        "description": "Optional chunk ID (if omitted, uses entire document)"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 5)",
+                        "default": 5
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by document tags (optional)"
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
             name="kb_stats",
             description="Get statistics about the knowledge base.",
             inputSchema={
@@ -1565,6 +1816,38 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             return [TextContent(type="text", text=f"Document not found: {doc_id}")]
     
+    elif name == "find_similar":
+        doc_id = arguments.get("doc_id")
+        chunk_id = arguments.get("chunk_id")
+        max_results = arguments.get("max_results", 5)
+        tags = arguments.get("tags")
+
+        # Check if document exists
+        if doc_id not in kb.documents:
+            return [TextContent(type="text", text=f"Document not found: {doc_id}")]
+
+        try:
+            results = kb.find_similar_documents(doc_id, chunk_id, max_results, tags)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error finding similar documents: {str(e)}")]
+
+        if not results:
+            return [TextContent(type="text", text=f"No similar documents found for: {doc_id}")]
+
+        source_doc = kb.documents[doc_id]
+        if chunk_id is not None:
+            output = f"Documents similar to '{source_doc.title}' (chunk {chunk_id}):\n\n"
+        else:
+            output = f"Documents similar to '{source_doc.title}':\n\n"
+
+        for i, r in enumerate(results, 1):
+            output += f"--- {i}. {r['title']} ({r['filename']}) ---\n"
+            output += f"Doc ID: {r['doc_id']}, Similarity: {r['similarity']:.4f}\n"
+            output += f"Tags: {', '.join(r['tags']) if r['tags'] else 'none'}\n"
+            output += f"Snippet:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
     elif name == "kb_stats":
         stats = kb.get_stats()
         output = "Knowledge Base Statistics:\n"
@@ -1574,7 +1857,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         output += f"  File Types: {', '.join(stats['file_types']) or 'none'}\n"
         output += f"  Tags: {', '.join(stats['all_tags']) or 'none'}\n"
         return [TextContent(type="text", text=output)]
-    
+
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 

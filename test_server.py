@@ -276,6 +276,44 @@ The SID chip handles sound generation with 3 voices.
         del os.environ['ALLOWED_DOCS_DIRS']
         kb_restricted.close()
 
+    def test_duplicate_detection(self, kb, temp_data_dir):
+        """Test content-based duplicate detection."""
+        # Create a document
+        doc1_path = Path(temp_data_dir) / "original.txt"
+        doc1_path.write_text("This is unique content about the VIC-II chip and sprites.")
+
+        # Add first document
+        doc1 = kb.add_document(str(doc1_path), title="Original", tags=["test"])
+        original_doc_id = doc1.doc_id
+
+        # Create an exact duplicate at a different path
+        doc2_path = Path(temp_data_dir) / "duplicate.txt"
+        doc2_path.write_text("This is unique content about the VIC-II chip and sprites.")
+
+        # Add duplicate - should return existing document
+        doc2 = kb.add_document(str(doc2_path), title="Duplicate", tags=["test"])
+
+        # Should have same doc_id (content-based)
+        assert doc2.doc_id == original_doc_id
+        assert doc2.filepath == doc1.filepath  # Returns first document
+
+        # Should only have one document in the knowledge base
+        docs = kb.list_documents()
+        matching_docs = [d for d in docs if d.doc_id == original_doc_id]
+        assert len(matching_docs) == 1
+
+        # Create a document with different content
+        doc3_path = Path(temp_data_dir) / "different.txt"
+        doc3_path.write_text("This is completely different content about the SID chip.")
+
+        # Add different document - should get new doc_id
+        doc3 = kb.add_document(str(doc3_path), title="Different", tags=["test"])
+        assert doc3.doc_id != original_doc_id
+
+        # Clean up
+        kb.remove_document(doc1.doc_id)
+        kb.remove_document(doc3.doc_id)
+
 
 def test_query_preprocessing(tmpdir):
     """Test query preprocessing (stemming, stopword removal)."""

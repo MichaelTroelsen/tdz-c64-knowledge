@@ -17,6 +17,14 @@ from typing import Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
+# Caching support
+try:
+    from cachetools import TTLCache
+    CACHE_SUPPORT = True
+except ImportError:
+    CACHE_SUPPORT = False
+    print("Warning: cachetools not installed. Search caching disabled.", file=sys.stderr)
+
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
@@ -132,6 +140,9 @@ class DocumentMeta:
     subject: Optional[str] = None
     creator: Optional[str] = None
     creation_date: Optional[str] = None
+    # Update detection fields
+    file_mtime: Optional[float] = None  # File modification time
+    file_hash: Optional[str] = None  # MD5 hash of file content
 
 
 class KnowledgeBase:
@@ -166,6 +177,17 @@ class KnowledgeBase:
         self.documents: dict[str, DocumentMeta] = {}
         self.chunks: list[DocumentChunk] = []  # Only loaded on demand for BM25
         self.bm25 = None  # BM25 index, built on demand
+
+        # Initialize caching layer
+        if CACHE_SUPPORT:
+            cache_size = int(os.getenv('SEARCH_CACHE_SIZE', '100'))
+            cache_ttl = int(os.getenv('SEARCH_CACHE_TTL', '300'))  # 5 minutes
+            self._search_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
+            self._similar_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
+            self.logger.info(f"Search caching enabled (size={cache_size}, ttl={cache_ttl}s)")
+        else:
+            self._search_cache = None
+            self._similar_cache = None
 
         # Initialize query preprocessing
         self.use_preprocessing = NLTK_SUPPORT and os.getenv('USE_QUERY_PREPROCESSING', '1') == '1'
@@ -241,7 +263,9 @@ class KnowledgeBase:
                     author TEXT,
                     subject TEXT,
                     creator TEXT,
-                    creation_date TEXT
+                    creation_date TEXT,
+                    file_mtime REAL,
+                    file_hash TEXT
                 )
             """)
 
@@ -303,6 +327,21 @@ class KnowledgeBase:
             self.logger.info("Database schema created successfully (with FTS5)")
         else:
             self.logger.info("Using existing database")
+
+            # Migrate database schema: Add file_mtime and file_hash columns if missing
+            cursor = self.db_conn.cursor()
+            cursor.execute("PRAGMA table_info(documents)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'file_mtime' not in columns:
+                self.logger.info("Migrating database: adding file_mtime column")
+                cursor.execute("ALTER TABLE documents ADD COLUMN file_mtime REAL")
+                self.db_conn.commit()
+
+            if 'file_hash' not in columns:
+                self.logger.info("Migrating database: adding file_hash column")
+                cursor.execute("ALTER TABLE documents ADD COLUMN file_hash TEXT")
+                self.db_conn.commit()
 
             # Check if FTS5 table exists and populate if needed
             try:
@@ -406,7 +445,9 @@ class KnowledgeBase:
                     author=row[9],
                     subject=row[10],
                     creator=row[11],
-                    creation_date=row[12]
+                    creation_date=row[12],
+                    file_mtime=row[13] if len(row) > 13 else None,
+                    file_hash=row[14] if len(row) > 14 else None
                 )
                 self.documents[doc.doc_id] = doc
 
@@ -458,8 +499,8 @@ class KnowledgeBase:
             cursor.execute("""
                 INSERT OR REPLACE INTO documents
                 (doc_id, filename, title, filepath, file_type, total_pages, total_chunks,
-                 indexed_at, tags, author, subject, creator, creation_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 indexed_at, tags, author, subject, creator, creation_date, file_mtime, file_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 doc_meta.doc_id,
                 doc_meta.filename,
@@ -473,7 +514,9 @@ class KnowledgeBase:
                 doc_meta.author,
                 doc_meta.subject,
                 doc_meta.creator,
-                doc_meta.creation_date
+                doc_meta.creation_date,
+                doc_meta.file_mtime,
+                doc_meta.file_hash
             ))
 
             # Delete old chunks if re-indexing
@@ -733,7 +776,31 @@ class KnowledgeBase:
             except UnicodeDecodeError:
                 continue
         raise RuntimeError(f"Could not decode {filepath}")
-    
+
+    def _cache_key(self, method: str, **kwargs) -> str:
+        """Generate a cache key from method name and arguments."""
+        # Sort kwargs for consistent hashing
+        sorted_items = sorted(kwargs.items())
+        key_str = f"{method}:{sorted_items}"
+        return hashlib.md5(key_str.encode()).hexdigest()
+
+    def _invalidate_caches(self):
+        """Clear all caches when data changes."""
+        if self._search_cache is not None:
+            self._search_cache.clear()
+        if self._similar_cache is not None:
+            self._similar_cache.clear()
+        self.logger.info("Search caches invalidated")
+
+    def _compute_file_hash(self, filepath: str) -> str:
+        """Compute MD5 hash of file content."""
+        md5_hash = hashlib.md5()
+        with open(filepath, 'rb') as f:
+            # Read file in chunks for memory efficiency
+            for chunk in iter(lambda: f.read(8192), b''):
+                md5_hash.update(chunk)
+        return md5_hash.hexdigest()
+
     def add_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None) -> DocumentMeta:
         """Add a document to the knowledge base."""
         # Resolve to absolute path to prevent path traversal
@@ -817,6 +884,10 @@ class KnowledgeBase:
             )
             chunks.append(chunk)
 
+        # Compute file modification time and content hash for update detection
+        file_mtime = os.path.getmtime(resolved_path)
+        file_hash = self._compute_file_hash(resolved_path)
+
         # Create metadata
         doc_meta = DocumentMeta(
             doc_id=doc_id,
@@ -831,7 +902,9 @@ class KnowledgeBase:
             author=pdf_metadata.get('author'),
             subject=pdf_metadata.get('subject'),
             creator=pdf_metadata.get('creator'),
-            creation_date=pdf_metadata.get('creation_date')
+            creation_date=pdf_metadata.get('creation_date'),
+            file_mtime=file_mtime,
+            file_hash=file_hash
         )
 
         # Add to database
@@ -845,6 +918,9 @@ class KnowledgeBase:
         if self.use_semantic:
             self.embeddings_index = None
             self.embeddings_doc_map = []
+
+        # Invalidate search caches
+        self._invalidate_caches()
 
         self.logger.info(f"Successfully indexed document {doc_id}: {filename} ({len(chunks)} chunks)")
         return doc_meta
@@ -874,13 +950,165 @@ class KnowledgeBase:
                 self.embeddings_index = None
                 self.embeddings_doc_map = []
 
+            # Invalidate search caches
+            self._invalidate_caches()
+
             self.logger.info(f"Successfully removed document {doc_id}: {filename}")
 
         return success
-    
+
+    def needs_reindex(self, filepath: str, doc_id: str) -> bool:
+        """
+        Check if a document needs re-indexing based on file modification time and content hash.
+
+        Args:
+            filepath: Path to the document file
+            doc_id: Document ID to check
+
+        Returns:
+            True if the document needs re-indexing, False otherwise
+        """
+        doc = self.documents.get(doc_id)
+        if not doc:
+            return True  # Document doesn't exist, needs indexing
+
+        # If no mtime/hash stored, can't check - assume needs reindex
+        if doc.file_mtime is None or doc.file_hash is None:
+            self.logger.info(f"Document {doc_id} has no update detection data, assuming needs reindex")
+            return True
+
+        # Quick check: modification time
+        try:
+            current_mtime = os.path.getmtime(filepath)
+            if current_mtime <= doc.file_mtime:
+                # File hasn't been modified since last index
+                return False
+        except OSError:
+            # File doesn't exist or can't be accessed
+            self.logger.warning(f"Cannot access file: {filepath}")
+            return False
+
+        # File was modified - do deep check with content hash
+        try:
+            current_hash = self._compute_file_hash(filepath)
+            if current_hash == doc.file_hash:
+                # Content is same despite mtime change (e.g., touched)
+                self.logger.info(f"File mtime changed but content unchanged: {filepath}")
+                return False
+            else:
+                # Content has actually changed
+                self.logger.info(f"File content changed: {filepath}")
+                return True
+        except Exception as e:
+            self.logger.error(f"Error computing hash for {filepath}: {e}")
+            return False
+
+    def update_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None) -> DocumentMeta:
+        """
+        Update an existing document if it has changed, or add it if it doesn't exist.
+
+        Args:
+            filepath: Path to the document file
+            title: Optional title (if not provided, uses filename)
+            tags: Optional list of tags
+
+        Returns:
+            DocumentMeta for the document (existing or newly indexed)
+        """
+        # Find existing doc by filepath
+        existing_doc = None
+        for doc in self.documents.values():
+            if doc.filepath == filepath:
+                existing_doc = doc
+                break
+
+        if not existing_doc:
+            # Document doesn't exist, add it
+            self.logger.info(f"Document not found, adding: {filepath}")
+            return self.add_document(filepath, title, tags)
+
+        if not self.needs_reindex(filepath, existing_doc.doc_id):
+            # Document unchanged
+            self.logger.info(f"Document unchanged, skipping reindex: {filepath}")
+            return existing_doc
+
+        # Document has changed, re-index it
+        self.logger.info(f"Document changed, re-indexing: {filepath}")
+        self.remove_document(existing_doc.doc_id)
+        return self.add_document(filepath, title, tags)
+
+    def check_all_updates(self, auto_update: bool = False) -> dict:
+        """
+        Check all indexed documents for updates.
+
+        Args:
+            auto_update: If True, automatically re-index changed documents
+
+        Returns:
+            Dictionary with lists of unchanged, changed, and missing documents
+        """
+        results = {
+            'unchanged': [],
+            'changed': [],
+            'missing': [],
+            'updated': []  # Only populated if auto_update=True
+        }
+
+        for doc_id, doc in list(self.documents.items()):
+            filepath = doc.filepath
+
+            # Check if file still exists
+            if not os.path.exists(filepath):
+                results['missing'].append({
+                    'doc_id': doc_id,
+                    'filepath': filepath,
+                    'title': doc.title
+                })
+                continue
+
+            # Check if needs reindex
+            if self.needs_reindex(filepath, doc_id):
+                results['changed'].append({
+                    'doc_id': doc_id,
+                    'filepath': filepath,
+                    'title': doc.title
+                })
+
+                if auto_update:
+                    try:
+                        updated_doc = self.update_document(filepath, doc.title, doc.tags)
+                        results['updated'].append({
+                            'doc_id': updated_doc.doc_id,
+                            'filepath': filepath,
+                            'title': updated_doc.title
+                        })
+                    except Exception as e:
+                        self.logger.error(f"Failed to update {filepath}: {e}")
+            else:
+                results['unchanged'].append({
+                    'doc_id': doc_id,
+                    'filepath': filepath,
+                    'title': doc.title
+                })
+
+        return results
+
     def search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
         """Search the knowledge base using BM25 ranking or simple term frequency."""
         start_time = time.time()
+
+        # Check cache first
+        if self._search_cache is not None:
+            cache_key = self._cache_key('search',
+                                       query=query,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None)
+            if cache_key in self._search_cache:
+                results = self._search_cache[cache_key]
+                elapsed_ms = (time.time() - start_time) * 1000
+                self.logger.debug(f"Cache hit for query: '{query}' ({len(results)} results, {elapsed_ms:.2f}ms)")
+                return results
+
         self.logger.info(f"Search query: '{query}' (max_results={max_results}, tags={tags})")
 
         # Extract phrase queries (text in quotes)
@@ -925,6 +1153,14 @@ class KnowledgeBase:
                 results = self._search_simple(query_terms, phrases, tags, max_results)
         else:
             results = self._search_simple(query_terms, phrases, tags, max_results)
+
+        # Store in cache
+        if self._search_cache is not None:
+            cache_key = self._cache_key('search',
+                                       query=query,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None)
+            self._search_cache[cache_key] = results
 
         elapsed_ms = (time.time() - start_time) * 1000
         self.logger.info(f"Search completed: {len(results)} results in {elapsed_ms:.2f}ms")
@@ -1181,6 +1417,11 @@ class KnowledgeBase:
         # Save to disk
         self._save_embeddings()
 
+        # Invalidate similarity cache since embeddings changed
+        if self._similar_cache is not None:
+            self._similar_cache.clear()
+            self.logger.info("Similarity cache invalidated after rebuilding embeddings")
+
         elapsed = time.time() - start_time
         self.logger.info(f"Built embeddings index in {elapsed:.2f}s")
 
@@ -1275,12 +1516,35 @@ class KnowledgeBase:
         Returns:
             List of similar documents with similarity scores
         """
+        # Check cache first
+        if self._similar_cache is not None:
+            cache_key = self._cache_key('find_similar',
+                                       doc_id=doc_id,
+                                       chunk_id=chunk_id,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None)
+            if cache_key in self._similar_cache:
+                results = self._similar_cache[cache_key]
+                self.logger.debug(f"Cache hit for find_similar: doc_id={doc_id}, chunk_id={chunk_id}")
+                return results
+
         # Prefer semantic search if available
         if self.use_semantic and self.embeddings_index is not None:
-            return self._find_similar_semantic(doc_id, chunk_id, max_results, tags)
+            results = self._find_similar_semantic(doc_id, chunk_id, max_results, tags)
         else:
             # Fall back to TF-IDF similarity
-            return self._find_similar_tfidf(doc_id, chunk_id, max_results, tags)
+            results = self._find_similar_tfidf(doc_id, chunk_id, max_results, tags)
+
+        # Store in cache
+        if self._similar_cache is not None:
+            cache_key = self._cache_key('find_similar',
+                                       doc_id=doc_id,
+                                       chunk_id=chunk_id,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None)
+            self._similar_cache[cache_key] = results
+
+        return results
 
     def _find_similar_semantic(self, doc_id: str, chunk_id: Optional[int],
                                max_results: int, tags: Optional[list[str]]) -> list[dict]:
@@ -1684,6 +1948,20 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {}
             }
+        ),
+        Tool(
+            name="check_updates",
+            description="Check all indexed documents for updates. Detects files that have been modified since indexing and optionally re-indexes them automatically.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "auto_update": {
+                        "type": "boolean",
+                        "description": "Automatically re-index changed documents (default: false)",
+                        "default": False
+                    }
+                }
+            }
         )
     ]
 
@@ -1856,6 +2134,37 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         output += f"  Total Words: {stats['total_words']:,}\n"
         output += f"  File Types: {', '.join(stats['file_types']) or 'none'}\n"
         output += f"  Tags: {', '.join(stats['all_tags']) or 'none'}\n"
+        return [TextContent(type="text", text=output)]
+
+    elif name == "check_updates":
+        auto_update = arguments.get("auto_update", False)
+        results = kb.check_all_updates(auto_update)
+
+        output = "Document Update Check:\n\n"
+
+        if results['unchanged']:
+            output += f"✓ {len(results['unchanged'])} documents unchanged\n"
+
+        if results['changed']:
+            output += f"⚠ {len(results['changed'])} documents changed:\n"
+            for doc in results['changed']:
+                output += f"  - {doc['title']} ({doc['filepath']})\n"
+            output += "\n"
+
+        if results['missing']:
+            output += f"✗ {len(results['missing'])} documents missing (files not found):\n"
+            for doc in results['missing']:
+                output += f"  - {doc['title']} ({doc['filepath']})\n"
+            output += "\n"
+
+        if auto_update and results['updated']:
+            output += f"✓ {len(results['updated'])} documents re-indexed:\n"
+            for doc in results['updated']:
+                output += f"  - {doc['title']} ({doc['filepath']})\n"
+
+        if not auto_update and results['changed']:
+            output += "\nRun with auto_update=true to automatically re-index changed documents.\n"
+
         return [TextContent(type="text", text=output)]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]

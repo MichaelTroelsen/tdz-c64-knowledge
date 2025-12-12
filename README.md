@@ -2,6 +2,26 @@
 
 An MCP (Model Context Protocol) server for managing and searching Commodore 64 documentation. Add PDFs and text files to build a searchable knowledge base that Claude Code or other MCP clients can query.
 
+## 🚀 Quick Start
+
+```cmd
+# 1. Install
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+
+# 2. Configure Claude Code
+claude mcp add tdz-c64-knowledge -- .venv\Scripts\python.exe server.py
+
+# 3. Add documents
+.venv\Scripts\python.exe cli.py add-folder "C:\c64docs" --tags reference --recursive
+
+# 4. Search via Claude Code
+# Ask: "Search the C64 docs for VIC-II sprite registers"
+```
+
+See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
+
 ## Features
 
 ### Search & Retrieval

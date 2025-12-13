@@ -29,6 +29,10 @@ ocr = [
 fuzzy = [
     "rapidfuzz>=3.0.0",
 ]
+gui = [
+    "streamlit>=1.28.0",
+    "pandas>=2.0.0",
+]
 
 [project.scripts]
 tdz-c64-knowledge = "server:main"

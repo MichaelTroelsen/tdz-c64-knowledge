@@ -1312,5 +1312,123 @@ def test_export_functionality(tmpdir):
     kb.close()
 
 
+def test_backup_and_restore(tmpdir):
+    """Test backup creation and restoration."""
+    # Create knowledge base with test document
+    kb = KnowledgeBase(str(tmpdir / "original"))
+
+    test_file = Path(str(tmpdir)) / "test_backup.txt"
+    content = """
+    The Commodore 64 is an 8-bit home computer.
+    It features the VIC-II graphics chip and SID sound chip.
+    Released in 1982 by Commodore International.
+    """
+    test_file.write_text(content)
+
+    # Add document
+    doc = kb.add_document(str(test_file), "Test Backup Doc", ["test", "backup"])
+    original_doc_id = doc.doc_id
+    original_count = len(kb.documents)
+
+    # Create backup directory
+    backup_dir = Path(str(tmpdir)) / "backups"
+    backup_dir.mkdir()
+
+    # Create compressed backup
+    backup_path = kb.create_backup(str(backup_dir), compress=True)
+    assert Path(backup_path).exists()
+    assert backup_path.endswith('.zip')
+
+    # Verify backup contains metadata
+    import zipfile
+    with zipfile.ZipFile(backup_path, 'r') as zip_ref:
+        files = zip_ref.namelist()
+        # Should contain metadata.json and knowledge_base.db
+        assert any('metadata.json' in f for f in files)
+        assert any('knowledge_base.db' in f for f in files)
+
+    kb.close()
+
+    # Create new knowledge base in different directory
+    restore_kb = KnowledgeBase(str(tmpdir / "restored"))
+
+    # Restore from backup
+    result = restore_kb.restore_from_backup(backup_path, verify=True)
+
+    assert result['success'] == True
+    assert result['restored_documents'] == original_count
+    assert original_doc_id in restore_kb.documents
+
+    # Verify document was restored correctly
+    restored_doc = restore_kb.documents[original_doc_id]
+    assert restored_doc.title == "Test Backup Doc"
+    assert "test" in restored_doc.tags
+    assert "backup" in restored_doc.tags
+
+    print(f"\nBackup and restore test successful - restored {result['restored_documents']} documents")
+
+    restore_kb.close()
+
+
+def test_uncompressed_backup(tmpdir):
+    """Test uncompressed backup creation."""
+    kb = KnowledgeBase(str(tmpdir / "original"))
+
+    test_file = Path(str(tmpdir)) / "test_uncompressed.txt"
+    test_file.write_text("Test content for uncompressed backup")
+
+    kb.add_document(str(test_file), "Test Doc", ["test"])
+
+    backup_dir = Path(str(tmpdir)) / "backups"
+    backup_dir.mkdir()
+
+    # Create uncompressed backup
+    backup_path = kb.create_backup(str(backup_dir), compress=False)
+
+    backup_path_obj = Path(backup_path)
+    assert backup_path_obj.exists()
+    assert backup_path_obj.is_dir()
+
+    # Verify backup structure
+    assert (backup_path_obj / "knowledge_base.db").exists()
+    assert (backup_path_obj / "metadata.json").exists()
+
+    # Read metadata
+    import json
+    with open(backup_path_obj / "metadata.json", 'r') as f:
+        metadata = json.load(f)
+        assert metadata['document_count'] == 1
+        assert metadata['version'] == '2.5.0'
+
+    print(f"\nUncompressed backup test successful")
+
+    kb.close()
+
+
+def test_backup_with_empty_kb(tmpdir):
+    """Test backup of empty knowledge base."""
+    kb = KnowledgeBase(str(tmpdir / "empty"))
+
+    backup_dir = Path(str(tmpdir)) / "backups"
+    backup_dir.mkdir()
+
+    # Backup empty knowledge base
+    backup_path = kb.create_backup(str(backup_dir), compress=True)
+
+    assert Path(backup_path).exists()
+
+    # Restore to new location
+    restore_kb = KnowledgeBase(str(tmpdir / "restored_empty"))
+    result = restore_kb.restore_from_backup(backup_path)
+
+    assert result['success'] == True
+    assert result['restored_documents'] == 0
+
+    print(f"\nEmpty knowledge base backup test successful")
+
+    kb.close()
+    restore_kb.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

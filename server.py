@@ -4189,6 +4189,204 @@ class KnowledgeBase:
         self.logger.info(f"Code search for '{query}' returned {len(results)} results (type={block_type or 'all'})")
         return results
 
+    def create_backup(self, dest_dir: str, compress: bool = True) -> str:
+        """
+        Create full backup of knowledge base.
+
+        Args:
+            dest_dir: Destination directory for backup
+            compress: Whether to compress backup to zip file (default: True)
+
+        Returns:
+            Path to backup (directory or zip file)
+        """
+        import shutil
+
+        self.logger.info(f"Creating backup to {dest_dir}")
+        start_time = time.time()
+
+        # Create backup directory
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_name = f"kb_backup_{timestamp}"
+        backup_path = Path(dest_dir) / backup_name
+
+        try:
+            backup_path.mkdir(parents=True, exist_ok=True)
+
+            # Backup database file
+            db_source = Path(self.data_dir) / "knowledge_base.db"
+            db_dest = backup_path / "knowledge_base.db"
+            if db_source.exists():
+                shutil.copy2(db_source, db_dest)
+                self.logger.info(f"Backed up database: {db_source.stat().st_size} bytes")
+
+            # Backup embeddings if they exist
+            embeddings_path = Path(self.data_dir) / "embeddings.faiss"
+            embeddings_map_path = Path(self.data_dir) / "embeddings_map.json"
+
+            if embeddings_path.exists():
+                shutil.copy2(embeddings_path, backup_path / "embeddings.faiss")
+                self.logger.info(f"Backed up embeddings index: {embeddings_path.stat().st_size} bytes")
+
+            if embeddings_map_path.exists():
+                shutil.copy2(embeddings_map_path, backup_path / "embeddings_map.json")
+                self.logger.info(f"Backed up embeddings map")
+
+            # Create metadata file
+            metadata = {
+                'timestamp': timestamp,
+                'created_at': datetime.now().isoformat(),
+                'document_count': len(self.documents),
+                'total_chunks': sum(doc.total_chunks for doc in self.documents.values()),
+                'database_size_bytes': db_source.stat().st_size if db_source.exists() else 0,
+                'has_embeddings': embeddings_path.exists(),
+                'version': '2.5.0'
+            }
+
+            with open(backup_path / "metadata.json", 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            self.logger.info(f"Created backup metadata: {metadata}")
+
+            # Compress if requested
+            if compress:
+                self.logger.info("Compressing backup...")
+                zip_path = shutil.make_archive(str(backup_path), 'zip', backup_path)
+                shutil.rmtree(backup_path)  # Remove uncompressed directory
+
+                elapsed = time.time() - start_time
+                self.logger.info(f"Backup completed in {elapsed:.2f}s: {zip_path}")
+                return zip_path
+            else:
+                elapsed = time.time() - start_time
+                self.logger.info(f"Backup completed in {elapsed:.2f}s: {backup_path}")
+                return str(backup_path)
+
+        except Exception as e:
+            self.logger.error(f"Backup failed: {str(e)}")
+            # Cleanup partial backup
+            if backup_path.exists():
+                shutil.rmtree(backup_path, ignore_errors=True)
+            raise
+
+    def restore_from_backup(self, backup_path: str, verify: bool = True) -> dict:
+        """
+        Restore knowledge base from backup.
+
+        Args:
+            backup_path: Path to backup (directory or zip file)
+            verify: Whether to verify backup integrity before restoring (default: True)
+
+        Returns:
+            Restoration metadata dict
+        """
+        import shutil
+        import zipfile
+
+        self.logger.info(f"Restoring from backup: {backup_path}")
+        start_time = time.time()
+
+        backup_path_obj = Path(backup_path)
+        temp_dir = None
+
+        try:
+            # Extract if compressed
+            if backup_path_obj.suffix == '.zip':
+                self.logger.info("Extracting compressed backup...")
+                temp_dir = Path(self.data_dir) / f"temp_restore_{int(time.time())}"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+
+                with zipfile.ZipFile(backup_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+
+                # Find the backup directory inside temp_dir
+                extracted_dirs = list(temp_dir.iterdir())
+                if len(extracted_dirs) == 1 and extracted_dirs[0].is_dir():
+                    restore_from = extracted_dirs[0]
+                else:
+                    restore_from = temp_dir
+            else:
+                restore_from = backup_path_obj
+
+            # Verify backup if requested
+            if verify:
+                self.logger.info("Verifying backup integrity...")
+
+                # Check for required files
+                db_file = restore_from / "knowledge_base.db"
+                metadata_file = restore_from / "metadata.json"
+
+                if not db_file.exists():
+                    raise ValueError("Backup is missing database file")
+
+                if not metadata_file.exists():
+                    raise ValueError("Backup is missing metadata file")
+
+                # Load and validate metadata
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+
+                self.logger.info(f"Backup metadata: {metadata}")
+
+            # Close current database connection
+            self.close()
+
+            # Backup current database before overwriting (safety measure)
+            current_db = Path(self.data_dir) / "knowledge_base.db"
+            if current_db.exists():
+                safety_backup = Path(self.data_dir) / f"knowledge_base_pre_restore_{int(time.time())}.db"
+                shutil.copy2(current_db, safety_backup)
+                self.logger.info(f"Created safety backup: {safety_backup}")
+
+            # Restore database
+            db_source = restore_from / "knowledge_base.db"
+            db_dest = Path(self.data_dir) / "knowledge_base.db"
+            shutil.copy2(db_source, db_dest)
+            self.logger.info(f"Restored database: {db_source.stat().st_size} bytes")
+
+            # Restore embeddings if they exist in backup
+            embeddings_source = restore_from / "embeddings.faiss"
+            embeddings_map_source = restore_from / "embeddings_map.json"
+
+            if embeddings_source.exists():
+                embeddings_dest = Path(self.data_dir) / "embeddings.faiss"
+                shutil.copy2(embeddings_source, embeddings_dest)
+                self.logger.info(f"Restored embeddings index")
+
+            if embeddings_map_source.exists():
+                embeddings_map_dest = Path(self.data_dir) / "embeddings_map.json"
+                shutil.copy2(embeddings_map_source, embeddings_map_dest)
+                self.logger.info(f"Restored embeddings map")
+
+            # Reload knowledge base
+            self.logger.info("Reloading knowledge base...")
+            self._init_database()
+            self._load_documents()
+
+            # Reload embeddings if they exist
+            if self.use_semantic and embeddings_source.exists():
+                self._load_embeddings()
+
+            elapsed = time.time() - start_time
+
+            result = {
+                'success': True,
+                'backup_metadata': metadata,
+                'restored_documents': len(self.documents),
+                'elapsed_seconds': elapsed
+            }
+
+            self.logger.info(f"Restore completed in {elapsed:.2f}s: {len(self.documents)} documents")
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Restore failed: {str(e)}")
+            raise
+        finally:
+            # Cleanup temporary extraction directory
+            if temp_dir and temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
     def close(self):
         """Close the database connection."""
         if self.db_conn:
@@ -4647,6 +4845,44 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["results"]
+            }
+        ),
+        Tool(
+            name="create_backup",
+            description="Create a backup of the knowledge base. Backs up database and embeddings to a zip file. Use this regularly for data safety and before making major changes.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "dest_dir": {
+                        "type": "string",
+                        "description": "Destination directory for backup"
+                    },
+                    "compress": {
+                        "type": "boolean",
+                        "description": "Whether to compress backup to zip file (default: true)",
+                        "default": True
+                    }
+                },
+                "required": ["dest_dir"]
+            }
+        ),
+        Tool(
+            name="restore_backup",
+            description="Restore knowledge base from a backup. WARNING: This will replace the current database. A safety backup is created automatically before restoration.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "backup_path": {
+                        "type": "string",
+                        "description": "Path to backup file or directory"
+                    },
+                    "verify": {
+                        "type": "boolean",
+                        "description": "Whether to verify backup integrity before restoring (default: true)",
+                        "default": True
+                    }
+                },
+                "required": ["backup_path"]
             }
         )
     ]
@@ -5213,6 +5449,56 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=output)]
         except Exception as e:
             return [TextContent(type="text", text=f"Error exporting results: {str(e)}")]
+
+    elif name == "create_backup":
+        dest_dir = arguments.get("dest_dir")
+        compress = arguments.get("compress", True)
+
+        if not dest_dir:
+            return [TextContent(type="text", text="Error: dest_dir is required")]
+
+        try:
+            backup_path = kb.create_backup(dest_dir, compress)
+
+            output = f"✓ Backup created successfully!\n\n"
+            output += f"Location: {backup_path}\n"
+            output += f"Format: {'Compressed (ZIP)' if compress else 'Uncompressed directory'}\n\n"
+            output += f"The backup includes:\n"
+            output += f"- Database ({len(kb.documents)} documents)\n"
+            output += f"- Embeddings (if available)\n"
+            output += f"- Metadata file with timestamp and version info\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error creating backup: {str(e)}")]
+
+    elif name == "restore_backup":
+        backup_path = arguments.get("backup_path")
+        verify = arguments.get("verify", True)
+
+        if not backup_path:
+            return [TextContent(type="text", text="Error: backup_path is required")]
+
+        try:
+            result = kb.restore_from_backup(backup_path, verify)
+
+            output = f"✓ Restore completed successfully!\n\n"
+            output += f"Backup source: {backup_path}\n"
+            output += f"Documents restored: {result['restored_documents']}\n"
+            output += f"Time elapsed: {result['elapsed_seconds']:.2f}s\n\n"
+
+            if 'backup_metadata' in result:
+                metadata = result['backup_metadata']
+                output += f"Backup info:\n"
+                output += f"- Created: {metadata.get('created_at', 'Unknown')}\n"
+                output += f"- Version: {metadata.get('version', 'Unknown')}\n"
+                output += f"- Original document count: {metadata.get('document_count', 'Unknown')}\n"
+
+            output += f"\nNote: A safety backup was created before restoration."
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error restoring backup: {str(e)}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

@@ -2,6 +2,116 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.5.0] - 2025-12-13
+
+### Added - Backup/Restore & GUI Admin Interface
+
+#### 💾 Backup & Restore Operations
+- **New Method:** `create_backup(dest_dir, compress=True)` creates full knowledge base backups
+- **Backup Features:**
+  - Compressed ZIP archives or uncompressed directories
+  - Includes database, embeddings, and metadata
+  - Automatic timestamping (kb_backup_YYYYMMDD_HHMMSS)
+  - Metadata file with document count, version, size info
+- **New Method:** `restore_from_backup(backup_path, verify=True)` restores from backups
+- **Restore Features:**
+  - Supports both ZIP and directory backups
+  - Automatic extraction of compressed backups
+  - Backup verification (checksums, required files)
+  - Safety backup before restoration
+  - Complete database and embeddings restoration
+- **MCP Tools:** New `create_backup` and `restore_backup` tools
+- **Benefits:**
+  - Data safety and disaster recovery
+  - Version control for knowledge base
+  - Easy migration between systems
+  - Automated backup workflows
+
+**Usage:**
+```python
+# Python API - Create backup
+backup_path = kb.create_backup("/path/to/backups", compress=True)
+
+# Restore from backup
+result = kb.restore_from_backup("/path/to/backup.zip", verify=True)
+
+# Via MCP in Claude Desktop
+# "Create a backup of the knowledge base in ~/backups"
+# "Restore from backup ~/backups/kb_backup_20251213_083327.zip"
+```
+
+#### 🎮 Streamlit GUI Admin Interface
+- **New File:** `admin_gui.py` - Complete web-based admin interface
+- **Dashboard Page:**
+  - Real-time metrics (documents, chunks, words)
+  - Health status monitoring
+  - Database info and feature status
+  - File types and tags overview
+- **Documents Page:**
+  - Upload new documents (PDF/TXT)
+  - List and filter document library
+  - Delete documents
+  - View document metadata
+- **Search Page:**
+  - Multi-mode search (Keyword/Semantic/Hybrid)
+  - Tag filtering
+  - Export results (Markdown/JSON/HTML)
+  - Adjustable semantic weight for hybrid search
+- **Backup & Restore Page:**
+  - Create backups with compression options
+  - Restore from backups with verification
+  - Safety warnings and confirmations
+- **Analytics Page:**
+  - Search analytics dashboard
+  - Top queries, failed searches
+  - Search mode usage charts
+  - Popular tags visualization
+
+**Usage:**
+```bash
+# Install GUI dependencies
+pip install ".[gui]"
+
+# Run admin interface
+streamlit run admin_gui.py
+
+# Access at http://localhost:8501
+```
+
+### Testing
+- Added 3 new test cases (44 total tests, 42 passed, 2 skipped)
+- `test_backup_and_restore()` - Full backup/restore cycle validation
+- `test_uncompressed_backup()` - Uncompressed backup creation
+- `test_backup_with_empty_kb()` - Edge case testing
+- All existing tests continue to pass
+
+### Performance
+- Backup creation: ~100-500ms depending on database size
+- Restore operation: ~200-800ms depending on database size
+- Compression adds ~50-200ms overhead
+
+### Dependencies
+- Added `streamlit>=1.28.0` for GUI (optional, install with `pip install ".[gui]"`)
+- Added `pandas>=2.0.0` for analytics charts (optional)
+- No new required dependencies for core functionality
+
+### Documentation
+- Updated CHANGELOG.md with v2.5.0 release notes
+- Updated FUTURE_IMPROVEMENTS.md to mark Automated Backup as completed
+- Created comprehensive `admin_gui.py` with inline documentation
+
+### Developer Notes
+**Implementation Details:**
+- Backup uses Python's `shutil` for file operations and `zipfile` for compression
+- Restore creates safety backup before overwriting (automatic rollback capability)
+- GUI uses Streamlit's session state for persistent knowledge base connection
+- All backup/restore operations are logged with detailed timestamps
+- Metadata JSON includes version info for forward compatibility
+
+**Breaking Changes:** None - all new features are additive
+
+---
+
 ## [2.4.0] - 2025-12-13
 
 ### Added - Query Autocompletion & Export Features

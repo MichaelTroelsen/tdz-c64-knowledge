@@ -91,10 +91,10 @@ Tool(
 
 ---
 
-### 1.2 Query Autocompletion
+### 1.2 Query Autocompletion ✅ **COMPLETED in v2.4.0**
 **Impact:** ⭐⭐⭐⭐ | **Effort:** ⭐⭐⭐ | **Time:** 4-6 hours
 
-**Proposed:** Suggest queries based on indexed content
+**Implemented:** Query autocomplete with FTS5-powered suggestions
 
 ```sql
 -- New table for autocomplete dictionary
@@ -675,10 +675,10 @@ Tool(
 
 ## Priority 5: User Experience
 
-### 5.1 Export Results
+### 5.1 Export Results ✅ **COMPLETED in v2.4.0**
 **Impact:** ⭐⭐⭐ | **Effort:** ⭐⭐⭐ | **Time:** 6-8 hours
 
-**Proposed:** Export search results
+**Implemented:** Export search results to Markdown, JSON, and HTML formats
 
 ```python
 def export_search_results(self, results: list, format: str = 'markdown') -> str:

@@ -552,8 +552,17 @@ class KnowledgeBase:
             cursor.execute("CREATE INDEX idx_xref_type_value ON cross_references(ref_type, ref_value)")
             cursor.execute("CREATE INDEX idx_xref_doc_id ON cross_references(doc_id)")
 
+            # Create query_suggestions table for autocomplete
+            cursor.execute("""
+                CREATE VIRTUAL TABLE query_suggestions USING fts5(
+                    term,
+                    frequency UNINDEXED,
+                    category UNINDEXED
+                )
+            """)
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, and analytics)")
+            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, and suggestions)")
         else:
             self.logger.info("Using existing database")
 
@@ -823,6 +832,24 @@ class KnowledgeBase:
 
                 self.db_conn.commit()
                 self.logger.info("cross_references table created")
+
+            # Migrate: Add query_suggestions table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='query_suggestions'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating query_suggestions table for autocomplete")
+                cursor.execute("""
+                    CREATE VIRTUAL TABLE query_suggestions USING fts5(
+                        term,
+                        frequency UNINDEXED,
+                        category UNINDEXED
+                    )
+                """)
+
+                self.db_conn.commit()
+                self.logger.info("query_suggestions table created")
 
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
@@ -1715,6 +1742,371 @@ class KnowledgeBase:
 
         return context
 
+    def build_suggestion_dictionary(self, rebuild: bool = False):
+        """
+        Build autocomplete suggestion dictionary from all documents.
+
+        Args:
+            rebuild: If True, clear existing suggestions and rebuild from scratch
+        """
+        self.logger.info("Building query suggestion dictionary...")
+        start_time = time.time()
+
+        cursor = self.db_conn.cursor()
+
+        # Clear existing if rebuilding
+        if rebuild:
+            cursor.execute("DELETE FROM query_suggestions")
+            self.db_conn.commit()
+
+        # Extract terms from all chunks
+        from collections import defaultdict
+        terms = defaultdict(int)
+
+        chunks = self._get_chunks_db()
+        for chunk in chunks:
+            text = chunk.content
+
+            # Extract technical terms (ALL CAPS, 2+ chars)
+            tech_terms = re.findall(r'\b[A-Z]{2,}(?:-[A-Z]+)?\b', text)  # VIC-II, SID, CIA
+            for term in tech_terms:
+                terms[(term, 'hardware')] += 1
+
+            # Extract memory addresses
+            addresses = re.findall(r'\$[0-9A-Fa-f]{4}', text)
+            for addr in addresses:
+                terms[(addr.upper(), 'register')] += 1
+
+            # Extract 6502 instructions
+            instructions = re.findall(
+                r'\b(?:LDA|STA|LDX|STX|LDY|STY|TAX|TAY|TXA|TYA|TSX|TXS|'
+                r'ADC|SBC|AND|ORA|EOR|INC|DEC|INX|INY|DEX|DEY|'
+                r'CMP|CPX|CPY|ASL|LSR|ROL|ROR|BIT|NOP|'
+                r'JMP|JSR|RTS|RTI|BEQ|BNE|BCC|BCS|BMI|BPL|BVC|BVS|'
+                r'CLC|SEC|CLI|SEI|CLD|SED|CLV|PHA|PLA|PHP|PLP)\b',
+                text, re.IGNORECASE
+            )
+            for instr in instructions:
+                terms[(instr.upper(), 'instruction')] += 1
+
+            # Extract common technical phrases (2-3 words)
+            # Look for capitalized phrases like "Sprite Multiplexing", "Sound Interface Device"
+            phrases = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b', text)
+            for phrase in phrases:
+                if len(phrase) > 5:  # Avoid very short phrases
+                    terms[(phrase, 'concept')] += 1
+
+        # Store top N terms (limit to avoid bloat)
+        top_terms = sorted(terms.items(), key=lambda x: x[1], reverse=True)[:2000]
+
+        for (term, category), freq in top_terms:
+            cursor.execute("""
+                INSERT INTO query_suggestions (term, frequency, category)
+                VALUES (?, ?, ?)
+            """, (term, freq, category))
+
+        self.db_conn.commit()
+
+        elapsed = time.time() - start_time
+        self.logger.info(f"Built suggestion dictionary with {len(top_terms)} terms in {elapsed:.2f}s")
+
+    def get_query_suggestions(self, partial: str, max_suggestions: int = 5,
+                             category: Optional[str] = None) -> list[dict]:
+        """
+        Get autocomplete suggestions for partial query.
+
+        Args:
+            partial: Partial query string (e.g., "VIC")
+            max_suggestions: Maximum number of suggestions to return
+            category: Optional category filter ('hardware', 'register', 'instruction', 'concept')
+
+        Returns:
+            List of suggestion dicts with 'term', 'frequency', and 'category'
+        """
+        if not partial or len(partial) < 2:
+            return []
+
+        cursor = self.db_conn.cursor()
+
+        # Escape special FTS5 characters by quoting the query
+        # FTS5 special chars: $ * " and others need to be quoted
+        escaped_partial = f'"{partial}"*'
+
+        # Use FTS5 prefix matching
+        if category:
+            cursor.execute("""
+                SELECT term, frequency, category
+                FROM query_suggestions
+                WHERE term MATCH ? AND category = ?
+                ORDER BY rank, frequency DESC
+                LIMIT ?
+            """, (escaped_partial, category, max_suggestions))
+        else:
+            cursor.execute("""
+                SELECT term, frequency, category
+                FROM query_suggestions
+                WHERE term MATCH ?
+                ORDER BY rank, frequency DESC
+                LIMIT ?
+            """, (escaped_partial, max_suggestions))
+
+        results = []
+        for row in cursor.fetchall():
+            results.append({
+                'term': row[0],
+                'frequency': row[1],
+                'category': row[2]
+            })
+
+        return results
+
+    def _update_suggestions_for_chunks(self, chunks: list[DocumentChunk]):
+        """
+        Incrementally update query suggestions with terms from new chunks.
+
+        Args:
+            chunks: List of newly added chunks
+        """
+        from collections import defaultdict
+        terms = defaultdict(int)
+
+        # Extract terms from new chunks
+        for chunk in chunks:
+            text = chunk.content
+
+            # Extract technical terms (ALL CAPS, 2+ chars)
+            tech_terms = re.findall(r'\b[A-Z]{2,}(?:-[A-Z]+)?\b', text)
+            for term in tech_terms:
+                terms[(term, 'hardware')] += 1
+
+            # Extract memory addresses
+            addresses = re.findall(r'\$[0-9A-Fa-f]{4}', text)
+            for addr in addresses:
+                terms[(addr.upper(), 'register')] += 1
+
+            # Extract 6502 instructions
+            instructions = re.findall(
+                r'\b(?:LDA|STA|LDX|STX|LDY|STY|TAX|TAY|TXA|TYA|TSX|TXS|'
+                r'ADC|SBC|AND|ORA|EOR|INC|DEC|INX|INY|DEX|DEY|'
+                r'CMP|CPX|CPY|ASL|LSR|ROL|ROR|BIT|NOP|'
+                r'JMP|JSR|RTS|RTI|BEQ|BNE|BCC|BCS|BMI|BPL|BVC|BVS|'
+                r'CLC|SEC|CLI|SEI|CLD|SED|CLV|PHA|PLA|PHP|PLP)\b',
+                text, re.IGNORECASE
+            )
+            for instr in instructions:
+                terms[(instr.upper(), 'instruction')] += 1
+
+            # Extract common technical phrases (2-3 words)
+            phrases = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2}\b', text)
+            for phrase in phrases:
+                if len(phrase) > 5:
+                    terms[(phrase, 'concept')] += 1
+
+        if not terms:
+            return
+
+        cursor = self.db_conn.cursor()
+
+        # Update or insert terms (upsert logic)
+        for (term, category), freq in terms.items():
+            # Check if term already exists
+            cursor.execute("""
+                SELECT frequency FROM query_suggestions
+                WHERE term = ? AND category = ?
+            """, (term, category))
+
+            existing = cursor.fetchone()
+            if existing:
+                # Update frequency
+                new_freq = existing[0] + freq
+                cursor.execute("""
+                    DELETE FROM query_suggestions WHERE term = ? AND category = ?
+                """, (term, category))
+                cursor.execute("""
+                    INSERT INTO query_suggestions (term, frequency, category)
+                    VALUES (?, ?, ?)
+                """, (term, new_freq, category))
+            else:
+                # Insert new term
+                cursor.execute("""
+                    INSERT INTO query_suggestions (term, frequency, category)
+                    VALUES (?, ?, ?)
+                """, (term, freq, category))
+
+        self.db_conn.commit()
+        self.logger.debug(f"Updated suggestion dictionary with {len(terms)} terms")
+
+    def export_search_results(self, results: list[dict], format: str = 'markdown',
+                             query: Optional[str] = None) -> str:
+        """
+        Export search results to various formats.
+
+        Args:
+            results: List of search result dicts
+            format: Output format ('markdown', 'json', 'html')
+            query: Optional query string to include in export
+
+        Returns:
+            Formatted string in requested format
+        """
+        if format == 'markdown':
+            return self._export_markdown(results, query)
+        elif format == 'json':
+            return self._export_json(results, query)
+        elif format == 'html':
+            return self._export_html(results, query)
+        else:
+            raise ValueError(f"Unsupported export format: {format}. Use 'markdown', 'json', or 'html'.")
+
+    def _export_markdown(self, results: list[dict], query: Optional[str] = None) -> str:
+        """Export results as Markdown."""
+        output = "# Search Results\n\n"
+
+        if query:
+            output += f"**Query:** {query}\n"
+        output += f"**Results:** {len(results)}\n"
+        output += f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        output += "---\n\n"
+
+        for i, result in enumerate(results, 1):
+            output += f"## {i}. {result.get('title', 'Untitled')}\n\n"
+
+            # Add score if present
+            if 'score' in result:
+                output += f"**Score:** {result['score']:.3f}\n"
+            elif 'similarity' in result:
+                output += f"**Similarity:** {result['similarity']:.3f}\n"
+
+            # Add metadata
+            if 'filename' in result:
+                output += f"**File:** {result['filename']}\n"
+            if 'page' in result and result['page']:
+                output += f"**Page:** {result['page']}\n"
+            if 'doc_id' in result:
+                output += f"**Doc ID:** {result['doc_id']}\n"
+            if 'chunk_id' in result:
+                output += f"**Chunk:** {result['chunk_id']}\n"
+
+            output += "\n"
+
+            # Add snippet/content
+            if 'snippet' in result:
+                output += f"### Excerpt\n\n{result['snippet']}\n\n"
+            elif 'context' in result:
+                output += f"### Context\n\n{result['context']}\n\n"
+
+            # Add tags if present
+            if 'tags' in result and result['tags']:
+                tags = result['tags'] if isinstance(result['tags'], list) else []
+                if tags:
+                    output += f"**Tags:** {', '.join(tags)}\n\n"
+
+            output += "---\n\n"
+
+        return output
+
+    def _export_json(self, results: list[dict], query: Optional[str] = None) -> str:
+        """Export results as JSON."""
+        export_data = {
+            'query': query,
+            'result_count': len(results),
+            'generated_at': datetime.now().isoformat(),
+            'results': results
+        }
+        return json.dumps(export_data, indent=2)
+
+    def _export_html(self, results: list[dict], query: Optional[str] = None) -> str:
+        """Export results as HTML."""
+        html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Results</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+        .meta { color: #7f8c8d; margin-bottom: 20px; }
+        .result {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .result h2 { color: #2c3e50; margin-top: 0; }
+        .result-meta { color: #7f8c8d; font-size: 0.9em; margin: 10px 0; }
+        .snippet {
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
+        .tags { margin-top: 10px; }
+        .tag {
+            display: inline-block;
+            background: #3498db;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 3px;
+            margin: 2px;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Search Results</h1>
+"""
+
+        if query:
+            html += f"    <div class='meta'><strong>Query:</strong> {query}</div>\n"
+        html += f"    <div class='meta'><strong>Results:</strong> {len(results)}</div>\n"
+        html += f"    <div class='meta'><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>\n\n"
+
+        for i, result in enumerate(results, 1):
+            html += f"    <div class='result'>\n"
+            html += f"        <h2>{i}. {result.get('title', 'Untitled')}</h2>\n"
+
+            html += "        <div class='result-meta'>\n"
+            if 'score' in result:
+                html += f"            <strong>Score:</strong> {result['score']:.3f}<br>\n"
+            elif 'similarity' in result:
+                html += f"            <strong>Similarity:</strong> {result['similarity']:.3f}<br>\n"
+            if 'filename' in result:
+                html += f"            <strong>File:</strong> {result['filename']}<br>\n"
+            if 'page' in result and result['page']:
+                html += f"            <strong>Page:</strong> {result['page']}<br>\n"
+            html += "        </div>\n"
+
+            if 'snippet' in result:
+                html += f"        <div class='snippet'>{result['snippet']}</div>\n"
+            elif 'context' in result:
+                html += f"        <div class='snippet'>{result['context']}</div>\n"
+
+            if 'tags' in result and result['tags']:
+                tags = result['tags'] if isinstance(result['tags'], list) else []
+                if tags:
+                    html += "        <div class='tags'>\n"
+                    for tag in tags:
+                        html += f"            <span class='tag'>{tag}</span>\n"
+                    html += "        </div>\n"
+
+            html += "    </div>\n\n"
+
+        html += """</body>
+</html>"""
+
+        return html
+
     def _cache_key(self, method: str, **kwargs) -> str:
         """Generate a cache key from method name and arguments."""
         # Sort kwargs for consistent hashing
@@ -1930,6 +2322,9 @@ class KnowledgeBase:
             # Incrementally add chunks to embeddings (faster than full rebuild)
             if self.use_semantic:
                 self._add_chunks_to_embeddings(chunks)
+
+            # Update query suggestions with new terms
+            self._update_suggestions_for_chunks(chunks)
 
             # Invalidate search caches
             self._invalidate_caches()
@@ -4205,6 +4600,54 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["ref_type", "ref_value"]
             }
+        ),
+        Tool(
+            name="suggest_queries",
+            description="Get autocomplete suggestions for partial queries. Suggests technical terms, memory addresses, instructions, and concepts based on indexed content. Great for discovering searchable content and learning proper terminology.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "partial": {
+                        "type": "string",
+                        "description": "Partial query string (e.g., 'VIC', 'SID', '$D0')"
+                    },
+                    "max_suggestions": {
+                        "type": "integer",
+                        "description": "Maximum number of suggestions (default: 5)",
+                        "default": 5
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Optional category filter",
+                        "enum": ["hardware", "register", "instruction", "concept"]
+                    }
+                },
+                "required": ["partial"]
+            }
+        ),
+        Tool(
+            name="export_results",
+            description="Export search results to various formats (markdown, json, html). Use this to save search results for offline use, sharing, or creating custom reference guides.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "description": "Search results array (from any search method)"
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Export format",
+                        "enum": ["markdown", "json", "html"],
+                        "default": "markdown"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional query string to include in export"
+                    }
+                },
+                "required": ["results"]
+            }
         )
     ]
 
@@ -4728,6 +5171,48 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += "-" * 80 + "\n\n"
 
         return [TextContent(type="text", text=output)]
+
+    elif name == "suggest_queries":
+        partial = arguments.get("partial", "")
+        max_suggestions = arguments.get("max_suggestions", 5)
+        category = arguments.get("category")
+
+        if not partial:
+            return [TextContent(type="text", text="Error: partial query string is required")]
+
+        try:
+            suggestions = kb.get_query_suggestions(partial, max_suggestions, category)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting suggestions: {str(e)}")]
+
+        if not suggestions:
+            return [TextContent(type="text", text=f"No suggestions found for: '{partial}'")]
+
+        output = f"Query suggestions for '{partial}':\n\n"
+        for i, sug in enumerate(suggestions, 1):
+            output += f"{i}. {sug['term']} ({sug['category']}) - used {sug['frequency']} times\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "export_results":
+        results = arguments.get("results", [])
+        format = arguments.get("format", "markdown")
+        query = arguments.get("query")
+
+        if not results:
+            return [TextContent(type="text", text="Error: results array is required")]
+
+        try:
+            exported = kb.export_search_results(results, format, query)
+
+            # Return the exported content
+            output = f"Search results exported to {format} format:\n\n"
+            output += "=" * 80 + "\n\n"
+            output += exported
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error exporting results: {str(e)}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

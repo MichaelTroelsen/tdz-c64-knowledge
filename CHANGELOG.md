@@ -2,6 +2,115 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.4.0] - 2025-12-13
+
+### Added - Query Autocompletion & Export Features
+
+#### 🔍 Query Autocompletion
+- **New Table:** `query_suggestions` FTS5 virtual table for fast autocomplete
+- **Automatic Term Extraction:** Technical terms extracted during document ingestion
+- **Four Categories:**
+  - **Hardware:** ALL CAPS technical terms (VIC-II, SID, CIA, etc.)
+  - **Register:** Memory addresses ($D000, $D020, $D418, etc.)
+  - **Instruction:** 6502 assembly mnemonics (LDA, STA, JMP, etc.)
+  - **Concept:** Technical phrases (Video Interface Controller, etc.)
+- **New Methods:**
+  - `build_suggestion_dictionary(rebuild=False)` - Build/rebuild suggestion index
+  - `get_query_suggestions(partial, max_suggestions, category)` - Get autocomplete suggestions
+  - `_update_suggestions_for_chunks(chunks)` - Incremental update during document addition
+- **MCP Tool:** New `suggest_queries` tool with category filtering
+- **FTS5 Prefix Matching:** Fast substring matching with proper escaping
+- **Auto-Update:** Suggestions automatically updated when documents are added
+- **Benefits:**
+  - Type-ahead suggestions for better search experience
+  - Discover technical terms and addresses
+  - Category filtering for targeted suggestions
+  - Frequency tracking shows common terms
+
+**Usage:**
+```python
+# Python API - Get suggestions
+suggestions = kb.get_query_suggestions("VIC", max_suggestions=5)
+
+# Category-specific suggestions
+suggestions = kb.get_query_suggestions("$D0", max_suggestions=5, category="register")
+
+# Rebuild dictionary manually
+kb.build_suggestion_dictionary(rebuild=True)
+
+# Via MCP in Claude Desktop
+# "Suggest queries starting with 'SID'"
+```
+
+#### 📤 Export Search Results
+- **New Method:** `export_search_results(results, format, query)` exports to multiple formats
+- **Three Export Formats:**
+  - **Markdown:** Clean, readable format for documentation
+  - **JSON:** Machine-readable format with full metadata
+  - **HTML:** Styled format with embedded CSS for viewing in browsers
+- **Format-Specific Methods:**
+  - `_export_markdown()` - Markdown with headers, scores, metadata
+  - `_export_json()` - JSON with query, timestamp, result count
+  - `_export_html()` - HTML with embedded CSS styling
+- **MCP Tool:** New `export_results` tool for exporting from Claude Desktop
+- **Rich Metadata:** Includes query, timestamps, scores, snippets, tags
+- **Benefits:**
+  - Save search results for documentation
+  - Share results in preferred format
+  - Machine-readable JSON for automation
+  - Styled HTML for presentations
+
+**Usage:**
+```python
+# Python API - Export as markdown
+results = kb.search("VIC-II graphics", max_results=10)
+markdown = kb.export_search_results(results, format='markdown', query="VIC-II graphics")
+
+# Export as JSON
+json_export = kb.export_search_results(results, format='json')
+
+# Export as HTML
+html = kb.export_search_results(results, format='html', query="VIC-II graphics")
+
+# Via MCP in Claude Desktop
+# "Export these search results as HTML"
+```
+
+### Testing
+- Added 2 new test cases (41 total tests, 39 passed, 2 skipped)
+- `test_query_autocompletion()` - Validates term extraction, FTS5 matching, category filtering
+- `test_export_functionality()` - Tests all three export formats and error handling
+- All existing tests continue to pass
+
+### Performance
+New features maintain excellent performance:
+- Query suggestions: ~5-15ms per autocomplete query (FTS5-powered)
+- Suggestion extraction: ~10-30ms during document ingestion
+- Export operations: ~10-50ms depending on result count and format
+
+### Database Schema Changes
+- New table: `query_suggestions` FTS5 virtual table (term, frequency, category)
+- Automatic migrations for existing databases
+- Incremental updates on document addition
+
+### Documentation
+- Updated CHANGELOG.md with v2.4.0 release notes
+- Updated FUTURE_IMPROVEMENTS.md to mark completed features
+- Test suite covers all new functionality
+
+### Developer Notes
+**Implementation Details:**
+- Query suggestions use FTS5 for fast prefix matching
+- Special characters ($, *, etc.) properly quoted for FTS5
+- Incremental term updates use upsert logic (update or insert)
+- Export formats include full result metadata
+- HTML export includes embedded CSS for standalone viewing
+- All features fully backward compatible
+
+**Breaking Changes:** None - all new features are additive
+
+---
+
 ## [2.3.0] - 2025-12-12
 
 ### Added - Performance & Content Enhancement

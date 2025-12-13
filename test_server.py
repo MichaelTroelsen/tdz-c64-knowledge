@@ -1203,5 +1203,114 @@ def test_cross_reference_detection(tmpdir):
     kb.close()
 
 
+def test_query_autocompletion(tmpdir):
+    """Test query suggestion and autocompletion functionality."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create test document with technical terms
+    test_file = Path(str(tmpdir)) / "test_autocomplete.txt"
+    content = """
+    The VIC-II chip controls graphics on the Commodore 64.
+    SID chip produces sound synthesis.
+    Memory addresses like $D000, $D020, $D021 are important.
+    Assembly instructions: LDA #$00, STA $D020, JMP $1000
+    The Video Interface Controller handles sprites.
+    """
+    test_file.write_text(content)
+
+    # Add document
+    doc = kb.add_document(str(test_file), "Test Autocomplete", ["test"])
+
+    # Test that suggestions were built automatically
+    suggestions = kb.get_query_suggestions("VIC", max_suggestions=5)
+    assert len(suggestions) > 0
+
+    # Test hardware category
+    suggestions = kb.get_query_suggestions("SID", max_suggestions=5, category="hardware")
+    assert len(suggestions) > 0
+    assert all(s['category'] == 'hardware' for s in suggestions)
+
+    # Test register category
+    suggestions = kb.get_query_suggestions("$D0", max_suggestions=5, category="register")
+    assert len(suggestions) > 0
+    assert all(s['category'] == 'register' for s in suggestions)
+
+    # Test instruction category
+    suggestions = kb.get_query_suggestions("LD", max_suggestions=5, category="instruction")
+    assert len(suggestions) > 0
+    assert all(s['category'] == 'instruction' for s in suggestions)
+
+    # Test manual build
+    kb.build_suggestion_dictionary(rebuild=True)
+    suggestions = kb.get_query_suggestions("VIC", max_suggestions=5)
+    assert len(suggestions) > 0
+
+    # Test with too short query (should return empty)
+    suggestions = kb.get_query_suggestions("V", max_suggestions=5)
+    assert len(suggestions) == 0
+
+    print(f"\nQuery autocompletion test successful - {len(suggestions)} suggestions found")
+
+    kb.close()
+
+
+def test_export_functionality(tmpdir):
+    """Test search results export to various formats."""
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Create test document
+    test_file = Path(str(tmpdir)) / "test_export.txt"
+    content = """
+    The Commodore 64 is an 8-bit home computer.
+    It was released in 1982 by Commodore International.
+    The C64 features the VIC-II graphics chip and SID sound chip.
+    """
+    test_file.write_text(content)
+
+    # Add document and search
+    doc = kb.add_document(str(test_file), "Test Export", ["test", "c64"])
+    results = kb.search("VIC-II graphics chip", max_results=5)
+
+    # Test markdown export
+    markdown = kb.export_search_results(results, format='markdown', query="VIC-II graphics chip")
+    assert "# Search Results" in markdown
+    assert "VIC-II" in markdown
+    assert "**Query:** VIC-II graphics chip" in markdown  # Markdown format uses **Query:**
+    assert "Test Export" in markdown
+
+    # Test JSON export
+    json_export = kb.export_search_results(results, format='json', query="VIC-II graphics chip")
+    assert '"query": "VIC-II graphics chip"' in json_export
+    assert '"result_count":' in json_export
+    assert '"results"' in json_export
+
+    # Test HTML export
+    html = kb.export_search_results(results, format='html', query="VIC-II graphics chip")
+    assert "<!DOCTYPE html>" in html
+    assert "<html" in html
+    assert "VIC-II" in html
+    assert "<style>" in html  # Should have CSS
+
+    # Test invalid format
+    try:
+        kb.export_search_results(results, format='invalid')
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "Unsupported export format" in str(e)
+
+    # Test export without query parameter
+    markdown_no_query = kb.export_search_results(results, format='markdown')
+    assert "# Search Results" in markdown_no_query
+
+    # Test export with empty results
+    empty_export = kb.export_search_results([], format='markdown', query="nothing")
+    assert "# Search Results" in empty_export
+    assert "**Results:** 0" in empty_export  # Markdown format uses **Results:**
+
+    print(f"\nExport functionality test successful - tested markdown, JSON, and HTML formats")
+
+    kb.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

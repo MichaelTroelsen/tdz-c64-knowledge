@@ -2,6 +2,31 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.10.0] - 2025-12-13
+
+### Added - HTML File Support
+- **HTML File Support** - Ingest and search HTML documentation (.html, .htm)
+  - Powered by BeautifulSoup4 for robust HTML parsing
+  - Automatic encoding detection with chardet
+  - Removes script, style, nav, footer, and header elements
+  - Preserves code blocks (<pre>, <code>) with special formatting
+  - Extracts page title when available
+  - Cleans up excessive whitespace
+  - Support for both single and bulk upload in GUI
+
+### Changed
+- Default bulk add pattern updated from `**/*.{pdf,txt,md,xlsx,xls}` to `**/*.{pdf,txt,md,html,htm,xlsx,xls}`
+- GUI file uploaders now accept HTML files alongside other formats
+
+### Dependencies
+- Added `beautifulsoup4>=4.9.0` for HTML parsing
+- Added `chardet>=5.0.0` for encoding detection
+
+### Testing
+- Added test fixture for sample HTML files
+- Added `test_add_html_document()` to verify HTML extraction
+- All 59 tests passing (2 skipped)
+
 ## [2.9.0] - 2025-12-13
 
 ### Added - Excel File Support & Enhanced Markdown

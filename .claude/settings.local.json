@@ -127,7 +127,8 @@
       "Bash(timeout 5 \".venv/Scripts/python.exe\":*)",
       "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py -v --tb=line -q)",
       "Bash(git reset:*)",
-      "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py::TestKnowledgeBase::test_add_excel_document -v)"
+      "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py::TestKnowledgeBase::test_add_excel_document -v)",
+      "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py::TestKnowledgeBase::test_add_html_document -v)"
     ]
   }
 }

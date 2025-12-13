@@ -1430,6 +1430,72 @@ class KnowledgeBase:
         except Exception as e:
             raise RuntimeError(f"Error reading Excel file: {str(e)}")
 
+    def _extract_html_file(self, filepath: str) -> str:
+        """
+        Extract text from HTML file (.html, .htm).
+
+        Returns:
+            Extracted text content
+        """
+        try:
+            from bs4 import BeautifulSoup
+        except ImportError:
+            raise RuntimeError("beautifulsoup4 not installed. Install with: pip install beautifulsoup4")
+
+        try:
+            # Read the HTML file with encoding detection
+            with open(filepath, 'rb') as f:
+                raw_data = f.read()
+
+            # Detect encoding
+            import chardet
+            detected = chardet.detect(raw_data)
+            encoding = detected.get('encoding', 'utf-8')
+
+            # Decode with detected encoding
+            html_content = raw_data.decode(encoding, errors='replace')
+
+            # Parse with BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            # Remove script and style elements
+            for script in soup(['script', 'style', 'nav', 'footer', 'header']):
+                script.decompose()
+
+            # Extract text content
+            text_parts = []
+
+            # Get title if available
+            if soup.title and soup.title.string:
+                text_parts.append(f"Title: {soup.title.string.strip()}\n")
+
+            # Process body or entire document
+            body = soup.body if soup.body else soup
+
+            # Handle code blocks specially to preserve formatting
+            for pre in body.find_all(['pre', 'code']):
+                # Mark code blocks so they're preserved
+                pre_text = pre.get_text()
+                if pre_text.strip():
+                    text_parts.append(f"\n--- CODE BLOCK ---\n{pre_text}\n--- END CODE BLOCK ---\n")
+                pre.decompose()  # Remove so we don't process again
+
+            # Get remaining text
+            main_text = body.get_text(separator='\n', strip=True)
+
+            # Clean up excessive whitespace
+            lines = [line.strip() for line in main_text.split('\n')]
+            lines = [line for line in lines if line]  # Remove empty lines
+            text_parts.append('\n'.join(lines))
+
+            text_content = '\n\n'.join(text_parts)
+
+            self.logger.info(f"Extracted HTML file ({len(text_content)} characters)")
+            return text_content
+
+        except Exception as e:
+            raise RuntimeError(f"Error reading HTML file: {str(e)}")
+
     def _extract_tables(self, filepath: str) -> list[dict]:
         """Extract tables from PDF using pdfplumber.
 
@@ -2232,6 +2298,10 @@ class KnowledgeBase:
                 file_type = 'excel'
                 total_pages = sheet_count  # Treat sheets as "pages"
                 self.logger.info(f"Extracted Excel file with {sheet_count} sheets ({len(text)} characters)")
+            elif file_ext in ['.html', '.htm']:
+                text = self._extract_html_file(filepath)
+                file_type = 'html'
+                self.logger.info(f"Extracted HTML file ({len(text)} characters)")
             elif file_ext in ['.txt', '.md', '.asm', '.bas', '.inc', '.s']:
                 text = self._extract_text_file(filepath)
                 file_type = 'text'
@@ -2558,7 +2628,7 @@ class KnowledgeBase:
 
         return results
 
-    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt,md,xlsx,xls}",
+    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt,md,html,htm,xlsx,xls}",
                            tags: Optional[list[str]] = None, recursive: bool = True,
                            skip_duplicates: bool = True, progress_callback: ProgressCallback = None) -> dict:
         """

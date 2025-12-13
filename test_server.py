@@ -83,6 +83,52 @@ The SID chip handles sound generation with 3 voices.
         wb.save(test_file)
         return str(test_file)
 
+    @pytest.fixture
+    def sample_html_file(self, temp_data_dir):
+        """Create a sample HTML file for testing."""
+        test_file = Path(temp_data_dir) / "test_doc.html"
+        html_content = """<!DOCTYPE html>
+<html>
+<head>
+    <title>C64 VIC-II Chip Reference</title>
+    <style>
+        body { font-family: Arial; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>VIC-II Graphics Chip</h1>
+    <p>The VIC-II chip is the graphics processor in the Commodore 64.</p>
+
+    <h2>Sprite Registers</h2>
+    <p>The VIC-II has 8 hardware sprites controlled by registers at $D000-$D02E.</p>
+
+    <pre>
+LDA #$01
+STA $D015  ; Enable sprite 0
+    </pre>
+
+    <h2>Screen Control</h2>
+    <p>Register $D011 controls screen display settings including:</p>
+    <ul>
+        <li>Vertical scrolling</li>
+        <li>Screen height (24 or 25 rows)</li>
+        <li>Bitmap mode enable</li>
+    </ul>
+
+    <script>
+        // This should be removed during extraction
+        console.log("test");
+    </script>
+
+    <footer>
+        <p>Reference documentation - Page footer</p>
+    </footer>
+</body>
+</html>"""
+        test_file.write_text(html_content, encoding='utf-8')
+        return str(test_file)
+
     def test_initialization(self, temp_data_dir):
         """Test KnowledgeBase initialization."""
         kb = KnowledgeBase(temp_data_dir)
@@ -126,6 +172,34 @@ The SID chip handles sound generation with 3 voices.
         assert "Zero Page" in full_text
         assert "SPRITE 0 X" in full_text
         assert "$D000" in full_text
+
+    def test_add_html_document(self, kb, sample_html_file):
+        """Test adding an HTML file."""
+        doc = kb.add_document(sample_html_file, "Test VIC-II HTML Doc", ["vic-ii", "html"])
+
+        assert doc.filename == "test_doc.html"
+        assert doc.title == "Test VIC-II HTML Doc"
+        assert "vic-ii" in doc.tags
+        assert "html" in doc.tags
+        assert doc.total_chunks > 0
+        assert doc.file_type == "html"
+
+        # Verify content was extracted correctly
+        chunks = kb._get_chunks_db(doc.doc_id)
+        assert len(chunks) > 0
+
+        # Check that content and code blocks are in the extracted text
+        full_text = ' '.join([chunk.content for chunk in chunks])
+        assert "VIC-II Graphics Chip" in full_text
+        assert "Sprite Registers" in full_text
+        assert "$D000-$D02E" in full_text
+        assert "LDA #$01" in full_text  # Code block preserved
+        assert "STA $D015" in full_text  # Code block preserved
+        assert "Vertical scrolling" in full_text
+
+        # Verify script and footer were removed
+        assert "console.log" not in full_text
+        assert "Page footer" not in full_text or "footer" not in full_text.lower()
 
     def test_search_basic(self, kb, sample_text_file):
         """Test basic search functionality."""

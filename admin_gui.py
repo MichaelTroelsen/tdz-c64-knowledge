@@ -155,7 +155,7 @@ elif page == "📚 Documents":
         with upload_tabs[0]:
             st.subheader("Upload Single Document")
 
-            uploaded_file = st.file_uploader("Choose a file (PDF, TXT, MD, or Excel)", type=['pdf', 'txt', 'md', 'xlsx', 'xls'], key="single_upload")
+            uploaded_file = st.file_uploader("Choose a file (PDF, TXT, MD, HTML, or Excel)", type=['pdf', 'txt', 'md', 'html', 'htm', 'xlsx', 'xls'], key="single_upload")
 
             col1, col2 = st.columns(2)
             with col1:
@@ -188,8 +188,8 @@ elif page == "📚 Documents":
             st.write("📌 **Drag and drop multiple files or click to browse**")
 
             uploaded_files = st.file_uploader(
-                "Choose files (PDF, TXT, MD, or Excel)",
-                type=['pdf', 'txt', 'md', 'xlsx', 'xls'],
+                "Choose files (PDF, TXT, MD, HTML, or Excel)",
+                type=['pdf', 'txt', 'md', 'html', 'htm', 'xlsx', 'xls'],
                 accept_multiple_files=True,
                 key="bulk_upload"
             )
@@ -1314,5 +1314,5 @@ elif page == "📈 Analytics":
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.markdown("**TDZ C64 Knowledge Base v2.9.0**")
+st.sidebar.markdown("**TDZ C64 Knowledge Base v2.10.0**")
 st.sidebar.markdown("Built with ❤️ using Claude Code")

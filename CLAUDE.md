@@ -353,6 +353,7 @@ Currently supported formats:
 - **PDF** (.pdf) - via pypdf, method: `_extract_pdf_text()`
 - **Text** (.txt) - native Python with encoding detection
 - **Markdown** (.md) - treated as text files
+- **HTML** (.html, .htm) - via BeautifulSoup4, method: `_extract_html_file()`
 - **Excel** (.xlsx, .xls) - via openpyxl, method: `_extract_excel_file()`
 
 File type detection is in `add_document()` at server.py:~2230. To add new formats:

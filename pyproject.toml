@@ -11,6 +11,8 @@ dependencies = [
     "nltk>=3.8.0",
     "cachetools>=5.0.0",
     "openpyxl>=3.0.0",
+    "beautifulsoup4>=4.9.0",
+    "chardet>=5.0.0",
 ]
 
 [project.optional-dependencies]

@@ -6,12 +6,24 @@ echo ========================================
 echo  TDZ C64 Knowledge Base - Admin GUI
 echo ========================================
 echo.
+echo Enabling all features:
+echo   - FTS5 Full-Text Search
+echo   - Semantic Search (Embeddings)
+echo   - BM25 Ranking
+echo   - Query Preprocessing
+echo.
 echo Starting Streamlit server...
 echo The GUI will open in your browser automatically.
 echo.
 echo To stop the server, close this window or press Ctrl+C
 echo ========================================
 echo.
+
+REM Enable all advanced features
+set USE_FTS5=1
+set USE_SEMANTIC_SEARCH=1
+set USE_BM25=1
+set USE_QUERY_PREPROCESSING=1
 
 REM Activate virtual environment and run Streamlit
 call .venv\Scripts\activate.bat

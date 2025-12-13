@@ -10,6 +10,7 @@ dependencies = [
     "rank-bm25>=0.2.2",
     "nltk>=3.8.0",
     "cachetools>=5.0.0",
+    "openpyxl>=3.0.0",
 ]
 
 [project.optional-dependencies]

@@ -372,7 +372,7 @@ pip install -e ".[dev]"
 - **145 Documents** - Comprehensive C64 documentation
 - **4,665 Chunks** - Segmented for efficient retrieval
 - **6.8M Words** - Extensive technical content
-- **File Types:** PDF and Text
+- **File Types:** PDF, Text, Markdown, and Excel (.xlsx, .xls)
 - **Topics:** Assembly language, BASIC, hardware (SID, VIC-II, CIA), memory maps, programming guides
 
 ### Search Capabilities

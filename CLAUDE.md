@@ -349,10 +349,18 @@ chunks = self._get_chunks_db()        # Load all chunks (for BM25)
 
 ### Extending File Type Support
 
-File type detection is in `add_document()` at server.py:~560. To add new formats:
+Currently supported formats:
+- **PDF** (.pdf) - via pypdf, method: `_extract_pdf_text()`
+- **Text** (.txt) - native Python with encoding detection
+- **Markdown** (.md) - treated as text files
+- **Excel** (.xlsx, .xls) - via openpyxl, method: `_extract_excel_file()`
+
+File type detection is in `add_document()` at server.py:~2230. To add new formats:
 1. Add file extension to condition check
-2. Implement extraction method (like `_extract_pdf_text`)
+2. Implement extraction method (like `_extract_pdf_text` or `_extract_excel_file`)
 3. Update tool description and README
+4. Update GUI file uploaders in admin_gui.py
+5. Update bulk add pattern default in `add_documents_bulk()`
 
 ## Windows-Specific Notes
 

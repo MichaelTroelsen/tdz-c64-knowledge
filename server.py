@@ -1388,6 +1388,48 @@ class KnowledgeBase:
                 continue
         raise RuntimeError(f"Could not decode {filepath}")
 
+    def _extract_excel_file(self, filepath: str) -> tuple[str, int]:
+        """
+        Extract text from Excel file (.xlsx, .xls).
+
+        Returns:
+            Tuple of (text_content, sheet_count)
+        """
+        try:
+            from openpyxl import load_workbook
+        except ImportError:
+            raise RuntimeError("openpyxl not installed. Install with: pip install openpyxl")
+
+        try:
+            workbook = load_workbook(filepath, data_only=True)
+            sheets_text = []
+
+            for sheet_name in workbook.sheetnames:
+                sheet = workbook[sheet_name]
+
+                # Add sheet header
+                sheets_text.append(f"\n{'='*60}\nSheet: {sheet_name}\n{'='*60}\n")
+
+                # Extract all cell values
+                rows_text = []
+                for row in sheet.iter_rows(values_only=True):
+                    # Filter out None values and convert to strings
+                    row_values = [str(cell) if cell is not None else '' for cell in row]
+                    # Skip completely empty rows
+                    if any(val.strip() for val in row_values):
+                        rows_text.append('\t'.join(row_values))
+
+                sheets_text.append('\n'.join(rows_text))
+
+            text_content = '\n\n'.join(sheets_text)
+            sheet_count = len(workbook.sheetnames)
+
+            self.logger.info(f"Extracted {sheet_count} sheets from Excel file")
+            return text_content, sheet_count
+
+        except Exception as e:
+            raise RuntimeError(f"Error reading Excel file: {str(e)}")
+
     def _extract_tables(self, filepath: str) -> list[dict]:
         """Extract tables from PDF using pdfplumber.
 
@@ -2185,6 +2227,11 @@ class KnowledgeBase:
                 text, total_pages, pdf_metadata = self._extract_pdf_text(filepath)
                 file_type = 'pdf'
                 self.logger.info(f"Extracted {total_pages} pages from PDF")
+            elif file_ext in ['.xlsx', '.xls']:
+                text, sheet_count = self._extract_excel_file(filepath)
+                file_type = 'excel'
+                total_pages = sheet_count  # Treat sheets as "pages"
+                self.logger.info(f"Extracted Excel file with {sheet_count} sheets ({len(text)} characters)")
             elif file_ext in ['.txt', '.md', '.asm', '.bas', '.inc', '.s']:
                 text = self._extract_text_file(filepath)
                 file_type = 'text'
@@ -2511,7 +2558,7 @@ class KnowledgeBase:
 
         return results
 
-    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt,md}",
+    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt,md,xlsx,xls}",
                            tags: Optional[list[str]] = None, recursive: bool = True,
                            skip_duplicates: bool = True, progress_callback: ProgressCallback = None) -> dict:
         """

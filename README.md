@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-An MCP (Model Context Protocol) server for managing and searching Commodore 64 documentation. Add PDFs and text files to build a searchable knowledge base that Claude Code or other MCP clients can query.
+An MCP (Model Context Protocol) server for managing and searching Commodore 64 documentation. Add PDFs, text files, Markdown, and Excel files to build a searchable knowledge base that Claude Code or other MCP clients can query.
 
 ## 🚀 Quick Start
 
@@ -40,7 +40,7 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
 - **Tag-based filtering** - Organize docs by topic (memory-map, sid, vic-ii, basic, assembly, etc.)
 
 ### Document Management
-- **PDF and text file ingestion** - Extract and index content from documentation
+- **Multiple file formats** - Ingest PDFs, text files (.txt), Markdown (.md), and Excel files (.xlsx, .xls)
 - **Duplicate detection** - Content-based deduplication prevents indexing the same document twice
 - **Chunked retrieval** - Get specific sections without loading entire documents
 - **PDF metadata extraction** - Author, subject, creator, and creation date

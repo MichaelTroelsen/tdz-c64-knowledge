@@ -2,6 +2,29 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.9.0] - 2025-12-13
+
+### Added - Excel File Support & Enhanced Markdown
+- **Excel File Support** - Ingest and search Excel spreadsheets (.xlsx, .xls)
+  - Extract data from all sheets with clear delimiters
+  - Tab-delimited columns for readability
+  - Sheet count tracked as "pages" for consistency
+  - Support for both single and bulk upload in GUI
+  - Powered by openpyxl library
+- **Enhanced Markdown Support** - Made .md file support more visible
+  - Updated bulk add default pattern to include .md files
+  - Updated GUI file uploaders to explicitly list Markdown files
+  - Better discoverability for existing Markdown support
+
+### Changed
+- Default bulk add pattern updated from `**/*.{pdf,txt,md}` to `**/*.{pdf,txt,md,xlsx,xls}`
+- GUI file uploaders now accept Excel files alongside PDFs, text, and Markdown
+
+### Testing
+- Added test fixture for sample Excel files
+- Added `test_add_excel_document()` to verify Excel extraction
+- All 58 tests passing (2 skipped)
+
 ## [2.8.0] - 2025-12-13
 
 ### Added - CI/CD Automation & Relationship Visualization

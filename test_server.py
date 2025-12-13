@@ -53,6 +53,36 @@ The SID chip handles sound generation with 3 voices.
         test_file.write_text(content)
         return str(test_file)
 
+    @pytest.fixture
+    def sample_excel_file(self, temp_data_dir):
+        """Create a sample Excel file for testing."""
+        try:
+            from openpyxl import Workbook
+        except ImportError:
+            pytest.skip("openpyxl not installed")
+
+        test_file = Path(temp_data_dir) / "test_doc.xlsx"
+        wb = Workbook()
+
+        # First sheet: C64 Memory Map
+        ws1 = wb.active
+        ws1.title = "Memory Map"
+        ws1.append(["Address", "Range", "Description"])
+        ws1.append(["$0000-$00FF", "256 bytes", "Zero Page"])
+        ws1.append(["$0100-$01FF", "256 bytes", "Stack"])
+        ws1.append(["$D000-$D3FF", "1K", "VIC-II Chip"])
+        ws1.append(["$D400-$D7FF", "1K", "SID Chip"])
+
+        # Second sheet: Registers
+        ws2 = wb.create_sheet("VIC-II Registers")
+        ws2.append(["Register", "Address", "Function"])
+        ws2.append(["SPRITE 0 X", "$D000", "Sprite 0 X-coordinate"])
+        ws2.append(["SPRITE 0 Y", "$D001", "Sprite 0 Y-coordinate"])
+        ws2.append(["SCREEN CTRL", "$D011", "Screen control register"])
+
+        wb.save(test_file)
+        return str(test_file)
+
     def test_initialization(self, temp_data_dir):
         """Test KnowledgeBase initialization."""
         kb = KnowledgeBase(temp_data_dir)
@@ -72,6 +102,30 @@ The SID chip handles sound generation with 3 voices.
         assert "graphics" in doc.tags
         assert doc.total_chunks > 0
         assert doc.file_type == "text"
+
+    def test_add_excel_document(self, kb, sample_excel_file):
+        """Test adding an Excel file."""
+        doc = kb.add_document(sample_excel_file, "Test C64 Memory Map", ["memory", "registers"])
+
+        assert doc.filename == "test_doc.xlsx"
+        assert doc.title == "Test C64 Memory Map"
+        assert "memory" in doc.tags
+        assert "registers" in doc.tags
+        assert doc.total_chunks > 0
+        assert doc.file_type == "excel"
+        assert doc.total_pages == 2  # Two sheets
+
+        # Verify content was extracted correctly
+        chunks = kb._get_chunks_db(doc.doc_id)
+        assert len(chunks) > 0
+
+        # Check that sheet names and data are in the content
+        full_text = ' '.join([chunk.content for chunk in chunks])
+        assert "Memory Map" in full_text
+        assert "VIC-II Registers" in full_text
+        assert "Zero Page" in full_text
+        assert "SPRITE 0 X" in full_text
+        assert "$D000" in full_text
 
     def test_search_basic(self, kb, sample_text_file):
         """Test basic search functionality."""

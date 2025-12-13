@@ -2,6 +2,70 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.8.0] - 2025-12-13
+
+### Added - CI/CD Automation & Relationship Visualization
+
+#### 🔄 CI/CD Pipeline
+- **GitHub Actions Workflow** - Automated testing on push/PR
+  - Multi-platform testing (Ubuntu, Windows, macOS)
+  - Multi-version testing (Python 3.10, 3.11, 3.12)
+  - Test coverage reporting with Codecov
+  - Security checks (safety, bandit)
+  - Code quality checks (ruff linting)
+  - Integration tests
+  - Documentation validation
+  - Build status summary
+- **Release Automation** - Automatic GitHub releases
+  - Changelog extraction
+  - Release artifact uploads
+  - Version tagging support
+  - Optional PyPI publishing (disabled by default)
+- **Status Badges** - README.md badges for CI status, Python version, license
+
+#### 📊 Relationship Graph Visualization
+- **New Backend Method:** `get_relationship_graph(tags, relationship_types)`
+  - Returns nodes and edges for graph visualization
+  - Filter by tags or relationship types
+  - Includes statistics (total nodes, edges, relationship types)
+- **New GUI Page:** "🔗 Relationship Graph"
+  - Interactive network graph powered by pyvis
+  - Filter by tags and relationship types
+  - Visualization options:
+    - Enable/disable physics simulation
+    - Choose layout algorithm (hierarchical, force_atlas, barnes_hut, repulsion)
+    - Adjust node size
+    - Show/hide relationship direction arrows
+    - Custom edge colors
+  - Color-coded edges by relationship type:
+    - 🟢 Green for "related"
+    - 🔵 Blue for "references"
+    - 🟠 Orange for "prerequisite"
+    - 🟣 Purple for "sequel"
+  - Interactive features:
+    - Click and drag nodes
+    - Hover for details
+    - Scroll to zoom
+  - Export graph data as JSON
+  - Statistics display (document count, relationship count, types)
+  - Legend for relationship types
+- **New Dependencies:**
+  - pyvis >= 0.3.2 for interactive network visualization
+  - networkx >= 3.0 for graph data structures
+
+#### ✅ Testing
+- **New Tests (2 total):**
+  - `test_get_relationship_graph` - Basic graph generation
+  - `test_get_relationship_graph_filtered` - Filtering by tags and types
+- All 57 tests passing
+
+**Benefits:**
+- Automated quality assurance with CI/CD pipeline
+- Visual exploration of document relationships
+- Interactive graph makes complex relationships understandable
+- Filter and export capabilities for analysis
+- Professional DevOps practices
+
 ## [2.7.0] - 2025-12-13
 
 ### Added - GUI Enhancements & Document Relationships

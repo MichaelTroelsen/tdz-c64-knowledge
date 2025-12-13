@@ -32,6 +32,8 @@ fuzzy = [
 gui = [
     "streamlit>=1.28.0",
     "pandas>=2.0.0",
+    "pyvis>=0.3.2",
+    "networkx>=3.0",
 ]
 
 [project.scripts]

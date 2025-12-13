@@ -3149,6 +3149,99 @@ class KnowledgeBase:
 
         return related_docs
 
+    def get_relationship_graph(self, tags: Optional[list[str]] = None,
+                              relationship_types: Optional[list[str]] = None) -> dict:
+        """
+        Get relationship graph data for visualization.
+
+        Args:
+            tags: Optional list of tags to filter documents
+            relationship_types: Optional list of relationship types to include
+
+        Returns:
+            Dictionary with 'nodes' and 'edges' for graph visualization
+        """
+        cursor = self.db_conn.cursor()
+
+        # Build WHERE clauses for filtering
+        where_clauses = []
+        params = []
+
+        if relationship_types:
+            placeholders = ','.join('?' * len(relationship_types))
+            where_clauses.append(f"relationship_type IN ({placeholders})")
+            params.extend(relationship_types)
+
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+        # Get all relationships
+        query = f"""
+            SELECT from_doc_id, to_doc_id, relationship_type, note
+            FROM document_relationships
+            {where_sql}
+        """
+
+        cursor.execute(query, params)
+        relationships = cursor.fetchall()
+
+        # Build nodes and edges
+        nodes = {}
+        edges = []
+
+        for from_id, to_id, rel_type, note in relationships:
+            # Check if documents match tag filter
+            if tags:
+                from_doc = self.documents.get(from_id)
+                to_doc = self.documents.get(to_id)
+                if not from_doc or not to_doc:
+                    continue
+                if not any(tag in from_doc.tags for tag in tags) and \
+                   not any(tag in to_doc.tags for tag in tags):
+                    continue
+
+            # Add nodes if not already present
+            if from_id not in nodes:
+                doc = self.documents.get(from_id)
+                if doc:
+                    nodes[from_id] = {
+                        'id': from_id,
+                        'label': doc.title,
+                        'title': f"{doc.title}\n{doc.filename}\nTags: {', '.join(doc.tags)}",
+                        'tags': doc.tags,
+                        'chunks': doc.total_chunks
+                    }
+
+            if to_id not in nodes:
+                doc = self.documents.get(to_id)
+                if doc:
+                    nodes[to_id] = {
+                        'id': to_id,
+                        'label': doc.title,
+                        'title': f"{doc.title}\n{doc.filename}\nTags: {', '.join(doc.tags)}",
+                        'tags': doc.tags,
+                        'chunks': doc.total_chunks
+                    }
+
+            # Add edge
+            if from_id in nodes and to_id in nodes:
+                edges.append({
+                    'from': from_id,
+                    'to': to_id,
+                    'type': rel_type,
+                    'label': rel_type,
+                    'title': note if note else rel_type
+                })
+
+        return {
+            'nodes': list(nodes.values()),
+            'edges': edges,
+            'stats': {
+                'total_nodes': len(nodes),
+                'total_edges': len(edges),
+                'relationship_types': list(set(e['type'] for e in edges))
+            }
+        }
+
     def search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
         """Search the knowledge base using BM25 ranking or simple term frequency."""
         start_time = time.time()

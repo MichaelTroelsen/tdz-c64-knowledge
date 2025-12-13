@@ -780,6 +780,70 @@ The SID chip handles sound generation with 3 voices.
         rels = kb.get_relationships(doc1.doc_id)
         assert len(rels) == 0
 
+    def test_get_relationship_graph(self, kb, sample_text_file, temp_data_dir):
+        """Test getting relationship graph data for visualization."""
+        # Create three documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test", "basic"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test", "advanced"])
+
+        test_file3 = Path(temp_data_dir) / "test_doc3.txt"
+        test_file3.write_text("Third test document")
+        doc3 = kb.add_document(str(test_file3), "Doc 3", ["reference"])
+
+        # Create some relationships
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "prerequisite")
+        kb.add_relationship(doc2.doc_id, doc3.doc_id, "references")
+        kb.add_relationship(doc1.doc_id, doc3.doc_id, "related")
+
+        # Get full graph
+        graph = kb.get_relationship_graph()
+
+        assert len(graph['nodes']) == 3
+        assert len(graph['edges']) == 3
+        assert graph['stats']['total_nodes'] == 3
+        assert graph['stats']['total_edges'] == 3
+        assert set(graph['stats']['relationship_types']) == {'prerequisite', 'references', 'related'}
+
+        # Verify node structure
+        node_ids = [n['id'] for n in graph['nodes']]
+        assert doc1.doc_id in node_ids
+        assert doc2.doc_id in node_ids
+        assert doc3.doc_id in node_ids
+
+        # Verify edge structure
+        assert all('from' in e and 'to' in e and 'type' in e for e in graph['edges'])
+
+    def test_get_relationship_graph_filtered(self, kb, sample_text_file, temp_data_dir):
+        """Test filtering relationship graph by tags and types."""
+        # Create three documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["advanced"])
+
+        test_file3 = Path(temp_data_dir) / "test_doc3.txt"
+        test_file3.write_text("Third test document")
+        doc3 = kb.add_document(str(test_file3), "Doc 3", ["reference"])
+
+        # Create relationships of different types
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "prerequisite")
+        kb.add_relationship(doc2.doc_id, doc3.doc_id, "references")
+        kb.add_relationship(doc1.doc_id, doc3.doc_id, "related")
+
+        # Filter by relationship type
+        graph = kb.get_relationship_graph(relationship_types=["prerequisite"])
+        assert len(graph['edges']) == 1
+        assert graph['edges'][0]['type'] == "prerequisite"
+
+        # Filter by tags
+        graph = kb.get_relationship_graph(tags=["test"])
+        # Should include doc1 and any relationships involving it
+        assert len(graph['nodes']) >= 1
+
 
 def test_query_preprocessing(tmpdir):
     """Test query preprocessing (stemming, stopword removal)."""

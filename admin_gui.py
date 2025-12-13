@@ -49,7 +49,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["📊 Dashboard", "📚 Documents", "🏷️ Tag Management", "🔍 Search", "💾 Backup & Restore", "📈 Analytics"]
+    ["📊 Dashboard", "📚 Documents", "🏷️ Tag Management", "🔗 Relationship Graph", "🔍 Search", "💾 Backup & Restore", "📈 Analytics"]
 )
 
 st.sidebar.markdown("---")
@@ -900,6 +900,209 @@ elif page == "🏷️ Tag Management":
                 else:
                     st.error("Tag name cannot be empty")
 
+# ========== RELATIONSHIP GRAPH PAGE ==========
+elif page == "🔗 Relationship Graph":
+    st.title("🔗 Document Relationship Graph")
+
+    st.write("**Visualize connections between documents**")
+    st.write("Explore how documents relate to each other through references, prerequisites, and related content.")
+
+    # Import visualization libraries
+    try:
+        from pyvis.network import Network
+        import streamlit.components.v1 as components
+        import tempfile
+        import os
+    except ImportError:
+        st.error("📦 Visualization libraries not installed. Run: `pip install pyvis networkx`")
+        st.stop()
+
+    # Filters
+    st.markdown("---")
+    st.subheader("🎛️ Filters")
+
+    filter_col1, filter_col2 = st.columns(2)
+
+    with filter_col1:
+        # Get all tags
+        all_tags = set()
+        for doc in kb.documents.values():
+            all_tags.update(doc.tags)
+
+        if all_tags:
+            selected_tags = st.multiselect(
+                "Filter by tags:",
+                options=sorted(list(all_tags)),
+                default=None
+            )
+        else:
+            selected_tags = None
+            st.info("No tags found")
+
+    with filter_col2:
+        selected_rel_types = st.multiselect(
+            "Relationship types:",
+            options=["related", "references", "prerequisite", "sequel"],
+            default=["related", "references", "prerequisite", "sequel"]
+        )
+
+    # Get graph data
+    try:
+        graph_data = kb.get_relationship_graph(
+            tags=selected_tags if selected_tags else None,
+            relationship_types=selected_rel_types if selected_rel_types else None
+        )
+
+        # Display stats
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("📄 Documents", graph_data['stats']['total_nodes'])
+        with col2:
+            st.metric("🔗 Relationships", graph_data['stats']['total_edges'])
+        with col3:
+            if graph_data['stats']['relationship_types']:
+                st.metric("🏷️ Types", len(graph_data['stats']['relationship_types']))
+            else:
+                st.metric("🏷️ Types", 0)
+
+        if graph_data['stats']['total_nodes'] == 0:
+            st.warning("⚠️ No documents with relationships found. Create relationships in the Documents page.")
+        elif graph_data['stats']['total_edges'] == 0:
+            st.warning("⚠️ No relationships match the selected filters.")
+        else:
+            st.markdown("---")
+
+            # Visualization options
+            with st.expander("⚙️ Visualization Options", expanded=False):
+                viz_col1, viz_col2 = st.columns(2)
+
+                with viz_col1:
+                    physics_enabled = st.checkbox("Enable physics simulation", value=True)
+                    show_arrows = st.checkbox("Show relationship direction", value=True)
+                    node_size = st.slider("Node size", 10, 50, 25)
+
+                with viz_col2:
+                    layout = st.selectbox(
+                        "Layout algorithm:",
+                        ["hierarchical", "force_atlas", "barnes_hut", "repulsion"]
+                    )
+                    edge_color = st.color_picker("Edge color", "#808080")
+
+            # Create network graph
+            net = Network(height="600px", width="100%", bgcolor="#ffffff", font_color="black")
+
+            # Set physics
+            if physics_enabled:
+                if layout == "hierarchical":
+                    net.set_options("""
+                    {
+                        "physics": {
+                            "enabled": true,
+                            "hierarchicalRepulsion": {
+                                "centralGravity": 0.0,
+                                "springLength": 100,
+                                "springConstant": 0.01,
+                                "nodeDistance": 120,
+                                "damping": 0.09
+                            },
+                            "solver": "hierarchicalRepulsion"
+                        },
+                        "layout": {
+                            "hierarchical": {
+                                "enabled": true,
+                                "direction": "UD",
+                                "sortMethod": "directed"
+                            }
+                        }
+                    }
+                    """)
+                else:
+                    net.toggle_physics(True)
+            else:
+                net.toggle_physics(False)
+
+            # Add nodes
+            node_colors = {
+                'related': '#4CAF50',
+                'references': '#2196F3',
+                'prerequisite': '#FF9800',
+                'sequel': '#9C27B0'
+            }
+
+            for node in graph_data['nodes']:
+                # Color nodes based on their outgoing relationship types
+                color = "#808080"  # Default gray
+                net.add_node(
+                    node['id'],
+                    label=node['label'][:50],  # Truncate long titles
+                    title=node['title'],
+                    size=node_size,
+                    color=color
+                )
+
+            # Add edges
+            for edge in graph_data['edges']:
+                color = node_colors.get(edge['type'], edge_color)
+                net.add_edge(
+                    edge['from'],
+                    edge['to'],
+                    title=edge['title'],
+                    label=edge['label'],
+                    color=color,
+                    arrows='to' if show_arrows else ''
+                )
+
+            # Generate and display graph
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w', encoding='utf-8') as f:
+                html_path = f.name
+                net.save_graph(html_path)
+
+            # Read and display
+            with open(html_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+
+            # Clean up
+            os.unlink(html_path)
+
+            # Display in streamlit
+            st.markdown("### 📊 Interactive Graph")
+            st.write("💡 **Tip:** Click and drag nodes to explore. Hover for details. Scroll to zoom.")
+            components.html(html_content, height=620, scrolling=False)
+
+            # Legend
+            st.markdown("---")
+            st.markdown("### 🎨 Legend")
+            legend_cols = st.columns(4)
+
+            with legend_cols[0]:
+                st.markdown(f"🟢 **related** - General relationship")
+            with legend_cols[1]:
+                st.markdown(f"🔵 **references** - Cites/references")
+            with legend_cols[2]:
+                st.markdown(f"🟠 **prerequisite** - Must read first")
+            with legend_cols[3]:
+                st.markdown(f"🟣 **sequel** - Continuation")
+
+            # Export option
+            st.markdown("---")
+            if st.button("📥 Export Graph Data as JSON"):
+                import json
+                graph_json = json.dumps(graph_data, indent=2)
+                st.download_button(
+                    label="Download JSON",
+                    data=graph_json,
+                    file_name=f"relationship_graph_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+
+    except Exception as e:
+        st.error(f"Error generating graph: {str(e)}")
+        import traceback
+        with st.expander("Error details"):
+            st.code(traceback.format_exc())
+
 # ========== SEARCH PAGE ==========
 elif page == "🔍 Search":
     st.title("🔍 Search Knowledge Base")
@@ -1111,5 +1314,5 @@ elif page == "📈 Analytics":
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.markdown("**TDZ C64 Knowledge Base v2.7.0**")
+st.sidebar.markdown("**TDZ C64 Knowledge Base v2.8.0**")
 st.sidebar.markdown("Built with ❤️ using Claude Code")

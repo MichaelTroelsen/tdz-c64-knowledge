@@ -3,6 +3,7 @@
 Complete guide for using the Commodore 64 documentation knowledge base with Claude Desktop.
 
 ## Table of Contents
+- [What's New in v2.8.0](#whats-new-in-v280) ⭐⭐⭐⭐⭐
 - [What's New in v2.7.0](#whats-new-in-v270) ⭐⭐⭐⭐
 - [What's New in v2.5.0](#whats-new-in-v250) ⭐⭐⭐
 - [What's New in v2.0.0](#whats-new-in-v200) ⭐
@@ -15,6 +16,88 @@ Complete guide for using the Commodore 64 documentation knowledge base with Clau
 - [Command Line Usage](#command-line-usage)
 - [Performance Optimization](#performance-optimization)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## What's New in v2.8.0
+
+### 🔄 CI/CD Automation
+Automated testing and release workflows for professional quality assurance.
+
+**CI/CD Pipeline Features:**
+- ✅ **Automated Testing** - Runs on every push and pull request
+  - Multi-platform: Ubuntu, Windows, macOS
+  - Multi-version: Python 3.10, 3.11, 3.12
+  - 57 tests across all features
+- ✅ **Test Coverage** - Codecov integration for coverage tracking
+- ✅ **Security Checks** - Dependency vulnerability scanning (safety) and code security analysis (bandit)
+- ✅ **Code Quality** - Automated linting with ruff
+- ✅ **Documentation Checks** - Validates README and other docs
+- ✅ **Status Badges** - README shows CI status, Python version, license
+
+**Release Automation:**
+- 🏷️ Automatic GitHub releases when tags are pushed
+- 📄 Changelog extraction from CHANGELOG.md
+- 📦 Artifact uploads (README, guides, docs)
+- 🔖 Version tagging support
+- 📦 Optional PyPI publishing (when ready)
+
+### 📊 Relationship Graph Visualization
+**Visual exploration of document relationships with interactive network graphs.**
+
+**Features:**
+- 🎨 **Interactive Network Graph** - Click, drag, zoom, hover
+- 🔍 **Smart Filters:**
+  - Filter by document tags
+  - Filter by relationship types (related, references, prerequisite, sequel)
+- ⚙️ **Visualization Options:**
+  - Physics simulation on/off
+  - Layout algorithms: hierarchical, force_atlas, barnes_hut, repulsion
+  - Adjustable node size
+  - Show/hide relationship arrows
+  - Custom edge colors
+- 🎨 **Color-Coded Edges:**
+  - 🟢 Green = "related" (general relationship)
+  - 🔵 Blue = "references" (cites/quotes)
+  - 🟠 Orange = "prerequisite" (must read first)
+  - 🟣 Purple = "sequel" (continuation)
+- 📊 **Statistics Dashboard:**
+  - Total documents in graph
+  - Total relationships
+  - Relationship types count
+- 📥 **Export** - Download graph data as JSON
+
+**How to Use:**
+1. Navigate to "🔗 Relationship Graph" page in admin GUI
+2. **Optional:** Apply filters (tags or relationship types)
+3. Explore the interactive graph:
+   - Click and drag nodes to rearrange
+   - Hover over nodes/edges for details
+   - Scroll to zoom in/out
+4. **Optional:** Adjust visualization settings in ⚙️ Options
+5. **Optional:** Export graph data for external analysis
+
+**Use Cases:**
+```
+📚 Learning Paths - Visualize prerequisite chains for educational content
+🔍 Research - See how topics reference each other
+📖 Documentation - Understand document dependencies
+🗺️ Content Mapping - Explore your knowledge base structure
+```
+
+**Python API:**
+```python
+# Get full relationship graph
+graph = kb.get_relationship_graph()
+
+# Filter by tags
+graph = kb.get_relationship_graph(tags=["basic", "tutorial"])
+
+# Filter by relationship type
+graph = kb.get_relationship_graph(relationship_types=["prerequisite"])
+
+# Returns: {'nodes': [...], 'edges': [...], 'stats': {...}}
+```
 
 ---
 

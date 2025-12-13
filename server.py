@@ -2718,6 +2718,437 @@ class KnowledgeBase:
 
         return results
 
+    def update_tags_bulk(self, doc_ids: Optional[list[str]] = None,
+                         existing_tags: Optional[list[str]] = None,
+                         add_tags: Optional[list[str]] = None,
+                         remove_tags: Optional[list[str]] = None,
+                         replace_tags: Optional[list[str]] = None) -> dict:
+        """
+        Update tags for multiple documents in bulk.
+
+        Args:
+            doc_ids: List of document IDs to update (if None, uses existing_tags to find docs)
+            existing_tags: Find documents with any of these tags (alternative to doc_ids)
+            add_tags: Tags to add to the documents
+            remove_tags: Tags to remove from the documents
+            replace_tags: Replace all tags with these tags
+
+        Returns:
+            Dictionary with lists of updated and failed document IDs
+
+        Examples:
+            # Add 'assembly' tag to specific documents
+            kb.update_tags_bulk(doc_ids=['doc1', 'doc2'], add_tags=['assembly'])
+
+            # Remove 'draft' tag from all documents that have it
+            kb.update_tags_bulk(existing_tags=['draft'], remove_tags=['draft'])
+
+            # Replace all tags with 'archive' for specific documents
+            kb.update_tags_bulk(doc_ids=['doc1', 'doc2'], replace_tags=['archive'])
+
+            # Add 'reviewed' and remove 'draft' for documents with 'pending' tag
+            kb.update_tags_bulk(existing_tags=['pending'], add_tags=['reviewed'], remove_tags=['draft'])
+        """
+        if not doc_ids and not existing_tags:
+            raise ValueError("Must provide either doc_ids or existing_tags")
+
+        if not add_tags and not remove_tags and not replace_tags:
+            raise ValueError("Must provide at least one of: add_tags, remove_tags, replace_tags")
+
+        results = {
+            'updated': [],
+            'failed': []
+        }
+
+        # Collect doc_ids to update
+        ids_to_update = set()
+
+        if doc_ids:
+            ids_to_update.update(doc_ids)
+
+        if existing_tags:
+            # Find all documents with any of the specified tags
+            for doc_id, doc in self.documents.items():
+                if any(tag in doc.tags for tag in existing_tags):
+                    ids_to_update.add(doc_id)
+
+        self.logger.info(f"Bulk tag update: updating {len(ids_to_update)} documents")
+
+        for doc_id in ids_to_update:
+            try:
+                if doc_id not in self.documents:
+                    results['failed'].append({
+                        'doc_id': doc_id,
+                        'error': 'Document not found'
+                    })
+                    continue
+
+                doc = self.documents[doc_id]
+                old_tags = doc.tags.copy()
+
+                # Apply tag operations
+                if replace_tags is not None:
+                    doc.tags = replace_tags.copy()
+                else:
+                    if add_tags:
+                        # Add tags (avoiding duplicates)
+                        for tag in add_tags:
+                            if tag not in doc.tags:
+                                doc.tags.append(tag)
+
+                    if remove_tags:
+                        # Remove tags
+                        doc.tags = [tag for tag in doc.tags if tag not in remove_tags]
+
+                # Update in database
+                cursor = self.db_conn.cursor()
+                cursor.execute("""
+                    UPDATE documents
+                    SET tags = ?
+                    WHERE doc_id = ?
+                """, (json.dumps(doc.tags), doc_id))
+                self.db_conn.commit()
+
+                results['updated'].append({
+                    'doc_id': doc_id,
+                    'old_tags': old_tags,
+                    'new_tags': doc.tags
+                })
+
+                self.logger.debug(f"Updated tags for {doc_id}: {old_tags} -> {doc.tags}")
+
+            except Exception as e:
+                results['failed'].append({
+                    'doc_id': doc_id,
+                    'error': str(e)
+                })
+                self.logger.error(f"Failed to update tags for {doc_id}: {e}")
+
+        self.logger.info(f"Bulk tag update complete: {len(results['updated'])} updated, "
+                        f"{len(results['failed'])} failed")
+
+        return results
+
+    def export_documents_bulk(self, doc_ids: Optional[list[str]] = None,
+                              tags: Optional[list[str]] = None,
+                              format: str = 'json') -> str:
+        """
+        Export metadata for multiple documents.
+
+        Args:
+            doc_ids: List of document IDs to export (if None, uses tags or exports all)
+            tags: Export documents with any of these tags
+            format: Export format ('json', 'csv', or 'markdown')
+
+        Returns:
+            Exported data as a string
+
+        Examples:
+            # Export all documents as JSON
+            data = kb.export_documents_bulk(format='json')
+
+            # Export documents with 'reference' tag as CSV
+            data = kb.export_documents_bulk(tags=['reference'], format='csv')
+
+            # Export specific documents as Markdown
+            data = kb.export_documents_bulk(doc_ids=['doc1', 'doc2'], format='markdown')
+        """
+        # Collect docs to export
+        docs_to_export = []
+
+        if doc_ids:
+            # Export specific documents
+            for doc_id in doc_ids:
+                if doc_id in self.documents:
+                    docs_to_export.append(self.documents[doc_id])
+        elif tags:
+            # Export documents with specified tags
+            for doc in self.documents.values():
+                if any(tag in doc.tags for tag in tags):
+                    docs_to_export.append(doc)
+        else:
+            # Export all documents
+            docs_to_export = list(self.documents.values())
+
+        self.logger.info(f"Bulk export: exporting {len(docs_to_export)} documents as {format}")
+
+        # Format the output
+        if format == 'json':
+            export_data = []
+            for doc in docs_to_export:
+                export_data.append({
+                    'doc_id': doc.doc_id,
+                    'filename': doc.filename,
+                    'title': doc.title,
+                    'filepath': doc.filepath,
+                    'file_type': doc.file_type,
+                    'total_pages': doc.total_pages,
+                    'total_chunks': doc.total_chunks,
+                    'indexed_at': doc.indexed_at,
+                    'tags': doc.tags,
+                    'author': doc.author,
+                    'subject': doc.subject,
+                    'creator': doc.creator,
+                    'creation_date': doc.creation_date
+                })
+            return json.dumps(export_data, indent=2)
+
+        elif format == 'csv':
+            import csv
+            from io import StringIO
+
+            output = StringIO()
+            writer = csv.writer(output)
+
+            # Write header
+            writer.writerow(['doc_id', 'filename', 'title', 'filepath', 'file_type',
+                           'total_pages', 'total_chunks', 'indexed_at', 'tags',
+                           'author', 'subject', 'creator', 'creation_date'])
+
+            # Write data
+            for doc in docs_to_export:
+                writer.writerow([
+                    doc.doc_id,
+                    doc.filename,
+                    doc.title,
+                    doc.filepath,
+                    doc.file_type,
+                    doc.total_pages,
+                    doc.total_chunks,
+                    doc.indexed_at,
+                    ', '.join(doc.tags),
+                    doc.author or '',
+                    doc.subject or '',
+                    doc.creator or '',
+                    doc.creation_date or ''
+                ])
+
+            return output.getvalue()
+
+        elif format == 'markdown':
+            lines = []
+            lines.append(f"# Document Export")
+            lines.append(f"\n**Total Documents:** {len(docs_to_export)}")
+            lines.append(f"**Exported:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            lines.append("---\n")
+
+            for i, doc in enumerate(docs_to_export, 1):
+                lines.append(f"## {i}. {doc.title}")
+                lines.append(f"- **ID:** `{doc.doc_id}`")
+                lines.append(f"- **Filename:** {doc.filename}")
+                lines.append(f"- **Type:** {doc.file_type}")
+                lines.append(f"- **Pages:** {doc.total_pages}")
+                lines.append(f"- **Chunks:** {doc.total_chunks}")
+                lines.append(f"- **Tags:** {', '.join(doc.tags) if doc.tags else 'None'}")
+                if doc.author:
+                    lines.append(f"- **Author:** {doc.author}")
+                if doc.subject:
+                    lines.append(f"- **Subject:** {doc.subject}")
+                lines.append(f"- **Indexed:** {doc.indexed_at}")
+                lines.append(f"- **Path:** `{doc.filepath}`")
+                lines.append("")
+
+            return '\n'.join(lines)
+
+        else:
+            raise ValueError(f"Unsupported format: {format}. Use 'json', 'csv', or 'markdown'")
+
+    def add_relationship(self, from_doc_id: str, to_doc_id: str,
+                        relationship_type: str = "related", note: str = "") -> dict:
+        """
+        Add a relationship between two documents.
+
+        Args:
+            from_doc_id: Source document ID
+            to_doc_id: Target document ID
+            relationship_type: Type of relationship (e.g., 'related', 'references', 'prerequisite', 'sequel')
+            note: Optional note about the relationship
+
+        Returns:
+            Dictionary with relationship details
+
+        Examples:
+            # Mark document as related
+            kb.add_relationship("doc1", "doc2", "related", "Both cover VIC-II graphics")
+
+            # Mark as prerequisite
+            kb.add_relationship("basic_guide", "advanced_guide", "prerequisite", "Read basic first")
+        """
+        # Validate documents exist
+        if from_doc_id not in self.documents:
+            raise ValueError(f"Source document not found: {from_doc_id}")
+        if to_doc_id not in self.documents:
+            raise ValueError(f"Target document not found: {to_doc_id}")
+
+        # Create relationships table if it doesn't exist
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS document_relationships (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_doc_id TEXT NOT NULL,
+                to_doc_id TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                note TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (from_doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
+                FOREIGN KEY (to_doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
+                UNIQUE(from_doc_id, to_doc_id, relationship_type)
+            )
+        """)
+
+        # Check if relationship already exists
+        cursor.execute("""
+            SELECT id FROM document_relationships
+            WHERE from_doc_id = ? AND to_doc_id = ? AND relationship_type = ?
+        """, (from_doc_id, to_doc_id, relationship_type))
+
+        if cursor.fetchone():
+            raise ValueError(f"Relationship already exists: {from_doc_id} -> {to_doc_id} ({relationship_type})")
+
+        # Insert relationship
+        created_at = datetime.now().isoformat()
+        cursor.execute("""
+            INSERT INTO document_relationships (from_doc_id, to_doc_id, relationship_type, note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (from_doc_id, to_doc_id, relationship_type, note, created_at))
+
+        self.db_conn.commit()
+
+        self.logger.info(f"Added relationship: {from_doc_id} -> {to_doc_id} ({relationship_type})")
+
+        return {
+            'from_doc_id': from_doc_id,
+            'to_doc_id': to_doc_id,
+            'relationship_type': relationship_type,
+            'note': note,
+            'created_at': created_at
+        }
+
+    def remove_relationship(self, from_doc_id: str, to_doc_id: str,
+                           relationship_type: Optional[str] = None) -> bool:
+        """
+        Remove a relationship between two documents.
+
+        Args:
+            from_doc_id: Source document ID
+            to_doc_id: Target document ID
+            relationship_type: Optional specific relationship type to remove
+
+        Returns:
+            True if relationship was removed, False if not found
+        """
+        cursor = self.db_conn.cursor()
+
+        if relationship_type:
+            cursor.execute("""
+                DELETE FROM document_relationships
+                WHERE from_doc_id = ? AND to_doc_id = ? AND relationship_type = ?
+            """, (from_doc_id, to_doc_id, relationship_type))
+        else:
+            cursor.execute("""
+                DELETE FROM document_relationships
+                WHERE from_doc_id = ? AND to_doc_id = ?
+            """, (from_doc_id, to_doc_id))
+
+        self.db_conn.commit()
+        removed = cursor.rowcount > 0
+
+        if removed:
+            self.logger.info(f"Removed relationship: {from_doc_id} -> {to_doc_id}")
+
+        return removed
+
+    def get_relationships(self, doc_id: str, direction: str = "both") -> list[dict]:
+        """
+        Get all relationships for a document.
+
+        Args:
+            doc_id: Document ID
+            direction: 'outgoing', 'incoming', or 'both' (default)
+
+        Returns:
+            List of relationship dictionaries
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        cursor = self.db_conn.cursor()
+        relationships = []
+
+        # Get outgoing relationships (this doc -> others)
+        if direction in ["outgoing", "both"]:
+            cursor.execute("""
+                SELECT from_doc_id, to_doc_id, relationship_type, note, created_at
+                FROM document_relationships
+                WHERE from_doc_id = ?
+            """, (doc_id,))
+
+            for row in cursor.fetchall():
+                relationships.append({
+                    'direction': 'outgoing',
+                    'from_doc_id': row[0],
+                    'to_doc_id': row[1],
+                    'relationship_type': row[2],
+                    'note': row[3],
+                    'created_at': row[4],
+                    'related_doc_id': row[1]  # For convenience
+                })
+
+        # Get incoming relationships (others -> this doc)
+        if direction in ["incoming", "both"]:
+            cursor.execute("""
+                SELECT from_doc_id, to_doc_id, relationship_type, note, created_at
+                FROM document_relationships
+                WHERE to_doc_id = ?
+            """, (doc_id,))
+
+            for row in cursor.fetchall():
+                relationships.append({
+                    'direction': 'incoming',
+                    'from_doc_id': row[0],
+                    'to_doc_id': row[1],
+                    'relationship_type': row[2],
+                    'note': row[3],
+                    'created_at': row[4],
+                    'related_doc_id': row[0]  # For convenience
+                })
+
+        return relationships
+
+    def get_related_documents(self, doc_id: str, relationship_type: Optional[str] = None) -> list[dict]:
+        """
+        Get all documents related to a given document with full metadata.
+
+        Args:
+            doc_id: Document ID
+            relationship_type: Optional filter by relationship type
+
+        Returns:
+            List of related documents with relationship info
+        """
+        relationships = self.get_relationships(doc_id)
+
+        if relationship_type:
+            relationships = [r for r in relationships if r['relationship_type'] == relationship_type]
+
+        related_docs = []
+        for rel in relationships:
+            related_doc_id = rel['related_doc_id']
+            if related_doc_id in self.documents:
+                doc_meta = self.documents[related_doc_id]
+                related_docs.append({
+                    'doc_id': doc_meta.doc_id,
+                    'title': doc_meta.title,
+                    'filename': doc_meta.filename,
+                    'tags': doc_meta.tags,
+                    'relationship_type': rel['relationship_type'],
+                    'relationship_direction': rel['direction'],
+                    'note': rel['note'],
+                    'created_at': rel['created_at']
+                })
+
+        return related_docs
+
     def search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
         """Search the knowledge base using BM25 ranking or simple term frequency."""
         start_time = time.time()
@@ -4672,6 +5103,65 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="update_tags_bulk",
+            description="Update tags for multiple documents in bulk. Add, remove, or replace tags for documents selected by ID or existing tags. Useful for reorganizing and categorizing the knowledge base.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of document IDs to update (optional, use existing_tags to find documents)"
+                    },
+                    "existing_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Find documents with any of these tags (alternative to doc_ids)"
+                    },
+                    "add_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags to add to the documents"
+                    },
+                    "remove_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags to remove from the documents"
+                    },
+                    "replace_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Replace all tags with these tags"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="export_documents_bulk",
+            description="Export metadata for multiple documents in JSON, CSV, or Markdown format. Useful for creating reports, backups, or sharing document lists.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of document IDs to export (optional, defaults to all or filtered by tags)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Export documents with any of these tags (optional)"
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Export format (default: json)",
+                        "enum": ["json", "csv", "markdown"],
+                        "default": "json"
+                    }
+                }
+            }
+        ),
+        Tool(
             name="search_tables",
             description="Search for tables in PDF documents. Tables contain structured data like memory maps, register definitions, and command references. Returns tables in markdown format with page numbers.",
             inputSchema={
@@ -5350,6 +5840,68 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += "\n"
 
         output += f"Total: {len(results['removed'])} removed, {len(results['failed'])} failed"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "update_tags_bulk":
+        doc_ids = arguments.get("doc_ids")
+        existing_tags = arguments.get("existing_tags")
+        add_tags = arguments.get("add_tags")
+        remove_tags = arguments.get("remove_tags")
+        replace_tags = arguments.get("replace_tags")
+
+        try:
+            results = kb.update_tags_bulk(
+                doc_ids=doc_ids,
+                existing_tags=existing_tags,
+                add_tags=add_tags,
+                remove_tags=remove_tags,
+                replace_tags=replace_tags
+            )
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error in bulk tag update: {str(e)}")]
+
+        output = "Bulk Tag Update Results:\n\n"
+
+        if results['updated']:
+            output += f"✓ {len(results['updated'])} documents updated:\n"
+            for update in results['updated']:
+                output += f"  - {update['doc_id']}\n"
+                output += f"    Old tags: {', '.join(update['old_tags']) if update['old_tags'] else 'None'}\n"
+                output += f"    New tags: {', '.join(update['new_tags']) if update['new_tags'] else 'None'}\n"
+            output += "\n"
+
+        if results['failed']:
+            output += f"✗ {len(results['failed'])} documents failed to update:\n"
+            for failure in results['failed']:
+                output += f"  - {failure['doc_id']}: {failure['error']}\n"
+            output += "\n"
+
+        output += f"Total: {len(results['updated'])} updated, {len(results['failed'])} failed"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "export_documents_bulk":
+        doc_ids = arguments.get("doc_ids")
+        tags = arguments.get("tags")
+        format = arguments.get("format", "json")
+
+        try:
+            export_data = kb.export_documents_bulk(doc_ids=doc_ids, tags=tags, format=format)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error in bulk export: {str(e)}")]
+
+        # Determine document count from the export
+        if format == "json":
+            import json as json_lib
+            doc_count = len(json_lib.loads(export_data))
+        else:
+            doc_count = export_data.count('\n') if format == 'csv' else export_data.count('## ') - 1
+
+        output = f"Document Export ({format.upper()}):\n\n"
+        output += f"Exported {doc_count} document(s)\n\n"
+        output += "=" * 80 + "\n\n"
+        output += export_data
 
         return [TextContent(type="text", text=output)]
 

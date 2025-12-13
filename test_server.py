@@ -381,6 +381,99 @@ The SID chip handles sound generation with 3 voices.
         # Clean up remaining document
         kb.remove_document(remaining_docs[0].doc_id)
 
+    def test_update_tags_bulk(self, kb, temp_data_dir):
+        """Test bulk tag updates."""
+        # Create and add multiple test documents
+        docs_to_add = []
+        for i in range(5):
+            test_file = Path(temp_data_dir) / f"bulk_retag_{i}.txt"
+            test_file.write_text(f"Document {i} for bulk retagging testing.")
+            doc = kb.add_document(str(test_file), f"Retag Doc {i}", ["initial", "test"])
+            docs_to_add.append(doc.doc_id)
+
+        # Test adding tags to specific documents
+        results = kb.update_tags_bulk(
+            doc_ids=docs_to_add[:2],
+            add_tags=["added-tag"]
+        )
+        assert len(results['updated']) == 2
+        assert len(results['failed']) == 0
+
+        # Verify tags were added
+        for doc_id in docs_to_add[:2]:
+            doc = kb.documents[doc_id]
+            assert "added-tag" in doc.tags
+            assert "initial" in doc.tags  # Original tag preserved
+
+        # Test removing tags by existing tags
+        results = kb.update_tags_bulk(
+            existing_tags=["added-tag"],
+            remove_tags=["initial"]
+        )
+        assert len(results['updated']) == 2
+
+        # Verify tag was removed
+        for doc_id in docs_to_add[:2]:
+            doc = kb.documents[doc_id]
+            assert "initial" not in doc.tags
+            assert "added-tag" in doc.tags
+
+        # Test replacing all tags
+        results = kb.update_tags_bulk(
+            doc_ids=[docs_to_add[3]],
+            replace_tags=["replaced", "new-tags"]
+        )
+        assert len(results['updated']) == 1
+
+        # Verify tags were replaced
+        doc = kb.documents[docs_to_add[3]]
+        assert doc.tags == ["replaced", "new-tags"]
+        assert "initial" not in doc.tags
+
+        # Clean up
+        for doc_id in docs_to_add:
+            kb.remove_document(doc_id)
+
+    def test_export_documents_bulk(self, kb, temp_data_dir):
+        """Test bulk document export."""
+        import json
+
+        # Create and add multiple test documents
+        docs_to_add = []
+        for i in range(3):
+            test_file = Path(temp_data_dir) / f"bulk_export_{i}.txt"
+            test_file.write_text(f"Document {i} for bulk export testing.")
+            doc = kb.add_document(str(test_file), f"Export Doc {i}", ["export-test", f"group-{i%2}"])
+            docs_to_add.append(doc.doc_id)
+
+        # Test JSON export of all documents
+        export_data = kb.export_documents_bulk(format="json")
+        parsed = json.loads(export_data)
+        assert len(parsed) >= 3  # At least our 3 test documents
+
+        # Test CSV export by tags
+        export_data = kb.export_documents_bulk(tags=["export-test"], format="csv")
+        lines = export_data.strip().split('\n')
+        assert len(lines) >= 4  # Header + 3 documents
+
+        # Test Markdown export by doc IDs
+        export_data = kb.export_documents_bulk(doc_ids=docs_to_add[:2], format="markdown")
+        assert "# Document Export" in export_data
+        assert "Export Doc 0" in export_data
+        assert "Export Doc 1" in export_data
+        assert "Export Doc 2" not in export_data  # Not included
+
+        # Test JSON export with specific doc IDs
+        export_data = kb.export_documents_bulk(doc_ids=[docs_to_add[0]], format="json")
+        parsed = json.loads(export_data)
+        assert len(parsed) == 1
+        assert parsed[0]['doc_id'] == docs_to_add[0]
+        assert parsed[0]['title'] == "Export Doc 0"
+
+        # Clean up
+        for doc_id in docs_to_add:
+            kb.remove_document(doc_id)
+
     def test_progress_reporting(self, kb, temp_data_dir):
         """Test progress reporting for add_document and add_documents_bulk."""
         from server import ProgressUpdate
@@ -436,6 +529,256 @@ The SID chip handles sound generation with 3 voices.
         for doc in kb.list_documents():
             if "bulk-progress-test" in doc.tags:
                 kb.remove_document(doc.doc_id)
+
+    def test_add_relationship(self, kb, sample_text_file, temp_data_dir):
+        """Test adding relationships between documents."""
+        # Create two test documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document content")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        # Add a relationship
+        result = kb.add_relationship(doc1.doc_id, doc2.doc_id, "references", "Doc 1 references Doc 2")
+
+        assert result['from_doc_id'] == doc1.doc_id
+        assert result['to_doc_id'] == doc2.doc_id
+        assert result['relationship_type'] == "references"
+        assert result['note'] == "Doc 1 references Doc 2"
+        assert 'created_at' in result
+
+    def test_add_relationship_invalid_doc(self, kb, sample_text_file):
+        """Test adding relationship with invalid document ID."""
+        doc = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        # Try to create relationship with non-existent document
+        with pytest.raises(ValueError, match="Target document not found"):
+            kb.add_relationship(doc.doc_id, "nonexistent_id", "related")
+
+    def test_add_duplicate_relationship(self, kb, sample_text_file, temp_data_dir):
+        """Test that duplicate relationships are rejected."""
+        # Create two documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        # Add relationship
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "related")
+
+        # Try to add same relationship again
+        with pytest.raises(ValueError, match="Relationship already exists"):
+            kb.add_relationship(doc1.doc_id, doc2.doc_id, "related")
+
+    def test_get_relationships_outgoing(self, kb, sample_text_file, temp_data_dir):
+        """Test getting outgoing relationships."""
+        # Create three documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        test_file3 = Path(temp_data_dir) / "test_doc3.txt"
+        test_file3.write_text("Third test document")
+        doc3 = kb.add_document(str(test_file3), "Doc 3", ["test"])
+
+        # Add relationships: doc1 -> doc2, doc1 -> doc3
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "references")
+        kb.add_relationship(doc1.doc_id, doc3.doc_id, "prerequisite")
+
+        # Get outgoing relationships from doc1
+        rels = kb.get_relationships(doc1.doc_id, direction="outgoing")
+
+        assert len(rels) == 2
+        assert all(r['direction'] == 'outgoing' for r in rels)
+
+        # Check we have both relationships
+        related_ids = [r['related_doc_id'] for r in rels]
+        assert doc2.doc_id in related_ids
+        assert doc3.doc_id in related_ids
+
+    def test_get_relationships_incoming(self, kb, sample_text_file, temp_data_dir):
+        """Test getting incoming relationships."""
+        # Create three documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        test_file3 = Path(temp_data_dir) / "test_doc3.txt"
+        test_file3.write_text("Third test document")
+        doc3 = kb.add_document(str(test_file3), "Doc 3", ["test"])
+
+        # Add relationships: doc1 -> doc3, doc2 -> doc3
+        kb.add_relationship(doc1.doc_id, doc3.doc_id, "references")
+        kb.add_relationship(doc2.doc_id, doc3.doc_id, "related")
+
+        # Get incoming relationships to doc3
+        rels = kb.get_relationships(doc3.doc_id, direction="incoming")
+
+        assert len(rels) == 2
+        assert all(r['direction'] == 'incoming' for r in rels)
+
+        # Check we have both relationships
+        related_ids = [r['related_doc_id'] for r in rels]
+        assert doc1.doc_id in related_ids
+        assert doc2.doc_id in related_ids
+
+    def test_get_relationships_both(self, kb, sample_text_file, temp_data_dir):
+        """Test getting both incoming and outgoing relationships."""
+        # Create three documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        test_file3 = Path(temp_data_dir) / "test_doc3.txt"
+        test_file3.write_text("Third test document")
+        doc3 = kb.add_document(str(test_file3), "Doc 3", ["test"])
+
+        # Create relationships: doc1 -> doc2, doc3 -> doc2
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "references")
+        kb.add_relationship(doc3.doc_id, doc2.doc_id, "related")
+
+        # Get all relationships for doc2
+        rels = kb.get_relationships(doc2.doc_id, direction="both")
+
+        assert len(rels) == 2
+
+        # Should have one incoming and one outgoing
+        directions = [r['direction'] for r in rels]
+        assert 'incoming' in directions
+        assert 'outgoing' not in directions  # doc2 has no outgoing relationships
+
+    def test_remove_relationship(self, kb, sample_text_file, temp_data_dir):
+        """Test removing a specific relationship."""
+        # Create two documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        # Add two relationships
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "references")
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "related")
+
+        # Remove one relationship
+        result = kb.remove_relationship(doc1.doc_id, doc2.doc_id, "references")
+
+        assert result == True
+
+        # Verify only one relationship remains
+        rels = kb.get_relationships(doc1.doc_id)
+        assert len(rels) == 1
+        assert rels[0]['relationship_type'] == "related"
+
+    def test_remove_all_relationships(self, kb, sample_text_file, temp_data_dir):
+        """Test removing all relationships between two documents."""
+        # Create two documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        # Add multiple relationships
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "references")
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "related")
+
+        # Remove all relationships (by not specifying type)
+        result = kb.remove_relationship(doc1.doc_id, doc2.doc_id)
+
+        assert result == True
+
+        # Verify no relationships remain
+        rels = kb.get_relationships(doc1.doc_id)
+        assert len(rels) == 0
+
+    def test_get_related_documents(self, kb, sample_text_file, temp_data_dir):
+        """Test getting full metadata of related documents."""
+        # Create three documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["reference"])
+
+        test_file3 = Path(temp_data_dir) / "test_doc3.txt"
+        test_file3.write_text("Third test document")
+        doc3 = kb.add_document(str(test_file3), "Doc 3", ["guide"])
+
+        # Add relationships
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "references", "See this reference")
+        kb.add_relationship(doc1.doc_id, doc3.doc_id, "prerequisite", "Read this first")
+
+        # Get related documents
+        related = kb.get_related_documents(doc1.doc_id)
+
+        assert len(related) == 2
+
+        # Verify we get full document metadata
+        assert all('title' in doc for doc in related)
+        assert all('tags' in doc for doc in related)
+        assert all('relationship_type' in doc for doc in related)
+        assert all('note' in doc for doc in related)
+
+        # Check specific documents
+        titles = [doc['title'] for doc in related]
+        assert "Doc 2" in titles
+        assert "Doc 3" in titles
+
+    def test_get_related_documents_filtered(self, kb, sample_text_file, temp_data_dir):
+        """Test getting related documents filtered by relationship type."""
+        # Create three documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        test_file3 = Path(temp_data_dir) / "test_doc3.txt"
+        test_file3.write_text("Third test document")
+        doc3 = kb.add_document(str(test_file3), "Doc 3", ["test"])
+
+        # Add relationships of different types
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "references")
+        kb.add_relationship(doc1.doc_id, doc3.doc_id, "prerequisite")
+
+        # Get only "references" relationships
+        related = kb.get_related_documents(doc1.doc_id, relationship_type="references")
+
+        assert len(related) == 1
+        assert related[0]['title'] == "Doc 2"
+        assert related[0]['relationship_type'] == "references"
+
+    def test_relationship_cascade_delete(self, kb, sample_text_file, temp_data_dir):
+        """Test that relationships are deleted when a document is removed."""
+        # Create two documents
+        doc1 = kb.add_document(sample_text_file, "Doc 1", ["test"])
+
+        test_file2 = Path(temp_data_dir) / "test_doc2.txt"
+        test_file2.write_text("Second test document")
+        doc2 = kb.add_document(str(test_file2), "Doc 2", ["test"])
+
+        # Add relationship
+        kb.add_relationship(doc1.doc_id, doc2.doc_id, "references")
+
+        # Verify relationship exists
+        rels = kb.get_relationships(doc1.doc_id)
+        assert len(rels) == 1
+
+        # Delete doc2
+        kb.remove_document(doc2.doc_id)
+
+        # Verify relationship was automatically deleted
+        rels = kb.get_relationships(doc1.doc_id)
+        assert len(rels) == 0
 
 
 def test_query_preprocessing(tmpdir):

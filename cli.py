@@ -72,7 +72,27 @@ Examples:
     
     # Stats command
     subparsers.add_parser("stats", help="Show knowledge base stats")
-    
+
+    # Bulk remove command
+    remove_bulk_parser = subparsers.add_parser("remove-bulk", help="Remove multiple documents")
+    remove_bulk_parser.add_argument("--doc-ids", "-d", nargs="+", help="Document IDs to remove")
+    remove_bulk_parser.add_argument("--tags", "-g", nargs="+", help="Remove documents with these tags")
+
+    # Bulk update tags command
+    update_tags_parser = subparsers.add_parser("update-tags-bulk", help="Update tags for multiple documents")
+    update_tags_parser.add_argument("--doc-ids", "-d", nargs="+", help="Document IDs to update")
+    update_tags_parser.add_argument("--existing-tags", "-e", nargs="+", help="Find documents with these tags")
+    update_tags_parser.add_argument("--add", "-a", nargs="+", help="Tags to add")
+    update_tags_parser.add_argument("--remove", "-r", nargs="+", help="Tags to remove")
+    update_tags_parser.add_argument("--replace", "-p", nargs="+", help="Replace all tags with these")
+
+    # Bulk export command
+    export_bulk_parser = subparsers.add_parser("export-bulk", help="Export document metadata")
+    export_bulk_parser.add_argument("--doc-ids", "-d", nargs="+", help="Document IDs to export")
+    export_bulk_parser.add_argument("--tags", "-g", nargs="+", help="Export documents with these tags")
+    export_bulk_parser.add_argument("--format", "-f", choices=["json", "csv", "markdown"], default="json", help="Export format (default: json)")
+    export_bulk_parser.add_argument("--output", "-o", help="Output file (default: stdout)")
+
     args = parser.parse_args()
     
     if not args.command:
@@ -170,6 +190,88 @@ Examples:
         print(f"  Total Words: {stats['total_words']:,}")
         print(f"  File Types: {', '.join(stats['file_types']) or 'none'}")
         print(f"  Tags: {', '.join(stats['all_tags']) or 'none'}")
+
+    elif args.command == "remove-bulk":
+        if not args.doc_ids and not args.tags:
+            print("Error: Must provide --doc-ids or --tags")
+            sys.exit(1)
+
+        try:
+            results = kb.remove_documents_bulk(doc_ids=args.doc_ids, tags=args.tags)
+
+            print(f"Bulk Remove Results:")
+            print(f"  Removed: {len(results['removed'])} documents")
+            print(f"  Failed: {len(results['failed'])} documents")
+
+            if results['removed']:
+                print("\nRemoved documents:")
+                for doc_id in results['removed']:
+                    print(f"  - {doc_id}")
+
+            if results['failed']:
+                print("\nFailed:")
+                for failure in results['failed']:
+                    print(f"  - {failure['doc_id']}: {failure['error']}")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "update-tags-bulk":
+        if not args.doc_ids and not args.existing_tags:
+            print("Error: Must provide --doc-ids or --existing-tags")
+            sys.exit(1)
+
+        if not args.add and not args.remove and not args.replace:
+            print("Error: Must provide --add, --remove, or --replace")
+            sys.exit(1)
+
+        try:
+            results = kb.update_tags_bulk(
+                doc_ids=args.doc_ids,
+                existing_tags=args.existing_tags,
+                add_tags=args.add,
+                remove_tags=args.remove,
+                replace_tags=args.replace
+            )
+
+            print(f"Bulk Tag Update Results:")
+            print(f"  Updated: {len(results['updated'])} documents")
+            print(f"  Failed: {len(results['failed'])} documents")
+
+            if results['updated']:
+                print("\nUpdated documents:")
+                for update in results['updated']:
+                    print(f"  - {update['doc_id']}")
+                    print(f"    Old tags: {', '.join(update['old_tags']) if update['old_tags'] else 'None'}")
+                    print(f"    New tags: {', '.join(update['new_tags']) if update['new_tags'] else 'None'}")
+
+            if results['failed']:
+                print("\nFailed:")
+                for failure in results['failed']:
+                    print(f"  - {failure['doc_id']}: {failure['error']}")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "export-bulk":
+        try:
+            export_data = kb.export_documents_bulk(
+                doc_ids=args.doc_ids,
+                tags=args.tags,
+                format=args.format
+            )
+
+            if args.output:
+                # Write to file
+                with open(args.output, 'w', encoding='utf-8') as f:
+                    f.write(export_data)
+                print(f"Exported to: {args.output}")
+            else:
+                # Print to stdout
+                print(export_data)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

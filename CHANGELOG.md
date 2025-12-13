@@ -2,6 +2,167 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.7.0] - 2025-12-13
+
+### Added - GUI Enhancements & Document Relationships
+
+#### 📦 Bulk File Upload in GUI
+- **Bulk Upload Tab** in Documents page
+  - Drag-and-drop multiple PDF/TXT files simultaneously
+  - Progress bar showing upload status
+  - Individual error handling per file
+  - Apply tags to all uploaded files at once
+  - Success/failure summary after upload
+
+#### 🏷️ Tag Management Page
+- **New Page:** Dedicated Tag Management interface
+- **Tag Statistics Dashboard:**
+  - Total tags count
+  - Average documents per tag
+  - Most used tag
+- **Sortable Tag List:**
+  - Sort by name (A-Z, Z-A)
+  - Sort by document count
+  - View document count for each tag
+- **Four Tag Operations:**
+  - **🔄 Rename Tag** - Rename a tag across all documents
+  - **🔗 Merge Tags** - Combine multiple tags into one
+  - **🗑️ Delete Tag** - Remove tag from all documents
+  - **➕ Add to All** - Add a tag to every document in the knowledge base
+
+#### 👁️ Document Preview
+- **Preview Button** added to each document in Documents page
+- **Preview Features:**
+  - Adjustable chunk preview (1-10 chunks via slider)
+  - Toggle metadata display (chunk ID, page number, word count)
+  - Full document export as text file
+  - Preview shows formatted markdown content
+  - Session state preserves preview open/closed state
+
+#### 🔗 Document Relationships
+- **Backend Methods:**
+  - `add_relationship(from_doc_id, to_doc_id, type, note)` - Create relationships between documents
+  - `remove_relationship(from_doc_id, to_doc_id, type)` - Delete specific or all relationships
+  - `get_relationships(doc_id, direction)` - Get outgoing/incoming/both relationships
+  - `get_related_documents(doc_id, type)` - Get full metadata of related documents
+- **Relationship Types:**
+  - `related` - General relationship
+  - `references` - One document references another
+  - `prerequisite` - Must be read before another document
+  - `sequel` - Continuation of another document
+- **Database Schema:**
+  - New `document_relationships` table
+  - Foreign keys with CASCADE delete
+  - UNIQUE constraint prevents duplicates
+  - Optional notes for each relationship
+- **GUI Relationships Panel:**
+  - **Relationships Button** for each document
+  - View outgoing and incoming relationships
+  - Add new relationships with dropdown selection
+  - Delete individual relationships
+  - Display relationship type and notes
+  - Shows related document titles
+
+#### ✅ Testing
+- **New Tests (11 total):**
+  - `test_add_relationship` - Create relationships
+  - `test_add_relationship_invalid_doc` - Error handling
+  - `test_add_duplicate_relationship` - Prevent duplicates
+  - `test_get_relationships_outgoing` - Outgoing links
+  - `test_get_relationships_incoming` - Incoming links
+  - `test_get_relationships_both` - Bidirectional queries
+  - `test_remove_relationship` - Remove specific relationships
+  - `test_remove_all_relationships` - Remove all between docs
+  - `test_get_related_documents` - Full metadata retrieval
+  - `test_get_related_documents_filtered` - Filter by type
+  - `test_relationship_cascade_delete` - Verify CASCADE behavior
+
+**Benefits:**
+- Improved document organization with visual relationship mapping
+- Efficient bulk operations for large collections
+- Better tag management and cleanup
+- Quick document preview without leaving the interface
+- Track document dependencies and reading order
+
+## [2.6.0] - 2025-12-13
+
+### Added - Bulk Document Management
+
+#### ⚡ Bulk Operations
+- **New Method:** `update_tags_bulk()` - Update tags for multiple documents in bulk
+  - Add tags to multiple documents
+  - Remove tags from multiple documents
+  - Replace all tags for multiple documents
+  - Select documents by ID or by existing tags
+  - Returns detailed results (updated/failed)
+- **New Method:** `export_documents_bulk()` - Export document metadata in various formats
+  - Export to JSON, CSV, or Markdown
+  - Export all documents, by tags, or by specific IDs
+  - Comprehensive metadata including title, tags, chunks, dates
+- **Existing Methods Enhanced:**
+  - `add_documents_bulk()` - Already existed, now documented
+  - `remove_documents_bulk()` - Already existed, now documented
+
+#### 🔧 MCP Tools for Claude Desktop
+- **New Tool:** `update_tags_bulk` - Bulk tag management via Claude Desktop
+- **New Tool:** `export_documents_bulk` - Bulk export via Claude Desktop
+
+#### 🖥️ GUI Enhancements
+- **New Feature:** Bulk Operations panel in Documents page
+- **Three Tabs:**
+  - 🗑️ **Bulk Delete** - Delete multiple documents by IDs or tags
+  - 🏷️ **Bulk Re-tag** - Add/remove/replace tags for multiple documents
+  - 📤 **Bulk Export** - Export document metadata in JSON/CSV/Markdown
+
+#### 🔨 CLI Commands
+- **New Command:** `remove-bulk` - Remove multiple documents from command line
+- **New Command:** `update-tags-bulk` - Bulk tag updates from command line
+- **New Command:** `export-bulk` - Export document metadata from command line
+
+**Usage Examples:**
+```bash
+# CLI - Remove documents by tags
+python cli.py remove-bulk --tags draft old
+
+# CLI - Add tags to specific documents
+python cli.py update-tags-bulk --doc-ids doc1 doc2 --add reviewed approved
+
+# CLI - Export all documents as JSON
+python cli.py export-bulk --format json --output documents.json
+
+# CLI - Export documents with specific tags as CSV
+python cli.py export-bulk --tags reference c64 --format csv --output c64_docs.csv
+```
+
+```python
+# Python API - Bulk tag update
+results = kb.update_tags_bulk(
+    existing_tags=["draft"],
+    add_tags=["reviewed"],
+    remove_tags=["draft"]
+)
+
+# Python API - Export documents
+export_data = kb.export_documents_bulk(
+    tags=["reference", "c64"],
+    format="markdown"
+)
+```
+
+#### ✅ Testing
+- **New Tests:**
+  - `test_update_tags_bulk` - Comprehensive tag update testing
+  - `test_export_documents_bulk` - Export format testing (JSON/CSV/Markdown)
+
+**Benefits:**
+- Efficient management of large document collections
+- Easy reorganization and categorization
+- Bulk cleanup operations
+- Document metadata backup and reporting
+- Integration with CI/CD workflows
+
+---
+
 ## [2.5.0] - 2025-12-13
 
 ### Added - Backup/Restore & GUI Admin Interface

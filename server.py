@@ -19,6 +19,9 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Import version information
+from version import __version__, __project_name__, __build_date__, get_full_version_string
+
 # Caching support
 try:
     from cachetools import TTLCache
@@ -211,6 +214,10 @@ class KnowledgeBase:
             ]
         )
         self.logger = logging.getLogger(__name__)
+        self.logger.info("=" * 60)
+        self.logger.info(f"{get_full_version_string()}")
+        self.logger.info(f"Build Date: {__build_date__}")
+        self.logger.info("=" * 60)
         self.logger.info(f"Initializing KnowledgeBase at {data_dir}")
 
         # Thread safety for parallel document processing
@@ -296,13 +303,29 @@ class KnowledgeBase:
         # OCR initialization
         self.use_ocr = OCR_SUPPORT and os.getenv('USE_OCR', '1') == '1'
         self.poppler_path = os.getenv('POPPLER_PATH', None)  # Optional Poppler path for pdf2image
+        self.poppler_available = False  # Track if poppler is actually available
+
         if self.use_ocr:
             # Check if Tesseract is installed
             try:
                 pytesseract.get_tesseract_version()
                 self.logger.info("OCR enabled (Tesseract found)")
-                if self.poppler_path:
-                    self.logger.info(f"Using Poppler from: {self.poppler_path}")
+
+                # Check if poppler is available
+                self.poppler_available = self._check_poppler_available()
+
+                if self.poppler_available:
+                    if self.poppler_path:
+                        self.logger.info(f"Poppler found at: {self.poppler_path}")
+                    else:
+                        self.logger.info("Poppler found in system PATH")
+                else:
+                    self.logger.warning("[WARNING] Poppler not found! OCR will not work for scanned PDFs.")
+                    self.logger.warning("Install poppler-utils:")
+                    self.logger.warning("  Windows: Download from https://github.com/oschwartz10612/poppler-windows/releases/")
+                    self.logger.warning("  Set POPPLER_PATH environment variable to the bin directory")
+                    self.logger.warning("  Example: POPPLER_PATH=C:\\path\\to\\poppler-24.08.0\\Library\\bin")
+
             except Exception as e:
                 self.logger.warning(f"OCR libraries installed but Tesseract not found: {e}")
                 self.logger.warning("Install Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki")
@@ -1288,6 +1311,15 @@ class KnowledgeBase:
         if not self.use_ocr:
             raise RuntimeError("OCR not enabled. Set USE_OCR=1 and install Tesseract.")
 
+        if not self.poppler_available:
+            raise RuntimeError(
+                "Poppler not found! OCR requires poppler-utils.\n"
+                "Install instructions:\n"
+                "  Windows: Download from https://github.com/oschwartz10612/poppler-windows/releases/\n"
+                "  Set POPPLER_PATH environment variable to the bin directory\n"
+                "  Example: POPPLER_PATH=C:\\path\\to\\poppler-24.08.0\\Library\\bin"
+            )
+
         try:
             self.logger.info(f"Using OCR to extract text from scanned PDF: {filepath}")
             # Convert PDF pages to images
@@ -1314,6 +1346,59 @@ class KnowledgeBase:
         except Exception as e:
             self.logger.error(f"OCR extraction failed: {e}")
             raise RuntimeError(f"OCR extraction failed: {e}")
+
+    def _check_poppler_available(self) -> bool:
+        """Check if poppler is available for pdf2image.
+
+        Returns True if poppler can be found, False otherwise.
+        """
+        if not OCR_SUPPORT:
+            return False
+
+        try:
+            # Try to import pdf2image
+            from pdf2image import convert_from_path
+            from pdf2image.exceptions import PDFInfoNotInstalledError
+
+            # Create a minimal test - just try to access pdfinfo
+            import subprocess
+
+            # Determine the command to check based on poppler_path
+            if self.poppler_path:
+                # Check if pdfinfo exists in the specified path
+                pdfinfo_cmd = os.path.join(self.poppler_path, 'pdfinfo')
+                if os.name == 'nt':  # Windows
+                    pdfinfo_cmd += '.exe'
+
+                if not os.path.exists(pdfinfo_cmd):
+                    return False
+
+                # Try to run pdfinfo -v (poppler uses -v not --version)
+                result = subprocess.run(
+                    [pdfinfo_cmd, '-v'],
+                    capture_output=True,
+                    timeout=5
+                )
+                return result.returncode == 0
+            else:
+                # Check if pdfinfo is in PATH
+                if os.name == 'nt':  # Windows
+                    result = subprocess.run(
+                        ['where', 'pdfinfo'],
+                        capture_output=True,
+                        timeout=5
+                    )
+                else:  # Unix-like
+                    result = subprocess.run(
+                        ['which', 'pdfinfo'],
+                        capture_output=True,
+                        timeout=5
+                    )
+                return result.returncode == 0
+
+        except Exception as e:
+            self.logger.debug(f"Poppler check failed: {e}")
+            return False
 
     def _extract_pdf_text(self, filepath: str) -> tuple[str, int, dict]:
         """Extract text from PDF with automatic OCR fallback for scanned PDFs.
@@ -6292,6 +6377,13 @@ async def read_resource(uri: str) -> str:
 
 async def main():
     """Run the MCP server."""
+    # Log version information
+    logger = logging.getLogger(__name__)
+    logger.info("=" * 60)
+    logger.info(f"Starting {get_full_version_string()}")
+    logger.info(f"Build Date: {__build_date__}")
+    logger.info("=" * 60)
+
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,

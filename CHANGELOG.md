@@ -2,6 +2,115 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.11.0] - 2025-12-13
+
+### Added - GUI Improvements & Version Management
+
+#### 📁 File Path Input in GUI
+- **New Tab:** "Add by File Path" in Add Documents section
+  - Paste file paths directly (e.g., `C:\Users\...\file.md`)
+  - No need to upload files - just enter the path
+  - Instant file validation (shows error if file doesn't exist)
+  - Supports all file types (PDF, TXT, MD, HTML, Excel)
+
+#### 🔍 Duplicate Detection
+- **Intelligent Duplicate Detection** across all document operations
+  - Detects files with identical content (content-based hashing)
+  - Shows warning message: "Document already exists in knowledge base"
+  - Displays existing document details (title, ID, chunks)
+  - Prevents database bloat from duplicate entries
+  - Works in all three add methods: Single Upload, Bulk Upload, File Path
+
+#### 📄 Enhanced File Viewer
+- **Markdown Files (.md):** Dual view mode
+  - "Rendered" view - Shows beautifully formatted markdown
+    - Headers, lists, code blocks, tables
+    - Bold, italic, links
+    - Full markdown rendering
+  - "Raw Markdown" view - Shows source code
+    - Syntax highlighting for markdown
+    - Line numbers for easy reference
+    - Scrollable code block
+  - Toggle button to switch between views
+- **Text Files (.txt):** Improved display
+  - Scrollable code block with line numbers
+  - Line count display for files over 50 lines
+  - Monospace font for better readability
+  - Professional code viewer styling
+- **Removed:** Old `st.text_area()` approach for better UX
+
+#### ⏳ Progress Indicators
+- **All Document Operations** now show clear feedback:
+  - Spinner with "Adding document: filename..." message
+  - Bulk upload shows "Processing X/Y: filename" for each file
+  - Clear success/error/duplicate messages
+  - No more silent operations
+
+#### 📦 Version Management System
+- **New File:** `version.py` - Centralized version information
+  - Semantic versioning (MAJOR.MINOR.PATCH)
+  - Build date tracking
+  - Feature version tracking
+  - Version history
+- **GUI Version Display:**
+  - Sidebar footer shows current version
+  - Build date displayed
+  - Dynamic version from version.py
+- **Server Logging:**
+  - Version logged on startup
+  - Visible in server.log file
+  - Helps with debugging and support
+
+#### 📋 Enhanced Messages
+- **Success Messages:** "Document added successfully!" with full details
+  - Shows document title
+  - Shows chunk count
+  - Shows document ID
+- **Duplicate Messages:** "Document already exists" with existing doc info
+  - Shows which document matched
+  - Shows content hash matching
+- **Error Messages:** Clear error descriptions
+  - "File not found" for invalid paths
+  - "Error adding document" with detailed error
+- **Bulk Upload:** Summary statistics
+  - Count of added documents
+  - Count of duplicates (with filenames)
+  - Count of failed documents
+
+### Changed
+- File viewer now uses `st.code()` and `st.markdown()` instead of `st.text_area()`
+- Markdown files render formatting by default
+- GUI footer dynamically shows version from version.py
+- README.md includes version badge
+
+### Testing
+- Created `test_gui_changes.py` - 6/6 tests passing
+- Created `test_file_viewer.py` - 4/4 tests passing
+- Created `test_gui_startup.py` - Validates GUI can start
+- All GUI functionality verified working
+
+### Documentation
+- Created `GUI_IMPROVEMENTS_SUMMARY.md`
+- Created `FILE_VIEWER_IMPROVEMENTS.md`
+- Updated README.md with version badge
+- Updated CLAUDE.md with version information
+
+### Developer Notes
+**Implementation Details:**
+- Version management uses centralized `version.py` file
+- Semantic versioning with tuple and string representations
+- GUI imports version dynamically (no hardcoded versions)
+- Server logs version on every startup for debugging
+- File viewer improvements use native Streamlit components
+- Duplicate detection tracks document count before/after
+
+**Benefits:**
+- Better user experience with clear feedback
+- No confusion about document status
+- Easier file management (no mandatory uploads)
+- Professional version tracking
+- Improved code visibility in documentation
+
 ## [2.10.0] - 2025-12-13
 
 ### Added - HTML File Support

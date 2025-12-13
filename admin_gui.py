@@ -21,11 +21,14 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+import threading
+import time
 
 # Add parent directory to path to import server module
 sys.path.insert(0, str(Path(__file__).parent))
 
 from server import KnowledgeBase
+from version import __version__, __project_name__, __build_date__, get_full_version_string
 
 # Page configuration
 st.set_page_config(
@@ -35,11 +38,65 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Background indexing function
+def build_bm25_index_background(kb):
+    """Build BM25 index in background thread."""
+    try:
+        st.session_state.index_status = "building"
+        st.session_state.index_start_time = time.time()
+
+        # Build the BM25 index if not already built
+        # Check if BM25 is enabled via environment variable
+        use_bm25 = os.environ.get("USE_BM25", "1") != "0"
+
+        if kb.bm25 is None and use_bm25:
+            kb._build_bm25_index()
+
+        elapsed = time.time() - st.session_state.index_start_time
+        st.session_state.index_status = "ready"
+        st.session_state.index_build_time = elapsed
+    except Exception as e:
+        st.session_state.index_status = "error"
+        st.session_state.index_error = str(e)
+
+def trigger_background_reindex():
+    """Trigger background reindexing after documents are added/removed."""
+    use_bm25 = os.environ.get("USE_BM25", "1") != "0"
+
+    # Only reindex if BM25 is enabled and index was invalidated
+    if use_bm25 and st.session_state.kb.bm25 is None:
+        # Kill any existing index thread
+        if st.session_state.get('index_thread') and st.session_state.index_thread.is_alive():
+            # Thread will finish naturally, just start a new one
+            pass
+
+        # Start new background indexing thread
+        st.session_state.index_status = "starting"
+        st.session_state.index_thread = threading.Thread(
+            target=build_bm25_index_background,
+            args=(st.session_state.kb,),
+            daemon=True
+        )
+        st.session_state.index_thread.start()
+
 # Initialize session state
 if 'kb' not in st.session_state:
     data_dir = os.environ.get("TDZ_DATA_DIR", os.path.expanduser("~/.tdz-c64-knowledge"))
     st.session_state.kb = KnowledgeBase(data_dir)
     st.session_state.data_dir = data_dir
+    st.session_state.index_status = "not_started"
+    st.session_state.index_thread = None
+
+    # Start background indexing if BM25 is enabled and index not built
+    use_bm25 = os.environ.get("USE_BM25", "1") != "0"
+    if use_bm25 and st.session_state.kb.bm25 is None:
+        st.session_state.index_status = "starting"
+        st.session_state.index_thread = threading.Thread(
+            target=build_bm25_index_background,
+            args=(st.session_state.kb,),
+            daemon=True
+        )
+        st.session_state.index_thread.start()
 
 kb = st.session_state.kb
 
@@ -54,6 +111,15 @@ page = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 st.sidebar.info(f"**Data Directory:**\n`{st.session_state.data_dir}`")
+
+# Show index building status
+if st.session_state.get('index_status') == 'building':
+    st.sidebar.warning("⏳ **Building search index...**\nFirst search will be ready soon.")
+elif st.session_state.get('index_status') == 'ready':
+    if 'index_build_time' in st.session_state:
+        st.sidebar.success(f"✅ **Search index ready**\n(Built in {st.session_state.index_build_time:.1f}s)")
+elif st.session_state.get('index_status') == 'error':
+    st.sidebar.error(f"❌ **Index error:**\n{st.session_state.get('index_error', 'Unknown')}")
 
 # Helper functions
 def format_bytes(bytes):
@@ -149,7 +215,7 @@ elif page == "📚 Documents":
 
     # Add document section
     with st.expander("➕ Add Documents", expanded=False):
-        upload_tabs = st.tabs(["📄 Single Upload", "📦 Bulk Upload"])
+        upload_tabs = st.tabs(["📄 Single Upload", "📦 Bulk Upload", "📁 Add by File Path"])
 
         # Tab 1: Single Upload
         with upload_tabs[0]:
@@ -164,23 +230,58 @@ elif page == "📚 Documents":
                 doc_tags = st.text_input("Tags (comma-separated)", "", key="single_tags")
 
             if st.button("Add Document", key="add_single") and uploaded_file:
-                try:
-                    # Save uploaded file temporarily
-                    temp_path = Path(st.session_state.data_dir) / f"temp_{uploaded_file.name}"
-                    with open(temp_path, 'wb') as f:
-                        f.write(uploaded_file.getvalue())
+                # Show progress
+                with st.spinner(f"⏳ Adding document: {uploaded_file.name}..."):
+                    try:
+                        # Create uploads directory in project directory
+                        project_dir = Path(__file__).parent
+                        uploads_dir = project_dir / "uploads"
+                        uploads_dir.mkdir(exist_ok=True)
 
-                    # Add to knowledge base
-                    tags = [t.strip() for t in doc_tags.split(',') if t.strip()]
-                    doc = kb.add_document(str(temp_path), doc_title or None, tags)
+                        # Save uploaded file permanently
+                        permanent_path = uploads_dir / uploaded_file.name
 
-                    # Clean up temp file
-                    temp_path.unlink()
+                        # Handle duplicate filenames by appending a number
+                        counter = 1
+                        while permanent_path.exists():
+                            name_parts = uploaded_file.name.rsplit('.', 1)
+                            if len(name_parts) == 2:
+                                permanent_path = uploads_dir / f"{name_parts[0]}_{counter}.{name_parts[1]}"
+                            else:
+                                permanent_path = uploads_dir / f"{uploaded_file.name}_{counter}"
+                            counter += 1
 
-                    st.success(f"✅ Document added: {doc.title} ({doc.total_chunks} chunks)")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error adding document: {str(e)}")
+                        with open(permanent_path, 'wb') as f:
+                            f.write(uploaded_file.getvalue())
+
+                        # Get current number of documents
+                        initial_doc_count = len(kb.documents)
+
+                        # Add to knowledge base
+                        tags = [t.strip() for t in doc_tags.split(',') if t.strip()]
+                        doc = kb.add_document(str(permanent_path), doc_title or None, tags)
+
+                        # Check if this was a duplicate (doc count didn't increase)
+                        final_doc_count = len(kb.documents)
+                        is_duplicate = (final_doc_count == initial_doc_count)
+
+                        if is_duplicate:
+                            st.warning(f"⚠️ **Document already exists in knowledge base**\n\n"
+                                     f"**Title:** {doc.title}\n\n"
+                                     f"**Document ID:** `{doc.doc_id}`\n\n"
+                                     f"**Chunks:** {doc.total_chunks}\n\n"
+                                     f"This file (or a file with identical content) has already been indexed.")
+                        else:
+                            # Trigger background reindexing
+                            trigger_background_reindex()
+
+                            st.success(f"✅ **Document added successfully!**\n\n"
+                                     f"**Title:** {doc.title}\n\n"
+                                     f"**Chunks:** {doc.total_chunks}\n\n"
+                                     f"**Document ID:** `{doc.doc_id}`")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ **Error adding document:**\n\n{str(e)}")
 
         # Tab 2: Bulk Upload
         with upload_tabs[1]:
@@ -199,31 +300,57 @@ elif page == "📚 Documents":
             if st.button("📦 Add All Documents", key="add_bulk") and uploaded_files:
                 tags = [t.strip() for t in bulk_tags.split(',') if t.strip()]
 
+                # Create uploads directory in project directory
+                project_dir = Path(__file__).parent
+                uploads_dir = project_dir / "uploads"
+                uploads_dir.mkdir(exist_ok=True)
+
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
                 added = 0
+                duplicates = 0
                 failed = 0
+                duplicate_files = []
 
                 for i, uploaded_file in enumerate(uploaded_files):
                     try:
                         # Update progress
                         progress = (i + 1) / len(uploaded_files)
                         progress_bar.progress(progress)
-                        status_text.text(f"Processing {i+1}/{len(uploaded_files)}: {uploaded_file.name}")
+                        status_text.text(f"⏳ Processing {i+1}/{len(uploaded_files)}: {uploaded_file.name}")
 
-                        # Save uploaded file temporarily
-                        temp_path = Path(st.session_state.data_dir) / f"temp_{uploaded_file.name}"
-                        with open(temp_path, 'wb') as f:
+                        # Save uploaded file permanently
+                        permanent_path = uploads_dir / uploaded_file.name
+
+                        # Handle duplicate filenames by appending a number
+                        counter = 1
+                        while permanent_path.exists():
+                            name_parts = uploaded_file.name.rsplit('.', 1)
+                            if len(name_parts) == 2:
+                                permanent_path = uploads_dir / f"{name_parts[0]}_{counter}.{name_parts[1]}"
+                            else:
+                                permanent_path = uploads_dir / f"{uploaded_file.name}_{counter}"
+                            counter += 1
+
+                        with open(permanent_path, 'wb') as f:
                             f.write(uploaded_file.getvalue())
 
+                        # Get current number of documents
+                        initial_doc_count = len(kb.documents)
+
                         # Add to knowledge base (use filename as title)
-                        doc = kb.add_document(str(temp_path), None, tags)
+                        doc = kb.add_document(str(permanent_path), None, tags)
 
-                        # Clean up temp file
-                        temp_path.unlink()
+                        # Check if this was a duplicate
+                        final_doc_count = len(kb.documents)
+                        is_duplicate = (final_doc_count == initial_doc_count)
 
-                        added += 1
+                        if is_duplicate:
+                            duplicates += 1
+                            duplicate_files.append(uploaded_file.name)
+                        else:
+                            added += 1
                     except Exception as e:
                         failed += 1
                         st.warning(f"⚠️ Failed to add {uploaded_file.name}: {str(e)}")
@@ -231,13 +358,77 @@ elif page == "📚 Documents":
                 progress_bar.empty()
                 status_text.empty()
 
+                # Trigger background reindexing if any documents were added
                 if added > 0:
-                    st.success(f"✅ Successfully added {added} document(s)")
+                    trigger_background_reindex()
+
+                # Show results
+                if added > 0:
+                    st.success(f"✅ Successfully added {added} new document(s)")
+                if duplicates > 0:
+                    st.warning(f"⚠️ Skipped {duplicates} duplicate document(s): {', '.join(duplicate_files)}")
                 if failed > 0:
                     st.error(f"❌ Failed to add {failed} document(s)")
 
                 if added > 0:
                     st.rerun()
+
+        # Tab 3: Add by File Path
+        with upload_tabs[2]:
+            st.subheader("Add Document by File Path")
+            st.write("📁 **Enter the full path to a file on your system**")
+
+            file_path_input = st.text_input(
+                "File Path",
+                placeholder="C:\\Users\\username\\Documents\\file.pdf",
+                key="file_path_input"
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                path_doc_title = st.text_input("Title (optional)", "", key="path_title")
+            with col2:
+                path_doc_tags = st.text_input("Tags (comma-separated)", "", key="path_tags")
+
+            if st.button("Add Document from Path", key="add_path"):
+                if not file_path_input:
+                    st.error("❌ Please enter a file path")
+                elif not os.path.exists(file_path_input):
+                    st.error(f"❌ File not found: {file_path_input}")
+                else:
+                    # Show progress
+                    with st.spinner(f"⏳ Adding document: {os.path.basename(file_path_input)}..."):
+                        try:
+                            # Prepare tags
+                            tags = [t.strip() for t in path_doc_tags.split(',') if t.strip()]
+
+                            # Get current number of documents
+                            initial_doc_count = len(kb.documents)
+
+                            # Add to knowledge base
+                            doc = kb.add_document(file_path_input, path_doc_title or None, tags)
+
+                            # Check if this was a duplicate (doc count didn't increase)
+                            final_doc_count = len(kb.documents)
+                            is_duplicate = (final_doc_count == initial_doc_count)
+
+                            if is_duplicate:
+                                st.warning(f"⚠️ **Document already exists in knowledge base**\n\n"
+                                         f"**Title:** {doc.title}\n\n"
+                                         f"**Document ID:** `{doc.doc_id}`\n\n"
+                                         f"**Chunks:** {doc.total_chunks}\n\n"
+                                         f"This file (or a file with identical content) has already been indexed.")
+                            else:
+                                # Trigger background reindexing
+                                trigger_background_reindex()
+
+                                st.success(f"✅ **Document added successfully!**\n\n"
+                                         f"**Title:** {doc.title}\n\n"
+                                         f"**Chunks:** {doc.total_chunks}\n\n"
+                                         f"**Document ID:** `{doc.doc_id}`")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ **Error adding document:**\n\n{str(e)}")
 
     st.markdown("---")
 
@@ -287,6 +478,8 @@ elif page == "📚 Documents":
 
                     if st.button(f"🗑️ Delete", key=f"del_{doc.doc_id}"):
                         if kb.remove_document(doc.doc_id):
+                            # Trigger background reindexing
+                            trigger_background_reindex()
                             st.success(f"Deleted: {doc.title}")
                             st.rerun()
                         else:
@@ -1107,6 +1300,18 @@ elif page == "🔗 Relationship Graph":
 elif page == "🔍 Search":
     st.title("🔍 Search Knowledge Base")
 
+    # Show index status on search page
+    if st.session_state.get('index_status') == 'building':
+        st.info("⏳ **Search index is building in the background...**\n\n"
+                "You can search now, but the first search may take a moment while the index completes. "
+                "The sidebar shows the current status.")
+        # Auto-refresh every 2 seconds while building
+        time.sleep(2)
+        st.rerun()
+    elif st.session_state.get('index_status') == 'ready':
+        if 'index_build_time' in st.session_state:
+            st.success(f"✅ Search index ready! (Built in {st.session_state.index_build_time:.1f}s)")
+
     # Search mode selection
     search_mode = st.radio(
         "Search Mode",
@@ -1114,38 +1319,97 @@ elif page == "🔍 Search":
         horizontal=True
     )
 
-    # Search input
-    query = st.text_input("Enter your search query:", "")
+    # Use a form to enable Enter key submission
+    with st.form(key="search_form", clear_on_submit=False):
+        # Search input
+        query = st.text_input("Enter your search query:", "")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        max_results = st.number_input("Max Results", min_value=1, max_value=50, value=10)
-    with col2:
-        if search_mode == "Hybrid":
-            semantic_weight = st.slider("Semantic Weight", 0.0, 1.0, 0.3, 0.1)
-    with col3:
-        tag_filter = st.text_input("Filter by tags (comma-separated)", "")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            max_results = st.number_input("Max Results", min_value=1, max_value=50, value=10)
+        with col2:
+            if search_mode == "Hybrid":
+                semantic_weight = st.slider("Semantic Weight", 0.0, 1.0, 0.3, 0.1)
+            else:
+                semantic_weight = 0.3  # Default value when not shown
+        with col3:
+            tag_filter = st.text_input("Filter by tags (comma-separated)", "")
 
-    # Search button
-    if st.button("🔍 Search") and query:
+        # Search button (form submit button)
+        search_submitted = st.form_submit_button("🔍 Search")
+
+    # Execute search when form is submitted (button click or Enter key)
+    if search_submitted and query:
         tags = [t.strip() for t in tag_filter.split(',') if t.strip()] if tag_filter else None
 
+        # Create centered containers for progress bar and status text
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
         try:
+            # Wait for index to be ready if it's still building
+            if st.session_state.get('index_status') == 'building':
+                status_text.text("⏳ Waiting for search index to finish building...")
+                progress_bar.progress(0.1)
+
+                # Wait for the index thread to complete (with timeout)
+                if st.session_state.get('index_thread'):
+                    start_wait = time.time()
+                    while st.session_state.get('index_status') == 'building':
+                        time.sleep(0.5)
+                        # Auto-refresh the page to update status
+                        if time.time() - start_wait > 0.5:  # Check every 0.5 seconds
+                            st.rerun()
+                        # Timeout after 60 seconds
+                        if time.time() - start_wait > 60:
+                            st.error("⚠️ Index building timeout. Please try again.")
+                            break
+
+            # Update status - preparing search
+            status_text.text(f"🔍 Preparing {search_mode.lower()} search...")
+            progress_bar.progress(0.2)
+
             # Perform search based on mode
             if search_mode == "Keyword (FTS5)":
+                status_text.text(f"🔎 Searching for '{query}' using FTS5...")
+                progress_bar.progress(0.5)
                 results = kb.search(query, max_results, tags)
             elif search_mode == "Semantic":
                 if not kb.use_semantic:
+                    progress_bar.empty()
+                    status_text.empty()
                     st.error("Semantic search is not enabled. Set USE_SEMANTIC_SEARCH=1")
                     results = []
                 else:
+                    status_text.text(f"🧠 Computing semantic embeddings for '{query}'...")
+                    progress_bar.progress(0.5)
                     results = kb.semantic_search(query, max_results, tags)
             else:  # Hybrid
                 if not kb.use_semantic:
+                    progress_bar.empty()
+                    status_text.empty()
                     st.error("Hybrid search requires semantic search. Set USE_SEMANTIC_SEARCH=1")
                     results = []
                 else:
+                    status_text.text(f"🔬 Running hybrid search (keyword + semantic) for '{query}'...")
+                    progress_bar.progress(0.5)
                     results = kb.hybrid_search(query, max_results, tags, semantic_weight)
+
+            # Update status - processing results
+            status_text.text("📊 Processing results...")
+            progress_bar.progress(0.9)
+
+            # Complete
+            progress_bar.progress(1.0)
+            status_text.text("✅ Search complete!")
+
+            # Clear progress indicators after a brief moment
+            import time
+            time.sleep(0.3)
+            progress_bar.empty()
+            status_text.empty()
 
             # Display results
             if not results:
@@ -1170,12 +1434,19 @@ elif page == "🔍 Search":
 
                 # Display each result
                 for i, result in enumerate(results, 1):
+                    # Create unique key for this result using index, doc_id, and chunk_id
+                    doc_id = result.get('doc_id', 'unknown')
+                    chunk_id = result.get('chunk_id', 'none')
+                    unique_key = f"{i}_{doc_id}_{chunk_id}"
+
                     with st.expander(f"**{i}. {result.get('title', 'Untitled')}**", expanded=(i==1)):
                         col1, col2 = st.columns([3, 1])
 
                         with col1:
                             st.write(f"**File:** {result.get('filename', 'Unknown')}")
                             st.write(f"**Doc ID:** `{result.get('doc_id', 'Unknown')}`")
+                            if result.get('chunk_id'):
+                                st.write(f"**Chunk:** {result['chunk_id']}")
                             if result.get('page'):
                                 st.write(f"**Page:** {result['page']}")
 
@@ -1183,6 +1454,126 @@ elif page == "🔍 Search":
                             score_key = 'score' if 'score' in result else 'similarity'
                             if score_key in result:
                                 st.metric("Score", f"{result[score_key]:.4f}")
+
+                            # File action buttons
+                            st.markdown("**Actions:**")
+
+                            # Add button to view file
+                            if st.button("👁️ View File", key=f"view_file_{unique_key}", use_container_width=True):
+                                if doc_id:
+                                    st.session_state[f"show_viewer_{unique_key}"] = not st.session_state.get(f"show_viewer_{unique_key}", False)
+                                    st.rerun()
+
+                            # Add button to download file
+                            if doc_id and doc_id in kb.documents:
+                                doc = kb.documents[doc_id]
+                                filepath = doc.filepath
+
+                                # Check if file exists
+                                if os.path.exists(filepath):
+                                    try:
+                                        with open(filepath, 'rb') as f:
+                                            file_data = f.read()
+
+                                        st.download_button(
+                                            label="💾 Download",
+                                            data=file_data,
+                                            file_name=os.path.basename(filepath),
+                                            mime="application/octet-stream",
+                                            key=f"download_file_{unique_key}",
+                                            use_container_width=True
+                                        )
+                                    except Exception as e:
+                                        st.caption(f"❌ Download error: {str(e)}")
+                                else:
+                                    st.caption("❌ File not found")
+
+                        # File viewer (if toggled)
+                        if st.session_state.get(f"show_viewer_{unique_key}", False):
+                            st.markdown("---")
+                            st.subheader("📄 File Viewer")
+
+                            if doc_id and doc_id in kb.documents:
+                                doc = kb.documents[doc_id]
+                                filepath = doc.filepath
+
+                                if os.path.exists(filepath):
+                                    file_ext = os.path.splitext(filepath)[1].lower()
+
+                                    try:
+                                        if file_ext == '.pdf':
+                                            # Display PDF using iframe
+                                            with open(filepath, 'rb') as f:
+                                                pdf_data = f.read()
+
+                                            import base64
+                                            base64_pdf = base64.b64encode(pdf_data).decode('utf-8')
+                                            pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+                                            st.markdown(pdf_display, unsafe_allow_html=True)
+
+                                        elif file_ext == '.md':
+                                            # Display markdown files with rendering
+                                            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                                                content = f.read()
+
+                                            # Toggle for raw vs rendered view
+                                            view_mode = st.radio(
+                                                "View Mode",
+                                                ["Rendered", "Raw Markdown"],
+                                                horizontal=True,
+                                                key=f"md_view_mode_{unique_key}"
+                                            )
+
+                                            if view_mode == "Rendered":
+                                                # Render markdown with proper formatting
+                                                st.markdown("### 📄 Rendered Markdown")
+                                                with st.container():
+                                                    st.markdown(content, unsafe_allow_html=False)
+                                            else:
+                                                # Show raw markdown
+                                                st.markdown("### 📝 Raw Markdown")
+                                                st.code(content, language='markdown', line_numbers=True)
+
+                                        elif file_ext == '.txt':
+                                            # Display text files in a scrollable container
+                                            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                                                content = f.read()
+
+                                            st.markdown("### 📄 Text File Content")
+
+                                            # Use expander for very long files
+                                            line_count = content.count('\n') + 1
+                                            if line_count > 50:
+                                                st.info(f"📊 File contains {line_count} lines")
+
+                                            # Display in a scrollable code block
+                                            st.code(content, language='text', line_numbers=True)
+
+                                        elif file_ext in ['.html', '.htm']:
+                                            # Display HTML files
+                                            with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                                                html_content = f.read()
+
+                                            st.code(html_content, language='html')
+
+                                        elif file_ext in ['.xlsx', '.xls']:
+                                            # Display Excel files
+                                            try:
+                                                import pandas as pd
+                                                df = pd.read_excel(filepath)
+                                                st.dataframe(df, use_container_width=True)
+                                            except Exception as e:
+                                                st.warning(f"Cannot preview Excel file: {str(e)}")
+
+                                        else:
+                                            st.info(f"Preview not available for {file_ext} files. Use the Download button to view externally.")
+
+                                    except Exception as e:
+                                        st.error(f"Error displaying file: {str(e)}")
+                                else:
+                                    st.error(f"❌ File not found: {filepath}")
+                            else:
+                                st.error("❌ Document not found in knowledge base")
 
                         # Snippet
                         if 'snippet' in result:
@@ -1314,5 +1705,6 @@ elif page == "📈 Analytics":
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.markdown("**TDZ C64 Knowledge Base v2.10.0**")
+st.sidebar.markdown(f"**{get_full_version_string()}**")
+st.sidebar.caption(f"Build Date: {__build_date__}")
 st.sidebar.markdown("Built with ❤️ using Claude Code")

@@ -155,7 +155,7 @@ elif page == "📚 Documents":
         with upload_tabs[0]:
             st.subheader("Upload Single Document")
 
-            uploaded_file = st.file_uploader("Choose a file (PDF or TXT)", type=['pdf', 'txt'], key="single_upload")
+            uploaded_file = st.file_uploader("Choose a file (PDF, TXT, or MD)", type=['pdf', 'txt', 'md'], key="single_upload")
 
             col1, col2 = st.columns(2)
             with col1:
@@ -188,8 +188,8 @@ elif page == "📚 Documents":
             st.write("📌 **Drag and drop multiple files or click to browse**")
 
             uploaded_files = st.file_uploader(
-                "Choose files (PDF or TXT)",
-                type=['pdf', 'txt'],
+                "Choose files (PDF, TXT, or MD)",
+                type=['pdf', 'txt', 'md'],
                 accept_multiple_files=True,
                 key="bulk_upload"
             )

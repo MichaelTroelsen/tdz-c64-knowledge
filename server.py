@@ -2511,7 +2511,7 @@ class KnowledgeBase:
 
         return results
 
-    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt}",
+    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt,md}",
                            tags: Optional[list[str]] = None, recursive: bool = True,
                            skip_duplicates: bool = True, progress_callback: ProgressCallback = None) -> dict:
         """

@@ -3031,6 +3031,253 @@ class KnowledgeBase:
 
         return results
 
+    def auto_tag_document(self, doc_id: str, confidence_threshold: float = 0.7,
+                         max_tags: int = 10, append: bool = True) -> dict:
+        """
+        Generate tags automatically using LLM analysis.
+
+        Args:
+            doc_id: Document to tag
+            confidence_threshold: Minimum confidence to accept tag (0.0-1.0)
+            max_tags: Maximum number of tags to suggest
+            append: If True, append to existing tags; if False, replace
+
+        Returns:
+            {
+                'doc_id': str,
+                'suggested_tags': [{'tag': str, 'confidence': float}, ...],
+                'applied_tags': [str],
+                'skipped_tags': [str],  # Below confidence threshold
+                'existing_tags': [str],
+                'new_tags': [str]  # Final tag list
+            }
+
+        Example:
+            result = kb.auto_tag_document('doc123', confidence_threshold=0.7)
+            # {
+            #     'suggested_tags': [
+            #         {'tag': 'sid-programming', 'confidence': 0.95},
+            #         {'tag': 'assembly', 'confidence': 0.88},
+            #         {'tag': 'beginner', 'confidence': 0.65}  # Below threshold
+            #     ],
+            #     'applied_tags': ['sid-programming', 'assembly'],
+            #     'skipped_tags': ['beginner'],
+            #     ...
+            # }
+        """
+        # Import LLM client
+        try:
+            from llm_integration import get_llm_client
+        except ImportError:
+            raise ImportError("llm_integration module not found. Auto-tagging requires LLM integration.")
+
+        # Get LLM client
+        llm_client = get_llm_client()
+        if not llm_client:
+            raise ValueError("LLM not configured. Set LLM_PROVIDER and appropriate API key.")
+
+        # Get document
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        doc = self.documents[doc_id]
+
+        # Get sample text (first 3 chunks for analysis)
+        chunks = self._get_chunks_db(doc_id)
+        sample_chunks = chunks[:3] if len(chunks) > 3 else chunks
+        sample_text = "\n\n".join([c.content for c in sample_chunks])
+
+        # Limit text size (first 3000 chars)
+        if len(sample_text) > 3000:
+            sample_text = sample_text[:3000] + "..."
+
+        # Build prompt
+        prompt = f"""Analyze this Commodore 64 technical documentation and suggest relevant tags.
+
+Consider these categories:
+1. Hardware components (sid, vic-ii, cia, 6502, memory, cartridge, disk-drive, etc.)
+2. Programming topics (assembly, basic, machine-code, graphics, sound, sprites, etc.)
+3. Document type (tutorial, reference, manual, guide, example, etc.)
+4. Difficulty level (beginner, intermediate, advanced, expert)
+5. Content area (programming, hardware, history, repair, modification, etc.)
+
+Document title: {doc.title}
+Document filename: {doc.filename}
+
+Sample text:
+{sample_text}
+
+Return a JSON object with this structure:
+{{
+    "tags": [
+        {{"tag": "sid-programming", "confidence": 0.95, "reason": "Document extensively discusses SID chip programming"}},
+        {{"tag": "assembly", "confidence": 0.88, "reason": "Contains assembly code examples"}}
+    ]
+}}
+
+Important:
+- Use lowercase with hyphens (e.g., "sid-programming" not "SID Programming")
+- Provide {max_tags} or fewer tags
+- Include confidence score (0.0-1.0) for each tag
+- Brief reason for each tag suggestion
+- Return ONLY the JSON, no other text"""
+
+        # Call LLM
+        self.logger.info(f"Auto-tagging document {doc_id} ({doc.title})")
+
+        try:
+            response = llm_client.call_json(prompt, max_tokens=1024, temperature=0.3)
+        except Exception as e:
+            self.logger.error(f"LLM call failed: {e}")
+            raise ValueError(f"Failed to generate tags: {e}")
+
+        # Parse response
+        suggested_tags = response.get('tags', [])
+
+        # Filter by confidence
+        high_confidence_tags = [
+            t for t in suggested_tags
+            if t['confidence'] >= confidence_threshold
+        ]
+
+        low_confidence_tags = [
+            t for t in suggested_tags
+            if t['confidence'] < confidence_threshold
+        ]
+
+        # Extract tag names
+        applied_tag_names = [t['tag'] for t in high_confidence_tags]
+        skipped_tag_names = [t['tag'] for t in low_confidence_tags]
+
+        # Get existing tags
+        existing_tags = doc.tags.copy()
+
+        # Apply tags
+        if append:
+            # Add new tags to existing (avoid duplicates)
+            new_tags = existing_tags.copy()
+            for tag in applied_tag_names:
+                if tag not in new_tags:
+                    new_tags.append(tag)
+        else:
+            # Replace all tags
+            new_tags = applied_tag_names
+
+        # Update document
+        doc.tags = new_tags
+
+        # Update in database
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            UPDATE documents
+            SET tags = ?
+            WHERE doc_id = ?
+        """, (json.dumps(new_tags), doc_id))
+        self.db_conn.commit()
+
+        result = {
+            'doc_id': doc_id,
+            'doc_title': doc.title,
+            'suggested_tags': suggested_tags,
+            'applied_tags': applied_tag_names,
+            'skipped_tags': skipped_tag_names,
+            'existing_tags': existing_tags,
+            'new_tags': new_tags,
+            'confidence_threshold': confidence_threshold
+        }
+
+        self.logger.info(f"Auto-tagged {doc_id}: applied {len(applied_tag_names)} tags, "
+                        f"skipped {len(skipped_tag_names)} low-confidence tags")
+
+        return result
+
+    def auto_tag_all_documents(self, confidence_threshold: float = 0.7,
+                               max_tags: int = 10, append: bool = True,
+                               skip_tagged: bool = True, max_docs: Optional[int] = None) -> dict:
+        """
+        Bulk auto-tag all documents using LLM.
+
+        Args:
+            confidence_threshold: Minimum confidence to accept tag (0.0-1.0)
+            max_tags: Maximum tags per document
+            append: If True, append to existing tags; if False, replace
+            skip_tagged: If True, skip documents that already have tags
+            max_docs: Maximum number of documents to process (None = all)
+
+        Returns:
+            {
+                'processed': int,
+                'skipped': int,
+                'failed': int,
+                'total_tags_added': int,
+                'results': [list of individual results]
+            }
+
+        Example:
+            results = kb.auto_tag_all_documents(
+                confidence_threshold=0.7,
+                skip_tagged=True,
+                max_docs=10
+            )
+        """
+        results = {
+            'processed': 0,
+            'skipped': 0,
+            'failed': 0,
+            'total_tags_added': 0,
+            'results': []
+        }
+
+        # Get documents to process
+        docs_to_process = []
+
+        for doc_id, doc in self.documents.items():
+            # Skip if already has tags (optional)
+            if skip_tagged and doc.tags:
+                results['skipped'] += 1
+                continue
+
+            docs_to_process.append(doc_id)
+
+            # Limit number of documents
+            if max_docs and len(docs_to_process) >= max_docs:
+                break
+
+        self.logger.info(f"Auto-tagging {len(docs_to_process)} documents "
+                        f"(skipped {results['skipped']} already tagged)")
+
+        # Process each document
+        for i, doc_id in enumerate(docs_to_process, 1):
+            try:
+                self.logger.info(f"Auto-tagging {i}/{len(docs_to_process)}: {doc_id}")
+
+                result = self.auto_tag_document(
+                    doc_id,
+                    confidence_threshold=confidence_threshold,
+                    max_tags=max_tags,
+                    append=append
+                )
+
+                # Count new tags added
+                tags_added = len(set(result['new_tags']) - set(result['existing_tags']))
+                results['total_tags_added'] += tags_added
+
+                results['processed'] += 1
+                results['results'].append(result)
+
+            except Exception as e:
+                results['failed'] += 1
+                self.logger.error(f"Failed to auto-tag {doc_id}: {e}")
+                results['results'].append({
+                    'doc_id': doc_id,
+                    'error': str(e)
+                })
+
+        self.logger.info(f"Auto-tagging complete: processed={results['processed']}, "
+                        f"failed={results['failed']}, tags_added={results['total_tags_added']}")
+
+        return results
+
     def export_documents_bulk(self, doc_ids: Optional[list[str]] = None,
                               tags: Optional[list[str]] = None,
                               format: str = 'json') -> str:
@@ -5669,6 +5916,72 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["backup_path"]
             }
+        ),
+        Tool(
+            name="auto_tag_document",
+            description="Automatically generate tags for a document using AI analysis. Analyzes document content and suggests relevant tags across categories: hardware (sid, vic-ii), programming (assembly, basic), document type (tutorial, reference), and difficulty level (beginner, advanced). Requires LLM configuration (set LLM_PROVIDER and API key).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to tag"
+                    },
+                    "confidence_threshold": {
+                        "type": "number",
+                        "description": "Minimum confidence to accept tag (0.0-1.0, default: 0.7)",
+                        "default": 0.7,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "max_tags": {
+                        "type": "integer",
+                        "description": "Maximum number of tags to suggest (default: 10)",
+                        "default": 10
+                    },
+                    "append": {
+                        "type": "boolean",
+                        "description": "If true, append to existing tags; if false, replace (default: true)",
+                        "default": True
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="auto_tag_all",
+            description="Bulk auto-tag multiple documents using AI. Analyzes content and suggests relevant tags for all documents (or subset). Useful for initial organization or re-tagging collections. Can skip already-tagged documents and limit processing count. Requires LLM configuration.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "confidence_threshold": {
+                        "type": "number",
+                        "description": "Minimum confidence to accept tag (0.0-1.0, default: 0.7)",
+                        "default": 0.7,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "max_tags": {
+                        "type": "integer",
+                        "description": "Maximum tags per document (default: 10)",
+                        "default": 10
+                    },
+                    "append": {
+                        "type": "boolean",
+                        "description": "If true, append to existing tags; if false, replace (default: true)",
+                        "default": True
+                    },
+                    "skip_tagged": {
+                        "type": "boolean",
+                        "description": "If true, skip documents that already have tags (default: true)",
+                        "default": True
+                    },
+                    "max_docs": {
+                        "type": "integer",
+                        "description": "Maximum number of documents to process (optional, for testing or rate limiting)"
+                    }
+                }
+            }
         )
     ]
 
@@ -6346,6 +6659,91 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=output)]
         except Exception as e:
             return [TextContent(type="text", text=f"Error restoring backup: {str(e)}")]
+
+    elif name == "auto_tag_document":
+        doc_id = arguments.get("doc_id")
+        confidence_threshold = arguments.get("confidence_threshold", 0.7)
+        max_tags = arguments.get("max_tags", 10)
+        append = arguments.get("append", True)
+
+        if not doc_id:
+            return [TextContent(type="text", text="Error: doc_id is required")]
+
+        try:
+            result = kb.auto_tag_document(
+                doc_id,
+                confidence_threshold=confidence_threshold,
+                max_tags=max_tags,
+                append=append
+            )
+
+            output = f"✓ Auto-tagged document successfully!\n\n"
+            output += f"**Document:** {result['doc_title']}\n"
+            output += f"**Document ID:** {doc_id}\n\n"
+
+            output += f"**Applied Tags ({len(result['applied_tags'])}):**\n"
+            for tag_info in result['suggested_tags']:
+                if tag_info['tag'] in result['applied_tags']:
+                    output += f"  - {tag_info['tag']} (confidence: {tag_info['confidence']:.2f})\n"
+                    output += f"    Reason: {tag_info.get('reason', 'N/A')}\n"
+
+            if result['skipped_tags']:
+                output += f"\n**Skipped Tags (below {confidence_threshold} threshold):**\n"
+                for tag_info in result['suggested_tags']:
+                    if tag_info['tag'] in result['skipped_tags']:
+                        output += f"  - {tag_info['tag']} (confidence: {tag_info['confidence']:.2f})\n"
+
+            output += f"\n**Tag Summary:**\n"
+            output += f"  - Existing tags: {', '.join(result['existing_tags']) if result['existing_tags'] else 'None'}\n"
+            output += f"  - New tags: {', '.join(result['new_tags'])}\n"
+            output += f"  - Total tags added: {len(set(result['new_tags']) - set(result['existing_tags']))}\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error auto-tagging document: {str(e)}\n\nNote: Auto-tagging requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
+
+    elif name == "auto_tag_all":
+        confidence_threshold = arguments.get("confidence_threshold", 0.7)
+        max_tags = arguments.get("max_tags", 10)
+        append = arguments.get("append", True)
+        skip_tagged = arguments.get("skip_tagged", True)
+        max_docs = arguments.get("max_docs")
+
+        try:
+            results = kb.auto_tag_all_documents(
+                confidence_threshold=confidence_threshold,
+                max_tags=max_tags,
+                append=append,
+                skip_tagged=skip_tagged,
+                max_docs=max_docs
+            )
+
+            output = f"✓ Bulk auto-tagging complete!\n\n"
+            output += f"**Statistics:**\n"
+            output += f"  - Documents processed: {results['processed']}\n"
+            output += f"  - Documents skipped: {results['skipped']}\n"
+            output += f"  - Documents failed: {results['failed']}\n"
+            output += f"  - Total tags added: {results['total_tags_added']}\n\n"
+
+            if results['processed'] > 0:
+                output += f"**Sample Results (first 5):**\n"
+                for i, result in enumerate(results['results'][:5], 1):
+                    if 'error' in result:
+                        output += f"\n{i}. {result['doc_id']} - ERROR: {result['error']}\n"
+                    else:
+                        output += f"\n{i}. {result.get('doc_title', 'Unknown')}\n"
+                        output += f"   - Applied: {', '.join(result['applied_tags']) if result['applied_tags'] else 'None'}\n"
+                        output += f"   - Total tags: {len(result['new_tags'])}\n"
+
+                if results['processed'] > 5:
+                    output += f"\n... and {results['processed'] - 5} more documents\n"
+
+            if results['failed'] > 0:
+                output += f"\n**Warning:** {results['failed']} documents failed to process. Check logs for details.\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error in bulk auto-tagging: {str(e)}\n\nNote: Auto-tagging requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

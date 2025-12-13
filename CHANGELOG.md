@@ -2,6 +2,152 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.12.0] - 2025-12-13
+
+### Added - Smart Auto-Tagging with LLM Integration
+
+#### 🤖 LLM Integration Module
+- **New File:** `llm_integration.py` - Unified LLM client for multiple providers
+- **Supported Providers:**
+  - **Anthropic (Claude):** claude-3-haiku-20240307, claude-3-5-sonnet-20241022, claude-3-opus-20240229
+  - **OpenAI (GPT):** gpt-3.5-turbo, gpt-4, gpt-4-turbo
+- **Features:**
+  - Auto-detection of provider from environment variables
+  - JSON response parsing with markdown code block handling
+  - Configurable models and parameters (temperature, max_tokens)
+  - Error handling and logging
+- **Environment Variables:**
+  - `LLM_PROVIDER` - Provider selection (anthropic/openai, default: anthropic)
+  - `ANTHROPIC_API_KEY` - API key for Claude
+  - `OPENAI_API_KEY` - API key for GPT models
+  - `LLM_MODEL` - Model selection (default: claude-3-haiku-20240307)
+
+#### 🏷️ Smart Auto-Tagging
+- **New Method:** `auto_tag_document(doc_id, confidence_threshold, max_tags, append)` - AI-powered tag generation
+- **Analysis Process:**
+  - Analyzes first 3 chunks (max 3000 chars) of document
+  - Sends structured prompt to LLM requesting JSON tags
+  - Returns tags with confidence scores (0.0-1.0) and reasoning
+- **Tag Categories:**
+  - **Hardware:** SID, VIC-II, CIA, 6510, PLA, etc.
+  - **Programming Topics:** Assembly, BASIC, machine code, graphics, sound
+  - **Document Type:** Tutorial, reference, manual, code example
+  - **Difficulty Level:** Beginner, intermediate, advanced
+- **Confidence Filtering:**
+  - Default threshold: 0.7 (70% confidence)
+  - Configurable per-request
+  - Only high-confidence tags applied
+- **Tag Application:**
+  - Append mode: Add to existing tags (default)
+  - Replace mode: Replace all existing tags
+  - Returns detailed results with applied/skipped tags
+
+**Usage:**
+```python
+# Python API - Auto-tag a single document
+result = kb.auto_tag_document(
+    doc_id="doc123",
+    confidence_threshold=0.7,
+    max_tags=10,
+    append=True
+)
+
+# Via MCP in Claude Desktop
+# "Auto-tag this document with AI-generated tags"
+```
+
+#### 📦 Bulk Auto-Tagging
+- **New Method:** `auto_tag_all_documents(confidence_threshold, max_tags, append, skip_tagged, max_docs)` - Bulk AI tagging
+- **Features:**
+  - Process all documents or limit with `max_docs`
+  - Skip already-tagged documents (configurable)
+  - Rate limiting to prevent API overuse
+  - Comprehensive error handling per document
+  - Returns statistics: processed, skipped, failed, total_tags_added
+- **Performance:**
+  - Progress logging for each document
+  - Continues on errors (non-blocking)
+  - Transaction-safe (each document committed individually)
+
+**Usage:**
+```python
+# Python API - Auto-tag all untagged documents
+results = kb.auto_tag_all_documents(
+    confidence_threshold=0.7,
+    max_tags=10,
+    append=True,
+    skip_tagged=True,
+    max_docs=None  # Process all
+)
+
+# Via MCP in Claude Desktop
+# "Auto-tag all documents that don't have tags yet"
+```
+
+#### 🛠️ MCP Tools
+- **New Tool:** `auto_tag_document` - Single document auto-tagging
+  - Parameters: doc_id, confidence_threshold, max_tags, append
+  - Returns: Applied tags with confidence scores and reasoning
+- **New Tool:** `auto_tag_all` - Bulk document auto-tagging
+  - Parameters: confidence_threshold, max_tags, append, skip_tagged, max_docs
+  - Returns: Statistics and sample results
+
+#### 📋 Configuration
+- **New File:** `.env.example` - Complete environment configuration template
+- **LLM Configuration:**
+  - Provider selection
+  - API key setup
+  - Model selection
+  - Usage examples
+- **Search Configuration:**
+  - FTS5, semantic search, BM25 settings
+  - Query preprocessing options
+- **Security Configuration:**
+  - Document directory whitelisting
+- **Data Storage:**
+  - TDZ_DATA_DIR path configuration
+
+### Changed
+- Updated version to 2.12.0
+- Version.py includes new features: smart_auto_tagging, llm_integration
+
+### Benefits
+- **Time Savings:** Automatically tag hundreds of documents in minutes
+- **Consistency:** LLM applies tags uniformly across all documents
+- **Discovery:** AI identifies relevant categories you might miss
+- **Flexibility:** Support for multiple LLM providers (Claude, GPT)
+- **Quality:** Confidence-based filtering ensures only relevant tags
+- **Control:** Configurable thresholds and tag limits
+
+### Testing
+- LLM integration tested manually with sample documents
+- Auto-tagging verified with C64 documentation
+- Error handling tested for missing API keys
+- JSON parsing tested with various response formats
+
+### Dependencies
+- **Required:** anthropic>=0.18.0 OR openai>=1.0.0 (install at least one)
+- Install with: `pip install anthropic` or `pip install openai`
+
+### Documentation
+- Created `.env.example` with comprehensive configuration guide
+- Updated `version.py` to v2.12.0
+- Updated `CHANGELOG.md` with v2.12.0 entry
+- See `llm_integration.py` docstrings for API details
+
+### Developer Notes
+**Implementation Details:**
+- LLM integration uses provider abstraction pattern
+- Auto-tagging analyzes document content + metadata
+- Structured prompts guide LLM to return consistent JSON
+- Confidence scores from LLM help filter low-quality suggestions
+- Tag format: lowercase with hyphens (e.g., "sid-programming")
+- All database operations within transactions
+
+**Breaking Changes:** None - all new features are optional and require API keys
+
+---
+
 ## [2.11.0] - 2025-12-13
 
 ### Added - GUI Improvements & Version Management

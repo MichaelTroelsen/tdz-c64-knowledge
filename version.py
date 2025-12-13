@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.11.0"
-__version_info__ = (2, 11, 0)
+__version__ = "2.12.0"
+__version_info__ = (2, 12, 0)
 
 # Build information
 __build_date__ = "2025-12-13"
@@ -32,10 +32,19 @@ FEATURES = {
     "gui_file_path_input": "2.11.0",
     "gui_duplicate_detection": "2.11.0",
     "gui_file_viewer": "2.11.0",
+    "smart_auto_tagging": "2.12.0",
+    "llm_integration": "2.12.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.12.0 (2025-12-13)
+  - Added Smart Auto-Tagging with LLM integration
+  - Supports Anthropic Claude and OpenAI GPT models
+  - Confidence-based tag filtering and recommendations
+  - Bulk auto-tagging for all documents
+  - New MCP tools: auto_tag_document, auto_tag_all
+
 v2.11.0 (2025-12-13)
   - Added file path input in GUI (no need for upload)
   - Added duplicate detection with user notifications

@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.12.0"
-__version_info__ = (2, 12, 0)
+__version__ = "2.13.0"
+__version_info__ = (2, 13, 0)
 
 # Build information
-__build_date__ = "2025-12-13"
+__build_date__ = "2025-12-17"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"
@@ -34,10 +34,22 @@ FEATURES = {
     "gui_file_viewer": "2.11.0",
     "smart_auto_tagging": "2.12.0",
     "llm_integration": "2.12.0",
+    "document_summarization": "2.13.0",
+    "ai_summary_caching": "2.13.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.13.0 (2025-12-17)
+  - Added AI-Powered Document Summarization (Phase 1.2)
+  - Three summary types: brief, detailed, bullet-point
+  - Intelligent caching with database storage
+  - New MCP tools: summarize_document, get_summary, summarize_all
+  - New CLI commands: summarize, summarize-all
+  - Comprehensive 400+ line feature guide (SUMMARIZATION.md)
+  - Works with Anthropic Claude and OpenAI GPT models
+  - Bulk summarization for entire knowledge base
+
 v2.12.0 (2025-12-13)
   - Added Smart Auto-Tagging with LLM integration
   - Supports Anthropic Claude and OpenAI GPT models

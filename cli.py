@@ -93,6 +93,18 @@ Examples:
     export_bulk_parser.add_argument("--format", "-f", choices=["json", "csv", "markdown"], default="json", help="Export format (default: json)")
     export_bulk_parser.add_argument("--output", "-o", help="Output file (default: stdout)")
 
+    # Summarize command
+    summarize_parser = subparsers.add_parser("summarize", help="Generate AI summary of a document")
+    summarize_parser.add_argument("doc_id", help="Document ID to summarize")
+    summarize_parser.add_argument("--type", "-t", choices=["brief", "detailed", "bullet"], default="brief", help="Summary type (default: brief)")
+    summarize_parser.add_argument("--force", "-f", action="store_true", help="Force regeneration even if cached")
+
+    # Summarize all command
+    summarize_all_parser = subparsers.add_parser("summarize-all", help="Generate summaries for all documents")
+    summarize_all_parser.add_argument("--types", "-t", nargs="+", choices=["brief", "detailed", "bullet"], default=["brief"], help="Summary types (default: brief)")
+    summarize_all_parser.add_argument("--force", "-f", action="store_true", help="Force regeneration for all")
+    summarize_all_parser.add_argument("--max", "-m", type=int, help="Max documents to process")
+
     args = parser.parse_args()
     
     if not args.command:
@@ -271,6 +283,55 @@ Examples:
                 print(export_data)
         except Exception as e:
             print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "summarize":
+        try:
+            if args.doc_id not in kb.documents:
+                print(f"Error: Document not found: {args.doc_id}")
+                sys.exit(1)
+
+            doc = kb.documents[args.doc_id]
+            print(f"Generating {args.type} summary for: {doc.title}\n")
+
+            summary = kb.generate_summary(
+                args.doc_id,
+                summary_type=args.type,
+                force_regenerate=args.force
+            )
+
+            print(f"=== {args.type.upper()} SUMMARY ===\n")
+            print(summary)
+            print(f"\n=== END SUMMARY ===")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "summarize-all":
+        try:
+            print(f"Generating summaries for all documents (types: {', '.join(args.types)})\n")
+
+            results = kb.generate_summary_all(
+                summary_types=args.types,
+                force_regenerate=args.force,
+                max_docs=args.max
+            )
+
+            print(f"\n✓ Summarization Complete!\n")
+            print(f"Statistics:")
+            print(f"  Documents processed: {results['processed']}")
+            print(f"  Documents failed: {results['failed']}")
+            print(f"  Total summaries: {results['total_summaries']}")
+            print(f"  By type:")
+            for summary_type, count in results['by_type'].items():
+                print(f"    - {summary_type}: {count}")
+
+            if results['failed'] > 0:
+                print(f"\n⚠ {results['failed']} documents failed. Check logs for details.")
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"\nNote: Summarization requires LLM configuration.")
+            print(f"Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
             sys.exit(1)
 
 

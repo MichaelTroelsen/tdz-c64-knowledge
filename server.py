@@ -584,8 +584,26 @@ class KnowledgeBase:
                 )
             """)
 
+            # Create document_summaries table for AI-generated summaries
+            cursor.execute("""
+                CREATE TABLE document_summaries (
+                    doc_id TEXT NOT NULL,
+                    summary_type TEXT NOT NULL,
+                    summary_text TEXT NOT NULL,
+                    generated_at TEXT NOT NULL,
+                    model TEXT,
+                    token_count INTEGER,
+                    PRIMARY KEY (doc_id, summary_type),
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create indexes for summary queries
+            cursor.execute("CREATE INDEX idx_summaries_doc_id ON document_summaries(doc_id)")
+            cursor.execute("CREATE INDEX idx_summaries_type ON document_summaries(summary_type)")
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, and suggestions)")
+            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, and summaries)")
         else:
             self.logger.info("Using existing database")
 
@@ -873,6 +891,33 @@ class KnowledgeBase:
 
                 self.db_conn.commit()
                 self.logger.info("query_suggestions table created")
+
+            # Migrate: Add document_summaries table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='document_summaries'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating document_summaries table for AI-generated summaries")
+                cursor.execute("""
+                    CREATE TABLE document_summaries (
+                        doc_id TEXT NOT NULL,
+                        summary_type TEXT NOT NULL,
+                        summary_text TEXT NOT NULL,
+                        generated_at TEXT NOT NULL,
+                        model TEXT,
+                        token_count INTEGER,
+                        PRIMARY KEY (doc_id, summary_type),
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Create indexes for summary queries
+                cursor.execute("CREATE INDEX idx_summaries_doc_id ON document_summaries(doc_id)")
+                cursor.execute("CREATE INDEX idx_summaries_type ON document_summaries(summary_type)")
+
+                self.db_conn.commit()
+                self.logger.info("document_summaries table created")
 
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
@@ -3277,6 +3322,271 @@ Important:
                         f"failed={results['failed']}, tags_added={results['total_tags_added']}")
 
         return results
+
+    def generate_summary(self, doc_id: str, summary_type: str = 'brief',
+                        force_regenerate: bool = False) -> str:
+        """
+        Generate an AI-powered summary of a document.
+
+        Args:
+            doc_id: Document ID to summarize
+            summary_type: Type of summary ('brief', 'detailed', 'bullet')
+                - 'brief': 1-2 paragraph overview (200-300 words)
+                - 'detailed': Comprehensive summary with key points (500-800 words)
+                - 'bullet': Bullet-point summary of main topics
+            force_regenerate: If True, regenerate even if cached summary exists
+
+        Returns:
+            Summary text as a string
+
+        Raises:
+            ValueError: If document not found or LLM not configured
+            DocumentNotFoundError: If document doesn't exist
+
+        Examples:
+            # Generate brief summary
+            summary = kb.generate_summary('doc123', 'brief')
+
+            # Get detailed summary
+            summary = kb.generate_summary('doc456', 'detailed')
+
+            # Force regeneration (bypass cache)
+            summary = kb.generate_summary('doc789', 'brief', force_regenerate=True)
+        """
+        # Validate document exists
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        doc = self.documents[doc_id]
+
+        # Check for cached summary
+        if not force_regenerate:
+            cursor = self.db_conn.cursor()
+            cursor.execute("""
+                SELECT summary_text FROM document_summaries
+                WHERE doc_id = ? AND summary_type = ?
+            """, (doc_id, summary_type))
+            result = cursor.fetchone()
+            if result:
+                self.logger.debug(f"Using cached summary for {doc_id} ({summary_type})")
+                return result[0]
+
+        # Import LLM client
+        try:
+            from llm_integration import get_llm_client
+        except ImportError:
+            raise ImportError("llm_integration module not found. Summarization requires LLM integration.")
+
+        # Get LLM client
+        llm_client = get_llm_client()
+        if not llm_client:
+            raise ValueError("LLM not configured. Set LLM_PROVIDER and appropriate API key.")
+
+        # Get document content
+        chunks = self._get_chunks_db(doc_id)
+        if not chunks:
+            raise ValueError(f"No content found for document: {doc_id}")
+
+        # For brief summaries, use first 5 chunks; for detailed, use more
+        if summary_type == 'brief':
+            sample_chunks = chunks[:5]
+            word_limit = 300
+            length_guidance = "1-2 paragraphs, approximately 200-300 words"
+        elif summary_type == 'detailed':
+            sample_chunks = chunks[:15] if len(chunks) > 15 else chunks
+            word_limit = 800
+            length_guidance = "3-5 paragraphs with detailed explanations, approximately 500-800 words"
+        elif summary_type == 'bullet':
+            sample_chunks = chunks[:10]
+            word_limit = 400
+            length_guidance = "8-12 bullet points covering main topics"
+        else:
+            raise ValueError(f"Invalid summary type: {summary_type}. Must be 'brief', 'detailed', or 'bullet'.")
+
+        # Join content
+        content = "\n\n".join([c.content for c in sample_chunks])
+
+        # Limit content size to first 10k chars to control API costs
+        if len(content) > 10000:
+            content = content[:10000] + "..."
+
+        # Build prompt based on summary type
+        if summary_type == 'bullet':
+            prompt = f"""Create a bullet-point summary of this Commodore 64 technical documentation.
+
+Document Title: {doc.title}
+Document Type: {doc.file_type}
+
+Content:
+{content}
+
+Create a concise bullet-point summary with 8-12 main topics. Each bullet should be clear and informative.
+Return ONLY the bullet points, one per line, starting with "- ". No introduction or explanation needed."""
+
+        else:
+            prompt = f"""Create a {summary_type} summary of this Commodore 64 technical documentation.
+
+Document Title: {doc.title}
+Document Type: {doc.file_type}
+
+Content:
+{content}
+
+Write a {summary_type} summary that is {length_guidance}.
+Focus on:
+- Key concepts and main topics
+- Technical details relevant to programmers
+- Important procedures or examples
+- Practical applications
+
+Return ONLY the summary text, no preamble."""
+
+        # Call LLM
+        self.logger.info(f"Generating {summary_type} summary for {doc_id} ({doc.title})")
+
+        try:
+            summary_text = llm_client.call(prompt, max_tokens=word_limit + 200, temperature=0.4)
+        except Exception as e:
+            self.logger.error(f"LLM call failed: {e}")
+            raise ValueError(f"Failed to generate summary: {e}")
+
+        # Clean up summary text
+        if not summary_text or not summary_text.strip():
+            raise ValueError("LLM returned empty summary")
+
+        summary_text = summary_text.strip()
+
+        # Store summary in database
+        cursor = self.db_conn.cursor()
+        try:
+            # Get model name from LLM client
+            model = os.getenv('LLM_MODEL', 'unknown')
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO document_summaries
+                (doc_id, summary_type, summary_text, generated_at, model, token_count)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (doc_id, summary_type, summary_text, datetime.now().isoformat(),
+                  model, len(summary_text.split())))
+
+            self.db_conn.commit()
+            self.logger.info(f"Saved {summary_type} summary for {doc_id}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to save summary to database: {e}")
+            # Return summary even if save failed
+            pass
+
+        return summary_text
+
+    def generate_summary_all(self, summary_types: Optional[list[str]] = None,
+                            force_regenerate: bool = False,
+                            max_docs: Optional[int] = None) -> dict:
+        """
+        Bulk generate summaries for all documents.
+
+        Args:
+            summary_types: List of summary types to generate (['brief'], ['brief', 'detailed'], etc.)
+                          Default: ['brief']
+            force_regenerate: If True, regenerate all summaries
+            max_docs: Maximum number of documents to process (None = all)
+
+        Returns:
+            {
+                'processed': int,
+                'failed': int,
+                'total_summaries': int,
+                'by_type': {'brief': int, 'detailed': int, 'bullet': int},
+                'results': [list of individual results]
+            }
+
+        Example:
+            results = kb.generate_summary_all(
+                summary_types=['brief', 'detailed'],
+                max_docs=50
+            )
+        """
+        if summary_types is None:
+            summary_types = ['brief']
+
+        results = {
+            'processed': 0,
+            'failed': 0,
+            'total_summaries': 0,
+            'by_type': {st: 0 for st in summary_types},
+            'results': []
+        }
+
+        # Get documents to process
+        docs_to_process = list(self.documents.keys())
+
+        if max_docs:
+            docs_to_process = docs_to_process[:max_docs]
+
+        self.logger.info(f"Generating summaries for {len(docs_to_process)} documents "
+                        f"(types: {', '.join(summary_types)})")
+
+        # Process each document
+        for i, doc_id in enumerate(docs_to_process, 1):
+            doc_results = {
+                'doc_id': doc_id,
+                'title': self.documents[doc_id].title,
+                'summaries': {}
+            }
+
+            for summary_type in summary_types:
+                try:
+                    self.logger.info(f"[{i}/{len(docs_to_process)}] {doc_id} ({summary_type})")
+
+                    summary = self.generate_summary(
+                        doc_id,
+                        summary_type=summary_type,
+                        force_regenerate=force_regenerate
+                    )
+
+                    doc_results['summaries'][summary_type] = {
+                        'success': True,
+                        'length': len(summary),
+                        'word_count': len(summary.split())
+                    }
+
+                    results['total_summaries'] += 1
+                    results['by_type'][summary_type] += 1
+
+                except Exception as e:
+                    results['failed'] += 1
+                    self.logger.error(f"Failed to summarize {doc_id} ({summary_type}): {e}")
+                    doc_results['summaries'][summary_type] = {
+                        'success': False,
+                        'error': str(e)
+                    }
+
+            results['processed'] += 1
+            results['results'].append(doc_results)
+
+        self.logger.info(f"Summary generation complete: processed={results['processed']}, "
+                        f"failed={results['failed']}, total_summaries={results['total_summaries']}")
+
+        return results
+
+    def get_summary(self, doc_id: str, summary_type: str = 'brief') -> Optional[str]:
+        """
+        Retrieve a cached summary without regenerating.
+
+        Args:
+            doc_id: Document ID
+            summary_type: Type of summary ('brief', 'detailed', 'bullet')
+
+        Returns:
+            Summary text if it exists, None otherwise
+        """
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            SELECT summary_text FROM document_summaries
+            WHERE doc_id = ? AND summary_type = ?
+        """, (doc_id, summary_type))
+        result = cursor.fetchone()
+        return result[0] if result else None
 
     def export_documents_bulk(self, doc_ids: Optional[list[str]] = None,
                               tags: Optional[list[str]] = None,
@@ -5982,6 +6292,74 @@ async def list_tools() -> list[Tool]:
                     }
                 }
             }
+        ),
+        Tool(
+            name="summarize_document",
+            description="Generate an AI-powered summary of a document. Supports brief (200-300 words), detailed (500-800 words), or bullet-point summaries.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to summarize"
+                    },
+                    "summary_type": {
+                        "type": "string",
+                        "enum": ["brief", "detailed", "bullet"],
+                        "description": "Type of summary: 'brief' (default), 'detailed', or 'bullet'",
+                        "default": "brief"
+                    },
+                    "force_regenerate": {
+                        "type": "boolean",
+                        "description": "If true, regenerate summary even if cached version exists (default: false)",
+                        "default": False
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="get_summary",
+            description="Retrieve a cached summary of a document without regenerating it.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID"
+                    },
+                    "summary_type": {
+                        "type": "string",
+                        "enum": ["brief", "detailed", "bullet"],
+                        "description": "Type of summary (default: 'brief')",
+                        "default": "brief"
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="summarize_all",
+            description="Bulk generate summaries for all documents in the knowledge base.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "summary_types": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["brief", "detailed", "bullet"]},
+                        "description": "Types of summaries to generate (default: ['brief'])"
+                    },
+                    "force_regenerate": {
+                        "type": "boolean",
+                        "description": "If true, regenerate all summaries (default: false)",
+                        "default": False
+                    },
+                    "max_docs": {
+                        "type": "integer",
+                        "description": "Maximum number of documents to process (optional, for testing)"
+                    }
+                }
+            }
         )
     ]
 
@@ -6744,6 +7122,92 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=output)]
         except Exception as e:
             return [TextContent(type="text", text=f"Error in bulk auto-tagging: {str(e)}\n\nNote: Auto-tagging requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
+
+    elif name == "summarize_document":
+        doc_id = arguments.get("doc_id")
+        summary_type = arguments.get("summary_type", "brief")
+        force_regenerate = arguments.get("force_regenerate", False)
+
+        if not doc_id:
+            return [TextContent(type="text", text="Error: doc_id is required")]
+
+        try:
+            summary = kb.generate_summary(
+                doc_id,
+                summary_type=summary_type,
+                force_regenerate=force_regenerate
+            )
+
+            output = f"✓ Summary generated ({summary_type})\n\n"
+            output += f"**Document:** {kb.documents[doc_id].title}\n\n"
+            output += f"**Summary ({summary_type}):**\n\n"
+            output += summary
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error generating summary: {str(e)}\n\nNote: Summarization requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
+
+    elif name == "get_summary":
+        doc_id = arguments.get("doc_id")
+        summary_type = arguments.get("summary_type", "brief")
+
+        if not doc_id:
+            return [TextContent(type="text", text="Error: doc_id is required")]
+
+        try:
+            summary = kb.get_summary(doc_id, summary_type)
+
+            if not summary:
+                return [TextContent(type="text", text=f"No cached summary found for {doc_id} ({summary_type}). Use 'summarize_document' to generate one.")]
+
+            output = f"✓ Cached summary retrieved ({summary_type})\n\n"
+            output += f"**Document:** {kb.documents[doc_id].title}\n\n"
+            output += f"**Summary ({summary_type}):**\n\n"
+            output += summary
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error retrieving summary: {str(e)}")]
+
+    elif name == "summarize_all":
+        summary_types = arguments.get("summary_types", ["brief"])
+        force_regenerate = arguments.get("force_regenerate", False)
+        max_docs = arguments.get("max_docs")
+
+        try:
+            results = kb.generate_summary_all(
+                summary_types=summary_types,
+                force_regenerate=force_regenerate,
+                max_docs=max_docs
+            )
+
+            output = f"✓ Bulk summarization complete!\n\n"
+            output += f"**Statistics:**\n"
+            output += f"  - Documents processed: {results['processed']}\n"
+            output += f"  - Documents failed: {results['failed']}\n"
+            output += f"  - Total summaries generated: {results['total_summaries']}\n"
+            output += f"  - By type:\n"
+            for summary_type, count in results['by_type'].items():
+                output += f"    - {summary_type}: {count}\n"
+
+            output += f"\n**Sample Results (first 3):**\n"
+            for i, result in enumerate(results['results'][:3], 1):
+                output += f"\n{i}. {result['title']}\n"
+                for summary_type, summary_result in result['summaries'].items():
+                    if summary_result['success']:
+                        output += f"   - {summary_type}: {summary_result['word_count']} words\n"
+                    else:
+                        output += f"   - {summary_type}: ERROR - {summary_result['error']}\n"
+
+            if results['processed'] > 3:
+                output += f"\n... and {results['processed'] - 3} more documents\n"
+
+            if results['failed'] > 0:
+                output += f"\n**Warning:** {results['failed']} documents failed to process. Check logs for details.\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error in bulk summarization: {str(e)}\n\nNote: Summarization requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

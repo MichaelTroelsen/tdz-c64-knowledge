@@ -128,7 +128,21 @@
       "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py -v --tb=line -q)",
       "Bash(git reset:*)",
       "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py::TestKnowledgeBase::test_add_excel_document -v)",
-      "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py::TestKnowledgeBase::test_add_html_document -v)"
+      "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py::TestKnowledgeBase::test_add_html_document -v)",
+      "Bash(\".venv/Scripts/python.exe\" server.py)",
+      "Bash(\".venv/Scripts/python.exe\" cli.py search \"VIC-II sprite collision\" --max 3)",
+      "Bash(cmd /c \"set USE_SEMANTIC_SEARCH=1 && \".venv/Scripts/python.exe\" cli.py search \"sprite animation\" --max 3\")",
+      "Bash(powershell -Command \"$env:USE_SEMANTIC_SEARCH=''1''; & ''.\\.venv\\Scripts\\python.exe'' cli.py search ''sprite animation'' --max 3\")",
+      "Bash(powershell -Command \"Get-Content ''.env'' | ForEach-Object { if ($_-match ''^([^#=]+)=(.*)$'') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], ''Process'') } }; & ''.\\.venv\\Scripts\\python.exe'' -m streamlit run admin_gui.py --server.headless true --server.port 8501\")",
+      "Bash(powershell -NoProfile -Command \"$env:USE_SEMANTIC_SEARCH=''1''; & ''.\\.venv\\Scripts\\python.exe'' cli.py search ''how to program sound'' --max 2\")",
+      "Bash(cmd /c \"launch-cli-full-features.bat search ''sprite collision'' --max 2\")",
+      "Bash(powershell -NoProfile -Command \"& ''cmd'' ''/c'' ''launch-cli-full-features.bat'' ''search'' ''sprite collision'' ''--max'' ''2''\")",
+      "Bash(\".venv/Scripts/python.exe\" cli.py add-folder \"C:\\Users\\mit\\Downloads\\tdz-c64-knowledge-input\" --tags reference c64-documentation --recursive)",
+      "Bash(\".venv\\Scripts\\python.exe\" -m py_compile server.py cli.py)",
+      "Bash(\".venv\\Scripts\\python.exe\" -c \"from server import KnowledgeBase; kb = KnowledgeBase(); print(''✓ KnowledgeBase initialized''); print(''✓ generate_summary method:'', hasattr(kb, ''generate_summary'')); print(''✓ generate_summary_all method:'', hasattr(kb, ''generate_summary_all'')); print(''✓ get_summary method:'', hasattr(kb, ''get_summary''))\")",
+      "Bash(\".venv\\Scripts\\python.exe\" -c \"from server import KnowledgeBase; import os; kb = KnowledgeBase(os.path.expanduser(''~/.tdz-c64-knowledge'')); print(''✓ KnowledgeBase initialized''); print(''✓ generate_summary method:'', hasattr(kb, ''generate_summary'')); print(''✓ generate_summary_all method:'', hasattr(kb, ''generate_summary_all'')); print(''✓ get_summary method:'', hasattr(kb, ''get_summary''))\")",
+      "Bash(\".venv\\Scripts\\python.exe\" -m pytest test_server.py -v --tb=short)",
+      "Bash(\".venv\\Scripts\\python.exe\" -m pip install pytest pytest-cov -q)"
     ]
   }
 }

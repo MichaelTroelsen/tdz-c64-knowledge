@@ -19,6 +19,10 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file from current directory
+
 # Import version information
 from version import __version__, __project_name__, __build_date__, get_full_version_string
 
@@ -1240,6 +1244,11 @@ class KnowledgeBase:
 
     def _build_bm25_index(self):
         """Build BM25 index from chunks for fast searching (lazy loading from database)."""
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        start_time = time.time()
+
         if not BM25_SUPPORT:
             self.logger.info("BM25 index not built (no support)")
             return
@@ -1247,18 +1256,52 @@ class KnowledgeBase:
         # Lazy load all chunks from database if not already in memory
         if not self.chunks:
             self.logger.info("Loading all chunks from database for BM25 index")
+            load_start = time.time()
             self.chunks = self._get_chunks_db()
+            load_time = time.time() - load_start
+            self.logger.info(f"Loaded {len(self.chunks)} chunks in {load_time:.2f}s")
 
         if not self.chunks:
             self.logger.info("BM25 index not built (no chunks)")
             return
 
         # Tokenize all chunk content with preprocessing if enabled
-        tokenized_corpus = [self._preprocess_text(chunk.content) for chunk in self.chunks]
-        self.bm25 = BM25Okapi(tokenized_corpus)
+        # Use parallel processing for faster tokenization
+        self.logger.info(f"Tokenizing {len(self.chunks)} chunks...")
+        tokenize_start = time.time()
 
+        if self.use_preprocessing and len(self.chunks) > 100:
+            # Parallel tokenization for large datasets
+            tokenized_corpus = []
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                # Submit all tokenization tasks
+                future_to_idx = {
+                    executor.submit(self._preprocess_text, chunk.content): idx
+                    for idx, chunk in enumerate(self.chunks)
+                }
+
+                # Collect results in order
+                results = [None] * len(self.chunks)
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    results[idx] = future.result()
+
+                tokenized_corpus = results
+        else:
+            # Sequential for small datasets or no preprocessing
+            tokenized_corpus = [self._preprocess_text(chunk.content) for chunk in self.chunks]
+
+        tokenize_time = time.time() - tokenize_start
+        self.logger.info(f"Tokenization completed in {tokenize_time:.2f}s")
+
+        # Build BM25 index
+        index_start = time.time()
+        self.bm25 = BM25Okapi(tokenized_corpus)
+        index_time = time.time() - index_start
+
+        total_time = time.time() - start_time
         preprocessing_status = "with preprocessing" if self.use_preprocessing else "without preprocessing"
-        self.logger.info(f"Built BM25 index with {len(self.chunks)} chunks ({preprocessing_status})")
+        self.logger.info(f"Built BM25 index with {len(self.chunks)} chunks ({preprocessing_status}) - Total: {total_time:.2f}s (load: {load_time:.2f}s, tokenize: {tokenize_time:.2f}s, index: {index_time:.2f}s)")
 
     def _fuzzy_match_terms(self, query_terms: list[str], content: str) -> tuple[bool, float]:
         """
@@ -2541,6 +2584,33 @@ class KnowledgeBase:
         self.logger.info(f"Added scraped document: {doc.title} (from {source_url})")
         return doc
 
+    def _is_path_allowed(self, filepath: str) -> bool:
+        """
+        Check if a file path is within allowed directories.
+
+        Args:
+            filepath: Path to check
+
+        Returns:
+            True if path is allowed (or no restrictions configured), False otherwise
+        """
+        # No restrictions if allowed_dirs not configured
+        if not self.allowed_dirs:
+            return True
+
+        # Resolve to absolute path to prevent path traversal
+        try:
+            resolved_path = Path(filepath).resolve()
+        except (OSError, ValueError):
+            # Invalid path
+            return False
+
+        # Check if path is within any allowed directory
+        return any(
+            resolved_path.is_relative_to(allowed_dir)
+            for allowed_dir in self.allowed_dirs
+        )
+
     def add_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
                      progress_callback: ProgressCallback = None) -> DocumentMeta:
         """Add a document to the knowledge base.
@@ -2565,17 +2635,11 @@ class KnowledgeBase:
         resolved_path = Path(filepath).resolve()
 
         # Security: Validate path is within allowed directories
-        if self.allowed_dirs:
-            # Check if path is within any allowed directory
-            is_allowed = any(
-                resolved_path.is_relative_to(allowed_dir)
-                for allowed_dir in self.allowed_dirs
+        if not self._is_path_allowed(filepath):
+            self.logger.error(f"Security violation: Path outside allowed directories: {resolved_path}")
+            raise SecurityError(
+                f"Path outside allowed directories. File must be within: {self.allowed_dirs}"
             )
-            if not is_allowed:
-                self.logger.error(f"Security violation: Path outside allowed directories: {resolved_path}")
-                raise SecurityError(
-                    f"Path outside allowed directories. File must be within: {self.allowed_dirs}"
-                )
 
         filepath = str(resolved_path)
         self.logger.info(f"Adding document: {filepath}")
@@ -2948,8 +3012,28 @@ class KnowledgeBase:
                 if not source_url_for_file:
                     source_url_for_file = url  # Fallback to base URL
 
-                # Use filename as title if no title provided
-                doc_title = title if title else md_file.stem.replace('_', ' ').replace('-', ' ').title()
+                # Generate title from domain + page path
+                if title:
+                    # Use provided base title
+                    doc_title = title
+                else:
+                    # Extract page name from URL path
+                    parsed_source = urlparse(source_url_for_file)
+                    page_path = parsed_source.path.strip('/')
+
+                    # If it's the index/root, use domain name
+                    if not page_path or page_path.lower() in ['index', 'index.html', 'index.htm']:
+                        page_name = "Home"
+                    else:
+                        # Use the last part of the path as page name
+                        page_name = page_path.split('/')[-1]
+                        # Remove file extensions
+                        page_name = page_name.replace('.html', '').replace('.htm', '').replace('.php', '')
+                        # Clean up formatting
+                        page_name = page_name.replace('_', ' ').replace('-', ' ').title()
+
+                    # Combine domain + page name
+                    doc_title = f"{domain} - {page_name}"
 
                 # Add document with URL metadata
                 doc = self._add_scraped_document(
@@ -5556,13 +5640,43 @@ Return ONLY the summary text, no preamble."""
             word_count=row[6]
         )
 
+    def get_document(self, doc_id: str) -> Optional[dict]:
+        """Get document with all its chunks.
+
+        Args:
+            doc_id: Document ID
+
+        Returns:
+            Dictionary with document metadata and chunks, or None if not found
+        """
+        if doc_id not in self.documents:
+            return None
+
+        doc = self.documents[doc_id]
+        chunks = self._get_chunks_db(doc_id)
+
+        return {
+            'doc_id': doc.doc_id,
+            'title': doc.title,
+            'filename': doc.filename,
+            'chunks': [
+                {
+                    'chunk_id': chunk.chunk_id,
+                    'content': chunk.content,
+                    'page': chunk.page,
+                    'word_count': chunk.word_count
+                }
+                for chunk in chunks
+            ]
+        }
+
     def get_document_content(self, doc_id: str) -> Optional[str]:
         """Get the full content of a document from database."""
         chunks = self._get_chunks_db(doc_id)
         if not chunks:
             return None
         return "\n\n".join(c.content for c in chunks)
-    
+
     def list_documents(self) -> list[DocumentMeta]:
         """List all indexed documents."""
         return list(self.documents.values())

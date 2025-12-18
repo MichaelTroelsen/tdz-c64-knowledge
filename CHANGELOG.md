@@ -2,6 +2,57 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.14.0] - 2025-12-18
+
+### Added - UI/UX Improvements & Configuration Enhancements
+
+#### 🎨 Loading Indicators
+- **Centered Loading Screen:** Added professional loading indicators for long-running operations
+  - Animated 🏃 icon for BM25 index building with real-time progress bar
+  - Animated 🌐 icon for web scraping operations
+  - Gradient purple backgrounds with pulsing animations
+  - Progress percentage display and descriptive status text
+  - ⏹️ Stop button to cancel index building operations
+
+#### 🔧 Configuration & Environment
+- **python-dotenv Integration:** Added automatic .env file loading in server.py
+  - All environment variables now loaded from .env file automatically
+  - No need to manually set environment variables
+  - Simplifies deployment and configuration
+- **Updated start-all.bat:**
+  - Added POPPLER_PATH for OCR support
+  - Fixed ALLOWED_DOCS_DIRS to include scraped_docs directory
+  - All features enabled by default
+
+#### 🐛 Bug Fixes
+- **Preview Slider Fix:** Fixed "min_value must be less than max_value" error
+  - Single-chunk documents now display properly
+  - Shows "📄 Single chunk document" info instead of broken slider
+- **Warning Suppression:** Eliminated ScriptRunContext warning spam in logs
+  - Added logging configuration to suppress Streamlit thread warnings
+  - Much cleaner, readable log output
+- **Security Path Configuration:** Added scraped_docs directory to allowed paths
+  - Web scraping now works without security violations
+  - Both user uploads and scraped content are allowed
+
+#### 🌐 Web Scraping Enhancements
+- **Better Loading UX:** Centered loading indicator during scraping operations
+- **Path Security:** Properly configured allowed directories for scraped content
+
+#### ✅ Testing
+- **Security Unit Tests:** Added comprehensive test suite (test_security.py)
+  - Tests single and multiple allowed directories
+  - Tests path traversal attack prevention
+  - Tests case-insensitive Windows path handling
+  - Tests no-restriction mode
+  - Full coverage of _is_path_allowed() logic
+
+### Configuration Files Updated
+- **.env:** Added POPPLER_PATH and updated ALLOWED_DOCS_DIRS
+- **start-all.bat:** Added POPPLER_PATH and scraped_docs to allowed directories
+- **admin_gui.py:** Loading indicators, warning suppression, bug fixes
+- **server.py:** python-dotenv integration
+
 ## [2.13.0] - 2025-12-17
 
 ### Added - AI-Powered Document Summarization (Phase 1.2)

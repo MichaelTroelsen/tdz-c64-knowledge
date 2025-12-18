@@ -18,11 +18,15 @@ Features:
 import streamlit as st
 import os
 import sys
+import logging
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 import threading
 import time
+
+# Suppress Streamlit ScriptRunContext warnings
+logging.getLogger('streamlit.runtime.scriptrunner_utils.script_run_context').setLevel(logging.ERROR)
 
 # Add parent directory to path to import server module
 sys.path.insert(0, str(Path(__file__).parent))
@@ -40,24 +44,62 @@ st.set_page_config(
 
 # Background indexing function
 def build_bm25_index_background(kb):
-    """Build BM25 index in background thread."""
+    """Build BM25 index in background thread with progress tracking."""
+    import warnings
+    # Suppress Streamlit ScriptRunContext warnings for background threads
+    warnings.filterwarnings('ignore', message='.*ScriptRunContext.*')
+
     try:
         st.session_state.index_status = "building"
         st.session_state.index_start_time = time.time()
+        st.session_state.index_progress = 0.0
 
-        # Build the BM25 index if not already built
         # Check if BM25 is enabled via environment variable
         use_bm25 = os.environ.get("USE_BM25", "1") != "0"
 
         if kb.bm25 is None and use_bm25:
+            # Start a progress updater thread
+            import threading
+
+            def update_progress():
+                """Simulate progress updates during index building."""
+                import warnings
+                # Suppress Streamlit ScriptRunContext warnings for background threads
+                warnings.filterwarnings('ignore', message='.*ScriptRunContext.*')
+
+                start = time.time()
+                estimated_time = 60  # Estimated 60 seconds based on previous runs
+
+                while st.session_state.get('index_status') == 'building':
+                    if st.session_state.get('index_status') == 'cancelled':
+                        return
+
+                    elapsed = time.time() - start
+                    progress = min(0.95, elapsed / estimated_time)  # Cap at 95% until actually done
+                    st.session_state.index_progress = progress
+                    time.sleep(0.5)  # Update every 500ms
+
+            # Start progress updater
+            progress_thread = threading.Thread(target=update_progress, daemon=True)
+            progress_thread.start()
+
+            # Build the index
             kb._build_bm25_index()
 
+            # Check if cancelled
+            if st.session_state.get('index_status') == 'cancelled':
+                st.session_state.index_progress = 0.0
+                return
+
+        # Complete
+        st.session_state.index_progress = 1.0
         elapsed = time.time() - st.session_state.index_start_time
         st.session_state.index_status = "ready"
         st.session_state.index_build_time = elapsed
     except Exception as e:
         st.session_state.index_status = "error"
         st.session_state.index_error = str(e)
+        st.session_state.index_progress = 0.0
 
 def trigger_background_reindex():
     """Trigger background reindexing after documents are added/removed."""
@@ -106,7 +148,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["📊 Dashboard", "📚 Documents", "🏷️ Tag Management", "🔗 Relationship Graph", "🔍 Search", "💾 Backup & Restore", "📈 Analytics"]
+    ["📊 Dashboard", "📚 Documents", "🌐 Web Scraping", "🏷️ Tag Management", "🔗 Relationship Graph", "🔍 Search", "💾 Backup & Restore", "📈 Analytics"]
 )
 
 st.sidebar.markdown("---")
@@ -140,7 +182,7 @@ if url_docs:
 else:
     st.sidebar.info("No URL-sourced documents")
 
-# Show index building status
+# Show index building status in sidebar
 if st.session_state.get('index_status') == 'building':
     st.sidebar.warning("⏳ **Building search index...**\nFirst search will be ready soon.")
 elif st.session_state.get('index_status') == 'ready':
@@ -148,6 +190,60 @@ elif st.session_state.get('index_status') == 'ready':
         st.sidebar.success(f"✅ **Search index ready**\n(Built in {st.session_state.index_build_time:.1f}s)")
 elif st.session_state.get('index_status') == 'error':
     st.sidebar.error(f"❌ **Index error:**\n{st.session_state.get('index_error', 'Unknown')}")
+
+# Show centered loading indicator for index building
+if st.session_state.get('index_status') == 'building':
+    # Center the content
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        st.markdown("""
+            <style>
+            .loading-container {
+                padding: 2rem;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 15px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                text-align: center;
+            }
+            .loading-text {
+                color: white;
+                font-size: 1.5rem;
+                font-weight: bold;
+                margin-top: 1rem;
+            }
+            .loading-subtext {
+                color: rgba(255,255,255,0.9);
+                font-size: 1rem;
+                margin-top: 0.5rem;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .spinner {
+                font-size: 3rem;
+                animation: spin 1s linear infinite;
+            }
+            </style>
+            <div class="loading-container">
+                <div class="spinner">🏃</div>
+                <div class="loading-text">Building Search Index</div>
+                <div class="loading-subtext">Optimizing search performance with parallel processing...</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Progress bar
+        progress = st.session_state.get('index_progress', 0)
+        st.progress(progress, text=f"Progress: {int(progress * 100)}%")
+
+        # Stop button
+        if st.button("⏹️ Stop", key="stop_index_building", use_container_width=True):
+            st.session_state['index_status'] = 'cancelled'
+            st.warning("⚠️ Index building cancelled. Search may be slower.")
+            st.rerun()
 
 # Helper functions
 def format_bytes(bytes):
@@ -243,7 +339,7 @@ elif page == "📚 Documents":
 
     # Add document section
     with st.expander("➕ Add Documents", expanded=False):
-        upload_tabs = st.tabs(["📄 Single Upload", "📦 Bulk Upload", "📁 Add by File Path", "🌐 Scrape URL"])
+        upload_tabs = st.tabs(["📄 Single Upload", "📦 Bulk Upload", "📁 Add by File Path"])
 
         # Tab 1: Single Upload
         with upload_tabs[0]:
@@ -458,131 +554,6 @@ elif page == "📚 Documents":
                         except Exception as e:
                             st.error(f"❌ **Error adding document:**\n\n{str(e)}")
 
-        # Tab 4: Scrape URL
-        with upload_tabs[3]:
-            st.subheader("Scrape Documentation Website")
-            st.write("🌐 **Enter a documentation URL to scrape and index**")
-
-            url_input = st.text_input(
-                "Starting URL",
-                placeholder="https://docs.example.com/api/",
-                key="scrape_url_input"
-            )
-
-            # Configuration options
-            with st.expander("⚙️ Advanced Options", expanded=False):
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    scrape_depth = st.number_input(
-                        "Max Depth",
-                        min_value=1,
-                        max_value=100,
-                        value=50,
-                        help="Maximum link depth to follow"
-                    )
-                    scrape_threads = st.number_input(
-                        "Threads",
-                        min_value=1,
-                        max_value=20,
-                        value=10,
-                        help="Number of concurrent download threads"
-                    )
-
-                with col2:
-                    scrape_delay = st.number_input(
-                        "Delay (ms)",
-                        min_value=0,
-                        max_value=5000,
-                        value=100,
-                        help="Delay between requests"
-                    )
-                    scrape_limit = st.text_input(
-                        "Limit URLs (optional)",
-                        placeholder="https://docs.example.com/api/",
-                        help="Only scrape URLs with this prefix"
-                    )
-
-                scrape_selector = st.text_input(
-                    "CSS Selector (optional)",
-                    placeholder="article.main-content",
-                    help="CSS selector for main content"
-                )
-
-            col1, col2 = st.columns(2)
-            with col1:
-                scrape_title = st.text_input(
-                    "Base Title (optional)",
-                    "",
-                    key="scrape_title",
-                    help="Base title for scraped documents"
-                )
-            with col2:
-                scrape_tags = st.text_input(
-                    "Tags (comma-separated)",
-                    "",
-                    key="scrape_tags",
-                    help="Tags will be auto-tagged with domain name"
-                )
-
-            if st.button("🌐 Start Scraping", key="scrape_url_btn"):
-                if not url_input:
-                    st.error("❌ Please enter a URL")
-                else:
-                    # Show progress
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-
-                    try:
-                        # Parse tags
-                        tags = [t.strip() for t in scrape_tags.split(',') if t.strip()]
-
-                        # Start scraping
-                        status_text.text(f"🌐 Scraping {url_input}...")
-
-                        result = kb.scrape_url(
-                            url=url_input,
-                            title=scrape_title or None,
-                            tags=tags,
-                            depth=scrape_depth,
-                            limit=scrape_limit or None,
-                            threads=scrape_threads,
-                            delay=scrape_delay,
-                            selector=scrape_selector or None
-                        )
-
-                        progress_bar.empty()
-                        status_text.empty()
-
-                        if result['status'] == 'success':
-                            st.success(f"✅ **Scraping complete!**\n\n"
-                                     f"**Files scraped:** {result['files_scraped']}\n\n"
-                                     f"**Documents added:** {result['docs_added']}\n\n"
-                                     f"**Output directory:** `{result['output_dir']}`")
-
-                            # Trigger background reindexing
-                            trigger_background_reindex()
-                            st.rerun()
-
-                        elif result['status'] == 'partial':
-                            st.warning(f"⚠️ **Scraping partially complete**\n\n"
-                                     f"**Files scraped:** {result['files_scraped']}\n\n"
-                                     f"**Documents added:** {result['docs_added']}\n\n"
-                                     f"**Failed:** {result['docs_failed']}\n\n"
-                                     f"**Error:** {result.get('error', 'Unknown')}")
-
-                            # Trigger background reindexing
-                            if result['docs_added'] > 0:
-                                trigger_background_reindex()
-                                st.rerun()
-                        else:
-                            st.error(f"❌ **Scraping failed**\n\n{result.get('error', 'Unknown error')}")
-
-                    except Exception as e:
-                        progress_bar.empty()
-                        status_text.empty()
-                        st.error(f"❌ **Error during scraping:**\n\n{str(e)}")
-
     st.markdown("---")
 
     # List documents
@@ -593,8 +564,18 @@ elif page == "📚 Documents":
     if not docs:
         st.info("No documents in the knowledge base. Add some using the section above!")
     else:
-        # Search/filter
-        search_query = st.text_input("🔎 Filter documents", "")
+        # Search/filter and sort controls
+        col1, col2 = st.columns([3, 1])
+
+        with col1:
+            search_query = st.text_input("🔎 Filter documents", "")
+
+        with col2:
+            sort_by = st.selectbox(
+                "Sort by",
+                ["Date Added (Newest)", "Date Added (Oldest)", "Title (A-Z)", "Title (Z-A)", "File Type"],
+                key="doc_sort"
+            )
 
         # Filter documents
         filtered_docs = docs
@@ -602,11 +583,25 @@ elif page == "📚 Documents":
             filtered_docs = [d for d in docs if search_query.lower() in d.title.lower() or
                            search_query.lower() in d.filename.lower()]
 
+        # Sort documents
+        if sort_by == "Date Added (Newest)":
+            filtered_docs = sorted(filtered_docs, key=lambda d: d.indexed_at, reverse=True)
+        elif sort_by == "Date Added (Oldest)":
+            filtered_docs = sorted(filtered_docs, key=lambda d: d.indexed_at)
+        elif sort_by == "Title (A-Z)":
+            filtered_docs = sorted(filtered_docs, key=lambda d: d.title.lower())
+        elif sort_by == "Title (Z-A)":
+            filtered_docs = sorted(filtered_docs, key=lambda d: d.title.lower(), reverse=True)
+        elif sort_by == "File Type":
+            filtered_docs = sorted(filtered_docs, key=lambda d: (d.file_type, d.title.lower()))
+
         st.write(f"Showing {len(filtered_docs)} of {len(docs)} documents")
 
         # Display documents
         for doc in filtered_docs:
-            with st.expander(f"📄 {doc.title}", expanded=False):
+            # Format indexed date for display
+            indexed_date = format_timestamp(doc.indexed_at) if doc.indexed_at else "N/A"
+            with st.expander(f"📄 {doc.title} • 📅 {indexed_date}", expanded=False):
                 col1, col2 = st.columns([3, 1])
 
                 with col1:
@@ -672,18 +667,25 @@ elif page == "📚 Documents":
                         full_doc = kb.get_document(doc.doc_id)
 
                         if full_doc and 'chunks' in full_doc:
+                            chunk_count = len(full_doc['chunks'])
+
                             # Show preview options
                             preview_col1, preview_col2 = st.columns([2, 1])
 
                             with preview_col1:
-                                chunk_count = len(full_doc['chunks'])
-                                preview_chunks = st.slider(
-                                    "Number of chunks to preview",
-                                    min_value=1,
-                                    max_value=min(chunk_count, 10),
-                                    value=min(3, chunk_count),
-                                    key=f"preview_slider_{doc.doc_id}"
-                                )
+                                # Only show slider if there's more than 1 chunk
+                                if chunk_count > 1:
+                                    preview_chunks = st.slider(
+                                        "Number of chunks to preview",
+                                        min_value=1,
+                                        max_value=min(chunk_count, 10),
+                                        value=min(3, chunk_count),
+                                        key=f"preview_slider_{doc.doc_id}"
+                                    )
+                                else:
+                                    # Single chunk - no slider needed
+                                    preview_chunks = 1
+                                    st.info("📄 Single chunk document")
 
                             with preview_col2:
                                 show_metadata = st.checkbox("Show metadata", value=False, key=f"meta_{doc.doc_id}")
@@ -1093,6 +1095,368 @@ elif page == "📚 Documents":
                             )
                         else:
                             st.error("Please enter at least one document ID")
+
+# ========== WEB SCRAPING PAGE ==========
+elif page == "🌐 Web Scraping":
+    st.title("🌐 Web Scraping")
+    st.write("Scrape documentation websites and convert them to searchable markdown documents.")
+
+    # Add URL section
+    with st.expander("➕ Add New URL to Scrape", expanded=True):
+        st.subheader("Scrape Documentation Website")
+
+        url_input = st.text_input(
+            "📍 Website URL",
+            placeholder="https://docs.example.com/api/",
+            key="scrape_url_input",
+            help="Enter the starting URL to scrape"
+        )
+
+        # Configuration options
+        with st.expander("⚙️ Advanced Scraping Options", expanded=False):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                scrape_depth = st.number_input(
+                    "Max Depth",
+                    min_value=1,
+                    max_value=100,
+                    value=50,
+                    help="Maximum link depth to follow from the starting URL"
+                )
+                scrape_threads = st.number_input(
+                    "Threads",
+                    min_value=1,
+                    max_value=20,
+                    value=10,
+                    help="Number of concurrent download threads for faster scraping"
+                )
+
+            with col2:
+                scrape_delay = st.number_input(
+                    "Delay (ms)",
+                    min_value=0,
+                    max_value=5000,
+                    value=100,
+                    help="Delay between requests to avoid overwhelming the server"
+                )
+                scrape_limit = st.text_input(
+                    "Limit URLs (optional)",
+                    placeholder="https://docs.example.com/api/",
+                    help="Only scrape URLs with this prefix (useful for staying within a section)"
+                )
+
+            scrape_selector = st.text_input(
+                "CSS Selector (optional)",
+                placeholder="article.main-content",
+                help="CSS selector to extract specific content (e.g., main article body)"
+            )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            scrape_title = st.text_input(
+                "Base Title (optional)",
+                "",
+                key="scrape_title",
+                help="Base title for scraped documents (will be combined with page titles)"
+            )
+        with col2:
+            scrape_tags = st.text_input(
+                "Tags (comma-separated)",
+                "",
+                key="scrape_tags",
+                help="Additional tags (domain name will be auto-added)"
+            )
+
+        if st.button("🚀 Start Scraping", key="scrape_url_btn", type="primary"):
+            if not url_input:
+                st.error("❌ Please enter a URL")
+            else:
+                # Show centered loading indicator
+                loading_container = st.empty()
+
+                with loading_container.container():
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    with col2:
+                        st.markdown("""
+                            <style>
+                            .scraping-container {
+                                padding: 2rem;
+                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                border-radius: 15px;
+                                box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                                text-align: center;
+                                margin: 2rem 0;
+                            }
+                            .scraping-text {
+                                color: white;
+                                font-size: 1.5rem;
+                                font-weight: bold;
+                                margin-top: 1rem;
+                            }
+                            .scraping-subtext {
+                                color: rgba(255,255,255,0.9);
+                                font-size: 1rem;
+                                margin-top: 0.5rem;
+                            }
+                            @keyframes pulse {
+                                0%, 100% { transform: scale(1); }
+                                50% { transform: scale(1.1); }
+                            }
+                            .scraping-icon {
+                                font-size: 3rem;
+                                animation: pulse 2s ease-in-out infinite;
+                            }
+                            </style>
+                            <div class="scraping-container">
+                                <div class="scraping-icon">🌐</div>
+                                <div class="scraping-text">Scraping Website</div>
+                                <div class="scraping-subtext">Please wait while we fetch and process the content...</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+
+                        st.markdown(f"**URL:** {url_input}")
+                        progress_bar = st.progress(0)
+
+                try:
+                    # Parse tags
+                    tags = [t.strip() for t in scrape_tags.split(',') if t.strip()]
+
+                    # Start scraping
+                    result = kb.scrape_url(
+                        url=url_input,
+                        title=scrape_title or None,
+                        tags=tags,
+                        depth=scrape_depth,
+                        limit=scrape_limit or None,
+                        threads=scrape_threads,
+                        delay=scrape_delay,
+                        selector=scrape_selector or None
+                    )
+
+                    # Clear loading indicator
+                    loading_container.empty()
+
+                    if result['status'] == 'success':
+                        st.success(f"✅ **Scraping complete!**\n\n"
+                                 f"**Files scraped:** {result['files_scraped']}\n\n"
+                                 f"**Documents added:** {result['docs_added']}\n\n"
+                                 f"**Output directory:** `{result['output_dir']}`")
+
+                        # Trigger background reindexing
+                        trigger_background_reindex()
+                        st.rerun()
+
+                    elif result['status'] == 'partial':
+                        st.warning(f"⚠️ **Scraping partially complete**\n\n"
+                                 f"**Files scraped:** {result['files_scraped']}\n\n"
+                                 f"**Documents added:** {result['docs_added']}\n\n"
+                                 f"**Failed:** {result['docs_failed']}\n\n"
+                                 f"**Error:** {result.get('error', 'Unknown')}")
+
+                        # Trigger background reindexing
+                        if result['docs_added'] > 0:
+                            trigger_background_reindex()
+                            st.rerun()
+                    else:
+                        st.error(f"❌ **Scraping failed**\n\n{result.get('error', 'Unknown error')}")
+
+                except Exception as e:
+                    progress_bar.empty()
+                    status_text.empty()
+                    st.error(f"❌ **Error during scraping:**\n\n{str(e)}")
+
+    st.markdown("---")
+
+    # List scraped websites
+    st.subheader("📚 Scraped Websites")
+
+    # Get all URL-sourced documents
+    url_docs = [doc for doc in kb.documents.values() if doc.source_url]
+
+    if not url_docs:
+        st.info("No scraped websites yet. Add a URL using the section above!")
+    else:
+        # Group by domain
+        from urllib.parse import urlparse
+        websites = {}
+        for doc in url_docs:
+            domain = urlparse(doc.source_url).netloc
+            if domain not in websites:
+                websites[domain] = []
+            websites[domain].append(doc)
+
+        # Display statistics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Websites", len(websites))
+        with col2:
+            st.metric("Total Pages", len(url_docs))
+        with col3:
+            # Count successful scrapes
+            successful = sum(1 for doc in url_docs if doc.scrape_status == 'success')
+            st.metric("Successful", successful)
+
+        st.markdown("---")
+
+        # Search/filter
+        search_query = st.text_input("🔎 Filter websites", "")
+
+        # Filter websites
+        filtered_websites = {}
+        if search_query:
+            for domain, docs in websites.items():
+                matching_docs = [d for d in docs if search_query.lower() in d.title.lower() or
+                               search_query.lower() in d.source_url.lower()]
+                if matching_docs:
+                    filtered_websites[domain] = matching_docs
+        else:
+            filtered_websites = websites
+
+        st.write(f"Showing {len(filtered_websites)} of {len(websites)} websites")
+
+        # Display each website
+        for domain, docs in sorted(filtered_websites.items()):
+            with st.expander(f"🌐 {domain} ({len(docs)} pages)", expanded=False):
+                # Website summary
+                st.write(f"**Domain:** {domain}")
+                st.write(f"**Pages scraped:** {len(docs)}")
+
+                # Latest scrape date
+                latest_scrape = max([doc.scrape_date for doc in docs if doc.scrape_date], default=None)
+                if latest_scrape:
+                    st.write(f"**Last scraped:** {format_timestamp(latest_scrape)}")
+
+                # Tags summary
+                all_tags = set()
+                for doc in docs:
+                    all_tags.update(doc.tags)
+                if all_tags:
+                    st.write(f"**Tags:** {', '.join(sorted(all_tags))}")
+
+                st.markdown("---")
+
+                # Actions
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    if st.button(f"🔄 Re-scrape All", key=f"rescrape_all_{domain}"):
+                        with st.spinner(f"Re-scraping all pages from {domain}..."):
+                            rescrape_count = 0
+                            for doc in docs:
+                                try:
+                                    result = kb.rescrape_document(doc.doc_id)
+                                    if result['status'] == 'success':
+                                        rescrape_count += 1
+                                except Exception as e:
+                                    st.error(f"Error re-scraping {doc.title}: {str(e)}")
+
+                            if rescrape_count > 0:
+                                trigger_background_reindex()
+                                st.success(f"✅ Re-scraped {rescrape_count} pages")
+                                st.rerun()
+
+                with col2:
+                    if st.button(f"📋 View All Pages", key=f"view_pages_{domain}"):
+                        st.session_state[f"show_pages_{domain}"] = not st.session_state.get(f"show_pages_{domain}", False)
+                        st.rerun()
+
+                with col3:
+                    if st.button(f"🗑️ Delete All", key=f"delete_all_{domain}"):
+                        st.session_state[f"confirm_delete_{domain}"] = True
+                        st.rerun()
+
+                # Confirm delete
+                if st.session_state.get(f"confirm_delete_{domain}", False):
+                    st.warning(f"⚠️ This will delete all {len(docs)} pages from {domain}")
+                    confirm_col1, confirm_col2 = st.columns(2)
+                    with confirm_col1:
+                        if st.button(f"✅ Confirm Delete", key=f"confirm_del_{domain}"):
+                            for doc in docs:
+                                kb.remove_document(doc.doc_id)
+                            trigger_background_reindex()
+                            st.session_state[f"confirm_delete_{domain}"] = False
+                            st.success(f"Deleted all pages from {domain}")
+                            st.rerun()
+                    with confirm_col2:
+                        if st.button(f"❌ Cancel", key=f"cancel_del_{domain}"):
+                            st.session_state[f"confirm_delete_{domain}"] = False
+                            st.rerun()
+
+                # Show individual pages
+                if st.session_state.get(f"show_pages_{domain}", False):
+                    st.markdown("---")
+                    st.write("**Individual Pages:**")
+
+                    for doc in sorted(docs, key=lambda d: d.title):
+                        page_col1, page_col2, page_col3, page_col4, page_col5 = st.columns([3, 1, 1, 1, 1])
+
+                        with page_col1:
+                            status_emoji = "✅" if doc.scrape_status == "success" else "⚠️"
+                            st.write(f"{status_emoji} {doc.title}")
+                            st.caption(f"🔗 {doc.source_url}")
+
+                        with page_col2:
+                            st.caption(f"{doc.total_chunks} chunks")
+
+                        with page_col3:
+                            if st.button("📄", key=f"view_md_{doc.doc_id}", help="View scraped markdown"):
+                                st.session_state[f"show_md_{doc.doc_id}"] = not st.session_state.get(f"show_md_{doc.doc_id}", False)
+                                st.rerun()
+
+                        with page_col4:
+                            if st.button("🔄", key=f"rescrape_{doc.doc_id}", help="Re-scrape this page"):
+                                with st.spinner(f"Re-scraping..."):
+                                    try:
+                                        result = kb.rescrape_document(doc.doc_id)
+                                        if result['status'] == 'success':
+                                            trigger_background_reindex()
+                                            st.success("✅ Re-scraped successfully")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"Failed: {result.get('error')}")
+                                    except Exception as e:
+                                        st.error(f"Error: {str(e)}")
+
+                        with page_col5:
+                            if st.button("🗑️", key=f"delete_{doc.doc_id}", help="Delete this page"):
+                                kb.remove_document(doc.doc_id)
+                                trigger_background_reindex()
+                                st.rerun()
+
+                        # Show markdown content if toggled
+                        if st.session_state.get(f"show_md_{doc.doc_id}", False):
+                            st.markdown("---")
+                            st.subheader("📄 Scraped Markdown Content")
+
+                            try:
+                                # Get the full document content
+                                full_doc = kb.get_document(doc.doc_id)
+
+                                if full_doc and 'chunks' in full_doc:
+                                    # Combine all chunks
+                                    markdown_content = "\n\n".join([chunk['content'] for chunk in full_doc['chunks']])
+
+                                    # Show metadata
+                                    st.info(f"**Source:** {doc.source_url}\n\n"
+                                           f"**Scraped:** {format_timestamp(doc.scrape_date) if doc.scrape_date else 'N/A'}\n\n"
+                                           f"**Total chunks:** {len(full_doc['chunks'])}")
+
+                                    # Display markdown in code block for easier viewing
+                                    st.code(markdown_content, language="markdown")
+
+                                    # Download button
+                                    st.download_button(
+                                        label="💾 Download Markdown",
+                                        data=markdown_content,
+                                        file_name=f"{doc.filename}.md",
+                                        mime="text/markdown",
+                                        key=f"download_md_{doc.doc_id}"
+                                    )
+                                else:
+                                    st.warning("No markdown content available")
+                            except Exception as e:
+                                st.error(f"Error loading markdown: {str(e)}")
 
 # ========== TAG MANAGEMENT PAGE ==========
 elif page == "🏷️ Tag Management":

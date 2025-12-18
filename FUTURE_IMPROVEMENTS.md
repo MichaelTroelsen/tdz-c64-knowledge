@@ -2,9 +2,9 @@
 
 **Status:** ✅ ALL ORIGINAL IMPROVEMENTS COMPLETED!
 
-**Last Updated:** December 13, 2025
-**Current Version:** v2.11.0
-**Current State:** Production-ready with all Priority 1-6 features fully implemented.
+**Last Updated:** December 18, 2025
+**Current Version:** v2.14.0
+**Current State:** Production-ready with all Priority 1-6 features fully implemented + URL scraping.
 
 ---
 
@@ -889,6 +889,7 @@ def restore_from_backup(self, backup_path: str):
 18. ✅ **HTML File Support** (v2.10.0) - .html/.htm ingestion
 19. ✅ **GUI Improvements** (v2.11.0) - File path input, duplicate detection, enhanced viewer
 20. ✅ **Version Management** (v2.11.0) - Centralized versioning system
+21. ✅ **URL Scraping & Web Ingestion** (v2.14.0) - Scrape documentation websites with mdscrape
 
 ---
 
@@ -930,6 +931,7 @@ Current capabilities:
 
 ## 📈 Version History
 
+- **v2.14.0** (Dec 2025) - URL scraping & web ingestion with mdscrape integration
 - **v2.11.0** (Dec 2025) - GUI improvements, version management
 - **v2.10.0** (Dec 2025) - HTML file support
 - **v2.9.0** (Dec 2025) - Excel file support

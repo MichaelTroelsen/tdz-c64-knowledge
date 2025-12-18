@@ -11,8 +11,8 @@ This is an MCP (Model Context Protocol) server for managing and searching Commod
 ### Main Components
 
 **server.py** - MCP server implementation
-- `KnowledgeBase` class: Core data management (index + chunks storage + tables + code blocks)
-- MCP tool handlers: `search_docs`, `semantic_search`, `hybrid_search`, `add_document`, `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`, `health_check`, `find_similar`, `check_updates`, `add_documents_bulk`, `remove_documents_bulk`, `search_tables` (NEW), `search_code` (NEW)
+- `KnowledgeBase` class: Core data management (index + chunks storage + tables + code blocks + URL scraping)
+- MCP tool handlers: `search_docs`, `semantic_search`, `hybrid_search`, `add_document`, `scrape_url` (NEW), `rescrape_document` (NEW), `check_url_updates` (NEW), `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`, `health_check`, `find_similar`, `check_updates`, `add_documents_bulk`, `remove_documents_bulk`, `search_tables`, `search_code`
 - MCP resource handlers: Exposes documents as `c64kb://` URIs
 - Async server running on stdio transport
 
@@ -25,13 +25,13 @@ This is an MCP (Model Context Protocol) server for managing and searching Commod
 
 The knowledge base uses **SQLite database** for efficient storage and querying:
 - **knowledge_base.db** - SQLite database with four main tables:
-  - `documents` table - Stores DocumentMeta objects (13 fields including doc_id, title, tags, metadata)
+  - `documents` table - Stores DocumentMeta objects (22 fields including doc_id, title, tags, metadata, URL scraping fields)
   - `chunks` table - Stores DocumentChunk objects (5 fields: doc_id, chunk_id, page, content, word_count)
-  - `document_tables` table (NEW) - Stores extracted tables from PDFs (7 fields: doc_id, table_id, page, markdown, searchable_text, row_count, col_count)
-  - `document_code_blocks` table (NEW) - Stores detected code blocks (7 fields: doc_id, block_id, page, block_type, code, searchable_text, line_count)
+  - `document_tables` table - Stores extracted tables from PDFs (7 fields: doc_id, table_id, page, markdown, searchable_text, row_count, col_count)
+  - `document_code_blocks` table - Stores detected code blocks (7 fields: doc_id, block_id, page, block_type, code, searchable_text, line_count)
   - Foreign key relationships: all child tables reference documents.doc_id with CASCADE delete
-  - FTS5 indexes: `chunks_fts5`, `tables_fts` (NEW), `code_fts` (NEW) for full-text search
-  - Indexes on filepath, file_type, and doc_id for fast queries
+  - FTS5 indexes: `chunks_fts5`, `tables_fts`, `code_fts` for full-text search
+  - Indexes on filepath, file_type, doc_id, source_url, and scrape_status for fast queries
 
 **Migration from JSON**: Legacy JSON files (index.json, chunks/*.json) are automatically migrated to SQLite on first run. JSON files are preserved as backup.
 
@@ -57,6 +57,87 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 - If duplicate detected, logs warning and returns existing document (non-destructive)
 - Prevents duplicate indexing regardless of file path or filename
 - Backward compatible: filepath-based IDs still supported for legacy code
+
+### URL Scraping & Web Content Ingestion (NEW v2.14.0)
+
+**Overview**: Automatically scrape and index documentation websites using the integrated mdscrape tool. Converts HTML documentation to searchable markdown with full metadata tracking.
+
+**Core Methods**:
+- `scrape_url()` - Scrape a website and add all pages to knowledge base
+- `rescrape_document()` - Re-scrape an existing URL-sourced document to check for updates
+- `check_url_updates()` - Check all URL-sourced documents for changes (HEAD request, Last-Modified header)
+
+**Features**:
+- **Concurrent scraping** with configurable thread pools (default: 10 threads)
+- **Smart content extraction** - mdscrape automatically identifies main content and removes navigation/ads
+- **Depth control** - Follow links up to configurable depth (default: 50 levels)
+- **URL filtering** - Limit scraping to specific URL prefixes with `--limit` parameter
+- **Rate limiting** - Configurable delay between requests (default: 100ms)
+- **CSS selectors** - Optional custom selectors for content extraction
+- **Auto-tagging** - Automatically tags documents with domain name + "scraped"
+- **Persistent storage** - Scraped markdown files saved to `scraped_docs/{domain}_{timestamp}/`
+- **Update detection** - Tracks Last-Modified headers and content hashes for change detection
+- **Re-scraping** - Maintains original scrape configuration for easy updates
+- **YAML frontmatter** - Extracts source URLs and titles from scraped markdown
+
+**Database Schema Additions** (7 new fields in documents table):
+- `source_url` - Original URL if document was scraped
+- `scrape_date` - ISO timestamp of last scrape
+- `scrape_config` - JSON string with scraping configuration (depth, limit, threads, delay, selector)
+- `scrape_status` - 'success', 'partial', or 'failed'
+- `scrape_error` - Error message if scrape failed
+- `url_last_checked` - ISO timestamp of last update check
+- `url_content_hash` - MD5 hash of scraped content for change detection
+
+**MCP Tools**:
+- `scrape_url` - Scrape a documentation website (8 parameters: url, title, tags, depth, limit, threads, delay, selector)
+- `rescrape_document` - Re-scrape existing document (1 parameter: doc_id)
+- `check_url_updates` - Check for updates (1 parameter: auto_rescrape boolean)
+
+**GUI Integration** (Streamlit):
+- New "🌐 Scrape URL" tab in document addition section
+- Advanced options expander for depth, threads, delay, limit, selector configuration
+- Re-scrape buttons on document cards (only for URL-sourced documents)
+- URL metadata display (source URL, scrape date, scrape status)
+- Sidebar update checker showing count of URL-sourced documents with "Check for Updates" button
+
+**Example Usage**:
+```python
+# Via MCP tool
+result = kb.scrape_url(
+    url="https://docs.example.com/api/",
+    tags=["api", "documentation"],
+    depth=3,
+    limit="https://docs.example.com/api/",
+    threads=10,
+    delay=100
+)
+# Returns: {'status': 'success', 'files_scraped': 45, 'docs_added': 45, 'doc_ids': [...]}
+
+# Check for updates
+updates = kb.check_url_updates(auto_rescrape=False)
+# Returns: {'unchanged': [...], 'changed': [...], 'failed': [...]}
+
+# Re-scrape a document
+result = kb.rescrape_document(doc_id="abc123")
+```
+
+**Security**:
+- Only HTTP/HTTPS URLs supported (blocks file:// and other protocols)
+- URL validation with urlparse
+- Sanitized domain names for filesystem paths (replaces '.', ':', etc.)
+- Subprocess timeout (1 hour maximum)
+- Thread-safe database operations
+
+**Performance**:
+- Concurrent scraping with configurable threads (1-20)
+- Incremental document addition (processes files as they're scraped)
+- Progress callbacks for long operations
+- Efficient HEAD requests for update checking
+
+**Dependencies**:
+- **mdscrape** executable required (path: `C:\Users\mit\claude\mdscrape` or set via `MDSCRAPE_PATH` env var)
+- Install from: https://github.com/MichaelTroelsen/mdscrape
 
 ### Search Implementation
 
@@ -236,17 +317,19 @@ python cli.py remove <doc_id>
 **USE_BM25** - Enable/disable BM25 search algorithm (default: `1` for enabled, set to `0` to disable)
 **USE_QUERY_PREPROCESSING** - Enable/disable NLTK query preprocessing (default: `1` for enabled, set to `0` to disable)
 **ALLOWED_DOCS_DIRS** - Comma-separated list of allowed document directories for security (optional, no restrictions if not set)
+**MDSCRAPE_PATH** - Path to mdscrape executable for URL scraping (optional, auto-detected from `C:\Users\mit\claude\mdscrape` or PATH)
 
 When adding to Claude Code or Claude Desktop, set these in the MCP config `env` section:
 ```json
 "env": {
-  "TDZ_DATA_DIR": "C:\\Users\\YourName\\c64-knowledge-data",
+  "TDZ_DATA_DIR": "C:\\Users\\mit\\c64-knowledge-data",
   "USE_FTS5": "1",
   "USE_SEMANTIC_SEARCH": "1",
   "SEMANTIC_MODEL": "all-MiniLM-L6-v2",
   "USE_BM25": "1",
   "USE_QUERY_PREPROCESSING": "1",
-  "ALLOWED_DOCS_DIRS": "C:\\Users\\YourName\\Documents\\C64Docs"
+  "ALLOWED_DOCS_DIRS": "C:\\Users\\mit\\Downloads\\tdz-c64-knowledge-input",
+  "MDSCRAPE_PATH": "C:\\Users\\mit\\claude\\mdscrape\\mdscrape.exe"
 }
 ```
 

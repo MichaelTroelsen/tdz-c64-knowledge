@@ -174,6 +174,14 @@ class DocumentMeta:
     # Update detection fields
     file_mtime: Optional[float] = None  # File modification time
     file_hash: Optional[str] = None  # MD5 hash of file content
+    # URL scraping fields (optional)
+    source_url: Optional[str] = None  # Original URL if document was scraped
+    scrape_date: Optional[str] = None  # ISO timestamp of last scrape
+    scrape_config: Optional[str] = None  # JSON string with scraping config
+    scrape_status: Optional[str] = None  # 'success', 'partial', 'failed'
+    scrape_error: Optional[str] = None  # Error message if scrape failed
+    url_last_checked: Optional[str] = None  # ISO timestamp of last update check
+    url_content_hash: Optional[str] = None  # Hash of scraped content for change detection
 
 
 @dataclass
@@ -367,13 +375,22 @@ class KnowledgeBase:
                     creator TEXT,
                     creation_date TEXT,
                     file_mtime REAL,
-                    file_hash TEXT
+                    file_hash TEXT,
+                    source_url TEXT,
+                    scrape_date TEXT,
+                    scrape_config TEXT,
+                    scrape_status TEXT,
+                    scrape_error TEXT,
+                    url_last_checked TEXT,
+                    url_content_hash TEXT
                 )
             """)
 
             # Create indexes on documents table
             cursor.execute("CREATE INDEX idx_documents_filepath ON documents(filepath)")
             cursor.execute("CREATE INDEX idx_documents_file_type ON documents(file_type)")
+            cursor.execute("CREATE INDEX idx_documents_source_url ON documents(source_url)")
+            cursor.execute("CREATE INDEX idx_documents_scrape_status ON documents(scrape_status)")
 
             # Create chunks table
             cursor.execute("""
@@ -621,6 +638,24 @@ class KnowledgeBase:
                 self.logger.info("Migrating database: adding file_hash column")
                 cursor.execute("ALTER TABLE documents ADD COLUMN file_hash TEXT")
                 self.db_conn.commit()
+
+            # Migrate: Add URL scraping columns if missing
+            if 'source_url' not in columns:
+                self.logger.info("Migrating database: adding URL scraping columns")
+                cursor.execute("ALTER TABLE documents ADD COLUMN source_url TEXT")
+                cursor.execute("ALTER TABLE documents ADD COLUMN scrape_date TEXT")
+                cursor.execute("ALTER TABLE documents ADD COLUMN scrape_config TEXT")
+                cursor.execute("ALTER TABLE documents ADD COLUMN scrape_status TEXT")
+                cursor.execute("ALTER TABLE documents ADD COLUMN scrape_error TEXT")
+                cursor.execute("ALTER TABLE documents ADD COLUMN url_last_checked TEXT")
+                cursor.execute("ALTER TABLE documents ADD COLUMN url_content_hash TEXT")
+
+                # Create indexes for URL columns
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_source_url ON documents(source_url)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_scrape_status ON documents(scrape_status)")
+
+                self.db_conn.commit()
+                self.logger.info("URL scraping columns and indexes added successfully")
 
             # Check if FTS5 table exists and populate if needed
             try:
@@ -960,7 +995,14 @@ class KnowledgeBase:
                     creator=row[11],
                     creation_date=row[12],
                     file_mtime=row[13] if len(row) > 13 else None,
-                    file_hash=row[14] if len(row) > 14 else None
+                    file_hash=row[14] if len(row) > 14 else None,
+                    source_url=row[15] if len(row) > 15 else None,
+                    scrape_date=row[16] if len(row) > 16 else None,
+                    scrape_config=row[17] if len(row) > 17 else None,
+                    scrape_status=row[18] if len(row) > 18 else None,
+                    scrape_error=row[19] if len(row) > 19 else None,
+                    url_last_checked=row[20] if len(row) > 20 else None,
+                    url_content_hash=row[21] if len(row) > 21 else None
                 )
                 self.documents[doc.doc_id] = doc
 
@@ -1014,8 +1056,10 @@ class KnowledgeBase:
             cursor.execute("""
                 INSERT OR REPLACE INTO documents
                 (doc_id, filename, title, filepath, file_type, total_pages, total_chunks,
-                 indexed_at, tags, author, subject, creator, creation_date, file_mtime, file_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 indexed_at, tags, author, subject, creator, creation_date, file_mtime, file_hash,
+                 source_url, scrape_date, scrape_config, scrape_status, scrape_error,
+                 url_last_checked, url_content_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 doc_meta.doc_id,
                 doc_meta.filename,
@@ -1031,7 +1075,14 @@ class KnowledgeBase:
                 doc_meta.creator,
                 doc_meta.creation_date,
                 doc_meta.file_mtime,
-                doc_meta.file_hash
+                doc_meta.file_hash,
+                doc_meta.source_url,
+                doc_meta.scrape_date,
+                doc_meta.scrape_config,
+                doc_meta.scrape_status,
+                doc_meta.scrape_error,
+                doc_meta.url_last_checked,
+                doc_meta.url_content_hash
             ))
 
             # Delete old chunks if re-indexing
@@ -2369,6 +2420,127 @@ class KnowledgeBase:
                 md5_hash.update(chunk)
         return md5_hash.hexdigest()
 
+    def _find_mdscrape_executable(self) -> Optional[str]:
+        """Find mdscrape executable in common locations.
+
+        Returns:
+            Path to mdscrape executable, or None if not found
+        """
+        import shutil
+
+        # Check if mdscrape is in PATH
+        mdscrape = shutil.which('mdscrape')
+        if mdscrape:
+            self.logger.info(f"Found mdscrape in PATH: {mdscrape}")
+            return mdscrape
+
+        # Check common Windows/Linux paths
+        common_paths = [
+            Path(r'C:\Users\mit\claude\mdscrape\mdscrape.exe'),  # User-specified location
+            Path(r'C:\Users\mit\claude\mdscrape\mdscrape'),
+            Path.home() / 'claude' / 'mdscrape' / 'mdscrape.exe',
+            Path.home() / 'claude' / 'mdscrape' / 'mdscrape',
+            Path(__file__).parent.parent / 'mdscrape' / 'mdscrape.exe',
+            Path(__file__).parent.parent / 'mdscrape' / 'mdscrape',
+        ]
+
+        for path in common_paths:
+            if path.exists():
+                self.logger.info(f"Found mdscrape at: {path}")
+                return str(path)
+
+        # Check MDSCRAPE_PATH environment variable
+        env_path = os.environ.get('MDSCRAPE_PATH')
+        if env_path:
+            path = Path(env_path)
+            if path.exists():
+                self.logger.info(f"Found mdscrape via MDSCRAPE_PATH: {path}")
+                return str(path)
+
+        self.logger.warning("mdscrape executable not found. Install from: https://github.com/MichaelTroelsen/mdscrape")
+        return None
+
+    def _extract_source_url_from_md(self, md_file: Path) -> Optional[str]:
+        """Extract source URL from YAML frontmatter in markdown file.
+
+        Args:
+            md_file: Path to markdown file
+
+        Returns:
+            Source URL if found, None otherwise
+        """
+        try:
+            with open(md_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Parse YAML frontmatter (between --- delimiters)
+            if content.startswith('---'):
+                parts = content.split('---', 2)
+                if len(parts) >= 3:
+                    frontmatter = parts[1]
+                    # Simple YAML parsing for 'source:' or 'url:' field
+                    for line in frontmatter.split('\n'):
+                        line = line.strip()
+                        if line.startswith('source:') or line.startswith('url:'):
+                            # Extract URL after colon
+                            url = line.split(':', 1)[1].strip().strip('"\'')
+                            if url:
+                                return url
+        except Exception as e:
+            self.logger.warning(f"Failed to extract URL from {md_file}: {e}")
+
+        return None
+
+    def _add_scraped_document(self, filepath: str, source_url: str, title: Optional[str],
+                              tags: Optional[list[str]], scrape_config: str,
+                              scrape_date: str) -> DocumentMeta:
+        """Add a scraped markdown document with URL metadata.
+
+        Args:
+            filepath: Path to scraped markdown file
+            source_url: Original URL that was scraped
+            title: Optional title for document
+            tags: Optional list of tags
+            scrape_config: JSON string with scraping configuration
+            scrape_date: ISO timestamp of scrape
+
+        Returns:
+            DocumentMeta object for added document
+        """
+        # First, add document using normal flow
+        doc = self.add_document(filepath, title, tags)
+
+        # Compute content hash for change detection
+        url_content_hash = self._compute_file_hash(filepath)
+
+        # Update database with URL metadata
+        with self._lock:
+            cursor = self.db_conn.cursor()
+            cursor.execute("""
+                UPDATE documents
+                SET source_url = ?,
+                    scrape_date = ?,
+                    scrape_config = ?,
+                    scrape_status = 'success',
+                    url_content_hash = ?
+                WHERE doc_id = ?
+            """, (source_url, scrape_date, scrape_config, url_content_hash, doc.doc_id))
+
+            self.db_conn.commit()
+
+        # Update in-memory object
+        doc.source_url = source_url
+        doc.scrape_date = scrape_date
+        doc.scrape_config = scrape_config
+        doc.scrape_status = 'success'
+        doc.url_content_hash = url_content_hash
+
+        # Update in documents dict
+        self.documents[doc.doc_id] = doc
+
+        self.logger.info(f"Added scraped document: {doc.title} (from {source_url})")
+        return doc
+
     def add_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
                      progress_callback: ProgressCallback = None) -> DocumentMeta:
         """Add a document to the knowledge base.
@@ -2589,7 +2761,387 @@ class KnowledgeBase:
             ))
 
         return doc_meta
-    
+
+    def scrape_url(self, url: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
+                   depth: int = 50, limit: Optional[str] = None, threads: int = 10,
+                   delay: int = 100, selector: Optional[str] = None,
+                   progress_callback: ProgressCallback = None) -> dict:
+        """Scrape a URL using mdscrape and add resulting documents to knowledge base.
+
+        Args:
+            url: Starting URL to scrape
+            title: Optional base title for scraped documents
+            tags: Optional list of tags (domain name auto-added)
+            depth: Maximum crawl depth (default: 50)
+            limit: Limit scraping to URLs with this prefix (default: url)
+            threads: Number of concurrent threads (default: 10)
+            delay: Delay between requests in ms (default: 100)
+            selector: CSS selector for main content (optional)
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            Dictionary with scraping results:
+            {
+                'status': 'success' | 'partial' | 'failed',
+                'url': original_url,
+                'output_dir': path_to_scraped_files,
+                'files_scraped': count,
+                'docs_added': count,
+                'docs_updated': count,
+                'docs_failed': count,
+                'error': error_message (if failed),
+                'doc_ids': [list of added doc_ids]
+            }
+        """
+        import subprocess
+        from urllib.parse import urlparse
+        from datetime import datetime
+
+        # 1. Validate URL
+        try:
+            parsed = urlparse(url)
+            if not parsed.scheme or not parsed.netloc:
+                raise ValueError(f"Invalid URL: {url}")
+            if parsed.scheme not in ['http', 'https']:
+                raise ValueError(f"Only HTTP/HTTPS URLs supported: {url}")
+        except Exception as e:
+            return {
+                'status': 'failed',
+                'url': url,
+                'error': f"Invalid URL: {str(e)}"
+            }
+
+        # 2. Extract domain for auto-tagging
+        domain = parsed.netloc.replace('www.', '')
+        if tags is None:
+            tags = []
+        tags = list(tags) + [domain, 'scraped']
+
+        # 3. Setup output directory in scraped_docs
+        scraped_base = self.data_dir / "scraped_docs"
+        scraped_base.mkdir(exist_ok=True)
+
+        # Use domain + timestamp for unique output dir
+        safe_domain = domain.replace('.', '_').replace(':', '_')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_dir = scraped_base / f"{safe_domain}_{timestamp}"
+
+        # 4. Build mdscrape command
+        mdscrape_path = self._find_mdscrape_executable()
+        if not mdscrape_path:
+            return {
+                'status': 'failed',
+                'url': url,
+                'error': 'mdscrape executable not found. Set MDSCRAPE_PATH or install from: https://github.com/MichaelTroelsen/mdscrape'
+            }
+
+        cmd = [
+            mdscrape_path,
+            url,
+            '--output', str(output_dir),
+            '--depth', str(depth),
+            '--threads', str(threads),
+            '--delay', str(delay)
+        ]
+
+        if limit:
+            cmd.extend(['--limit', limit])
+        if selector:
+            cmd.extend(['--selector', selector])
+
+        # 5. Store scrape config
+        scrape_config = {
+            'url': url,
+            'depth': depth,
+            'limit': limit,
+            'threads': threads,
+            'delay': delay,
+            'selector': selector,
+            'timestamp': datetime.now().isoformat()
+        }
+        scrape_config_json = json.dumps(scrape_config)
+
+        # 6. Execute mdscrape
+        self.logger.info(f"Scraping URL: {url}")
+        self.logger.info(f"Command: {' '.join(cmd)}")
+
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="scrape_url",
+                current=0,
+                total=100,
+                message="Starting web scraping",
+                item=url
+            ))
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=3600  # 1 hour timeout
+            )
+
+            if result.returncode != 0:
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                self.logger.error(f"Scraping failed: {error_msg}")
+                return {
+                    'status': 'failed',
+                    'url': url,
+                    'error': f"mdscrape failed: {error_msg}"
+                }
+
+            self.logger.info(f"Scraping completed successfully")
+
+        except subprocess.TimeoutExpired:
+            self.logger.error("Scraping timeout (>1 hour)")
+            return {
+                'status': 'failed',
+                'url': url,
+                'error': 'Scraping timeout (>1 hour)'
+            }
+        except Exception as e:
+            self.logger.error(f"Scraping error: {e}")
+            return {
+                'status': 'failed',
+                'url': url,
+                'error': f"Scraping error: {str(e)}"
+            }
+
+        # 7. Find all generated markdown files
+        if not output_dir.exists():
+            return {
+                'status': 'failed',
+                'url': url,
+                'error': f"Output directory not created: {output_dir}"
+            }
+
+        md_files = list(output_dir.rglob('*.md'))
+
+        if not md_files:
+            return {
+                'status': 'failed',
+                'url': url,
+                'error': f"No markdown files generated in {output_dir}"
+            }
+
+        self.logger.info(f"Found {len(md_files)} markdown files to process")
+
+        # 8. Add each file to knowledge base
+        added_docs = []
+        failed_docs = []
+        scrape_date = datetime.now().isoformat()
+
+        for i, md_file in enumerate(md_files):
+            if progress_callback:
+                progress_callback(ProgressUpdate(
+                    operation="scrape_url",
+                    current=i,
+                    total=len(md_files),
+                    message="Adding scraped document",
+                    item=md_file.name
+                ))
+
+            try:
+                # Extract source URL from frontmatter
+                source_url_for_file = self._extract_source_url_from_md(md_file)
+                if not source_url_for_file:
+                    source_url_for_file = url  # Fallback to base URL
+
+                # Use filename as title if no title provided
+                doc_title = title if title else md_file.stem.replace('_', ' ').replace('-', ' ').title()
+
+                # Add document with URL metadata
+                doc = self._add_scraped_document(
+                    filepath=str(md_file),
+                    source_url=source_url_for_file,
+                    title=doc_title,
+                    tags=tags,
+                    scrape_config=scrape_config_json,
+                    scrape_date=scrape_date
+                )
+                added_docs.append(doc.doc_id)
+                self.logger.info(f"Added: {doc.title} ({doc.doc_id})")
+
+            except Exception as e:
+                self.logger.error(f"Failed to add {md_file}: {e}")
+                failed_docs.append(str(md_file))
+
+        # 9. Return results
+        status = 'success' if not failed_docs else ('partial' if added_docs else 'failed')
+
+        result_dict = {
+            'status': status,
+            'url': url,
+            'output_dir': str(output_dir),
+            'files_scraped': len(md_files),
+            'docs_added': len(added_docs),
+            'docs_updated': 0,
+            'docs_failed': len(failed_docs),
+            'doc_ids': added_docs
+        }
+
+        if failed_docs:
+            result_dict['error'] = f"{len(failed_docs)} files failed to add"
+
+        self.logger.info(f"Scraping complete: {status} - Added {len(added_docs)}/{len(md_files)} documents")
+
+        return result_dict
+
+    def rescrape_document(self, doc_id: str, progress_callback: ProgressCallback = None) -> dict:
+        """Re-scrape an existing URL-sourced document.
+
+        Args:
+            doc_id: Document ID to re-scrape
+            progress_callback: Optional progress callback
+
+        Returns:
+            Dictionary with re-scrape results (same format as scrape_url)
+        """
+        # Get document metadata
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        doc = self.documents[doc_id]
+
+        # Check if document has source URL
+        if not doc.source_url:
+            raise ValueError(f"Document is not URL-sourced: {doc_id}")
+
+        self.logger.info(f"Re-scraping document: {doc.title} (from {doc.source_url})")
+
+        # Parse original scrape config
+        scrape_config = {}
+        if doc.scrape_config:
+            try:
+                scrape_config = json.loads(doc.scrape_config)
+            except Exception as e:
+                self.logger.warning(f"Failed to parse scrape config: {e}")
+
+        # Remove old document
+        self.logger.info(f"Removing old document version: {doc_id}")
+        self.remove_document(doc_id)
+
+        # Re-scrape with original config
+        result = self.scrape_url(
+            url=doc.source_url,
+            title=doc.title,
+            tags=doc.tags,
+            depth=scrape_config.get('depth', 50),
+            limit=scrape_config.get('limit'),
+            threads=scrape_config.get('threads', 10),
+            delay=scrape_config.get('delay', 100),
+            selector=scrape_config.get('selector'),
+            progress_callback=progress_callback
+        )
+
+        # Add rescrape metadata to result
+        result['rescrape'] = True
+        result['old_doc_id'] = doc_id
+
+        self.logger.info(f"Re-scrape complete: {result['status']}")
+        return result
+
+    def check_url_updates(self, auto_rescrape: bool = False) -> dict:
+        """Check all URL-sourced documents for updates.
+
+        Args:
+            auto_rescrape: If True, automatically re-scrape changed URLs
+
+        Returns:
+            Dictionary with lists of unchanged, changed, and failed URLs:
+            {
+                'unchanged': [list of docs with no changes],
+                'changed': [list of docs with updates available],
+                'failed': [list of docs where check failed],
+                'rescraped': [list of doc_ids that were re-scraped]
+            }
+        """
+        from datetime import datetime
+
+        results = {
+            'unchanged': [],
+            'changed': [],
+            'failed': [],
+            'rescraped': []
+        }
+
+        # Find all URL-sourced documents
+        url_docs = [doc for doc in self.documents.values() if doc.source_url]
+
+        if not url_docs:
+            self.logger.info("No URL-sourced documents to check")
+            return results
+
+        self.logger.info(f"Checking {len(url_docs)} URL-sourced documents for updates")
+
+        for doc in url_docs:
+            try:
+                import requests
+
+                # Try HEAD request first (faster)
+                response = requests.head(doc.source_url, timeout=10, allow_redirects=True)
+
+                # Update last_checked timestamp
+                with self._lock:
+                    cursor = self.db_conn.cursor()
+                    cursor.execute("""
+                        UPDATE documents
+                        SET url_last_checked = ?
+                        WHERE doc_id = ?
+                    """, (datetime.now().isoformat(), doc.doc_id))
+                    self.db_conn.commit()
+
+                # Check Last-Modified header if available
+                if 'Last-Modified' in response.headers:
+                    from email.utils import parsedate_to_datetime
+                    last_modified = parsedate_to_datetime(response.headers['Last-Modified'])
+
+                    if doc.scrape_date:
+                        scrape_dt = datetime.fromisoformat(doc.scrape_date)
+                        if last_modified > scrape_dt:
+                            self.logger.info(f"Update available: {doc.title} ({doc.source_url})")
+                            results['changed'].append({
+                                'doc_id': doc.doc_id,
+                                'title': doc.title,
+                                'url': doc.source_url,
+                                'last_modified': last_modified.isoformat(),
+                                'scraped_date': doc.scrape_date
+                            })
+
+                            # Auto-rescrape if requested
+                            if auto_rescrape:
+                                self.logger.info(f"Auto-rescaping: {doc.title}")
+                                try:
+                                    rescrape_result = self.rescrape_document(doc.doc_id)
+                                    if rescrape_result['status'] == 'success':
+                                        results['rescraped'].append(doc.doc_id)
+                                except Exception as e:
+                                    self.logger.error(f"Auto-rescrape failed: {e}")
+
+                            continue
+
+                # No change detected
+                results['unchanged'].append({
+                    'doc_id': doc.doc_id,
+                    'title': doc.title,
+                    'url': doc.source_url
+                })
+
+            except Exception as e:
+                self.logger.error(f"Failed to check {doc.source_url}: {e}")
+                results['failed'].append({
+                    'doc_id': doc.doc_id,
+                    'title': doc.title,
+                    'url': doc.source_url,
+                    'error': str(e)
+                })
+
+        self.logger.info(f"Update check complete: {len(results['unchanged'])} unchanged, "
+                        f"{len(results['changed'])} changed, {len(results['failed'])} failed")
+
+        return results
+
     def remove_document(self, doc_id: str) -> bool:
         """Remove a document from the knowledge base."""
         self.logger.info(f"Removing document: {doc_id}")
@@ -5777,6 +6329,81 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="scrape_url",
+            description="Scrape a documentation website and add all pages to the knowledge base using mdscrape. Useful for ingesting online documentation, tutorials, and technical resources. Follows links and converts HTML to searchable markdown.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Starting URL to scrape (e.g., https://docs.example.com/api/)"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Base title for scraped documents (optional, defaults to page titles)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags for scraped documents (domain name auto-added)"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Maximum link depth to follow (default: 50)",
+                        "default": 50
+                    },
+                    "limit": {
+                        "type": "string",
+                        "description": "Only scrape URLs with this prefix (default: starting URL)"
+                    },
+                    "threads": {
+                        "type": "integer",
+                        "description": "Number of concurrent download threads (default: 10)",
+                        "default": 10
+                    },
+                    "delay": {
+                        "type": "integer",
+                        "description": "Delay between requests in milliseconds (default: 100)",
+                        "default": 100
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector for main content (optional, auto-detected)"
+                    }
+                },
+                "required": ["url"]
+            }
+        ),
+        Tool(
+            name="rescrape_document",
+            description="Re-scrape a URL-sourced document to check for updates. Removes the old version and re-scrapes the original URL with the same configuration.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to re-scrape (must be a URL-sourced document)"
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="check_url_updates",
+            description="Check all URL-sourced documents for updates by comparing Last-Modified headers. Detects when source URLs have been modified since last scrape.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "auto_rescrape": {
+                        "type": "boolean",
+                        "description": "Automatically re-scrape changed URLs (default: false)",
+                        "default": False
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
             name="remove_document",
             description="Remove a document from the knowledge base.",
             inputSchema={
@@ -6562,7 +7189,121 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=output)]
         except Exception as e:
             return [TextContent(type="text", text=f"Error adding document: {str(e)}")]
-    
+
+    elif name == "scrape_url":
+        url = arguments.get("url")
+        title = arguments.get("title")
+        tags = arguments.get("tags", [])
+        depth = arguments.get("depth", 50)
+        limit = arguments.get("limit")
+        threads = arguments.get("threads", 10)
+        delay = arguments.get("delay", 100)
+        selector = arguments.get("selector")
+
+        try:
+            result = kb.scrape_url(
+                url=url,
+                title=title,
+                tags=tags,
+                depth=depth,
+                limit=limit,
+                threads=threads,
+                delay=delay,
+                selector=selector
+            )
+
+            output = f"Scraping Result:\n\n"
+            output += f"Status: {result['status']}\n"
+            output += f"URL: {result['url']}\n"
+            output += f"Files scraped: {result['files_scraped']}\n"
+            output += f"Documents added: {result['docs_added']}\n"
+
+            if result['docs_failed'] > 0:
+                output += f"Documents failed: {result['docs_failed']}\n"
+
+            if result.get('error'):
+                output += f"\nError: {result['error']}\n"
+
+            if result.get('doc_ids'):
+                output += f"\nAdded document IDs:\n"
+                for doc_id in result['doc_ids'][:10]:  # Show first 10
+                    doc = kb.documents.get(doc_id)
+                    if doc:
+                        output += f"  - {doc.title} ({doc_id})\n"
+                if len(result['doc_ids']) > 10:
+                    output += f"  ... and {len(result['doc_ids']) - 10} more\n"
+
+            if result['status'] == 'success':
+                output += f"\nOutput directory: {result['output_dir']}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error scraping URL: {str(e)}")]
+
+    elif name == "rescrape_document":
+        doc_id = arguments.get("doc_id")
+
+        try:
+            result = kb.rescrape_document(doc_id)
+
+            output = f"Re-scrape Result:\n\n"
+            output += f"Status: {result['status']}\n"
+            output += f"Original doc ID: {result['old_doc_id']}\n"
+            output += f"Documents added: {result['docs_added']}\n"
+
+            if result.get('error'):
+                output += f"Error: {result['error']}\n"
+
+            if result.get('doc_ids'):
+                output += f"\nNew document IDs:\n"
+                for doc_id in result['doc_ids'][:5]:
+                    doc = kb.documents.get(doc_id)
+                    if doc:
+                        output += f"  - {doc.title} ({doc_id})\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error re-scraping: {str(e)}")]
+
+    elif name == "check_url_updates":
+        auto_rescrape = arguments.get("auto_rescrape", False)
+
+        try:
+            results = kb.check_url_updates(auto_rescrape)
+
+            output = "URL Update Check:\n\n"
+
+            if results['unchanged']:
+                output += f"✓ {len(results['unchanged'])} documents unchanged\n"
+
+            if results['changed']:
+                output += f"⚠ {len(results['changed'])} documents have updates:\n"
+                for doc in results['changed'][:10]:  # Show first 10
+                    output += f"  - {doc['title']}\n"
+                    output += f"    URL: {doc['url']}\n"
+                    output += f"    Last modified: {doc['last_modified']}\n"
+                if len(results['changed']) > 10:
+                    output += f"  ... and {len(results['changed']) - 10} more\n"
+                output += "\n"
+
+            if results['failed']:
+                output += f"✗ {len(results['failed'])} checks failed:\n"
+                for doc in results['failed'][:5]:
+                    output += f"  - {doc['title']}: {doc['error']}\n"
+                output += "\n"
+
+            if auto_rescrape and results['rescraped']:
+                output += f"✓ {len(results['rescraped'])} documents re-scraped\n"
+            elif not auto_rescrape and results['changed']:
+                output += "\nTip: Use auto_rescrape=true to automatically update changed documents.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error checking updates: {str(e)}")]
+
     elif name == "remove_document":
         doc_id = arguments.get("doc_id")
         

@@ -112,6 +112,34 @@ page = st.sidebar.radio(
 st.sidebar.markdown("---")
 st.sidebar.info(f"**Data Directory:**\n`{st.session_state.data_dir}`")
 
+# URL Update Checker
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔄 URL Update Check")
+
+url_docs = [d for d in kb.documents.values() if d.source_url]
+if url_docs:
+    st.sidebar.write(f"📊 {len(url_docs)} URL-sourced documents")
+
+    if st.sidebar.button("Check for Updates"):
+        with st.spinner("Checking URLs..."):
+            try:
+                results = kb.check_url_updates(auto_rescrape=False)
+
+                if results['changed']:
+                    st.sidebar.warning(f"⚠️ {len(results['changed'])} documents have updates available")
+                    for doc in results['changed'][:3]:  # Show first 3
+                        st.sidebar.write(f"- {doc['title']}")
+                else:
+                    st.sidebar.success("✅ All documents up to date")
+
+                if results['failed']:
+                    st.sidebar.error(f"❌ {len(results['failed'])} checks failed")
+
+            except Exception as e:
+                st.sidebar.error(f"Error checking updates: {str(e)}")
+else:
+    st.sidebar.info("No URL-sourced documents")
+
 # Show index building status
 if st.session_state.get('index_status') == 'building':
     st.sidebar.warning("⏳ **Building search index...**\nFirst search will be ready soon.")
@@ -215,7 +243,7 @@ elif page == "📚 Documents":
 
     # Add document section
     with st.expander("➕ Add Documents", expanded=False):
-        upload_tabs = st.tabs(["📄 Single Upload", "📦 Bulk Upload", "📁 Add by File Path"])
+        upload_tabs = st.tabs(["📄 Single Upload", "📦 Bulk Upload", "📁 Add by File Path", "🌐 Scrape URL"])
 
         # Tab 1: Single Upload
         with upload_tabs[0]:
@@ -430,6 +458,131 @@ elif page == "📚 Documents":
                         except Exception as e:
                             st.error(f"❌ **Error adding document:**\n\n{str(e)}")
 
+        # Tab 4: Scrape URL
+        with upload_tabs[3]:
+            st.subheader("Scrape Documentation Website")
+            st.write("🌐 **Enter a documentation URL to scrape and index**")
+
+            url_input = st.text_input(
+                "Starting URL",
+                placeholder="https://docs.example.com/api/",
+                key="scrape_url_input"
+            )
+
+            # Configuration options
+            with st.expander("⚙️ Advanced Options", expanded=False):
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    scrape_depth = st.number_input(
+                        "Max Depth",
+                        min_value=1,
+                        max_value=100,
+                        value=50,
+                        help="Maximum link depth to follow"
+                    )
+                    scrape_threads = st.number_input(
+                        "Threads",
+                        min_value=1,
+                        max_value=20,
+                        value=10,
+                        help="Number of concurrent download threads"
+                    )
+
+                with col2:
+                    scrape_delay = st.number_input(
+                        "Delay (ms)",
+                        min_value=0,
+                        max_value=5000,
+                        value=100,
+                        help="Delay between requests"
+                    )
+                    scrape_limit = st.text_input(
+                        "Limit URLs (optional)",
+                        placeholder="https://docs.example.com/api/",
+                        help="Only scrape URLs with this prefix"
+                    )
+
+                scrape_selector = st.text_input(
+                    "CSS Selector (optional)",
+                    placeholder="article.main-content",
+                    help="CSS selector for main content"
+                )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                scrape_title = st.text_input(
+                    "Base Title (optional)",
+                    "",
+                    key="scrape_title",
+                    help="Base title for scraped documents"
+                )
+            with col2:
+                scrape_tags = st.text_input(
+                    "Tags (comma-separated)",
+                    "",
+                    key="scrape_tags",
+                    help="Tags will be auto-tagged with domain name"
+                )
+
+            if st.button("🌐 Start Scraping", key="scrape_url_btn"):
+                if not url_input:
+                    st.error("❌ Please enter a URL")
+                else:
+                    # Show progress
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+
+                    try:
+                        # Parse tags
+                        tags = [t.strip() for t in scrape_tags.split(',') if t.strip()]
+
+                        # Start scraping
+                        status_text.text(f"🌐 Scraping {url_input}...")
+
+                        result = kb.scrape_url(
+                            url=url_input,
+                            title=scrape_title or None,
+                            tags=tags,
+                            depth=scrape_depth,
+                            limit=scrape_limit or None,
+                            threads=scrape_threads,
+                            delay=scrape_delay,
+                            selector=scrape_selector or None
+                        )
+
+                        progress_bar.empty()
+                        status_text.empty()
+
+                        if result['status'] == 'success':
+                            st.success(f"✅ **Scraping complete!**\n\n"
+                                     f"**Files scraped:** {result['files_scraped']}\n\n"
+                                     f"**Documents added:** {result['docs_added']}\n\n"
+                                     f"**Output directory:** `{result['output_dir']}`")
+
+                            # Trigger background reindexing
+                            trigger_background_reindex()
+                            st.rerun()
+
+                        elif result['status'] == 'partial':
+                            st.warning(f"⚠️ **Scraping partially complete**\n\n"
+                                     f"**Files scraped:** {result['files_scraped']}\n\n"
+                                     f"**Documents added:** {result['docs_added']}\n\n"
+                                     f"**Failed:** {result['docs_failed']}\n\n"
+                                     f"**Error:** {result.get('error', 'Unknown')}")
+
+                            # Trigger background reindexing
+                            if result['docs_added'] > 0:
+                                trigger_background_reindex()
+                                st.rerun()
+                        else:
+                            st.error(f"❌ **Scraping failed**\n\n{result.get('error', 'Unknown error')}")
+
+                    except Exception as e:
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.error(f"❌ **Error during scraping:**\n\n{str(e)}")
+
     st.markdown("---")
 
     # List documents
@@ -467,6 +620,15 @@ elif page == "📚 Documents":
                         st.write(f"**Tags:** {', '.join(doc.tags)}")
                     st.write(f"**Indexed:** {format_timestamp(doc.indexed_at)}")
 
+                    # Show URL metadata for scraped documents
+                    if doc.source_url:
+                        st.write(f"**Source URL:** {doc.source_url}")
+                        if doc.scrape_date:
+                            st.write(f"**Scraped:** {format_timestamp(doc.scrape_date)}")
+                        if doc.scrape_status:
+                            status_emoji = "✅" if doc.scrape_status == "success" else "⚠️"
+                            st.write(f"**Scrape Status:** {status_emoji} {doc.scrape_status}")
+
                 with col2:
                     if st.button(f"👁️ Preview", key=f"preview_{doc.doc_id}"):
                         st.session_state[f"show_preview_{doc.doc_id}"] = not st.session_state.get(f"show_preview_{doc.doc_id}", False)
@@ -475,6 +637,21 @@ elif page == "📚 Documents":
                     if st.button(f"🔗 Relationships", key=f"rels_{doc.doc_id}"):
                         st.session_state[f"show_relationships_{doc.doc_id}"] = not st.session_state.get(f"show_relationships_{doc.doc_id}", False)
                         st.rerun()
+
+                    # Show re-scrape button for URL-sourced documents
+                    if doc.source_url:
+                        if st.button(f"🔄 Re-scrape", key=f"rescrape_{doc.doc_id}"):
+                            with st.spinner(f"Re-scraping {doc.source_url}..."):
+                                try:
+                                    result = kb.rescrape_document(doc.doc_id)
+                                    if result['status'] == 'success':
+                                        trigger_background_reindex()
+                                        st.success(f"✅ Re-scraped successfully! Added {result['docs_added']} documents")
+                                        st.rerun()
+                                    else:
+                                        st.error(f"❌ Re-scrape failed: {result.get('error', 'Unknown')}")
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
 
                     if st.button(f"🗑️ Delete", key=f"del_{doc.doc_id}"):
                         if kb.remove_document(doc.doc_id):

@@ -50,10 +50,21 @@ The knowledge base uses **SQLite database** for efficient storage and querying:
 - `doc_id`, `block_id`, `page`, `block_type`, `code`, `searchable_text`, `line_count`
 - Foreign key: references documents.doc_id with CASCADE delete
 
+**document_entities table** - Stores extracted named entities (v2.15.0) (10 fields):
+- `doc_id`, `entity_id`, `entity_text`, `entity_type`, `confidence`, `context`, `first_chunk_id`, `occurrence_count`, `generated_at`, `model`
+- Foreign key: references documents.doc_id with CASCADE delete
+- Primary key: (doc_id, entity_id)
+
+**document_summaries table** - Stores AI-generated summaries (v2.13.0) (7 fields):
+- `doc_id`, `summary_type`, `summary_text`, `generated_at`, `model`, `token_count`, `updated_at`
+- Foreign key: references documents.doc_id with CASCADE delete
+- Primary key: (doc_id, summary_type)
+
 #### Indexes
 
-- FTS5 indexes: `chunks_fts5`, `tables_fts`, `code_fts` for full-text search
-- Performance indexes: `filepath`, `file_type`, `doc_id`, `source_url`, `scrape_status`
+- FTS5 indexes: `chunks_fts5`, `tables_fts`, `code_fts`, `entities_fts` for full-text search
+- Performance indexes: `filepath`, `file_type`, `doc_id`, `source_url`, `scrape_status`, `idx_entities_doc_id`, `idx_entities_type`, `idx_entities_text`
+- Summary index: `idx_summaries_doc_id`
 
 #### Migration from JSON
 
@@ -130,6 +141,253 @@ Documents are split into overlapping chunks (default 1500 words, 200 word overla
 
 - **mdscrape** executable required (path: `C:\Users\mit\claude\mdscrape` or set via `MDSCRAPE_PATH` env var)
 - Install from: https://github.com/MichaelTroelsen/mdscrape
+
+## Named Entity Extraction (v2.15.0)
+
+**Overview**: AI-powered named entity extraction identifies and catalogs technical entities from C64 documentation using Large Language Models (LLM). Extracts 7 entity types with confidence scoring, occurrence counting, and full-text search capabilities.
+
+### Core Methods
+
+#### extract_entities(doc_id, confidence_threshold=0.6, force_regenerate=False)
+Extract named entities from a single document using LLM.
+
+**Implementation** (server.py ~line 4350):
+1. **Validation** - Check document exists
+2. **Cache check** - Return existing entities unless force_regenerate
+3. **Content sampling** - Sample first 5 chunks (up to 5000 chars for cost control)
+4. **LLM prompt construction** - Build detailed prompt with 7 entity categories
+5. **LLM call** - Temperature 0.3 for deterministic results, max_tokens 2048
+6. **JSON parsing** - Extract entities from LLM response
+7. **Confidence filtering** - Filter by threshold (default 0.6)
+8. **Deduplication** - Case-insensitive matching, count occurrences
+9. **Database storage** - Store in document_entities table with transaction
+10. **Return results** - Structured dict with entities grouped by type
+
+**Entity Types Extracted:**
+- `hardware` - Chip names (SID, VIC-II, CIA, 6502, 6526, 6581)
+- `memory_address` - Memory addresses ($D000, $D020, $0400)
+- `instruction` - Assembly instructions (LDA, STA, JMP, JSR, RTS)
+- `person` - People mentioned (Bob Yannes, Jack Tramiel)
+- `company` - Organizations (Commodore, MOS Technology)
+- `product` - Hardware products (VIC-20, C128, 1541)
+- `concept` - Technical concepts (sprite, raster interrupt, IRQ)
+
+**Return Structure:**
+```python
+{
+    'doc_id': str,
+    'doc_title': str,
+    'entities': [
+        {
+            'entity_text': 'VIC-II',
+            'entity_type': 'hardware',
+            'confidence': 0.95,
+            'context': '...snippet...',
+            'occurrence_count': 5
+        },
+        ...
+    ],
+    'entity_count': 42,
+    'types': {'hardware': 10, 'memory_address': 8, ...}
+}
+```
+
+#### get_entities(doc_id, entity_types=None, min_confidence=0.0)
+Retrieve stored entities from database with optional filtering.
+
+**Implementation** (server.py ~line 4564):
+- Query document_entities table
+- Filter by entity_types array (optional)
+- Filter by min_confidence threshold
+- Order by entity_type, then confidence DESC
+- Returns same structure as extract_entities()
+
+#### search_entities(query, entity_types=None, min_confidence=0.0, max_results=20)
+Search entities across all documents using FTS5 full-text search.
+
+**Implementation** (server.py ~line 4641):
+1. **FTS5 query** - Search entities_fts virtual table
+2. **Filtering** - Apply entity_types and min_confidence filters
+3. **Ranking** - Order by FTS5 rank (relevance)
+4. **Grouping** - Group results by document
+5. **Enrichment** - Add document titles and match counts
+6. **Return** - Documents with matching entities and contexts
+
+**Return Structure:**
+```python
+{
+    'query': str,
+    'total_matches': int,
+    'documents': [
+        {
+            'doc_id': str,
+            'doc_title': str,
+            'matches': [
+                {
+                    'entity_text': str,
+                    'entity_type': str,
+                    'confidence': float,
+                    'context': str,
+                    'occurrence_count': int
+                },
+                ...
+            ],
+            'match_count': int
+        },
+        ...
+    ]
+}
+```
+
+#### find_docs_by_entity(entity_text, entity_type=None, min_confidence=0.0, max_results=20)
+Find all documents containing a specific entity (exact match).
+
+**Implementation** (server.py ~line 4762):
+- Exact text matching on entity_text field
+- Optional entity_type and min_confidence filtering
+- Order by confidence DESC, occurrence_count DESC
+- Returns documents with entity details
+
+#### get_entity_stats(entity_type=None)
+Get comprehensive statistics about extracted entities.
+
+**Implementation** (server.py ~line 4858):
+- Total entities and documents with entities
+- Breakdown by entity type (7 categories)
+- Top 20 entities by document count with avg confidence
+- Top 10 documents by entity count
+- Optional filtering by entity_type
+
+#### extract_entities_bulk(confidence_threshold=0.6, force_regenerate=False, max_docs=None, skip_existing=True)
+Bulk extract entities from multiple documents with progress tracking.
+
+**Implementation** (server.py ~line 4995):
+1. **Document selection** - Get all documents or limit with max_docs
+2. **Existing check** - Skip documents that already have entities (unless force_regenerate)
+3. **Batch processing** - Process each document with error handling
+4. **Statistics** - Track processed/skipped/failed counts
+5. **Aggregation** - Aggregate entity counts by type
+6. **Return** - Comprehensive results with statistics
+
+### Database Schema
+
+#### document_entities Table
+```sql
+CREATE TABLE document_entities (
+    doc_id TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    entity_text TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    context TEXT,
+    first_chunk_id INTEGER,
+    occurrence_count INTEGER DEFAULT 1,
+    generated_at TEXT NOT NULL,
+    model TEXT,
+    PRIMARY KEY (doc_id, entity_id),
+    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+)
+```
+
+#### entities_fts Virtual Table (FTS5)
+```sql
+CREATE VIRTUAL TABLE entities_fts USING fts5(
+    doc_id UNINDEXED,
+    entity_id UNINDEXED,
+    entity_text,
+    entity_type UNINDEXED,
+    context,
+    tokenize='porter unicode61'
+)
+```
+
+#### Triggers (3 total)
+- `entities_fts_insert` - Sync INSERT operations to FTS5
+- `entities_fts_delete` - Sync DELETE operations to FTS5
+- `entities_fts_update` - Sync UPDATE operations to FTS5
+
+#### Indexes (3 total)
+- `idx_entities_doc_id` - Fast lookups by document
+- `idx_entities_type` - Fast filtering by entity type
+- `idx_entities_text` - Fast lookups by entity text
+
+### Features
+
+- **Confidence Scoring** - Each entity has 0.0-1.0 confidence score from LLM
+- **Occurrence Counting** - Tracks how many times each entity appears in document
+- **Context Snippets** - Stores surrounding text (up to 100 chars) for each entity
+- **Database Caching** - Avoids re-extraction unless forced
+- **Case-Insensitive Deduplication** - Merges duplicate entities (e.g., "VIC-II" and "vic-ii")
+- **Full-Text Search** - FTS5 index enables fast search across entity text and context
+- **Type Filtering** - Filter searches and retrievals by entity type
+- **Confidence Filtering** - Filter by minimum confidence threshold
+- **Bulk Processing** - Process entire knowledge base with skip_existing optimization
+- **LLM Provider Support** - Works with Anthropic Claude and OpenAI GPT models
+
+### LLM Integration
+
+**Configuration** (environment variables):
+- `LLM_PROVIDER` - "anthropic" or "openai"
+- `ANTHROPIC_API_KEY` - Anthropic API key (if using Claude)
+- `OPENAI_API_KEY` - OpenAI API key (if using GPT)
+- `LLM_MODEL` - Optional model override
+
+**Prompt Engineering:**
+- Detailed instructions with 7 entity categories
+- Examples for each entity type
+- Request for specific JSON format
+- Temperature 0.3 for deterministic results
+- Max tokens 2048 for response
+
+**Cost Control:**
+- Samples only first 5 chunks (not entire document)
+- Limits to 5000 characters max
+- Database caching prevents re-extraction
+- Typical cost: $0.01-0.04 per document
+
+### Security
+
+- Input validation on doc_id, confidence thresholds
+- SQL injection prevention via parameterized queries
+- Transaction safety with BEGIN/COMMIT
+- CASCADE delete ensures referential integrity
+
+### Performance
+
+- **FTS5 Search** - Fast full-text search on entity text and context
+- **Lazy Loading** - Entities loaded on-demand, not at startup
+- **Indexes** - 3 B-tree indexes for fast filtering and lookups
+- **Caching** - Database-backed caching avoids LLM calls
+- **Batch Processing** - Efficient bulk extraction with error handling
+
+### MCP Tools (5 tools)
+
+**Tool Definitions** (server.py ~line 7989-8125):
+1. `extract_entities` - Extract from single document
+2. `list_entities` - List entities with filtering
+3. `search_entities` - Search across all documents
+4. `entity_stats` - Statistics dashboard
+5. `extract_entities_bulk` - Bulk extraction
+
+**Tool Handlers** (server.py ~line 8941-9329):
+- Formatted markdown output
+- Error handling with helpful LLM configuration messages
+- Sample results (first N per category)
+- Statistics summaries
+
+### CLI Commands (4 commands)
+
+**Command Definitions** (cli.py ~line 108-130):
+1. `extract-entities <doc_id>` - Single document extraction
+2. `extract-all-entities` - Bulk extraction
+3. `search-entity <query>` - Search for entities
+4. `entity-stats` - Show statistics
+
+**Command Handlers** (cli.py ~line 361-497):
+- Formatted console output
+- Progress indicators
+- Error messages with LLM setup instructions
+- Statistics displays
 
 ## Search Implementation
 

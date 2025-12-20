@@ -1,6 +1,6 @@
 # TDZ C64 Knowledge
 
-[![Version](https://img.shields.io/badge/version-2.14.0-brightgreen.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge)
+[![Version](https://img.shields.io/badge/version-2.15.0-brightgreen.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge)
 [![CI/CD Pipeline](https://github.com/MichaelTroelsen/tdz-c64-knowledge/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -52,6 +52,18 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
 - **Path traversal protection** - Whitelist allowed directories for document ingestion
 - **Comprehensive logging** - File and console logging for debugging
 - **ACID transactions** - SQLite ensures data integrity
+
+### AI-Powered Features
+- **Named Entity Extraction** - Extract and catalog technical entities from documentation using LLM
+  - **7 entity types**: hardware (SID, VIC-II), memory addresses ($D000), instructions (LDA, STA), people, companies, products, concepts
+  - **Confidence scoring** - Each entity has 0.0-1.0 confidence score
+  - **Occurrence counting** - Track how many times each entity appears
+  - **Context snippets** - See surrounding text for each entity mention
+  - **Full-text search** - Search across all entities with FTS5
+  - **Statistics dashboard** - View top entities and documents
+  - **Bulk processing** - Extract entities from entire knowledge base
+- **Document Summarization** - Generate AI summaries (brief, detailed, bullet-point)
+- **Smart Auto-Tagging** - AI-powered tag suggestions with confidence scoring
 
 ## Installation (Windows)
 
@@ -580,6 +592,180 @@ Total: 3 removed, 0 failed
 - Clean up multiple documents at once
 - Tag-based removal for flexible document management
 - Detailed failure reporting
+
+### AI-Powered Tools
+
+#### extract_entities
+Extract named entities from a document using AI (requires LLM configuration).
+
+```
+extract_entities(
+  doc_id="abc123",
+  confidence_threshold=0.6,  # 0.0-1.0, default: 0.6
+  force_regenerate=false     # Re-extract even if cached
+)
+```
+
+**Entity types extracted:**
+- `hardware` - Chip names (SID, VIC-II, CIA, 6502, 6526, 6581)
+- `memory_address` - Memory addresses ($D000, $D020, $0400)
+- `instruction` - Assembly instructions (LDA, STA, JMP, JSR, RTS)
+- `person` - People mentioned (Bob Yannes, Jack Tramiel)
+- `company` - Organizations (Commodore, MOS Technology)
+- `product` - Hardware products (VIC-20, C128, 1541)
+- `concept` - Technical concepts (sprite, raster interrupt, IRQ)
+
+**Returns:** Entities grouped by type with confidence scores, occurrence counts, and context snippets.
+
+**Example output:**
+```
+✓ Entity extraction complete!
+
+Document: C64 Programmer's Reference
+Entities Found: 42
+
+HARDWARE (10):
+  - VIC-II (confidence: 0.95, 5x)
+    *The VIC-II chip at $D000 controls video output...*
+  - SID (confidence: 0.92, 3x)
+  - CIA (confidence: 0.88, 2x)
+  ...
+
+MEMORY ADDRESS (8):
+  - $D000 (confidence: 0.98, 12x)
+  - $D020 (confidence: 0.96, 4x)
+  ...
+```
+
+#### list_entities
+List all entities from a document with optional filtering.
+
+```
+list_entities(
+  doc_id="abc123",
+  entity_types=["hardware", "memory_address"],  # Optional filter
+  min_confidence=0.7  # Optional threshold
+)
+```
+
+Returns all extracted entities matching the filters.
+
+#### search_entities
+Search for entities across all documents using full-text search.
+
+```
+search_entities(
+  query="VIC-II",
+  entity_types=["hardware"],  # Optional filter
+  min_confidence=0.7,
+  max_results=20
+)
+```
+
+**Returns:** Documents containing matching entities with contexts and match counts.
+
+**Example output:**
+```
+Entity Search Results for: VIC-II
+Total Matches: 15
+Documents Found: 8
+
+1. C64 Programmer's Reference (programmers_ref)
+   Matches: 5
+   - VIC-II (hardware, conf: 0.95, 5x)
+     *The VIC-II chip at $D000 controls...*
+   - VIC-II registers (concept, conf: 0.88, 3x)
+   ...
+
+2. VIC-II Technical Guide (vic_ii_guide)
+   Matches: 3
+   ...
+```
+
+#### entity_stats
+Show entity extraction statistics for the knowledge base.
+
+```
+entity_stats(
+  entity_type="hardware"  # Optional filter by type
+)
+```
+
+**Returns:**
+- Total entities and documents with entities
+- Breakdown by entity type
+- Top 20 entities by document count
+- Top 10 documents by entity count
+
+**Example output:**
+```
+Entity Statistics
+
+Total Entities: 1,247
+Documents with Entities: 42
+
+Entities by Type:
+  - hardware: 325
+  - memory address: 289
+  - instruction: 198
+  - concept: 167
+  - product: 142
+  - person: 78
+  - company: 48
+
+Top 10 Entities (by document count):
+1. VIC-II (hardware)
+   - Found in 28 document(s)
+   - Total occurrences: 145
+   - Avg confidence: 0.94
+
+2. $D000 (memory_address)
+   - Found in 24 document(s)
+   - Total occurrences: 98
+   - Avg confidence: 0.97
+...
+```
+
+#### extract_entities_bulk
+Bulk extract entities from multiple documents.
+
+```
+extract_entities_bulk(
+  confidence_threshold=0.6,
+  force_regenerate=false,
+  max_docs=null,  # Process all documents
+  skip_existing=true
+)
+```
+
+**Returns:** Processing statistics including processed/skipped/failed counts and entity breakdowns.
+
+**Example output:**
+```
+Bulk Entity Extraction Complete
+
+Processed: 42 documents
+Skipped: 15 documents (already have entities)
+Failed: 0 documents
+Total Entities Extracted: 1,247
+
+Entities by Type:
+  - hardware: 325
+  - memory address: 289
+  - instruction: 198
+  - concept: 167
+  - product: 142
+  - person: 78
+  - company: 48
+
+Sample Results (first 10):
+1. ✓ C64 Programmer's Reference - 58 entities
+2. ✓ VIC-II Guide - 34 entities
+3. ⊘ Memory Map - skipped (28 entities)
+...
+```
+
+**Note:** Entity extraction requires LLM configuration. Set `LLM_PROVIDER` and appropriate API key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`).
 
 ## Duplicate Detection
 

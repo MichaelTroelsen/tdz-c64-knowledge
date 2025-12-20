@@ -4690,8 +4690,8 @@ Important:
             raise ValueError("Search query cannot be empty")
 
         # Build FTS5 query
-        # Escape special FTS5 characters and prepare query
-        fts_query = query.strip().replace('"', '""')
+        # Escape special FTS5 characters and wrap in quotes for literal search
+        fts_query = f'"{query.strip().replace('"', '""')}"'
 
         # Build WHERE clause for filtering
         where_clauses = []
@@ -4720,10 +4720,9 @@ Important:
         """
 
         # Execute search
-        with self._get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query_sql, [fts_query] + params + [max_results * 10])  # Get extra for grouping
-            rows = cursor.fetchall()
+        cursor = self.db_conn.cursor()
+        cursor.execute(query_sql, [fts_query] + params + [max_results * 10])  # Get extra for grouping
+        rows = cursor.fetchall()
 
         # Group results by document
         doc_matches = {}
@@ -4828,10 +4827,9 @@ Important:
             LIMIT ?
         """
 
-        with self._get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query_sql, params + [max_results])
-            rows = cursor.fetchall()
+        cursor = self.db_conn.cursor()
+        cursor.execute(query_sql, params + [max_results])
+        rows = cursor.fetchall()
 
         # Build result list with document titles
         documents = []
@@ -4899,90 +4897,89 @@ Important:
             # Get statistics for hardware entities only
             stats = kb.get_entity_stats(entity_type='hardware')
         """
-        with self._get_db_connection() as conn:
-            cursor = conn.cursor()
+        cursor = self.db_conn.cursor()
 
-            # Total entities
-            if entity_type:
-                cursor.execute(
-                    "SELECT COUNT(*) FROM document_entities WHERE entity_type = ?",
-                    (entity_type,)
-                )
-            else:
-                cursor.execute("SELECT COUNT(*) FROM document_entities")
-            total_entities = cursor.fetchone()[0]
+        # Total entities
+        if entity_type:
+            cursor.execute(
+                "SELECT COUNT(*) FROM document_entities WHERE entity_type = ?",
+                (entity_type,)
+            )
+        else:
+            cursor.execute("SELECT COUNT(*) FROM document_entities")
+        total_entities = cursor.fetchone()[0]
 
-            # Total documents with entities
-            if entity_type:
-                cursor.execute(
-                    "SELECT COUNT(DISTINCT doc_id) FROM document_entities WHERE entity_type = ?",
-                    (entity_type,)
-                )
-            else:
-                cursor.execute("SELECT COUNT(DISTINCT doc_id) FROM document_entities")
-            total_docs = cursor.fetchone()[0]
+        # Total documents with entities
+        if entity_type:
+            cursor.execute(
+                "SELECT COUNT(DISTINCT doc_id) FROM document_entities WHERE entity_type = ?",
+                (entity_type,)
+            )
+        else:
+            cursor.execute("SELECT COUNT(DISTINCT doc_id) FROM document_entities")
+        total_docs = cursor.fetchone()[0]
 
-            # Breakdown by type
-            by_type = {}
-            if entity_type:
-                by_type[entity_type] = total_entities
-            else:
-                cursor.execute("""
-                    SELECT entity_type, COUNT(*)
-                    FROM document_entities
-                    GROUP BY entity_type
-                    ORDER BY COUNT(*) DESC
-                """)
-                by_type = {row[0]: row[1] for row in cursor.fetchall()}
-
-            # Top entities by document count
-            type_filter = "WHERE entity_type = ?" if entity_type else ""
-            params = [entity_type] if entity_type else []
-
-            cursor.execute(f"""
-                SELECT entity_text, entity_type,
-                       COUNT(DISTINCT doc_id) as doc_count,
-                       SUM(occurrence_count) as total_occurrences,
-                       AVG(confidence) as avg_confidence
+        # Breakdown by type
+        by_type = {}
+        if entity_type:
+            by_type[entity_type] = total_entities
+        else:
+            cursor.execute("""
+                SELECT entity_type, COUNT(*)
                 FROM document_entities
-                {type_filter}
-                GROUP BY entity_text, entity_type
-                ORDER BY doc_count DESC, total_occurrences DESC
-                LIMIT 20
-            """, params)
+                GROUP BY entity_type
+                ORDER BY COUNT(*) DESC
+            """)
+            by_type = {row[0]: row[1] for row in cursor.fetchall()}
 
-            top_entities = [
-                {
-                    'entity_text': row[0],
-                    'entity_type': row[1],
-                    'document_count': row[2],
-                    'total_occurrences': row[3],
-                    'avg_confidence': round(row[4], 3)
-                }
-                for row in cursor.fetchall()
-            ]
+        # Top entities by document count
+        type_filter = "WHERE entity_type = ?" if entity_type else ""
+        params = [entity_type] if entity_type else []
 
-            # Documents with most entities
-            cursor.execute(f"""
-                SELECT doc_id, COUNT(*) as entity_count
-                FROM document_entities
-                {type_filter}
-                GROUP BY doc_id
-                ORDER BY entity_count DESC
-                LIMIT 10
-            """, params)
+        cursor.execute(f"""
+            SELECT entity_text, entity_type,
+                   COUNT(DISTINCT doc_id) as doc_count,
+                   SUM(occurrence_count) as total_occurrences,
+                   AVG(confidence) as avg_confidence
+            FROM document_entities
+            {type_filter}
+            GROUP BY entity_text, entity_type
+            ORDER BY doc_count DESC, total_occurrences DESC
+            LIMIT 20
+        """, params)
 
-            docs_with_most = []
-            for row in cursor.fetchall():
-                doc_id = row[0]
-                entity_count = row[1]
-                doc = self.documents.get(doc_id)
-                if doc:
-                    docs_with_most.append({
-                        'doc_id': doc_id,
-                        'doc_title': doc.title,
-                        'entity_count': entity_count
-                    })
+        top_entities = [
+            {
+                'entity_text': row[0],
+                'entity_type': row[1],
+                'document_count': row[2],
+                'total_occurrences': row[3],
+                'avg_confidence': round(row[4], 3)
+            }
+            for row in cursor.fetchall()
+        ]
+
+        # Documents with most entities
+        cursor.execute(f"""
+            SELECT doc_id, COUNT(*) as entity_count
+            FROM document_entities
+            {type_filter}
+            GROUP BY doc_id
+            ORDER BY entity_count DESC
+            LIMIT 10
+        """, params)
+
+        docs_with_most = []
+        for row in cursor.fetchall():
+            doc_id = row[0]
+            entity_count = row[1]
+            doc = self.documents.get(doc_id)
+            if doc:
+                docs_with_most.append({
+                    'doc_id': doc_id,
+                    'doc_title': doc.title,
+                    'entity_count': entity_count
+                })
 
         return {
             'total_entities': total_entities,
@@ -5056,21 +5053,20 @@ Important:
             try:
                 # Check if entities already exist (unless force_regenerate)
                 if skip_existing and not force_regenerate:
-                    with self._get_db_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "SELECT COUNT(*) FROM document_entities WHERE doc_id = ?",
-                            (doc_id,)
-                        )
-                        existing_count = cursor.fetchone()[0]
+                    cursor = self.db_conn.cursor()
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM document_entities WHERE doc_id = ?",
+                        (doc_id,)
+                    )
+                    existing_count = cursor.fetchone()[0]
 
-                        if existing_count > 0:
-                            self.logger.info(f"[{i}/{len(docs_to_process)}] Skipping {doc_id} (already has {existing_count} entities)")
-                            doc_results['status'] = 'skipped'
-                            doc_results['entity_count'] = existing_count
-                            results['skipped'] += 1
-                            results['results'].append(doc_results)
-                            continue
+                    if existing_count > 0:
+                        self.logger.info(f"[{i}/{len(docs_to_process)}] Skipping {doc_id} (already has {existing_count} entities)")
+                        doc_results['status'] = 'skipped'
+                        doc_results['entity_count'] = existing_count
+                        results['skipped'] += 1
+                        results['results'].append(doc_results)
+                        continue
 
                 # Extract entities
                 self.logger.info(f"[{i}/{len(docs_to_process)}] Extracting entities from {doc_id}")

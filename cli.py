@@ -351,7 +351,7 @@ Examples:
                 print(f"    - {summary_type}: {count}")
 
             if results['failed'] > 0:
-                print(f"\n⚠ {results['failed']} documents failed. Check logs for details.")
+                print(f"\nWarning: {results['failed']} documents failed. Check logs for details.")
         except Exception as e:
             print(f"Error: {e}")
             print(f"\nNote: Summarization requires LLM configuration.")
@@ -374,7 +374,7 @@ Examples:
                 force_regenerate=args.force
             )
 
-            print(f"✓ Extraction Complete!\n")
+            print(f"[OK] Extraction Complete!\n")
             print(f"Document: {result['doc_title']}")
             print(f"Total entities: {result['entity_count']}\n")
 
@@ -410,7 +410,7 @@ Examples:
                 skip_existing=not args.no_skip
             )
 
-            print(f"\n✓ Bulk Extraction Complete!\n")
+            print(f"\n[OK] Bulk Extraction Complete!\n")
             print(f"Statistics:")
             print(f"  Documents processed: {results['processed']}")
             print(f"  Documents skipped: {results['skipped']}")
@@ -423,7 +423,7 @@ Examples:
                     print(f"    - {entity_type.replace('_', ' ')}: {count}")
 
             if results['failed'] > 0:
-                print(f"\n⚠ {results['failed']} documents failed. Check logs for details.")
+                print(f"\nWarning: {results['failed']} documents failed. Check logs for details.")
         except Exception as e:
             print(f"Error: {e}")
             print(f"\nNote: Entity extraction requires LLM configuration.")

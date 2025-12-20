@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.13.0"
-__version_info__ = (2, 13, 0)
+__version__ = "2.14.0"
+__version_info__ = (2, 14, 0)
 
 # Build information
-__build_date__ = "2025-12-17"
+__build_date__ = "2025-12-18"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"
@@ -36,10 +36,25 @@ FEATURES = {
     "llm_integration": "2.12.0",
     "document_summarization": "2.13.0",
     "ai_summary_caching": "2.13.0",
+    "url_scraping": "2.14.0",
+    "web_content_ingestion": "2.14.0",
+    "mdscrape_integration": "2.14.0",
+    "loading_indicators": "2.14.0",
+    "dotenv_configuration": "2.14.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.14.0 (2025-12-18)
+  - Added URL Scraping & Web Content Ingestion (mdscrape integration)
+  - New MCP tools: scrape_url, rescrape_document, check_url_updates
+  - Concurrent scraping with configurable threads and depth control
+  - Automatic content-based update detection
+  - UI/UX improvements: centered loading indicators, progress bars
+  - python-dotenv integration for automatic .env configuration
+  - Bug fixes: preview slider, warning suppression, security paths
+  - Comprehensive test suite for path security validation
+
 v2.13.0 (2025-12-17)
   - Added AI-Powered Document Summarization (Phase 1.2)
   - Three summary types: brief, detailed, bullet-point

@@ -1,5 +1,5 @@
 # TDZ C64 Knowledge Base - Project Status
-## v2.13.0 Release - December 17, 2025
+## v2.14.0 Release - December 18, 2025
 
 ---
 
@@ -41,14 +41,19 @@
 
 ## 🎯 Version Information
 
-- **Current Version:** v2.13.0
-- **Build Date:** 2025-12-17
-- **Previous Version:** v2.12.0 (2025-12-13)
+- **Current Version:** v2.14.0
+- **Build Date:** 2025-12-18
+- **Previous Version:** v2.13.0 (2025-12-17)
 
-### Features in v2.13.0
+### Features in v2.14.0
 
-✅ document_summarization (NEW)
-✅ ai_summary_caching (NEW)
+✅ url_scraping (NEW)
+✅ web_content_ingestion (NEW)
+✅ mdscrape_integration (NEW)
+✅ loading_indicators (NEW)
+✅ dotenv_configuration (NEW)
+✅ document_summarization (v2.13.0)
+✅ ai_summary_caching (v2.13.0)
 ✅ smart_auto_tagging (v2.12.0)
 ✅ llm_integration (v2.12.0)
 ✅ table_extraction (v2.1.0)
@@ -62,9 +67,10 @@
 ## 📂 Files Updated/Created
 
 ### Version & Documentation
-- ✅ version.py - Updated to v2.13.0
-- ✅ CHANGELOG.md - Added v2.13.0 release notes
-- ✅ FUTURE_IMPROVEMENTS_2025.md - Marked Phase 1.2 complete
+- ✅ version.py - Updated to v2.14.0
+- ✅ CHANGELOG.md - Added v2.14.0 release notes
+- ✅ FUTURE_IMPROVEMENTS_2025.md - Phase 1.2 complete
+- ✅ README.md - Updated version badge to v2.14.0
 
 ### Core Implementation
 - ✅ server.py - Added summarization methods + MCP tools (~270 lines)
@@ -306,5 +312,5 @@ results = kb.generate_summary_all(
 ---
 
 **Project Status:** 🚀 Production Ready
-**Last Updated:** December 17, 2025
-**Version:** v2.13.0
+**Last Updated:** December 18, 2025
+**Version:** v2.14.0

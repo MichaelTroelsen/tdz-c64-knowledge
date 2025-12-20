@@ -623,8 +623,65 @@ class KnowledgeBase:
             cursor.execute("CREATE INDEX idx_summaries_doc_id ON document_summaries(doc_id)")
             cursor.execute("CREATE INDEX idx_summaries_type ON document_summaries(summary_type)")
 
+            # Create document_entities table for named entity extraction
+            cursor.execute("""
+                CREATE TABLE document_entities (
+                    doc_id TEXT NOT NULL,
+                    entity_id INTEGER NOT NULL,
+                    entity_text TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    context TEXT,
+                    first_chunk_id INTEGER,
+                    occurrence_count INTEGER DEFAULT 1,
+                    generated_at TEXT NOT NULL,
+                    model TEXT,
+                    PRIMARY KEY (doc_id, entity_id),
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create FTS5 index for entity search
+            cursor.execute("""
+                CREATE VIRTUAL TABLE entities_fts USING fts5(
+                    doc_id UNINDEXED,
+                    entity_id UNINDEXED,
+                    entity_text,
+                    entity_type UNINDEXED,
+                    context,
+                    tokenize='porter unicode61'
+                )
+            """)
+
+            # Triggers to keep entities_fts in sync with document_entities
+            cursor.execute("""
+                CREATE TRIGGER entities_fts_insert AFTER INSERT ON document_entities BEGIN
+                    INSERT INTO entities_fts(rowid, doc_id, entity_id, entity_text, entity_type, context)
+                    VALUES (new.rowid, new.doc_id, new.entity_id, new.entity_text, new.entity_type, new.context);
+                END
+            """)
+
+            cursor.execute("""
+                CREATE TRIGGER entities_fts_delete AFTER DELETE ON document_entities BEGIN
+                    DELETE FROM entities_fts WHERE rowid = old.rowid;
+                END
+            """)
+
+            cursor.execute("""
+                CREATE TRIGGER entities_fts_update AFTER UPDATE ON document_entities BEGIN
+                    DELETE FROM entities_fts WHERE rowid = old.rowid;
+                    INSERT INTO entities_fts(rowid, doc_id, entity_id, entity_text, entity_type, context)
+                    VALUES (new.rowid, new.doc_id, new.entity_id, new.entity_text, new.entity_type, new.context);
+                END
+            """)
+
+            # Create indexes for entity queries
+            cursor.execute("CREATE INDEX idx_entities_doc_id ON document_entities(doc_id)")
+            cursor.execute("CREATE INDEX idx_entities_type ON document_entities(entity_type)")
+            cursor.execute("CREATE INDEX idx_entities_text ON document_entities(entity_text)")
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, and summaries)")
+            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, summaries, and entities)")
         else:
             self.logger.info("Using existing database")
 
@@ -957,6 +1014,72 @@ class KnowledgeBase:
 
                 self.db_conn.commit()
                 self.logger.info("document_summaries table created")
+
+            # Migrate: Add document_entities table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='document_entities'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating document_entities table for named entity extraction")
+                cursor.execute("""
+                    CREATE TABLE document_entities (
+                        doc_id TEXT NOT NULL,
+                        entity_id INTEGER NOT NULL,
+                        entity_text TEXT NOT NULL,
+                        entity_type TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        context TEXT,
+                        first_chunk_id INTEGER,
+                        occurrence_count INTEGER DEFAULT 1,
+                        generated_at TEXT NOT NULL,
+                        model TEXT,
+                        PRIMARY KEY (doc_id, entity_id),
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Create FTS5 index for entity search
+                cursor.execute("""
+                    CREATE VIRTUAL TABLE entities_fts USING fts5(
+                        doc_id UNINDEXED,
+                        entity_id UNINDEXED,
+                        entity_text,
+                        entity_type UNINDEXED,
+                        context,
+                        tokenize='porter unicode61'
+                    )
+                """)
+
+                # Triggers to keep entities_fts in sync
+                cursor.execute("""
+                    CREATE TRIGGER entities_fts_insert AFTER INSERT ON document_entities BEGIN
+                        INSERT INTO entities_fts(rowid, doc_id, entity_id, entity_text, entity_type, context)
+                        VALUES (new.rowid, new.doc_id, new.entity_id, new.entity_text, new.entity_type, new.context);
+                    END
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER entities_fts_delete AFTER DELETE ON document_entities BEGIN
+                        DELETE FROM entities_fts WHERE rowid = old.rowid;
+                    END
+                """)
+
+                cursor.execute("""
+                    CREATE TRIGGER entities_fts_update AFTER UPDATE ON document_entities BEGIN
+                        DELETE FROM entities_fts WHERE rowid = old.rowid;
+                        INSERT INTO entities_fts(rowid, doc_id, entity_id, entity_text, entity_type, context)
+                        VALUES (new.rowid, new.doc_id, new.entity_id, new.entity_text, new.entity_type, new.context);
+                    END
+                """)
+
+                # Create indexes for entity queries
+                cursor.execute("CREATE INDEX idx_entities_doc_id ON document_entities(doc_id)")
+                cursor.execute("CREATE INDEX idx_entities_type ON document_entities(entity_type)")
+                cursor.execute("CREATE INDEX idx_entities_text ON document_entities(entity_text)")
+
+                self.db_conn.commit()
+                self.logger.info("document_entities table created")
 
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
@@ -4224,6 +4347,766 @@ Return ONLY the summary text, no preamble."""
         result = cursor.fetchone()
         return result[0] if result else None
 
+    def extract_entities(self, doc_id: str,
+                        confidence_threshold: float = 0.6,
+                        force_regenerate: bool = False) -> dict:
+        """
+        Extract named entities from a document using LLM analysis.
+
+        Args:
+            doc_id: Document ID to extract entities from
+            confidence_threshold: Minimum confidence to include entity (0.0-1.0, default: 0.6)
+            force_regenerate: If True, extract even if entities already exist
+
+        Returns:
+            {
+                'doc_id': str,
+                'doc_title': str,
+                'entities': [
+                    {
+                        'entity_text': 'VIC-II',
+                        'entity_type': 'hardware',
+                        'confidence': 0.95,
+                        'context': '...snippet...',
+                        'occurrence_count': 5
+                    },
+                    ...
+                ],
+                'entity_count': 42,
+                'types': {'hardware': 10, 'memory_address': 8, ...}
+            }
+
+        Example:
+            result = kb.extract_entities('my-doc-id', confidence_threshold=0.7)
+            for entity in result['entities']:
+                print(f"{entity['entity_type']}: {entity['entity_text']} ({entity['confidence']})")
+        """
+        # Validate document exists
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        doc = self.documents[doc_id]
+        self.logger.info(f"Extracting entities from document {doc_id} ({doc.title})")
+
+        # Check if entities already exist
+        if not force_regenerate:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM document_entities WHERE doc_id = ?", (doc_id,))
+            existing_count = cursor.fetchone()[0]
+            if existing_count > 0:
+                self.logger.info(f"Document {doc_id} already has {existing_count} entities (use force_regenerate=True to re-extract)")
+                # Return existing entities
+                return self.get_entities(doc_id)
+
+        # Get LLM client
+        try:
+            from llm_integration import get_llm_client
+        except ImportError:
+            raise ImportError("llm_integration module not found. Install required dependencies.")
+
+        llm_client = get_llm_client()
+        if not llm_client:
+            raise ValueError("LLM not configured. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)")
+
+        # Get document chunks for sampling
+        chunks = self._get_chunks_db(doc_id)
+        if not chunks:
+            raise ValueError(f"No chunks found for document {doc_id}")
+
+        # Sample first 5 chunks (balance between coverage and cost)
+        sample_chunks = chunks[:5] if len(chunks) > 5 else chunks
+        sample_text = "\n\n".join([c.content for c in sample_chunks])
+
+        # Limit to 5000 characters for cost control
+        if len(sample_text) > 5000:
+            sample_text = sample_text[:5000] + "..."
+
+        # Build prompt for entity extraction
+        prompt = f"""Extract named entities from this Commodore 64 technical documentation.
+
+Document Title: {doc.title}
+
+Content:
+{sample_text}
+
+Extract entities in these categories:
+1. hardware - Chip names and components (SID, VIC-II, CIA, 6502, 6526, 6581, etc.)
+2. memory_address - Memory addresses in any format ($D000, $D020, 53280, 0xD020, etc.)
+3. instruction - Assembly instructions (LDA, STA, JMP, JSR, RTS, BRK, etc.)
+4. person - People mentioned (Bob Yannes, Jack Tramiel, etc.)
+5. company - Organizations (Commodore, MOS Technology, etc.)
+6. product - Hardware/software products (VIC-20, C128, 1541, etc.)
+7. concept - Technical concepts (sprite, raster interrupt, IRQ, DMA, etc.)
+
+For each entity found, provide:
+- entity_text: The entity name as it appears in the document
+- entity_type: One of the categories above (lowercase with underscores)
+- confidence: How confident you are this is a valid entity (0.0-1.0)
+- context: Brief surrounding text showing how the entity is used (max 100 chars)
+
+Return ONLY valid JSON in this exact format:
+{{
+    "entities": [
+        {{
+            "entity_text": "VIC-II",
+            "entity_type": "hardware",
+            "confidence": 0.95,
+            "context": "The VIC-II chip controls all graphics"
+        }},
+        {{
+            "entity_text": "$D020",
+            "entity_type": "memory_address",
+            "confidence": 0.98,
+            "context": "Border color is controlled by $D020"
+        }}
+    ]
+}}
+
+Important:
+- Extract 20-50 entities maximum
+- Include confidence scores (0.0-1.0)
+- Provide brief context snippets
+- Preserve original capitalization/format
+- Return ONLY JSON, no other text
+"""
+
+        # Call LLM
+        self.logger.info(f"Calling LLM for entity extraction ({len(sample_text)} chars)")
+        try:
+            response = llm_client.call_json(prompt, max_tokens=2048, temperature=0.3)
+        except Exception as e:
+            self.logger.error(f"LLM call failed for entity extraction: {e}")
+            raise ValueError(f"Failed to extract entities: {e}")
+
+        # Parse response
+        all_entities = response.get('entities', [])
+        self.logger.info(f"LLM returned {len(all_entities)} entities")
+
+        # Filter by confidence threshold
+        filtered_entities = [
+            e for e in all_entities
+            if e.get('confidence', 0) >= confidence_threshold
+        ]
+
+        # Deduplicate entities (case-insensitive, count occurrences)
+        entity_map = {}
+        for entity in filtered_entities:
+            key = (entity['entity_text'].lower(), entity['entity_type'])
+            if key in entity_map:
+                entity_map[key]['occurrence_count'] += 1
+                # Keep highest confidence
+                if entity['confidence'] > entity_map[key]['confidence']:
+                    entity_map[key]['confidence'] = entity['confidence']
+                    entity_map[key]['context'] = entity.get('context', '')
+            else:
+                entity_map[key] = {
+                    'entity_text': entity['entity_text'],  # Preserve original casing
+                    'entity_type': entity['entity_type'],
+                    'confidence': entity['confidence'],
+                    'context': entity.get('context', ''),
+                    'occurrence_count': 1
+                }
+
+        unique_entities = list(entity_map.values())
+
+        # Store in database
+        cursor = self.db_conn.cursor()
+        try:
+            # Delete existing entities for this document
+            cursor.execute("DELETE FROM document_entities WHERE doc_id = ?", (doc_id,))
+
+            # Insert new entities
+            from datetime import datetime
+            generated_at = datetime.now().isoformat()
+            model = llm_client.model if hasattr(llm_client, 'model') else 'unknown'
+
+            for i, entity in enumerate(unique_entities, 1):
+                cursor.execute("""
+                    INSERT INTO document_entities
+                    (doc_id, entity_id, entity_text, entity_type, confidence, context,
+                     occurrence_count, generated_at, model)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    doc_id,
+                    i,
+                    entity['entity_text'],
+                    entity['entity_type'],
+                    entity['confidence'],
+                    entity.get('context', ''),
+                    entity.get('occurrence_count', 1),
+                    generated_at,
+                    model
+                ))
+
+            self.db_conn.commit()
+            self.logger.info(f"Stored {len(unique_entities)} entities for document {doc_id}")
+
+        except Exception as e:
+            self.db_conn.rollback()
+            self.logger.error(f"Failed to store entities in database: {e}")
+            # Return entities even if storage failed
+            pass
+
+        # Build result
+        types = {}
+        for entity in unique_entities:
+            entity_type = entity['entity_type']
+            types[entity_type] = types.get(entity_type, 0) + 1
+
+        return {
+            'doc_id': doc_id,
+            'doc_title': doc.title,
+            'entities': unique_entities,
+            'entity_count': len(unique_entities),
+            'types': types
+        }
+
+    def get_entities(self, doc_id: str,
+                    entity_types: Optional[list[str]] = None,
+                    min_confidence: float = 0.0) -> dict:
+        """
+        Get all entities for a specific document.
+
+        Args:
+            doc_id: Document ID
+            entity_types: Optional list of entity types to filter by
+                         (e.g., ['hardware', 'memory_address'])
+            min_confidence: Minimum confidence threshold (default: 0.0)
+
+        Returns:
+            {
+                'doc_id': str,
+                'doc_title': str,
+                'entities': [list of entity dicts],
+                'entity_count': int,
+                'types': {'hardware': count, ...}
+            }
+
+        Example:
+            # Get all entities
+            result = kb.get_entities('my-doc-id')
+
+            # Get only hardware entities with high confidence
+            result = kb.get_entities('my-doc-id',
+                                    entity_types=['hardware'],
+                                    min_confidence=0.8)
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        doc = self.documents[doc_id]
+        cursor = self.db_conn.cursor()
+
+        # Build query with optional filters
+        query = """
+            SELECT entity_text, entity_type, confidence, context, occurrence_count
+            FROM document_entities
+            WHERE doc_id = ? AND confidence >= ?
+        """
+        params = [doc_id, min_confidence]
+
+        if entity_types:
+            placeholders = ','.join(['?'] * len(entity_types))
+            query += f" AND entity_type IN ({placeholders})"
+            params.extend(entity_types)
+
+        query += " ORDER BY entity_type, confidence DESC"
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        entities = []
+        types = {}
+        for row in rows:
+            entity = {
+                'entity_text': row[0],
+                'entity_type': row[1],
+                'confidence': row[2],
+                'context': row[3],
+                'occurrence_count': row[4]
+            }
+            entities.append(entity)
+
+            entity_type = row[1]
+            types[entity_type] = types.get(entity_type, 0) + 1
+
+        return {
+            'doc_id': doc_id,
+            'doc_title': doc.title,
+            'entities': entities,
+            'entity_count': len(entities),
+            'types': types
+        }
+
+    def search_entities(self, query: str,
+                       entity_types: Optional[list[str]] = None,
+                       min_confidence: float = 0.0,
+                       max_results: int = 20) -> dict:
+        """
+        Search for entities across all documents using full-text search.
+
+        Args:
+            query: Search query (e.g., "VIC-II", "sprite", "$D000")
+            entity_types: Filter by entity types (e.g., ['hardware', 'memory_address'])
+            min_confidence: Minimum confidence threshold (0.0-1.0)
+            max_results: Maximum number of results to return
+
+        Returns:
+            Dictionary with search results grouped by document:
+            {
+                'query': str,
+                'total_matches': int,
+                'documents': [
+                    {
+                        'doc_id': str,
+                        'doc_title': str,
+                        'matches': [
+                            {
+                                'entity_text': str,
+                                'entity_type': str,
+                                'confidence': float,
+                                'context': str,
+                                'occurrence_count': int
+                            },
+                            ...
+                        ],
+                        'match_count': int
+                    },
+                    ...
+                ]
+            }
+
+        Examples:
+            # Search for VIC-II chip mentions
+            results = kb.search_entities('VIC-II')
+
+            # Search for memory addresses only
+            results = kb.search_entities('$D0', entity_types=['memory_address'])
+
+            # Search with confidence threshold
+            results = kb.search_entities('sprite', min_confidence=0.7)
+        """
+        if not query or not query.strip():
+            raise ValueError("Search query cannot be empty")
+
+        # Build FTS5 query
+        # Escape special FTS5 characters and prepare query
+        fts_query = query.strip().replace('"', '""')
+
+        # Build WHERE clause for filtering
+        where_clauses = []
+        params = []
+
+        if entity_types:
+            placeholders = ','.join('?' * len(entity_types))
+            where_clauses.append(f"e.entity_type IN ({placeholders})")
+            params.extend(entity_types)
+
+        if min_confidence > 0.0:
+            where_clauses.append("e.confidence >= ?")
+            params.append(min_confidence)
+
+        where_clause = " AND " + " AND ".join(where_clauses) if where_clauses else ""
+
+        # Search entities_fts and join with document_entities for full data
+        query_sql = f"""
+            SELECT e.doc_id, e.entity_text, e.entity_type, e.confidence,
+                   e.context, e.occurrence_count
+            FROM entities_fts fts
+            JOIN document_entities e ON fts.rowid = e.rowid
+            WHERE entities_fts MATCH ?{where_clause}
+            ORDER BY rank
+            LIMIT ?
+        """
+
+        # Execute search
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query_sql, [fts_query] + params + [max_results * 10])  # Get extra for grouping
+            rows = cursor.fetchall()
+
+        # Group results by document
+        doc_matches = {}
+        for row in rows:
+            doc_id, entity_text, entity_type, confidence, context, occurrence_count = row
+
+            if doc_id not in doc_matches:
+                doc_matches[doc_id] = []
+
+            doc_matches[doc_id].append({
+                'entity_text': entity_text,
+                'entity_type': entity_type,
+                'confidence': confidence,
+                'context': context or '',
+                'occurrence_count': occurrence_count
+            })
+
+        # Build result list with document titles
+        documents = []
+        for doc_id, matches in list(doc_matches.items())[:max_results]:
+            doc = self.documents.get(doc_id)
+            if doc:
+                documents.append({
+                    'doc_id': doc_id,
+                    'doc_title': doc.title,
+                    'matches': matches,
+                    'match_count': len(matches)
+                })
+
+        return {
+            'query': query,
+            'total_matches': sum(len(matches) for matches in doc_matches.values()),
+            'documents': documents
+        }
+
+    def find_docs_by_entity(self, entity_text: str,
+                           entity_type: Optional[str] = None,
+                           min_confidence: float = 0.0,
+                           max_results: int = 20) -> dict:
+        """
+        Find all documents that contain a specific entity.
+
+        Args:
+            entity_text: Exact entity text to search for (e.g., "VIC-II", "$D000")
+            entity_type: Optional entity type filter (e.g., 'hardware', 'memory_address')
+            min_confidence: Minimum confidence threshold (0.0-1.0)
+            max_results: Maximum number of documents to return
+
+        Returns:
+            Dictionary with documents containing the entity:
+            {
+                'entity_text': str,
+                'entity_type': str or None,
+                'total_documents': int,
+                'documents': [
+                    {
+                        'doc_id': str,
+                        'doc_title': str,
+                        'entity_type': str,
+                        'confidence': float,
+                        'context': str,
+                        'occurrence_count': int
+                    },
+                    ...
+                ]
+            }
+
+        Examples:
+            # Find all documents mentioning VIC-II
+            results = kb.find_docs_by_entity('VIC-II')
+
+            # Find documents with $D000 memory address
+            results = kb.find_docs_by_entity('$D000', entity_type='memory_address')
+
+            # Find with confidence threshold
+            results = kb.find_docs_by_entity('sprite', min_confidence=0.7)
+        """
+        if not entity_text or not entity_text.strip():
+            raise ValueError("Entity text cannot be empty")
+
+        # Build WHERE clause
+        where_clauses = ["e.entity_text = ?"]
+        params = [entity_text.strip()]
+
+        if entity_type:
+            where_clauses.append("e.entity_type = ?")
+            params.append(entity_type)
+
+        if min_confidence > 0.0:
+            where_clauses.append("e.confidence >= ?")
+            params.append(min_confidence)
+
+        where_clause = " AND ".join(where_clauses)
+
+        # Query database
+        query_sql = f"""
+            SELECT e.doc_id, e.entity_type, e.confidence, e.context,
+                   e.occurrence_count
+            FROM document_entities e
+            WHERE {where_clause}
+            ORDER BY e.confidence DESC, e.occurrence_count DESC
+            LIMIT ?
+        """
+
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query_sql, params + [max_results])
+            rows = cursor.fetchall()
+
+        # Build result list with document titles
+        documents = []
+        for row in rows:
+            doc_id, ent_type, confidence, context, occurrence_count = row
+            doc = self.documents.get(doc_id)
+            if doc:
+                documents.append({
+                    'doc_id': doc_id,
+                    'doc_title': doc.title,
+                    'entity_type': ent_type,
+                    'confidence': confidence,
+                    'context': context or '',
+                    'occurrence_count': occurrence_count
+                })
+
+        return {
+            'entity_text': entity_text.strip(),
+            'entity_type': entity_type,
+            'total_documents': len(documents),
+            'documents': documents
+        }
+
+    def get_entity_stats(self, entity_type: Optional[str] = None) -> dict:
+        """
+        Get statistics about extracted entities in the knowledge base.
+
+        Args:
+            entity_type: Optional filter by entity type (e.g., 'hardware', 'memory_address')
+
+        Returns:
+            Dictionary with entity statistics:
+            {
+                'total_entities': int,
+                'total_documents_with_entities': int,
+                'by_type': {
+                    'hardware': int,
+                    'memory_address': int,
+                    ...
+                },
+                'top_entities': [
+                    {
+                        'entity_text': str,
+                        'entity_type': str,
+                        'document_count': int,
+                        'total_occurrences': int,
+                        'avg_confidence': float
+                    },
+                    ...
+                ],
+                'documents_with_most_entities': [
+                    {
+                        'doc_id': str,
+                        'doc_title': str,
+                        'entity_count': int
+                    },
+                    ...
+                ]
+            }
+
+        Examples:
+            # Get overall statistics
+            stats = kb.get_entity_stats()
+
+            # Get statistics for hardware entities only
+            stats = kb.get_entity_stats(entity_type='hardware')
+        """
+        with self._get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            # Total entities
+            if entity_type:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM document_entities WHERE entity_type = ?",
+                    (entity_type,)
+                )
+            else:
+                cursor.execute("SELECT COUNT(*) FROM document_entities")
+            total_entities = cursor.fetchone()[0]
+
+            # Total documents with entities
+            if entity_type:
+                cursor.execute(
+                    "SELECT COUNT(DISTINCT doc_id) FROM document_entities WHERE entity_type = ?",
+                    (entity_type,)
+                )
+            else:
+                cursor.execute("SELECT COUNT(DISTINCT doc_id) FROM document_entities")
+            total_docs = cursor.fetchone()[0]
+
+            # Breakdown by type
+            by_type = {}
+            if entity_type:
+                by_type[entity_type] = total_entities
+            else:
+                cursor.execute("""
+                    SELECT entity_type, COUNT(*)
+                    FROM document_entities
+                    GROUP BY entity_type
+                    ORDER BY COUNT(*) DESC
+                """)
+                by_type = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Top entities by document count
+            type_filter = "WHERE entity_type = ?" if entity_type else ""
+            params = [entity_type] if entity_type else []
+
+            cursor.execute(f"""
+                SELECT entity_text, entity_type,
+                       COUNT(DISTINCT doc_id) as doc_count,
+                       SUM(occurrence_count) as total_occurrences,
+                       AVG(confidence) as avg_confidence
+                FROM document_entities
+                {type_filter}
+                GROUP BY entity_text, entity_type
+                ORDER BY doc_count DESC, total_occurrences DESC
+                LIMIT 20
+            """, params)
+
+            top_entities = [
+                {
+                    'entity_text': row[0],
+                    'entity_type': row[1],
+                    'document_count': row[2],
+                    'total_occurrences': row[3],
+                    'avg_confidence': round(row[4], 3)
+                }
+                for row in cursor.fetchall()
+            ]
+
+            # Documents with most entities
+            cursor.execute(f"""
+                SELECT doc_id, COUNT(*) as entity_count
+                FROM document_entities
+                {type_filter}
+                GROUP BY doc_id
+                ORDER BY entity_count DESC
+                LIMIT 10
+            """, params)
+
+            docs_with_most = []
+            for row in cursor.fetchall():
+                doc_id = row[0]
+                entity_count = row[1]
+                doc = self.documents.get(doc_id)
+                if doc:
+                    docs_with_most.append({
+                        'doc_id': doc_id,
+                        'doc_title': doc.title,
+                        'entity_count': entity_count
+                    })
+
+        return {
+            'total_entities': total_entities,
+            'total_documents_with_entities': total_docs,
+            'by_type': by_type,
+            'top_entities': top_entities,
+            'documents_with_most_entities': docs_with_most
+        }
+
+    def extract_entities_bulk(self, confidence_threshold: float = 0.6,
+                             force_regenerate: bool = False,
+                             max_docs: Optional[int] = None,
+                             skip_existing: bool = True) -> dict:
+        """
+        Bulk extract entities for multiple documents.
+
+        Args:
+            confidence_threshold: Minimum confidence threshold (0.0-1.0, default: 0.6)
+            force_regenerate: If True, re-extract even if entities already exist
+            max_docs: Maximum number of documents to process (None = all)
+            skip_existing: If True, skip documents that already have entities (unless force_regenerate)
+
+        Returns:
+            {
+                'processed': int,
+                'failed': int,
+                'skipped': int,
+                'total_entities': int,
+                'by_type': {'hardware': int, 'memory_address': int, ...},
+                'results': [list of individual results]
+            }
+
+        Examples:
+            # Extract entities for all documents
+            results = kb.extract_entities_bulk()
+
+            # Extract for first 10 documents only
+            results = kb.extract_entities_bulk(max_docs=10)
+
+            # Force re-extraction for all documents
+            results = kb.extract_entities_bulk(force_regenerate=True)
+        """
+        results = {
+            'processed': 0,
+            'failed': 0,
+            'skipped': 0,
+            'total_entities': 0,
+            'by_type': {},
+            'results': []
+        }
+
+        # Get documents to process
+        docs_to_process = list(self.documents.keys())
+
+        if max_docs:
+            docs_to_process = docs_to_process[:max_docs]
+
+        self.logger.info(f"Extracting entities for {len(docs_to_process)} documents "
+                        f"(confidence threshold: {confidence_threshold})")
+
+        # Process each document
+        for i, doc_id in enumerate(docs_to_process, 1):
+            doc_results = {
+                'doc_id': doc_id,
+                'title': self.documents[doc_id].title,
+                'status': 'unknown',
+                'entity_count': 0,
+                'error': None
+            }
+
+            try:
+                # Check if entities already exist (unless force_regenerate)
+                if skip_existing and not force_regenerate:
+                    with self._get_db_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "SELECT COUNT(*) FROM document_entities WHERE doc_id = ?",
+                            (doc_id,)
+                        )
+                        existing_count = cursor.fetchone()[0]
+
+                        if existing_count > 0:
+                            self.logger.info(f"[{i}/{len(docs_to_process)}] Skipping {doc_id} (already has {existing_count} entities)")
+                            doc_results['status'] = 'skipped'
+                            doc_results['entity_count'] = existing_count
+                            results['skipped'] += 1
+                            results['results'].append(doc_results)
+                            continue
+
+                # Extract entities
+                self.logger.info(f"[{i}/{len(docs_to_process)}] Extracting entities from {doc_id}")
+
+                result = self.extract_entities(
+                    doc_id,
+                    confidence_threshold=confidence_threshold,
+                    force_regenerate=force_regenerate
+                )
+
+                doc_results['status'] = 'success'
+                doc_results['entity_count'] = result['entity_count']
+
+                # Update counts
+                results['processed'] += 1
+                results['total_entities'] += result['entity_count']
+
+                # Update by_type counts
+                for entity_type, count in result['types'].items():
+                    results['by_type'][entity_type] = results['by_type'].get(entity_type, 0) + count
+
+                results['results'].append(doc_results)
+
+            except Exception as e:
+                self.logger.error(f"[{i}/{len(docs_to_process)}] Failed to extract entities from {doc_id}: {e}")
+                doc_results['status'] = 'failed'
+                doc_results['error'] = str(e)
+                results['failed'] += 1
+                results['results'].append(doc_results)
+
+        self.logger.info(f"Bulk entity extraction complete: processed={results['processed']}, "
+                        f"failed={results['failed']}, skipped={results['skipped']}, "
+                        f"total_entities={results['total_entities']}")
+
+        return results
+
     def export_documents_bulk(self, doc_ids: Optional[list[str]] = None,
                               tags: Optional[list[str]] = None,
                               format: str = 'json') -> str:
@@ -7101,6 +7984,144 @@ async def list_tools() -> list[Tool]:
                     }
                 }
             }
+        ),
+        Tool(
+            name="extract_entities",
+            description="Extract named entities from a C64 document using AI. Identifies hardware (SID, VIC-II, CIA, 6502), memory addresses ($D000), assembly instructions (LDA, STA), people, companies, products, and technical concepts. Returns entities with type, confidence score, and context. Requires LLM configuration.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to extract entities from"
+                    },
+                    "confidence_threshold": {
+                        "type": "number",
+                        "description": "Minimum confidence to include entity (0.0-1.0, default: 0.6)",
+                        "default": 0.6,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "force_regenerate": {
+                        "type": "boolean",
+                        "description": "Force re-extraction even if entities already exist (default: false)",
+                        "default": False
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="list_entities",
+            description="List all entities extracted from a document, grouped by type (hardware, memory_address, instruction, person, company, product, concept). Great for getting an overview of what a document covers.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID"
+                    },
+                    "entity_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"]
+                        },
+                        "description": "Filter by entity types (optional, returns all types if omitted)"
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Minimum confidence threshold (0.0-1.0, default: 0.0)",
+                        "default": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="search_entities",
+            description="Search for entities across all documents using full-text search. Find all documents mentioning specific hardware, addresses, instructions, people, companies, products, or concepts.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (e.g., 'VIC-II', 'sprite', '$D000')"
+                    },
+                    "entity_types": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"]
+                        },
+                        "description": "Filter by entity types (optional)"
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Minimum confidence threshold (0.0-1.0, default: 0.0)",
+                        "default": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of documents to return (default: 20)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="entity_stats",
+            description="Get statistics about extracted entities in the knowledge base. Shows breakdown by type, top entities, and documents with most entities. Useful for understanding the knowledge base content.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_type": {
+                        "type": "string",
+                        "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"],
+                        "description": "Filter statistics by entity type (optional, shows all types if omitted)"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="extract_entities_bulk",
+            description="Bulk extract entities from multiple documents in the knowledge base. Processes documents in batch, skips documents that already have entities (unless force_regenerate). Returns statistics about processed documents and extracted entities.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "confidence_threshold": {
+                        "type": "number",
+                        "description": "Minimum confidence to include entity (0.0-1.0, default: 0.6)",
+                        "default": 0.6,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "force_regenerate": {
+                        "type": "boolean",
+                        "description": "Force re-extraction even if entities already exist (default: false)",
+                        "default": False
+                    },
+                    "max_docs": {
+                        "type": "integer",
+                        "description": "Maximum number of documents to process (optional, for testing)",
+                        "minimum": 1
+                    },
+                    "skip_existing": {
+                        "type": "boolean",
+                        "description": "Skip documents that already have entities (default: true)",
+                        "default": True
+                    }
+                },
+                "required": []
+            }
         )
     ]
 
@@ -8063,6 +9084,249 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=output)]
         except Exception as e:
             return [TextContent(type="text", text=f"Error in bulk summarization: {str(e)}\n\nNote: Summarization requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
+
+    elif name == "extract_entities":
+        doc_id = arguments.get("doc_id")
+        confidence_threshold = arguments.get("confidence_threshold", 0.6)
+        force_regenerate = arguments.get("force_regenerate", False)
+
+        if not doc_id:
+            return [TextContent(type="text", text="Error: doc_id is required")]
+
+        try:
+            result = kb.extract_entities(
+                doc_id,
+                confidence_threshold=confidence_threshold,
+                force_regenerate=force_regenerate
+            )
+
+            output = f"✓ Entity extraction complete!\n\n"
+            output += f"**Document:** {result['doc_title']}\n"
+            output += f"**Document ID:** {doc_id}\n"
+            output += f"**Entities Found:** {result['entity_count']}\n\n"
+
+            # Group by entity type
+            if result['entities']:
+                for entity_type in sorted(result['types'].keys()):
+                    entities_of_type = [e for e in result['entities'] if e['entity_type'] == entity_type]
+                    output += f"**{entity_type.upper().replace('_', ' ')}** ({len(entities_of_type)}):\n"
+
+                    # Show first 5 of each type
+                    for entity in entities_of_type[:5]:
+                        output += f"  - **{entity['entity_text']}** (confidence: {entity['confidence']:.2f}"
+                        if entity.get('occurrence_count', 1) > 1:
+                            output += f", occurs {entity['occurrence_count']}x"
+                        output += ")\n"
+                        if entity.get('context'):
+                            context = entity['context'][:80] + "..." if len(entity['context']) > 80 else entity['context']
+                            output += f"    *{context}*\n"
+
+                    if len(entities_of_type) > 5:
+                        output += f"  ... and {len(entities_of_type) - 5} more\n"
+                    output += "\n"
+
+                output += f"Use `list_entities` tool to see all entities with filtering options.\n"
+            else:
+                output += "No entities found with the current confidence threshold.\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error extracting entities: {str(e)}\n\nNote: Entity extraction requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
+
+    elif name == "list_entities":
+        doc_id = arguments.get("doc_id")
+        entity_types = arguments.get("entity_types")
+        min_confidence = arguments.get("min_confidence", 0.0)
+
+        if not doc_id:
+            return [TextContent(type="text", text="Error: doc_id is required")]
+
+        try:
+            result = kb.get_entities(
+                doc_id,
+                entity_types=entity_types,
+                min_confidence=min_confidence
+            )
+
+            output = f"**Entities for Document:** {result['doc_title']}\n"
+            output += f"**Document ID:** {doc_id}\n"
+
+            # Show filters if applied
+            if entity_types or min_confidence > 0:
+                output += f"**Filters:** "
+                filters = []
+                if entity_types:
+                    filters.append(f"types={', '.join(entity_types)}")
+                if min_confidence > 0:
+                    filters.append(f"min_confidence={min_confidence}")
+                output += ', '.join(filters) + "\n"
+
+            output += f"**Total Entities:** {result['entity_count']}\n\n"
+
+            if result['entities']:
+                # Group by type
+                for entity_type in sorted(result['types'].keys()):
+                    entities_of_type = [e for e in result['entities'] if e['entity_type'] == entity_type]
+                    output += f"**{entity_type.upper().replace('_', ' ')}** ({len(entities_of_type)}):\n"
+
+                    for entity in entities_of_type:
+                        output += f"  - **{entity['entity_text']}** (conf: {entity['confidence']:.2f}"
+                        if entity.get('occurrence_count', 1) > 1:
+                            output += f", {entity['occurrence_count']}x"
+                        output += ")\n"
+                        if entity.get('context'):
+                            context = entity['context'][:100] + "..." if len(entity['context']) > 100 else entity['context']
+                            output += f"    *{context}*\n"
+
+                    output += "\n"
+            else:
+                output += "No entities found. Use `extract_entities` tool to extract entities first.\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error listing entities: {str(e)}")]
+
+    elif name == "search_entities":
+        query = arguments.get("query")
+        entity_types = arguments.get("entity_types")
+        min_confidence = arguments.get("min_confidence", 0.0)
+        max_results = arguments.get("max_results", 20)
+
+        if not query:
+            return [TextContent(type="text", text="Error: query is required")]
+
+        try:
+            result = kb.search_entities(
+                query,
+                entity_types=entity_types,
+                min_confidence=min_confidence,
+                max_results=max_results
+            )
+
+            output = f"**Entity Search Results for:** {result['query']}\n"
+            output += f"**Total Matches:** {result['total_matches']}\n"
+
+            # Show filters if applied
+            if entity_types or min_confidence > 0:
+                output += f"**Filters:** "
+                filters = []
+                if entity_types:
+                    filters.append(f"types={', '.join(entity_types)}")
+                if min_confidence > 0:
+                    filters.append(f"min_confidence={min_confidence}")
+                output += ', '.join(filters) + "\n"
+
+            output += f"**Documents Found:** {len(result['documents'])}\n\n"
+
+            if result['documents']:
+                for doc in result['documents']:
+                    output += f"**{doc['doc_title']}** ({doc['doc_id']})\n"
+                    output += f"  Matches: {doc['match_count']}\n"
+
+                    # Show first 3 matches per document
+                    for match in doc['matches'][:3]:
+                        output += f"  - **{match['entity_text']}** ({match['entity_type']}, conf: {match['confidence']:.2f}"
+                        if match.get('occurrence_count', 1) > 1:
+                            output += f", {match['occurrence_count']}x"
+                        output += ")\n"
+                        if match.get('context'):
+                            context = match['context'][:80] + "..." if len(match['context']) > 80 else match['context']
+                            output += f"    *{context}*\n"
+
+                    if doc['match_count'] > 3:
+                        output += f"  ... and {doc['match_count'] - 3} more matches\n"
+                    output += "\n"
+            else:
+                output += "No entities found matching your query.\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error searching entities: {str(e)}")]
+
+    elif name == "entity_stats":
+        entity_type = arguments.get("entity_type")
+
+        try:
+            result = kb.get_entity_stats(entity_type=entity_type)
+
+            output = f"**Entity Statistics**\n"
+            if entity_type:
+                output += f"**Type Filter:** {entity_type}\n"
+            output += "\n"
+
+            output += f"**Total Entities:** {result['total_entities']}\n"
+            output += f"**Documents with Entities:** {result['total_documents_with_entities']}\n\n"
+
+            # Breakdown by type
+            if result['by_type']:
+                output += f"**Entities by Type:**\n"
+                for ent_type, count in sorted(result['by_type'].items(), key=lambda x: x[1], reverse=True):
+                    output += f"  - {ent_type.replace('_', ' ')}: {count}\n"
+                output += "\n"
+
+            # Top entities
+            if result['top_entities']:
+                output += f"**Top Entities (by document count):**\n"
+                for i, entity in enumerate(result['top_entities'][:10], 1):
+                    output += f"{i}. **{entity['entity_text']}** ({entity['entity_type']})\n"
+                    output += f"   - Found in {entity['document_count']} document(s)\n"
+                    output += f"   - Total occurrences: {entity['total_occurrences']}\n"
+                    output += f"   - Avg confidence: {entity['avg_confidence']:.2f}\n"
+                output += "\n"
+
+            # Documents with most entities
+            if result['documents_with_most_entities']:
+                output += f"**Documents with Most Entities:**\n"
+                for i, doc in enumerate(result['documents_with_most_entities'], 1):
+                    output += f"{i}. **{doc['doc_title']}**: {doc['entity_count']} entities\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting entity stats: {str(e)}")]
+
+    elif name == "extract_entities_bulk":
+        confidence_threshold = arguments.get("confidence_threshold", 0.6)
+        force_regenerate = arguments.get("force_regenerate", False)
+        max_docs = arguments.get("max_docs")
+        skip_existing = arguments.get("skip_existing", True)
+
+        try:
+            result = kb.extract_entities_bulk(
+                confidence_threshold=confidence_threshold,
+                force_regenerate=force_regenerate,
+                max_docs=max_docs,
+                skip_existing=skip_existing
+            )
+
+            output = f"**Bulk Entity Extraction Complete**\n\n"
+            output += f"**Processed:** {result['processed']} documents\n"
+            output += f"**Skipped:** {result['skipped']} documents (already have entities)\n"
+            output += f"**Failed:** {result['failed']} documents\n"
+            output += f"**Total Entities Extracted:** {result['total_entities']}\n\n"
+
+            if result['by_type']:
+                output += f"**Entities by Type:**\n"
+                for ent_type, count in sorted(result['by_type'].items(), key=lambda x: x[1], reverse=True):
+                    output += f"  - {ent_type.replace('_', ' ')}: {count}\n"
+                output += "\n"
+
+            # Show sample results
+            if result['results']:
+                output += f"**Sample Results (first 10):**\n"
+                for i, doc_result in enumerate(result['results'][:10], 1):
+                    status_emoji = "✓" if doc_result['status'] == 'success' else "⊗" if doc_result['status'] == 'failed' else "⊘"
+                    output += f"{i}. {status_emoji} **{doc_result['title']}**"
+                    if doc_result['status'] == 'success':
+                        output += f" - {doc_result['entity_count']} entities"
+                    elif doc_result['status'] == 'skipped':
+                        output += f" - skipped ({doc_result['entity_count']} entities)"
+                    elif doc_result['status'] == 'failed':
+                        output += f" - ERROR: {doc_result.get('error', 'unknown error')}"
+                    output += "\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error in bulk entity extraction: {str(e)}\n\nNote: Entity extraction requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

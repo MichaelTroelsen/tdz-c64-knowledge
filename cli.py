@@ -105,6 +105,30 @@ Examples:
     summarize_all_parser.add_argument("--force", "-f", action="store_true", help="Force regeneration for all")
     summarize_all_parser.add_argument("--max", "-m", type=int, help="Max documents to process")
 
+    # Extract entities command
+    extract_entities_parser = subparsers.add_parser("extract-entities", help="Extract entities from a document using AI")
+    extract_entities_parser.add_argument("doc_id", help="Document ID to extract entities from")
+    extract_entities_parser.add_argument("--confidence", "-c", type=float, default=0.6, help="Minimum confidence threshold (0.0-1.0, default: 0.6)")
+    extract_entities_parser.add_argument("--force", "-f", action="store_true", help="Force re-extraction even if entities exist")
+
+    # Extract all entities command
+    extract_all_parser = subparsers.add_parser("extract-all-entities", help="Extract entities from all documents")
+    extract_all_parser.add_argument("--confidence", "-c", type=float, default=0.6, help="Minimum confidence threshold (0.0-1.0, default: 0.6)")
+    extract_all_parser.add_argument("--force", "-f", action="store_true", help="Force re-extraction for all documents")
+    extract_all_parser.add_argument("--max", "-m", type=int, help="Max documents to process")
+    extract_all_parser.add_argument("--no-skip", action="store_true", help="Don't skip documents that already have entities")
+
+    # Search entities command
+    search_entities_parser = subparsers.add_parser("search-entity", help="Search for entities across all documents")
+    search_entities_parser.add_argument("query", help="Entity to search for (e.g., 'VIC-II', '$D000')")
+    search_entities_parser.add_argument("--type", "-t", choices=["hardware", "memory_address", "instruction", "person", "company", "product", "concept"], help="Filter by entity type")
+    search_entities_parser.add_argument("--confidence", "-c", type=float, default=0.0, help="Minimum confidence (0.0-1.0, default: 0.0)")
+    search_entities_parser.add_argument("--max", "-m", type=int, default=20, help="Max results (default: 20)")
+
+    # Entity stats command
+    entity_stats_parser = subparsers.add_parser("entity-stats", help="Show entity extraction statistics")
+    entity_stats_parser.add_argument("--type", "-t", choices=["hardware", "memory_address", "instruction", "person", "company", "product", "concept"], help="Filter by entity type")
+
     args = parser.parse_args()
     
     if not args.command:
@@ -332,6 +356,144 @@ Examples:
             print(f"Error: {e}")
             print(f"\nNote: Summarization requires LLM configuration.")
             print(f"Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
+            sys.exit(1)
+
+    elif args.command == "extract-entities":
+        try:
+            if args.doc_id not in kb.documents:
+                print(f"Error: Document not found: {args.doc_id}")
+                sys.exit(1)
+
+            doc = kb.documents[args.doc_id]
+            print(f"Extracting entities from: {doc.title}")
+            print(f"Confidence threshold: {args.confidence}\n")
+
+            result = kb.extract_entities(
+                args.doc_id,
+                confidence_threshold=args.confidence,
+                force_regenerate=args.force
+            )
+
+            print(f"✓ Extraction Complete!\n")
+            print(f"Document: {result['doc_title']}")
+            print(f"Total entities: {result['entity_count']}\n")
+
+            if result['entities']:
+                print(f"Entities by type:")
+                for entity_type in sorted(result['types'].keys()):
+                    print(f"\n{entity_type.upper().replace('_', ' ')} ({result['types'][entity_type]}):")
+                    entities_of_type = [e for e in result['entities'] if e['entity_type'] == entity_type]
+                    for entity in entities_of_type[:10]:  # Show first 10 per type
+                        print(f"  - {entity['entity_text']} (confidence: {entity['confidence']:.2f}", end="")
+                        if entity.get('occurrence_count', 1) > 1:
+                            print(f", {entity['occurrence_count']}x", end="")
+                        print(")")
+                    if len(entities_of_type) > 10:
+                        print(f"  ... and {len(entities_of_type) - 10} more")
+            else:
+                print("No entities found with the current confidence threshold.")
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"\nNote: Entity extraction requires LLM configuration.")
+            print(f"Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
+            sys.exit(1)
+
+    elif args.command == "extract-all-entities":
+        try:
+            print(f"Extracting entities from all documents")
+            print(f"Confidence threshold: {args.confidence}\n")
+
+            results = kb.extract_entities_bulk(
+                confidence_threshold=args.confidence,
+                force_regenerate=args.force,
+                max_docs=args.max,
+                skip_existing=not args.no_skip
+            )
+
+            print(f"\n✓ Bulk Extraction Complete!\n")
+            print(f"Statistics:")
+            print(f"  Documents processed: {results['processed']}")
+            print(f"  Documents skipped: {results['skipped']}")
+            print(f"  Documents failed: {results['failed']}")
+            print(f"  Total entities: {results['total_entities']}")
+
+            if results['by_type']:
+                print(f"\n  Entities by type:")
+                for entity_type, count in sorted(results['by_type'].items(), key=lambda x: x[1], reverse=True):
+                    print(f"    - {entity_type.replace('_', ' ')}: {count}")
+
+            if results['failed'] > 0:
+                print(f"\n⚠ {results['failed']} documents failed. Check logs for details.")
+        except Exception as e:
+            print(f"Error: {e}")
+            print(f"\nNote: Entity extraction requires LLM configuration.")
+            print(f"Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
+            sys.exit(1)
+
+    elif args.command == "search-entity":
+        try:
+            entity_types = [args.type] if args.type else None
+
+            results = kb.search_entities(
+                args.query,
+                entity_types=entity_types,
+                min_confidence=args.confidence,
+                max_results=args.max
+            )
+
+            print(f"Entity search results for: {results['query']}")
+            print(f"Total matches: {results['total_matches']}")
+            print(f"Documents found: {len(results['documents'])}\n")
+
+            if results['documents']:
+                for i, doc in enumerate(results['documents'], 1):
+                    print(f"{i}. {doc['doc_title']} ({doc['doc_id']})")
+                    print(f"   Matches: {doc['match_count']}")
+                    for match in doc['matches'][:3]:  # Show first 3 per doc
+                        print(f"   - {match['entity_text']} ({match['entity_type']}, conf: {match['confidence']:.2f}", end="")
+                        if match.get('occurrence_count', 1) > 1:
+                            print(f", {match['occurrence_count']}x", end="")
+                        print(")")
+                    if doc['match_count'] > 3:
+                        print(f"   ... and {doc['match_count'] - 3} more matches")
+                    print()
+            else:
+                print("No entities found matching your query.")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "entity-stats":
+        try:
+            results = kb.get_entity_stats(entity_type=args.type)
+
+            print(f"Entity Extraction Statistics")
+            if args.type:
+                print(f"Type filter: {args.type}")
+            print()
+
+            print(f"Total entities: {results['total_entities']}")
+            print(f"Documents with entities: {results['total_documents_with_entities']}")
+
+            if results['by_type']:
+                print(f"\nEntities by type:")
+                for entity_type, count in sorted(results['by_type'].items(), key=lambda x: x[1], reverse=True):
+                    print(f"  - {entity_type.replace('_', ' ')}: {count}")
+
+            if results['top_entities']:
+                print(f"\nTop 10 entities (by document count):")
+                for i, entity in enumerate(results['top_entities'][:10], 1):
+                    print(f"{i}. {entity['entity_text']} ({entity['entity_type']})")
+                    print(f"   - Found in {entity['document_count']} document(s)")
+                    print(f"   - Total occurrences: {entity['total_occurrences']}")
+                    print(f"   - Avg confidence: {entity['avg_confidence']:.2f}")
+
+            if results['documents_with_most_entities']:
+                print(f"\nDocuments with most entities:")
+                for i, doc in enumerate(results['documents_with_most_entities'], 1):
+                    print(f"{i}. {doc['doc_title']}: {doc['entity_count']} entities")
+        except Exception as e:
+            print(f"Error: {e}")
             sys.exit(1)
 
 

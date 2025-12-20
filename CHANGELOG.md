@@ -2,6 +2,103 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.15.0] - 2025-12-20
+
+### Added - AI-Powered Named Entity Extraction
+
+#### 🏷️ Entity Extraction Engine
+- **New Feature:** Extract named entities from C64 documentation using AI (LLM)
+- **Entity Types (7 categories):**
+  - `hardware` - Chip names (SID, VIC-II, CIA, 6502, 6526, 6581, etc.)
+  - `memory_address` - Memory addresses ($D000, $D020, $0400, etc.)
+  - `instruction` - Assembly instructions (LDA, STA, JMP, JSR, RTS, etc.)
+  - `person` - People mentioned (Bob Yannes, Jack Tramiel, etc.)
+  - `company` - Organizations (Commodore, MOS Technology, etc.)
+  - `product` - Hardware products (VIC-20, C128, 1541, etc.)
+  - `concept` - Technical concepts (sprite, raster interrupt, IRQ, etc.)
+
+#### 💾 Database Schema
+- **New Table:** `document_entities` - Stores extracted entities with metadata
+  - Fields: doc_id, entity_id, entity_text, entity_type, confidence, context, first_chunk_id, occurrence_count, generated_at, model
+  - Foreign key CASCADE delete when document removed
+- **FTS5 Virtual Table:** `entities_fts` - Full-text search on entities
+  - Indexed fields: entity_text, context
+  - Porter stemming for better search results
+- **Triggers:** 3 triggers (INSERT, DELETE, UPDATE) keep FTS5 in sync
+- **Indexes:** 3 indexes on doc_id, entity_type, entity_text for fast queries
+
+#### 🔧 Core Methods
+- **`extract_entities(doc_id, confidence_threshold, force_regenerate)`** - Extract entities from single document
+  - Samples first 5 chunks (up to 5000 chars) for cost control
+  - LLM temperature 0.3 for deterministic extraction
+  - Case-insensitive deduplication with occurrence counting
+  - Database caching to avoid re-extraction
+- **`get_entities(doc_id, entity_types, min_confidence)`** - Retrieve stored entities
+  - Filter by entity types and confidence threshold
+  - Returns same structure as extract_entities
+- **`search_entities(query, entity_types, min_confidence, max_results)`** - Search entities across all docs
+  - FTS5 full-text search on entity text and context
+  - Filter by type and confidence
+  - Results grouped by document with match counts
+- **`find_docs_by_entity(entity_text, entity_type, min_confidence, max_results)`** - Find docs containing entity
+  - Exact entity text matching
+  - Optional type and confidence filtering
+- **`get_entity_stats(entity_type)`** - Get entity extraction statistics
+  - Total entities and documents with entities
+  - Breakdown by type
+  - Top 20 entities by document count
+  - Top 10 documents by entity count
+- **`extract_entities_bulk(confidence_threshold, force_regenerate, max_docs, skip_existing)`** - Bulk extraction
+  - Process multiple documents in batch
+  - Skip existing entities unless force_regenerate
+  - Comprehensive error handling and progress tracking
+
+#### 🔌 MCP Tools (5 new tools)
+- **`extract_entities`** - Extract entities from a document
+  - Inputs: doc_id (required), confidence_threshold, force_regenerate
+  - Returns: Entities grouped by type with first 5 per type
+- **`list_entities`** - List all entities from a document
+  - Inputs: doc_id (required), entity_types (filter), min_confidence
+  - Returns: All entities with optional filtering
+- **`search_entities`** - Search for entities across all documents
+  - Inputs: query (required), entity_types, min_confidence, max_results
+  - Returns: Documents with matching entities and contexts
+- **`entity_stats`** - Show entity extraction statistics
+  - Inputs: entity_type (optional filter)
+  - Returns: Stats breakdown, top entities, top documents
+- **`extract_entities_bulk`** - Bulk extract entities from all documents
+  - Inputs: confidence_threshold, force_regenerate, max_docs, skip_existing
+  - Returns: Processing statistics and results
+
+#### 💻 CLI Commands (4 new commands)
+- **`extract-entities <doc_id>`** - Extract entities from single document
+  - Options: --confidence, --force
+  - Shows first 10 entities per type
+- **`extract-all-entities`** - Bulk extract from all documents
+  - Options: --confidence, --force, --max, --no-skip
+  - Shows processing statistics and entity counts by type
+- **`search-entity <query>`** - Search for entities
+  - Options: --type, --confidence, --max
+  - Shows matching documents with first 3 matches per doc
+- **`entity-stats`** - Show extraction statistics
+  - Options: --type (filter by entity type)
+  - Shows top 10 entities and documents
+
+#### ✅ Features
+- Confidence scoring (0.0-1.0) for each extracted entity
+- Occurrence counting (how many times entity appears)
+- Context snippets (surrounding text for each entity)
+- Database migration for existing installations
+- LLM provider support (Anthropic Claude, OpenAI GPT)
+- Full-text search across all entities
+- Comprehensive error handling
+
+### Technical Details
+- **Lines Added:** ~1,600 lines across server.py and cli.py
+- **Database Tables:** 1 main table + 1 FTS5 table + 3 triggers + 3 indexes
+- **Backward Compatibility:** 100% compatible with existing code
+- **LLM Cost:** ~$0.01-0.04 per document (depending on size)
+
 ## [2.14.0] - 2025-12-18
 
 ### Added - UI/UX Improvements & Configuration Enhancements

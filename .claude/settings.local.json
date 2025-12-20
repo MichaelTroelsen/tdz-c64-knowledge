@@ -55,7 +55,16 @@
       "mcp__tdz-c64-knowledge__get_chunk",
       "WebFetch(domain:github.com)",
       "Skill(taches-cc-resources:create-slash-command)",
-      "Skill(taches-cc-resources:create-slash-commands)"
+      "Skill(taches-cc-resources:create-slash-commands)",
+      "Bash(\".venv/Scripts/python.exe\" -m py_compile server.py)",
+      "Bash(\".venv/Scripts/python.exe\" -c \"import server; print\\(''✓ server.py imports successfully''\\); kb = server.KnowledgeBase\\(\\); print\\(''✓ KnowledgeBase initialized''\\); print\\(f''✓ Database at: {kb.db_path}''\\); print\\(f''✓ Total documents: {len\\(kb.documents\\)}''\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"import server; kb = server.KnowledgeBase\\(\\); print\\(''Server imports: OK''\\); print\\(''KnowledgeBase init: OK''\\); print\\(''Database path:'', kb.db_path\\); print\\(''Total documents:'', len\\(kb.documents\\)\\); print\\(''Has extract_entities:'', hasattr\\(kb, ''extract_entities''\\)\\); print\\(''Has get_entities:'', hasattr\\(kb, ''get_entities''\\)\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"import sqlite3, os; conn = sqlite3.connect\\(os.path.expanduser\\(''~/.tdz-c64-knowledge/knowledge_base.db''\\)\\); cursor = conn.cursor\\(\\); tables = cursor.execute\\(\"\"SELECT name FROM sqlite_master WHERE type=''table'' AND name LIKE ''%entit%''\"\"\\).fetchall\\(\\); print\\(''Entity tables:'', [t[0] for t in tables]\\); indexes = cursor.execute\\(\"\"SELECT name FROM sqlite_master WHERE type=''index'' AND name LIKE ''%entit%''\"\"\\).fetchall\\(\\); print\\(''Entity indexes:'', [i[0] for i in indexes]\\); triggers = cursor.execute\\(\"\"SELECT name FROM sqlite_master WHERE type=''trigger'' AND name LIKE ''%entit%''\"\"\\).fetchall\\(\\); print\\(''Entity triggers:'', [t[0] for t in triggers]\\); conn.close\\(\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"import sqlite3, os; conn = sqlite3.connect\\(os.path.expanduser\\(''~/.tdz-c64-knowledge/knowledge_base.db''\\)\\); cursor = conn.cursor\\(\\); schema = cursor.execute\\(\"\"SELECT sql FROM sqlite_master WHERE type=''table'' AND name=''document_entities''\"\"\\).fetchone\\(\\); print\\(''Schema:''\\); print\\(schema[0]\\); conn.close\\(\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" -c \"import server, os; kb = server.KnowledgeBase\\(os.path.expanduser\\(''~/.tdz-c64-knowledge''\\)\\); from mcp.types import Tool; tools = server.list_tools\\(\\); entity_tools = [t.name for t in tools if ''entit'' in t.name]; print\\(''Entity extraction tools registered:''\\); for tool_name in entity_tools: print\\(f''  - {tool_name}''\\)\")",
+      "Bash(\".venv/Scripts/python.exe\" test_entity_tools.py)",
+      "Bash(\".venv/Scripts/python.exe\" -m py_compile server.py cli.py)",
+      "Bash(\".venv/Scripts/python.exe\" -m py_compile server.py cli.py version.py)"
     ]
   }
 }

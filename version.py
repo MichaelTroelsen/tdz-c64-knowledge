@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.14.0"
-__version_info__ = (2, 14, 0)
+__version__ = "2.15.0"
+__version_info__ = (2, 15, 0)
 
 # Build information
-__build_date__ = "2025-12-18"
+__build_date__ = "2025-12-20"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"
@@ -41,10 +41,21 @@ FEATURES = {
     "mdscrape_integration": "2.14.0",
     "loading_indicators": "2.14.0",
     "dotenv_configuration": "2.14.0",
+    "entity_extraction": "2.15.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.15.0 (2025-12-20)
+  - Added AI-Powered Named Entity Extraction
+  - 7 entity types: hardware, memory_address, instruction, person, company, product, concept
+  - Database schema: document_entities table with FTS5 search
+  - Core methods: extract_entities(), get_entities(), search_entities(), find_docs_by_entity(), get_entity_stats(), extract_entities_bulk()
+  - MCP tools: extract_entities, list_entities, search_entities, entity_stats, extract_entities_bulk
+  - CLI commands: extract-entities, extract-all-entities, search-entity, entity-stats
+  - Confidence scoring and occurrence counting
+  - Full-text search across all entities with filtering
+
 v2.14.0 (2025-12-18)
   - Added URL Scraping & Web Content Ingestion (mdscrape integration)
   - New MCP tools: scrape_url, rescrape_document, check_url_updates

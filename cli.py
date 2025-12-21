@@ -162,6 +162,20 @@ Examples:
     compare_parser.add_argument("doc_id_2", help="Second document ID")
     compare_parser.add_argument("--type", "-t", choices=['full', 'metadata', 'content'], default='full', help="Comparison type (default: full)")
 
+    # Export entities command
+    export_entities_parser = subparsers.add_parser("export-entities", help="Export entities to CSV or JSON")
+    export_entities_parser.add_argument("--format", "-f", choices=['csv', 'json'], default='csv', help="Export format (default: csv)")
+    export_entities_parser.add_argument("--output", "-o", help="Output file path (prints to stdout if not specified)")
+    export_entities_parser.add_argument("--types", "-t", nargs='+', choices=['hardware', 'memory_address', 'instruction', 'person', 'company', 'product', 'concept'], help="Filter by entity types")
+    export_entities_parser.add_argument("--min-confidence", "-c", type=float, default=0.0, help="Minimum confidence (0.0-1.0, default: 0.0)")
+
+    # Export relationships command
+    export_rels_parser = subparsers.add_parser("export-relationships", help="Export entity relationships to CSV or JSON")
+    export_rels_parser.add_argument("--format", "-f", choices=['csv', 'json'], default='csv', help="Export format (default: csv)")
+    export_rels_parser.add_argument("--output", "-o", help="Output file path (prints to stdout if not specified)")
+    export_rels_parser.add_argument("--types", "-t", nargs='+', choices=['hardware', 'memory_address', 'instruction', 'person', 'company', 'product', 'concept'], help="Filter by entity types")
+    export_rels_parser.add_argument("--min-strength", "-s", type=float, default=0.0, help="Minimum relationship strength (0.0-1.0, default: 0.0)")
+
     args = parser.parse_args()
     
     if not args.command:
@@ -776,6 +790,66 @@ Examples:
                     print(f"\n... {len(result['content_diff']) - 20} more diff lines")
 
             print("\n" + "=" * 70)
+
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "export-entities":
+        try:
+            result = kb.export_entities(
+                format=args.format,
+                entity_types=args.types,
+                min_confidence=args.min_confidence,
+                output_path=args.output
+            )
+
+            if args.output:
+                # Count entities
+                if args.format == 'csv':
+                    count = result.count('\n') - 1
+                else:
+                    import json
+                    count = len(json.loads(result))
+
+                print(f"Exported {count} entities to {args.output}")
+                print(f"Format: {args.format.upper()}")
+                print(f"Min Confidence: {args.min_confidence:.2f}")
+                if args.types:
+                    print(f"Filtered Types: {', '.join(args.types)}")
+            else:
+                # Print to stdout
+                print(result)
+
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "export-relationships":
+        try:
+            result = kb.export_relationships(
+                format=args.format,
+                min_strength=args.min_strength,
+                entity_types=args.types,
+                output_path=args.output
+            )
+
+            if args.output:
+                # Count relationships
+                if args.format == 'csv':
+                    count = result.count('\n') - 1
+                else:
+                    import json
+                    count = len(json.loads(result))
+
+                print(f"Exported {count} relationships to {args.output}")
+                print(f"Format: {args.format.upper()}")
+                print(f"Min Strength: {args.min_strength:.2f}")
+                if args.types:
+                    print(f"Filtered Types: {', '.join(args.types)}")
+            else:
+                # Print to stdout
+                print(result)
 
         except Exception as e:
             print(f"Error: {e}")

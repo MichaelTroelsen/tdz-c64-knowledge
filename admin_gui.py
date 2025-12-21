@@ -2773,6 +2773,52 @@ elif page == "📈 Entity Analytics":
 
     st.markdown("---")
 
+    # Export buttons
+    st.subheader("📥 Export Data")
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        if st.button("Export Entities (CSV)", key="export_ent_csv"):
+            csv_data = kb.export_entities(format='csv', min_confidence=0.0)
+            st.download_button(
+                label="Download Entities CSV",
+                data=csv_data,
+                file_name="entities.csv",
+                mime="text/csv"
+            )
+
+    with col2:
+        if st.button("Export Entities (JSON)", key="export_ent_json"):
+            json_data = kb.export_entities(format='json', min_confidence=0.0)
+            st.download_button(
+                label="Download Entities JSON",
+                data=json_data,
+                file_name="entities.json",
+                mime="application/json"
+            )
+
+    with col3:
+        if st.button("Export Relationships (CSV)", key="export_rel_csv"):
+            csv_data = kb.export_relationships(format='csv', min_strength=0.0)
+            st.download_button(
+                label="Download Relationships CSV",
+                data=csv_data,
+                file_name="relationships.csv",
+                mime="text/csv"
+            )
+
+    with col4:
+        if st.button("Export Relationships (JSON)", key="export_rel_json"):
+            json_data = kb.export_relationships(format='json', min_strength=0.0)
+            st.download_button(
+                label="Download Relationships JSON",
+                data=json_data,
+                file_name="relationships.json",
+                mime="application/json"
+            )
+
+    st.markdown("---")
+
     # Tab Navigation
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏆 Top Entities", "🔗 Relationships", "📈 Trends"])
 

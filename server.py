@@ -5242,6 +5242,227 @@ Important:
             'summary_metrics': summary_metrics
         }
 
+    def export_entities(self, format: str = 'csv',
+                       entity_types: Optional[list] = None,
+                       min_confidence: float = 0.0,
+                       output_path: Optional[str] = None) -> str:
+        """
+        Export entities to CSV or JSON format.
+
+        Args:
+            format: 'csv' or 'json'
+            entity_types: Filter by entity types (None = all types)
+            min_confidence: Minimum confidence threshold (0.0-1.0)
+            output_path: Optional file path to write to (if None, returns string)
+
+        Returns:
+            Exported data as string (or writes to file if output_path provided)
+
+        Example CSV:
+            entity_text,entity_type,confidence,doc_count,occurrence_count,first_seen_doc
+            VIC-II,hardware,0.95,15,87,89d0943d6009
+            SID,hardware,0.92,12,56,89d0943d6009
+
+        Example JSON:
+            [
+                {
+                    "entity_text": "VIC-II",
+                    "entity_type": "hardware",
+                    "confidence": 0.95,
+                    "doc_count": 15,
+                    "occurrence_count": 87,
+                    "first_seen_doc": "89d0943d6009"
+                },
+                ...
+            ]
+        """
+        import csv
+        import json
+        from io import StringIO
+
+        cursor = self.db_conn.cursor()
+
+        # Build query with filters
+        query = """
+            SELECT entity_text, entity_type,
+                   AVG(confidence) as avg_confidence,
+                   COUNT(DISTINCT doc_id) as doc_count,
+                   SUM(occurrence_count) as total_occurrences,
+                   MIN(doc_id) as first_seen_doc
+            FROM document_entities
+            WHERE confidence >= ?
+        """
+        params = [min_confidence]
+
+        if entity_types:
+            placeholders = ','.join(['?'] * len(entity_types))
+            query += f" AND entity_type IN ({placeholders})"
+            params.extend(entity_types)
+
+        query += """
+            GROUP BY entity_text, entity_type
+            ORDER BY doc_count DESC, total_occurrences DESC
+        """
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        if format.lower() == 'csv':
+            output = StringIO()
+            writer = csv.writer(output)
+
+            # Write header
+            writer.writerow(['entity_text', 'entity_type', 'avg_confidence',
+                           'doc_count', 'total_occurrences', 'first_seen_doc'])
+
+            # Write data
+            for row in rows:
+                writer.writerow([
+                    row[0],  # entity_text
+                    row[1],  # entity_type
+                    f"{row[2]:.3f}",  # avg_confidence
+                    row[3],  # doc_count
+                    row[4],  # total_occurrences
+                    row[5][:12]  # first_seen_doc (truncated)
+                ])
+
+            result = output.getvalue()
+            output.close()
+
+        elif format.lower() == 'json':
+            entities = []
+            for row in rows:
+                entities.append({
+                    'entity_text': row[0],
+                    'entity_type': row[1],
+                    'avg_confidence': round(row[2], 3),
+                    'doc_count': row[3],
+                    'total_occurrences': row[4],
+                    'first_seen_doc': row[5][:12]
+                })
+
+            result = json.dumps(entities, indent=2)
+
+        else:
+            raise ValueError(f"Unsupported format: {format}. Use 'csv' or 'json'.")
+
+        # Write to file if path provided
+        if output_path:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(result)
+            self.logger.info(f"Exported {len(rows)} entities to {output_path}")
+
+        return result
+
+    def export_relationships(self, format: str = 'csv',
+                            min_strength: float = 0.0,
+                            entity_types: Optional[list] = None,
+                            output_path: Optional[str] = None) -> str:
+        """
+        Export entity relationships to CSV or JSON format.
+
+        Args:
+            format: 'csv' or 'json'
+            min_strength: Minimum relationship strength (0.0-1.0)
+            entity_types: Filter by entity types (None = all types)
+            output_path: Optional file path to write to (if None, returns string)
+
+        Returns:
+            Exported data as string (or writes to file if output_path provided)
+
+        Example CSV:
+            entity1,entity1_type,entity2,entity2_type,strength,doc_count
+            VIC-II,hardware,sprite,concept,0.85,12
+            SID,hardware,sound,concept,0.78,9
+
+        Example JSON:
+            [
+                {
+                    "entity1": "VIC-II",
+                    "entity1_type": "hardware",
+                    "entity2": "sprite",
+                    "entity2_type": "concept",
+                    "strength": 0.85,
+                    "doc_count": 12
+                },
+                ...
+            ]
+        """
+        import csv
+        import json
+        from io import StringIO
+
+        cursor = self.db_conn.cursor()
+
+        # Build query with filters
+        query = """
+            SELECT entity1_text, entity1_type,
+                   entity2_text, entity2_type,
+                   strength, doc_count
+            FROM entity_relationships
+            WHERE strength >= ?
+        """
+        params = [min_strength]
+
+        if entity_types:
+            placeholders = ','.join(['?'] * len(entity_types))
+            query += f" AND (entity1_type IN ({placeholders}) OR entity2_type IN ({placeholders}))"
+            params.extend(entity_types * 2)  # Add for both entity1_type and entity2_type
+
+        query += """
+            ORDER BY strength DESC, doc_count DESC
+        """
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        if format.lower() == 'csv':
+            output = StringIO()
+            writer = csv.writer(output)
+
+            # Write header
+            writer.writerow(['entity1', 'entity1_type', 'entity2', 'entity2_type',
+                           'strength', 'doc_count'])
+
+            # Write data
+            for row in rows:
+                writer.writerow([
+                    row[0],  # entity1_text
+                    row[1],  # entity1_type
+                    row[2],  # entity2_text
+                    row[3],  # entity2_type
+                    f"{row[4]:.3f}",  # strength
+                    row[5]   # doc_count
+                ])
+
+            result = output.getvalue()
+            output.close()
+
+        elif format.lower() == 'json':
+            relationships = []
+            for row in rows:
+                relationships.append({
+                    'entity1': row[0],
+                    'entity1_type': row[1],
+                    'entity2': row[2],
+                    'entity2_type': row[3],
+                    'strength': round(row[4], 3),
+                    'doc_count': row[5]
+                })
+
+            result = json.dumps(relationships, indent=2)
+
+        else:
+            raise ValueError(f"Unsupported format: {format}. Use 'csv' or 'json'.")
+
+        # Write to file if path provided
+        if output_path:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(result)
+            self.logger.info(f"Exported {len(rows)} relationships to {output_path}")
+
+        return result
+
     def extract_entities_bulk(self, confidence_threshold: float = 0.6,
                              force_regenerate: bool = False,
                              max_docs: Optional[int] = None,
@@ -9384,6 +9605,76 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["doc_id_1", "doc_id_2"]
             }
+        ),
+        Tool(
+            name="export_entities",
+            description="Export all extracted entities to CSV or JSON format. Includes entity text, type, confidence scores, document counts, and occurrence counts. Useful for data analysis, reporting, or importing into other tools.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "Export format: 'csv' or 'json'",
+                        "enum": ["csv", "json"],
+                        "default": "csv"
+                    },
+                    "entity_types": {
+                        "type": "array",
+                        "description": "Filter by entity types (e.g., ['hardware', 'instruction']). Leave empty for all types.",
+                        "items": {
+                            "type": "string",
+                            "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"]
+                        }
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Minimum confidence threshold (0.0-1.0)",
+                        "default": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Optional file path to save export (if not provided, returns as string)"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="export_relationships",
+            description="Export all entity relationships to CSV or JSON format. Includes entity pairs, types, relationship strength scores (0.0-1.0), and document counts. Perfect for network analysis, visualization, or data export.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "Export format: 'csv' or 'json'",
+                        "enum": ["csv", "json"],
+                        "default": "csv"
+                    },
+                    "min_strength": {
+                        "type": "number",
+                        "description": "Minimum relationship strength (0.0-1.0)",
+                        "default": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "entity_types": {
+                        "type": "array",
+                        "description": "Filter by entity types (applies to either entity in pair). Leave empty for all types.",
+                        "items": {
+                            "type": "string",
+                            "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"]
+                        }
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Optional file path to save export (if not provided, returns as string)"
+                    }
+                },
+                "required": []
+            }
         )
     ]
 
@@ -10855,6 +11146,92 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Error: {str(e)}")]
         except Exception as e:
             return [TextContent(type="text", text=f"Error comparing documents: {str(e)}")]
+
+    elif name == "export_entities":
+        format = arguments.get("format", "csv")
+        entity_types = arguments.get("entity_types")
+        min_confidence = arguments.get("min_confidence", 0.0)
+        output_path = arguments.get("output_path")
+
+        try:
+            result = kb.export_entities(
+                format=format,
+                entity_types=entity_types,
+                min_confidence=min_confidence,
+                output_path=output_path
+            )
+
+            # Count entities
+            if format.lower() == 'csv':
+                entity_count = result.count('\n') - 1  # Subtract header
+            else:  # json
+                import json
+                entity_count = len(json.loads(result))
+
+            output = f"**Entity Export Complete**\n\n"
+            output += f"**Format:** {format.upper()}\n"
+            output += f"**Entities Exported:** {entity_count}\n"
+            output += f"**Min Confidence:** {min_confidence:.2f}\n"
+
+            if entity_types:
+                output += f"**Filtered Types:** {', '.join(entity_types)}\n"
+
+            if output_path:
+                output += f"**Saved to:** `{output_path}`\n\n"
+            else:
+                output += "\n**Preview (first 500 chars):**\n```\n"
+                output += result[:500]
+                if len(result) > 500:
+                    output += "\n... (truncated)"
+                output += "\n```\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error exporting entities: {str(e)}")]
+
+    elif name == "export_relationships":
+        format = arguments.get("format", "csv")
+        min_strength = arguments.get("min_strength", 0.0)
+        entity_types = arguments.get("entity_types")
+        output_path = arguments.get("output_path")
+
+        try:
+            result = kb.export_relationships(
+                format=format,
+                min_strength=min_strength,
+                entity_types=entity_types,
+                output_path=output_path
+            )
+
+            # Count relationships
+            if format.lower() == 'csv':
+                rel_count = result.count('\n') - 1  # Subtract header
+            else:  # json
+                import json
+                rel_count = len(json.loads(result))
+
+            output = f"**Relationship Export Complete**\n\n"
+            output += f"**Format:** {format.upper()}\n"
+            output += f"**Relationships Exported:** {rel_count}\n"
+            output += f"**Min Strength:** {min_strength:.2f}\n"
+
+            if entity_types:
+                output += f"**Filtered Types:** {', '.join(entity_types)}\n"
+
+            if output_path:
+                output += f"**Saved to:** `{output_path}`\n\n"
+            else:
+                output += "\n**Preview (first 500 chars):**\n```\n"
+                output += result[:500]
+                if len(result) > 500:
+                    output += "\n... (truncated)"
+                output += "\n```\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error exporting relationships: {str(e)}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.18.0"
-__version_info__ = (2, 18, 0)
+__version__ = "2.17.0"
+__version_info__ = (2, 17, 0)
 
 # Build information
 __build_date__ = "2025-12-21"
@@ -44,18 +44,64 @@ FEATURES = {
     "entity_extraction": "2.15.0",
     "entity_relationships": "2.16.0",
     "nl_query_translation": "2.17.0",
-    "rest_api_server": "2.18.0",
-    "api_authentication": "2.18.0",
-    "fastapi_integration": "2.18.0",
-    "background_entity_extraction": "2.18.0",
-    "entity_analytics_dashboard": "2.18.0",
-    "performance_optimizations": "2.18.0",
-    "query_embedding_cache": "2.18.0",
-    "parallel_hybrid_search": "2.18.0",
+    "entity_analytics_dashboard": "2.17.0",
+    "document_comparison": "2.17.0",
+    "entity_export": "2.17.0",
+    "relationship_export": "2.17.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.17.0 (2025-12-21)
+  🚀 MAJOR RELEASE: Quick Wins Complete - AI-Powered Intelligence Features
+
+  Quick Wins Feature Set (Sprints 1-4):
+  - Natural Language Query Translation with dual extraction (regex + LLM)
+  - Entity Analytics Dashboard with comprehensive statistics
+  - Document Comparison with similarity scoring and diff analysis
+  - Entity/Relationship Export to CSV/JSON formats
+
+  Sprint 1: Natural Language Query Translation:
+  - AI-powered query parsing with entity extraction
+  - Dual extraction: Regex patterns for C64-specific hardware + LLM for contextual entities
+  - Core method: translate_nl_query() with confidence scoring
+  - MCP tool: translate_query
+  - Automatic search mode recommendation (keyword/semantic/hybrid)
+  - Facet filter generation from detected entities
+  - Graceful fallback when LLM unavailable
+
+  Sprint 2: Entity Analytics Dashboard:
+  - get_entity_analytics() method with comprehensive data structures
+  - MCP tool: get_entity_analytics
+  - Entity distribution by type analysis
+  - Top entities by document count
+  - Relationship statistics and trends
+  - Top entity relationships with strength scoring
+  - Extraction timeline for trend analysis
+  - Real-time stats: Total entities, relationships, avg per document
+
+  Sprint 3: Document Comparison:
+  - compare_documents() method for side-by-side analysis
+  - MCP tool: compare_documents
+  - Cosine similarity scoring (0.0-1.0)
+  - Metadata diff with new/removed/common tags
+  - Content diff generation using unified diff format
+  - Entity comparison (common, unique to each document)
+  - Relationship comparison
+
+  Sprint 4: Export Features:
+  - export_entities() method with CSV/JSON support
+  - export_relationships() method with CSV/JSON support
+  - MCP tools: export_entities, export_relationships
+  - Configurable filtering (entity type, min confidence, min strength)
+  - Full metadata export in JSON format
+  - Excel-compatible CSV format
+
+  Configuration:
+  - Uses existing LLM_PROVIDER, ANTHROPIC_API_KEY, OPENAI_API_KEY
+  - No new dependencies required
+  - Leverages existing LLM integration from v2.12.0
+
 v2.18.0 (2025-12-21)
   🚀 MAJOR RELEASE: Background Entity Extraction + Performance Optimizations + Analytics Dashboard
 

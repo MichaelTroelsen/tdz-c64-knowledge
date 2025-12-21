@@ -10463,6 +10463,23 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="get_entity_analytics",
+            description="Get comprehensive entity analytics for dashboard visualization. Provides entity distribution by type, top entities by document count, relationship statistics, top entity relationships, and extraction timeline trends over time.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "time_range_days": {
+                        "type": "integer",
+                        "description": "Number of days to include in timeline analysis (default: 30)",
+                        "default": 30,
+                        "minimum": 1,
+                        "maximum": 365
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
             name="extract_entities_bulk",
             description="Bulk extract entities from multiple documents in the knowledge base. Processes documents in batch, skips documents that already have entities (unless force_regenerate). Returns statistics about processed documents and extracted entities.",
             inputSchema={
@@ -11975,6 +11992,73 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=output)]
         except Exception as e:
             return [TextContent(type="text", text=f"Error getting entity stats: {str(e)}")]
+
+    elif name == "get_entity_analytics":
+        time_range_days = arguments.get("time_range_days", 30)
+
+        try:
+            result = kb.get_entity_analytics(time_range_days=time_range_days)
+
+            output = "**Entity Analytics Dashboard**\n"
+            output += f"**Time Range:** Last {time_range_days} days\n\n"
+
+            # Summary Metrics
+            if 'summary_metrics' in result:
+                metrics = result['summary_metrics']
+                output += "**Summary Metrics:**\n"
+                output += f"  - Total Entities: {metrics.get('total_entities', 0)}\n"
+                output += f"  - Unique Entity Texts: {metrics.get('unique_entity_texts', 0)}\n"
+                output += f"  - Total Relationships: {metrics.get('total_relationships', 0)}\n"
+                output += f"  - Documents with Entities: {metrics.get('documents_with_entities', 0)}\n"
+                output += f"  - Avg Entities per Document: {metrics.get('avg_entities_per_doc', 0):.2f}\n\n"
+
+            # Entity Distribution by Type
+            if 'entity_distribution' in result and result['entity_distribution']:
+                output += "**Entity Distribution by Type:**\n"
+                for entity_type, count in sorted(result['entity_distribution'].items(), key=lambda x: x[1], reverse=True):
+                    output += f"  - {entity_type.replace('_', ' ').title()}: {count}\n"
+                output += "\n"
+
+            # Top Entities
+            if 'top_entities' in result and result['top_entities']:
+                output += "**Top 10 Entities (by document count):**\n"
+                for i, entity in enumerate(result['top_entities'][:10], 1):
+                    output += f"{i}. **{entity['entity_text']}** ({entity['entity_type']})\n"
+                    output += f"   - Documents: {entity['doc_count']}\n"
+                    output += f"   - Avg Confidence: {entity['avg_confidence']:.2f}\n"
+                output += "\n"
+
+            # Relationship Statistics
+            if 'relationship_stats' in result and result['relationship_stats']:
+                stats = result['relationship_stats']
+                output += "**Relationship Statistics:**\n"
+                output += f"  - Total Relationships: {stats.get('total', 0)}\n"
+                output += f"  - Avg Strength: {stats.get('avg_strength', 0):.3f}\n"
+                output += f"  - Max Strength: {stats.get('max_strength', 0):.3f}\n"
+                if 'by_type' in stats and stats['by_type']:
+                    output += "  - By Type:\n"
+                    for rel_type, count in sorted(stats['by_type'].items(), key=lambda x: x[1], reverse=True)[:5]:
+                        output += f"    - {rel_type}: {count}\n"
+                output += "\n"
+
+            # Top Relationships
+            if 'top_relationships' in result and result['top_relationships']:
+                output += "**Top 10 Entity Relationships:**\n"
+                for i, rel in enumerate(result['top_relationships'][:10], 1):
+                    output += f"{i}. **{rel['entity1']}** ({rel['entity1_type']}) <-> **{rel['entity2']}** ({rel['entity2_type']})\n"
+                    output += f"   - Strength: {rel['strength']:.3f}\n"
+                    output += f"   - Documents: {rel['doc_count']}\n"
+                output += "\n"
+
+            # Extraction Timeline
+            if 'extraction_timeline' in result and result['extraction_timeline']:
+                output += "**Extraction Timeline (Recent Activity):**\n"
+                for entry in result['extraction_timeline'][:7]:  # Last 7 days
+                    output += f"  - {entry['date']}: {entry['count']} entities extracted\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting entity analytics: {str(e)}")]
 
     elif name == "extract_entities_bulk":
         confidence_threshold = arguments.get("confidence_threshold", 0.6)

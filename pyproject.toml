@@ -19,6 +19,7 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "httpx>=0.25.0",  # For FastAPI TestClient
 ]
 semantic = [
     "sentence-transformers>=2.0.0",

@@ -151,6 +151,11 @@ Examples:
     search_pair_parser.add_argument("entity2", help="Second entity")
     search_pair_parser.add_argument("--max", "-m", type=int, default=10, help="Max documents (default: 10)")
 
+    # Translate natural language query command
+    translate_parser = subparsers.add_parser("translate-query", help="Translate natural language query to structured search parameters")
+    translate_parser.add_argument("query", help="Natural language query (e.g., 'find sprite info on VIC-II')")
+    translate_parser.add_argument("--confidence", "-c", type=float, default=0.7, help="Minimum confidence for entities (0.0-1.0, default: 0.7)")
+
     args = parser.parse_args()
     
     if not args.command:
@@ -624,6 +629,64 @@ Examples:
                         print(f"   {j}. {ctx_short}")
                 print()
 
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "translate-query":
+        try:
+            result = kb.translate_nl_query(
+                query=args.query,
+                confidence_threshold=args.confidence
+            )
+
+            print("=" * 70)
+            print("NATURAL LANGUAGE QUERY TRANSLATION")
+            print("=" * 70)
+            print(f"\nOriginal Query: {result['original_query']}")
+            print(f"Suggested Query: {result['suggested_query']}")
+            print(f"Search Mode: {result['search_mode']}")
+            print(f"Confidence: {result['confidence']:.2f}")
+
+            if result.get('intent'):
+                print(f"Intent: {result['intent']}")
+
+            if result.get('search_terms'):
+                print(f"\nSearch Terms: {', '.join(result['search_terms'])}")
+
+            if result.get('entities_found'):
+                print(f"\nEntities Detected ({len(result['entities_found'])} found):")
+                for entity in result['entities_found'][:15]:  # Show top 15
+                    source = "regex" if entity['source'] == 'regex' else "AI"
+                    print(f"  - {entity['text']} ({entity['type']}) [confidence: {entity['confidence']:.2f}, source: {source}]")
+                if len(result['entities_found']) > 15:
+                    print(f"  ... and {len(result['entities_found']) - 15} more")
+
+            if result.get('facet_filters'):
+                print(f"\nFacet Filters:")
+                for facet_type, values in result['facet_filters'].items():
+                    print(f"  - {facet_type}: {', '.join(values)}")
+
+            if result.get('fallback'):
+                print("\n⚠️  WARNING: LLM unavailable, using fallback keyword extraction")
+
+            print("\n" + "=" * 70)
+            print("SUGGESTED NEXT STEPS")
+            print("=" * 70)
+
+            if result['search_mode'] == 'keyword':
+                print(f"Run: python cli.py search \"{result['suggested_query']}\"")
+            elif result['search_mode'] == 'semantic':
+                print("Semantic search requires the MCP server or Python API")
+                print(f"Example: kb.semantic_search(\"{result['suggested_query']}\")")
+            elif result['search_mode'] == 'hybrid':
+                print("Hybrid search requires the MCP server or Python API")
+                print(f"Example: kb.hybrid_search(\"{result['suggested_query']}\")")
+
+        except ValueError as e:
+            print(f"Error: {e}")
+            print("\nMake sure LLM_PROVIDER and appropriate API key are configured.")
+            sys.exit(1)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)

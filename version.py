@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.16.0"
-__version_info__ = (2, 16, 0)
+__version__ = "2.17.0"
+__version_info__ = (2, 17, 0)
 
 # Build information
 __build_date__ = "2025-12-21"
@@ -43,10 +43,23 @@ FEATURES = {
     "dotenv_configuration": "2.14.0",
     "entity_extraction": "2.15.0",
     "entity_relationships": "2.16.0",
+    "nl_query_translation": "2.17.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.17.0 (2025-12-21)
+  - Added Natural Language Query Translation (Sprint 1: Quick Wins)
+  - AI-powered query parsing with entity extraction
+  - Dual extraction: Regex patterns for C64-specific hardware + LLM for contextual entities
+  - Core method: translate_nl_query() with confidence scoring
+  - MCP tool: translate_query
+  - CLI command: translate-query with formatted output
+  - GUI integration: Search page with NL translation toggle and results display
+  - Automatic search mode recommendation (keyword/semantic/hybrid)
+  - Facet filter generation from detected entities
+  - Graceful fallback when LLM unavailable
+
 v2.16.0 (2025-12-21)
   - Added Entity Relationship Tracking
   - Track co-occurrence of entities within documents

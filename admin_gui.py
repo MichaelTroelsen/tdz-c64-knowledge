@@ -2363,10 +2363,22 @@ elif page == "🔍 Search":
         horizontal=True
     )
 
+    # Natural Language Translation toggle
+    use_nl_translation = st.checkbox(
+        "🤖 Use Natural Language Translation (AI-powered query parsing)",
+        value=False,
+        help="Enable AI to parse your natural language query and extract entities, keywords, and optimal search parameters"
+    )
+
     # Use a form to enable Enter key submission
     with st.form(key="search_form", clear_on_submit=False):
         # Search input
-        query = st.text_input("Enter your search query:", "")
+        if use_nl_translation:
+            query = st.text_area("Enter your natural language question:", "",
+                               placeholder="e.g., 'find information about sprites on the VIC-II chip' or 'how does sound work on the C64?'",
+                               height=80)
+        else:
+            query = st.text_input("Enter your search query:", "")
 
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -2385,6 +2397,52 @@ elif page == "🔍 Search":
     # Execute search when form is submitted (button click or Enter key)
     if search_submitted and query:
         tags = [t.strip() for t in tag_filter.split(',') if t.strip()] if tag_filter else None
+
+        # Natural Language Translation
+        nl_result = None
+        if use_nl_translation:
+            try:
+                with st.spinner("🤖 Translating natural language query..."):
+                    nl_result = kb.translate_nl_query(query, confidence_threshold=0.7)
+
+                # Display translation results in an expander
+                with st.expander("🔍 Query Translation Results", expanded=True):
+                    st.markdown(f"**Original Query:** {nl_result['original_query']}")
+                    st.markdown(f"**Suggested Query:** `{nl_result['suggested_query']}`")
+                    st.markdown(f"**Search Mode Recommendation:** {nl_result['search_mode'].upper()}")
+                    st.markdown(f"**Confidence:** {nl_result['confidence']:.0%}")
+
+                    if nl_result.get('entities_found'):
+                        st.markdown(f"**Entities Detected:** {len(nl_result['entities_found'])} found")
+                        entity_data = []
+                        for e in nl_result['entities_found'][:10]:  # Show top 10
+                            entity_data.append({
+                                'Entity': e['text'],
+                                'Type': e['type'],
+                                'Confidence': f"{e['confidence']:.0%}",
+                                'Source': '🔍 Regex' if e['source'] == 'regex' else '🤖 AI'
+                            })
+                        st.dataframe(pd.DataFrame(entity_data), use_container_width=True)
+                        if len(nl_result['entities_found']) > 10:
+                            st.caption(f"... and {len(nl_result['entities_found']) - 10} more entities")
+
+                    if nl_result.get('facet_filters'):
+                        st.markdown("**Facet Filters:**")
+                        for facet_type, values in nl_result['facet_filters'].items():
+                            st.markdown(f"- **{facet_type}:** {', '.join(values)}")
+
+                    if nl_result.get('fallback'):
+                        st.warning("⚠️ LLM unavailable - using fallback keyword extraction")
+
+                # Use the suggested query for search
+                query = nl_result['suggested_query']
+
+            except ValueError as e:
+                st.error(f"Translation error: {e}\n\nMake sure LLM_PROVIDER and API key are configured.")
+                st.stop()
+            except Exception as e:
+                st.error(f"Error during query translation: {e}")
+                st.stop()
 
         # Create centered containers for progress bar and status text
         col1, col2, col3 = st.columns([1, 2, 1])

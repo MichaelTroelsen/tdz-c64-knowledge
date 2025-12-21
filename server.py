@@ -680,8 +680,31 @@ class KnowledgeBase:
             cursor.execute("CREATE INDEX idx_entities_type ON document_entities(entity_type)")
             cursor.execute("CREATE INDEX idx_entities_text ON document_entities(entity_text)")
 
+            # Create entity relationships table
+            cursor.execute("""
+                CREATE TABLE entity_relationships (
+                    entity1_text TEXT NOT NULL,
+                    entity1_type TEXT NOT NULL,
+                    entity2_text TEXT NOT NULL,
+                    entity2_type TEXT NOT NULL,
+                    relationship_type TEXT NOT NULL,
+                    strength REAL NOT NULL,
+                    doc_count INTEGER NOT NULL DEFAULT 1,
+                    first_seen_doc TEXT,
+                    context_sample TEXT,
+                    last_updated TEXT NOT NULL,
+                    PRIMARY KEY (entity1_text, entity2_text, relationship_type)
+                )
+            """)
+
+            # Create indexes for relationship queries
+            cursor.execute("CREATE INDEX idx_relationships_entity1 ON entity_relationships(entity1_text)")
+            cursor.execute("CREATE INDEX idx_relationships_entity2 ON entity_relationships(entity2_text)")
+            cursor.execute("CREATE INDEX idx_relationships_type ON entity_relationships(relationship_type)")
+            cursor.execute("CREATE INDEX idx_relationships_strength ON entity_relationships(strength)")
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, summaries, and entities)")
+            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, summaries, entities, and relationships)")
         else:
             self.logger.info("Using existing database")
 
@@ -1080,6 +1103,38 @@ class KnowledgeBase:
 
                 self.db_conn.commit()
                 self.logger.info("document_entities table created")
+
+            # Migrate: Add entity_relationships table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='entity_relationships'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating entity_relationships table for entity co-occurrence tracking")
+                cursor.execute("""
+                    CREATE TABLE entity_relationships (
+                        entity1_text TEXT NOT NULL,
+                        entity1_type TEXT NOT NULL,
+                        entity2_text TEXT NOT NULL,
+                        entity2_type TEXT NOT NULL,
+                        relationship_type TEXT NOT NULL,
+                        strength REAL NOT NULL,
+                        doc_count INTEGER NOT NULL DEFAULT 1,
+                        first_seen_doc TEXT,
+                        context_sample TEXT,
+                        last_updated TEXT NOT NULL,
+                        PRIMARY KEY (entity1_text, entity2_text, relationship_type)
+                    )
+                """)
+
+                # Create indexes for relationship queries
+                cursor.execute("CREATE INDEX idx_relationships_entity1 ON entity_relationships(entity1_text)")
+                cursor.execute("CREATE INDEX idx_relationships_entity2 ON entity_relationships(entity2_text)")
+                cursor.execute("CREATE INDEX idx_relationships_type ON entity_relationships(relationship_type)")
+                cursor.execute("CREATE INDEX idx_relationships_strength ON entity_relationships(strength)")
+
+                self.db_conn.commit()
+                self.logger.info("entity_relationships table created")
 
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
@@ -5100,6 +5155,433 @@ Important:
         self.logger.info(f"Bulk entity extraction complete: processed={results['processed']}, "
                         f"failed={results['failed']}, skipped={results['skipped']}, "
                         f"total_entities={results['total_entities']}")
+
+        return results
+
+    # ========== ENTITY RELATIONSHIP METHODS ==========
+
+    def extract_entity_relationships(self, doc_id: str, min_confidence: float = 0.6,
+                                   force_regenerate: bool = False) -> dict:
+        """
+        Extract entity co-occurrence relationships from a document.
+
+        This method analyzes how entities appear together in document chunks
+        to identify related concepts, hardware, instructions, etc.
+
+        Args:
+            doc_id: Document ID to extract relationships from
+            min_confidence: Minimum confidence threshold for entities (default: 0.6)
+            force_regenerate: If True, regenerate relationships even if they exist
+
+        Returns:
+            {
+                'doc_id': str,
+                'relationship_count': int,
+                'relationships': [
+                    {
+                        'entity1': str,
+                        'entity1_type': str,
+                        'entity2': str,
+                        'entity2_type': str,
+                        'strength': float,
+                        'context': str
+                    },
+                    ...
+                ]
+            }
+
+        Examples:
+            # Extract relationships from a document
+            result = kb.extract_entity_relationships('doc-id-123')
+
+            # Force regeneration with higher confidence
+            result = kb.extract_entity_relationships('doc-id-123',
+                min_confidence=0.7, force_regenerate=True)
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        self.logger.info(f"Extracting entity relationships from document {doc_id}")
+
+        # Get all entities for this document
+        entities = self.get_entities(doc_id, min_confidence=min_confidence)
+
+        if not entities:
+            self.logger.info(f"No entities found for document {doc_id}")
+            return {
+                'doc_id': doc_id,
+                'relationship_count': 0,
+                'relationships': []
+            }
+
+        # Get all chunks for this document
+        chunks = self._get_chunks_db(doc_id)
+
+        if not chunks:
+            self.logger.info(f"No chunks found for document {doc_id}")
+            return {
+                'doc_id': doc_id,
+                'relationship_count': 0,
+                'relationships': []
+            }
+
+        # Build entity -> type mapping
+        entity_map = {e['entity_text']: e['entity_type'] for e in entities}
+
+        # Find co-occurrences
+        relationships = {}  # (entity1, entity2) -> strength
+        relationship_contexts = {}  # (entity1, entity2) -> context
+
+        for chunk in chunks:
+            content = chunk.content
+            # Find which entities appear in this chunk
+            entities_in_chunk = [e for e in entity_map.keys() if e in content]
+
+            # Create pairs of co-occurring entities
+            for i, e1 in enumerate(entities_in_chunk):
+                for e2 in entities_in_chunk[i+1:]:
+                    # Sort entities alphabetically to avoid duplicates (A,B) vs (B,A)
+                    pair = tuple(sorted([e1, e2]))
+
+                    # Increment strength
+                    relationships[pair] = relationships.get(pair, 0) + 1
+
+                    # Store context (first occurrence)
+                    if pair not in relationship_contexts:
+                        # Extract context around both entities
+                        start_idx = max(0, content.find(e1) - 50)
+                        end_idx = min(len(content), content.find(e2) + len(e2) + 50)
+                        context = content[start_idx:end_idx].strip()
+                        relationship_contexts[pair] = context
+
+        # Normalize strength scores (0.0-1.0)
+        max_strength = max(relationships.values()) if relationships else 1
+        normalized_relationships = {
+            pair: strength / max_strength
+            for pair, strength in relationships.items()
+        }
+
+        # Store relationships in database
+        cursor = self.db_conn.cursor()
+        from datetime import datetime
+        now = datetime.now().isoformat()
+
+        relationship_list = []
+        for (e1, e2), strength in normalized_relationships.items():
+            e1_type = entity_map[e1]
+            e2_type = entity_map[e2]
+            context = relationship_contexts[(e1, e2)]
+
+            # Check if relationship already exists
+            cursor.execute("""
+                SELECT strength, doc_count FROM entity_relationships
+                WHERE entity1_text = ? AND entity2_text = ? AND relationship_type = 'co-occurrence'
+            """, (e1, e2))
+
+            existing = cursor.fetchone()
+
+            if existing:
+                # Update existing relationship
+                old_strength, doc_count = existing
+                new_strength = (old_strength * doc_count + strength) / (doc_count + 1)
+                new_doc_count = doc_count + 1
+
+                cursor.execute("""
+                    UPDATE entity_relationships
+                    SET strength = ?, doc_count = ?, last_updated = ?, context_sample = ?
+                    WHERE entity1_text = ? AND entity2_text = ? AND relationship_type = 'co-occurrence'
+                """, (new_strength, new_doc_count, now, context, e1, e2))
+            else:
+                # Insert new relationship
+                cursor.execute("""
+                    INSERT INTO entity_relationships
+                    (entity1_text, entity1_type, entity2_text, entity2_type,
+                     relationship_type, strength, doc_count, first_seen_doc,
+                     context_sample, last_updated)
+                    VALUES (?, ?, ?, ?, 'co-occurrence', ?, 1, ?, ?, ?)
+                """, (e1, e1_type, e2, e2_type, strength, doc_id, context, now))
+
+            relationship_list.append({
+                'entity1': e1,
+                'entity1_type': e1_type,
+                'entity2': e2,
+                'entity2_type': e2_type,
+                'strength': strength,
+                'context': context
+            })
+
+        self.db_conn.commit()
+
+        self.logger.info(f"Extracted {len(relationship_list)} relationships from {doc_id}")
+
+        return {
+            'doc_id': doc_id,
+            'relationship_count': len(relationship_list),
+            'relationships': sorted(relationship_list, key=lambda x: x['strength'], reverse=True)
+        }
+
+    def get_entity_relationships(self, entity_text: str,
+                                relationship_type: Optional[str] = None,
+                                min_strength: float = 0.0,
+                                max_results: int = 20) -> list:
+        """
+        Get all relationships for a given entity.
+
+        Args:
+            entity_text: The entity to find relationships for
+            relationship_type: Filter by relationship type (default: all types)
+            min_strength: Minimum relationship strength (0.0-1.0)
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of relationships:
+            [
+                {
+                    'related_entity': str,
+                    'related_type': str,
+                    'relationship_type': str,
+                    'strength': float,
+                    'doc_count': int,
+                    'context_sample': str
+                },
+                ...
+            ]
+
+        Examples:
+            # Find entities related to VIC-II
+            relationships = kb.get_entity_relationships('VIC-II')
+
+            # Find strong co-occurrences only
+            relationships = kb.get_entity_relationships('VIC-II',
+                relationship_type='co-occurrence', min_strength=0.5)
+        """
+        cursor = self.db_conn.cursor()
+
+        # Build query
+        query = """
+            SELECT entity1_text, entity1_type, entity2_text, entity2_type,
+                   relationship_type, strength, doc_count, context_sample
+            FROM entity_relationships
+            WHERE (entity1_text = ? OR entity2_text = ?)
+              AND strength >= ?
+        """
+        params = [entity_text, entity_text, min_strength]
+
+        if relationship_type:
+            query += " AND relationship_type = ?"
+            params.append(relationship_type)
+
+        query += " ORDER BY strength DESC, doc_count DESC LIMIT ?"
+        params.append(max_results)
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        results = []
+        for row in rows:
+            e1_text, e1_type, e2_text, e2_type, rel_type, strength, doc_count, context = row
+
+            # Determine which is the "other" entity
+            if e1_text == entity_text:
+                related_entity = e2_text
+                related_type = e2_type
+            else:
+                related_entity = e1_text
+                related_type = e1_type
+
+            results.append({
+                'related_entity': related_entity,
+                'related_type': related_type,
+                'relationship_type': rel_type,
+                'strength': strength,
+                'doc_count': doc_count,
+                'context_sample': context
+            })
+
+        return results
+
+    def find_related_entities(self, entity_text: str, max_results: int = 10) -> list:
+        """
+        Discover entities related to a given entity (convenience method).
+
+        This is a simplified version of get_entity_relationships() optimized
+        for entity discovery and exploration.
+
+        Args:
+            entity_text: The entity to find related entities for
+            max_results: Maximum number of related entities to return
+
+        Returns:
+            List of related entities with strength scores
+
+        Examples:
+            # Discover entities related to SID chip
+            related = kb.find_related_entities('SID')
+        """
+        return self.get_entity_relationships(
+            entity_text=entity_text,
+            relationship_type='co-occurrence',
+            min_strength=0.3,
+            max_results=max_results
+        )
+
+    def search_by_entity_pair(self, entity1: str, entity2: str,
+                             max_results: int = 10) -> list:
+        """
+        Find documents that contain both entities.
+
+        Args:
+            entity1: First entity to search for
+            entity2: Second entity to search for
+            max_results: Maximum number of documents to return
+
+        Returns:
+            List of documents containing both entities:
+            [
+                {
+                    'doc_id': str,
+                    'title': str,
+                    'entity1_count': int,
+                    'entity2_count': int,
+                    'contexts': [str, ...]  # Snippets showing both entities
+                },
+                ...
+            ]
+
+        Examples:
+            # Find docs about VIC-II and raster interrupts
+            docs = kb.search_by_entity_pair('VIC-II', 'raster interrupt')
+        """
+        cursor = self.db_conn.cursor()
+
+        # Find documents containing both entities
+        query = """
+            SELECT e1.doc_id,
+                   COUNT(DISTINCT e1.entity_id) as entity1_count,
+                   COUNT(DISTINCT e2.entity_id) as entity2_count
+            FROM document_entities e1
+            JOIN document_entities e2 ON e1.doc_id = e2.doc_id
+            WHERE e1.entity_text = ? AND e2.entity_text = ?
+            GROUP BY e1.doc_id
+            ORDER BY entity1_count + entity2_count DESC
+            LIMIT ?
+        """
+
+        cursor.execute(query, (entity1, entity2, max_results))
+        rows = cursor.fetchall()
+
+        results = []
+        for doc_id, e1_count, e2_count in rows:
+            doc = self.documents.get(doc_id)
+            if not doc:
+                continue
+
+            # Get context snippets showing both entities
+            chunks = self._get_chunks_db(doc_id)
+            contexts = []
+
+            for chunk in chunks:
+                if entity1 in chunk.content and entity2 in chunk.content:
+                    # Extract snippet around both entities
+                    idx1 = chunk.content.find(entity1)
+                    idx2 = chunk.content.find(entity2)
+                    start = max(0, min(idx1, idx2) - 50)
+                    end = min(len(chunk.content), max(idx1 + len(entity1), idx2 + len(entity2)) + 50)
+                    context = chunk.content[start:end].strip()
+                    contexts.append(context)
+
+            results.append({
+                'doc_id': doc_id,
+                'title': doc.title,
+                'entity1_count': e1_count,
+                'entity2_count': e2_count,
+                'contexts': contexts[:3]  # Return top 3 contexts
+            })
+
+        return results
+
+    def extract_relationships_bulk(self, min_confidence: float = 0.6,
+                                   max_docs: Optional[int] = None,
+                                   skip_existing: bool = False) -> dict:
+        """
+        Bulk extract entity relationships for multiple documents.
+
+        Args:
+            min_confidence: Minimum confidence threshold for entities
+            max_docs: Maximum number of documents to process (None = all)
+            skip_existing: If True, skip documents that already have relationships
+
+        Returns:
+            {
+                'processed': int,
+                'failed': int,
+                'skipped': int,
+                'total_relationships': int,
+                'results': [list of individual results]
+            }
+
+        Examples:
+            # Extract relationships for all documents
+            results = kb.extract_relationships_bulk()
+
+            # Extract for documents with entities only
+            results = kb.extract_relationships_bulk(skip_existing=True)
+        """
+        results = {
+            'processed': 0,
+            'failed': 0,
+            'skipped': 0,
+            'total_relationships': 0,
+            'results': []
+        }
+
+        # Get documents with entities
+        docs_to_process = []
+        cursor = self.db_conn.cursor()
+
+        for doc_id in self.documents.keys():
+            cursor.execute("SELECT COUNT(*) FROM document_entities WHERE doc_id = ?", (doc_id,))
+            entity_count = cursor.fetchone()[0]
+
+            if entity_count > 0:
+                docs_to_process.append(doc_id)
+
+        if max_docs:
+            docs_to_process = docs_to_process[:max_docs]
+
+        self.logger.info(f"Extracting entity relationships for {len(docs_to_process)} documents")
+
+        # Process each document
+        for i, doc_id in enumerate(docs_to_process, 1):
+            doc_results = {
+                'doc_id': doc_id,
+                'title': self.documents[doc_id].title,
+                'status': 'unknown',
+                'relationship_count': 0,
+                'error': None
+            }
+
+            try:
+                self.logger.info(f"[{i}/{len(docs_to_process)}] Extracting relationships from {doc_id}")
+
+                result = self.extract_entity_relationships(doc_id, min_confidence=min_confidence)
+
+                doc_results['status'] = 'success'
+                doc_results['relationship_count'] = result['relationship_count']
+
+                results['processed'] += 1
+                results['total_relationships'] += result['relationship_count']
+                results['results'].append(doc_results)
+
+            except Exception as e:
+                self.logger.error(f"[{i}/{len(docs_to_process)}] Failed to extract relationships from {doc_id}: {e}")
+                doc_results['status'] = 'failed'
+                doc_results['error'] = str(e)
+                results['failed'] += 1
+                results['results'].append(doc_results)
+
+        self.logger.info(f"Bulk relationship extraction complete: processed={results['processed']}, "
+                        f"failed={results['failed']}, total_relationships={results['total_relationships']}")
 
         return results
 

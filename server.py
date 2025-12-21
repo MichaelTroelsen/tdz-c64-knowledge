@@ -254,6 +254,9 @@ class KnowledgeBase:
             cache_ttl = int(os.getenv('SEARCH_CACHE_TTL', '300'))  # 5 minutes
             self._search_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
             self._similar_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
+            self._semantic_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
+            self._hybrid_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
+            self._faceted_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
 
             # Query embedding cache for semantic search (1 hour TTL for embeddings)
             embedding_cache_ttl = int(os.getenv('EMBEDDING_CACHE_TTL', '3600'))  # 1 hour
@@ -263,12 +266,15 @@ class KnowledgeBase:
             entity_cache_ttl = int(os.getenv('ENTITY_CACHE_TTL', '86400'))  # 24 hours
             self._entity_cache = TTLCache(maxsize=50, ttl=entity_cache_ttl)
 
-            self.logger.info(f"Search caching enabled (size={cache_size}, ttl={cache_ttl}s)")
+            self.logger.info(f"Search result caching enabled (size={cache_size}, ttl={cache_ttl}s)")
             self.logger.info(f"Embedding caching enabled (size={cache_size}, ttl={embedding_cache_ttl}s)")
             self.logger.info(f"Entity caching enabled (size=50, ttl={entity_cache_ttl}s)")
         else:
             self._search_cache = None
             self._similar_cache = None
+            self._semantic_cache = None
+            self._hybrid_cache = None
+            self._faceted_cache = None
             self._embedding_cache = None
             self._entity_cache = None
 
@@ -2703,7 +2709,13 @@ class KnowledgeBase:
             self._search_cache.clear()
         if self._similar_cache is not None:
             self._similar_cache.clear()
-        self.logger.info("Search caches invalidated")
+        if self._semantic_cache is not None:
+            self._semantic_cache.clear()
+        if self._hybrid_cache is not None:
+            self._hybrid_cache.clear()
+        if self._faceted_cache is not None:
+            self._faceted_cache.clear()
+        self.logger.info("All search result caches invalidated")
 
     def _compute_file_hash(self, filepath: str) -> str:
         """Compute MD5 hash of file content."""
@@ -7787,8 +7799,20 @@ Return ONLY the JSON object, no other text."""
             if self.embeddings_index is None:
                 return []
 
-        self.logger.info(f"Semantic search query: '{query}' (max_results={max_results}, tags={tags})")
+        # Check cache first
         start_time = time.time()
+        if self._semantic_cache is not None:
+            cache_key = self._cache_key('semantic_search',
+                                       query=query,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None)
+            if cache_key in self._semantic_cache:
+                results = self._semantic_cache[cache_key]
+                elapsed_ms = (time.time() - start_time) * 1000
+                self.logger.debug(f"Semantic cache HIT for query: '{query}' ({len(results)} results, {elapsed_ms:.2f}ms)")
+                return results
+
+        self.logger.info(f"Semantic search query: '{query}' (max_results={max_results}, tags={tags})")
 
         # Check embedding cache first (expensive operation to avoid)
         cache_key = hashlib.md5(query.encode('utf-8')).hexdigest()
@@ -7863,6 +7887,14 @@ Return ONLY the JSON object, no other text."""
         # Log search for analytics
         self._log_search(query, 'semantic', len(results), elapsed, tags)
 
+        # Store in cache
+        if self._semantic_cache is not None:
+            cache_key = self._cache_key('semantic_search',
+                                       query=query,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None)
+            self._semantic_cache[cache_key] = results
+
         return results
 
     def hybrid_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
@@ -7884,8 +7916,21 @@ Return ONLY the JSON object, no other text."""
             self.logger.warning("Semantic search not available, falling back to FTS5/BM25")
             return self.search(query, max_results, tags)
 
-        self.logger.info(f"Hybrid search query: '{query}' (max_results={max_results}, tags={tags}, semantic_weight={semantic_weight})")
+        # Check cache first
         start_time = time.time()
+        if self._hybrid_cache is not None:
+            cache_key = self._cache_key('hybrid_search',
+                                       query=query,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None,
+                                       semantic_weight=semantic_weight)
+            if cache_key in self._hybrid_cache:
+                results = self._hybrid_cache[cache_key]
+                elapsed_ms = (time.time() - start_time) * 1000
+                self.logger.debug(f"Hybrid cache HIT for query: '{query}' ({len(results)} results, {elapsed_ms:.2f}ms)")
+                return results
+
+        self.logger.info(f"Hybrid search query: '{query}' (max_results={max_results}, tags={tags}, semantic_weight={semantic_weight})")
 
         # Run both search methods in parallel for better performance
         # (FTS5 and semantic are independent operations)
@@ -7975,6 +8020,15 @@ Return ONLY the JSON object, no other text."""
 
         # Log search for analytics
         self._log_search(query, 'hybrid', len(results), elapsed, tags)
+
+        # Store in cache
+        if self._hybrid_cache is not None:
+            cache_key = self._cache_key('hybrid_search',
+                                       query=query,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None,
+                                       semantic_weight=semantic_weight)
+            self._hybrid_cache[cache_key] = results
 
         return results
 
@@ -8188,8 +8242,26 @@ Return ONLY valid JSON, no additional text.
         Returns:
             List of search results filtered by facets, with facets included
         """
-        self.logger.info(f"Faceted search query: '{query}' (facets={facet_filters}, max_results={max_results}, tags={tags})")
+        # Check cache first
         start_time = time.time()
+        if self._faceted_cache is not None:
+            # Convert facet_filters dict to tuple for hashable cache key
+            facet_filters_key = None
+            if facet_filters:
+                facet_filters_key = tuple(sorted((k, tuple(sorted(v))) for k, v in facet_filters.items()))
+
+            cache_key = self._cache_key('faceted_search',
+                                       query=query,
+                                       facet_filters=facet_filters_key,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None)
+            if cache_key in self._faceted_cache:
+                results = self._faceted_cache[cache_key]
+                elapsed_ms = (time.time() - start_time) * 1000
+                self.logger.debug(f"Faceted cache HIT for query: '{query}' ({len(results)} results, {elapsed_ms:.2f}ms)")
+                return results
+
+        self.logger.info(f"Faceted search query: '{query}' (facets={facet_filters}, max_results={max_results}, tags={tags})")
 
         # First get regular search results (request more for filtering)
         results = self.search(query, max_results * 3, tags)
@@ -8199,9 +8271,21 @@ Return ONLY valid JSON, no additional text.
             # Add facets to each result
             for result in results:
                 result['facets'] = self._get_document_facets(result['doc_id'])
+            final_results = results[:max_results]
             elapsed = (time.time() - start_time) * 1000
-            self.logger.info(f"Faceted search (no filters) completed: {len(results[:max_results])} results in {elapsed:.2f}ms")
-            return results[:max_results]
+            self.logger.info(f"Faceted search (no filters) completed: {len(final_results)} results in {elapsed:.2f}ms")
+
+            # Store in cache
+            if self._faceted_cache is not None:
+                facet_filters_key = None
+                cache_key = self._cache_key('faceted_search',
+                                           query=query,
+                                           facet_filters=facet_filters_key,
+                                           max_results=max_results,
+                                           tags=tuple(sorted(tags)) if tags else None)
+                self._faceted_cache[cache_key] = final_results
+
+            return final_results
 
         # Filter results by facets
         filtered_results = []
@@ -8230,6 +8314,16 @@ Return ONLY valid JSON, no additional text.
 
         # Log search for analytics
         self._log_search(query, 'faceted', len(filtered_results), elapsed, tags)
+
+        # Store in cache
+        if self._faceted_cache is not None:
+            facet_filters_key = tuple(sorted((k, tuple(sorted(v))) for k, v in facet_filters.items()))
+            cache_key = self._cache_key('faceted_search',
+                                       query=query,
+                                       facet_filters=facet_filters_key,
+                                       max_results=max_results,
+                                       tags=tuple(sorted(tags)) if tags else None)
+            self._faceted_cache[cache_key] = filtered_results
 
         return filtered_results
 

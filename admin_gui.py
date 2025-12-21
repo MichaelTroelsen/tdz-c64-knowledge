@@ -2909,13 +2909,118 @@ elif page == "📈 Entity Analytics":
 
             st.markdown("---")
 
+            # Network Graph Visualization
+            st.markdown("**🕸️ Interactive Relationship Network**")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                show_network = st.checkbox("Show Network Graph", value=True)
+            with col2:
+                max_nodes = st.slider("Max Nodes", 10, 100, 50, 5, help="Limit nodes for better performance")
+            with col3:
+                graph_min_strength = st.slider("Graph Min Strength", 0.0, 1.0, 0.3, 0.05, help="Filter weak relationships")
+
+            if show_network:
+                # Filter relationships for graph
+                graph_rels = [
+                    r for r in analytics['top_relationships'][:max_nodes]
+                    if r['strength'] >= graph_min_strength
+                ]
+
+                if graph_rels:
+                    try:
+                        from pyvis.network import Network
+                        import tempfile
+                        import streamlit.components.v1 as components
+
+                        # Create network
+                        net = Network(height="600px", width="100%", bgcolor="#222222", font_color="white")
+                        net.barnes_hut()
+
+                        # Color scheme for entity types
+                        type_colors = {
+                            'hardware': '#FF6B6B',
+                            'memory_address': '#4ECDC4',
+                            'instruction': '#45B7D1',
+                            'person': '#FFA07A',
+                            'company': '#98D8C8',
+                            'product': '#F7DC6F',
+                            'concept': '#BB8FCE'
+                        }
+
+                        # Add nodes and edges
+                        added_nodes = set()
+                        for rel in graph_rels:
+                            entity1 = rel['entity1']
+                            entity2 = rel['entity2']
+                            type1 = rel['entity1_type']
+                            type2 = rel['entity2_type']
+                            strength = rel['strength']
+                            doc_count = rel['doc_count']
+
+                            # Add entity1 node
+                            if entity1 not in added_nodes:
+                                net.add_node(
+                                    entity1,
+                                    label=entity1,
+                                    color=type_colors.get(type1, '#CCCCCC'),
+                                    title=f"{entity1} ({type1})",
+                                    size=20
+                                )
+                                added_nodes.add(entity1)
+
+                            # Add entity2 node
+                            if entity2 not in added_nodes:
+                                net.add_node(
+                                    entity2,
+                                    label=entity2,
+                                    color=type_colors.get(type2, '#CCCCCC'),
+                                    title=f"{entity2} ({type2})",
+                                    size=20
+                                )
+                                added_nodes.add(entity2)
+
+                            # Add edge
+                            edge_width = strength * 5  # Scale edge width by strength
+                            net.add_edge(
+                                entity1,
+                                entity2,
+                                value=edge_width,
+                                title=f"Strength: {strength:.2f}\nShared docs: {doc_count}",
+                                color={'color': f'rgba(255,255,255,{strength})'}
+                            )
+
+                        # Generate and display
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w', encoding='utf-8') as f:
+                            net.save_graph(f.name)
+                            with open(f.name, 'r', encoding='utf-8') as f2:
+                                html_content = f2.read()
+                            components.html(html_content, height=620)
+
+                        # Legend
+                        st.markdown("**Legend:**")
+                        legend_cols = st.columns(len(type_colors))
+                        for idx, (entity_type, color) in enumerate(type_colors.items()):
+                            with legend_cols[idx]:
+                                st.markdown(f"<span style='color:{color};'>●</span> {entity_type}", unsafe_allow_html=True)
+
+                        st.caption(f"Showing {len(added_nodes)} nodes and {len(graph_rels)} edges. Drag nodes to explore. Hover for details.")
+
+                    except Exception as e:
+                        st.error(f"Failed to create network graph: {e}")
+                        st.info("Network graph requires pyvis. Install with: pip install pyvis")
+                else:
+                    st.info("No relationships meet the minimum strength threshold for visualization.")
+
+            st.markdown("---")
+
             # Top relationships
-            st.markdown("**Top 50 Relationships by Strength**")
+            st.markdown("**📊 Top 50 Relationships by Strength**")
 
             # Filters
             col1, col2 = st.columns(2)
             with col1:
-                min_strength = st.slider("Min Strength", 0.0, 1.0, 0.0, 0.05)
+                min_strength = st.slider("Table Min Strength", 0.0, 1.0, 0.0, 0.05, key="table_strength")
             with col2:
                 min_docs = st.number_input("Min Shared Documents", min_value=1, value=1)
 

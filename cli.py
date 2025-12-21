@@ -129,6 +129,28 @@ Examples:
     entity_stats_parser = subparsers.add_parser("entity-stats", help="Show entity extraction statistics")
     entity_stats_parser.add_argument("--type", "-t", choices=["hardware", "memory_address", "instruction", "person", "company", "product", "concept"], help="Filter by entity type")
 
+    # Extract entity relationships command
+    extract_rels_parser = subparsers.add_parser("extract-relationships", help="Extract entity co-occurrence relationships from a document")
+    extract_rels_parser.add_argument("doc_id", help="Document ID to extract relationships from")
+    extract_rels_parser.add_argument("--confidence", "-c", type=float, default=0.6, help="Minimum confidence threshold for entities (0.0-1.0, default: 0.6)")
+
+    # Extract all relationships command
+    extract_all_rels_parser = subparsers.add_parser("extract-all-relationships", help="Extract entity relationships from all documents")
+    extract_all_rels_parser.add_argument("--confidence", "-c", type=float, default=0.6, help="Minimum confidence threshold (0.0-1.0, default: 0.6)")
+    extract_all_rels_parser.add_argument("--max", "-m", type=int, help="Max documents to process")
+
+    # Show relationships command
+    show_rels_parser = subparsers.add_parser("show-relationships", help="Show entities related to a specific entity")
+    show_rels_parser.add_argument("entity", help="Entity to find relationships for (e.g., 'VIC-II', 'SID')")
+    show_rels_parser.add_argument("--min-strength", "-s", type=float, default=0.0, help="Minimum relationship strength (0.0-1.0, default: 0.0)")
+    show_rels_parser.add_argument("--max", "-m", type=int, default=20, help="Max results (default: 20)")
+
+    # Search entity pair command
+    search_pair_parser = subparsers.add_parser("search-pair", help="Find documents containing both entities")
+    search_pair_parser.add_argument("entity1", help="First entity")
+    search_pair_parser.add_argument("entity2", help="Second entity")
+    search_pair_parser.add_argument("--max", "-m", type=int, default=10, help="Max documents (default: 10)")
+
     args = parser.parse_args()
     
     if not args.command:
@@ -492,6 +514,116 @@ Examples:
                 print(f"\nDocuments with most entities:")
                 for i, doc in enumerate(results['documents_with_most_entities'], 1):
                     print(f"{i}. {doc['doc_title']}: {doc['entity_count']} entities")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "extract-relationships":
+        try:
+            if args.doc_id not in kb.documents:
+                print(f"Error: Document not found: {args.doc_id}")
+                sys.exit(1)
+
+            doc = kb.documents[args.doc_id]
+            print(f"Extracting entity relationships from: {doc.title}")
+            print(f"Confidence threshold: {args.confidence}\n")
+
+            result = kb.extract_entity_relationships(doc_id=args.doc_id, min_confidence=args.confidence)
+
+            print(f"[OK] Relationship extraction complete!")
+            print(f"Relationships found: {result['relationship_count']}\n")
+
+            if result['relationships']:
+                print(f"Top relationships (by strength):\n")
+                for i, rel in enumerate(result['relationships'][:15], 1):
+                    print(f"{i}. {rel['entity1']} ({rel['entity1_type']}) <-> {rel['entity2']} ({rel['entity2_type']})")
+                    print(f"   Strength: {rel['strength']:.2f}")
+                    if rel.get('context'):
+                        ctx = rel['context'][:100] + "..." if len(rel['context']) > 100 else rel['context']
+                        print(f"   Context: {ctx}")
+                    print()
+
+                if len(result['relationships']) > 15:
+                    print(f"... and {len(result['relationships']) - 15} more relationships")
+            else:
+                print("No relationships found. Ensure the document has extracted entities first.")
+
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "extract-all-relationships":
+        try:
+            print(f"Extracting entity relationships from all documents with entities...")
+            print(f"Confidence threshold: {args.confidence}\n")
+
+            result = kb.extract_relationships_bulk(
+                min_confidence=args.confidence,
+                max_docs=args.max
+            )
+
+            print(f"\n[OK] Bulk relationship extraction complete!\n")
+            print(f"Processed: {result['processed']}")
+            print(f"Failed: {result['failed']}")
+            print(f"Total relationships: {result['total_relationships']}")
+            print(f"Avg per document: {result['total_relationships'] / max(result['processed'], 1):.1f}")
+
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "show-relationships":
+        try:
+            relationships = kb.get_entity_relationships(
+                entity_text=args.entity,
+                min_strength=args.min_strength,
+                max_results=args.max
+            )
+
+            if not relationships:
+                print(f"No relationships found for entity '{args.entity}'")
+                sys.exit(0)
+
+            print(f"Entities related to '{args.entity}' ({len(relationships)} found):\n")
+
+            for i, rel in enumerate(relationships, 1):
+                print(f"{i}. {rel['related_entity']} ({rel['related_type']})")
+                print(f"   Strength: {rel['strength']:.2f} | Documents: {rel['doc_count']}")
+                if rel.get('context_sample'):
+                    ctx = rel['context_sample'][:100] + "..." if len(rel['context_sample']) > 100 else rel['context_sample']
+                    print(f"   Context: {ctx}")
+                print()
+
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "search-pair":
+        try:
+            results = kb.search_by_entity_pair(
+                entity1=args.entity1,
+                entity2=args.entity2,
+                max_results=args.max
+            )
+
+            if not results:
+                print(f"No documents found containing both '{args.entity1}' and '{args.entity2}'")
+                sys.exit(0)
+
+            print(f"Documents containing both '{args.entity1}' AND '{args.entity2}' ({len(results)} found):\n")
+
+            for i, doc in enumerate(results, 1):
+                print(f"{i}. {doc['title']}")
+                print(f"   '{args.entity1}': {doc['entity1_count']} | '{args.entity2}': {doc['entity2_count']}")
+                print(f"   Doc ID: {doc['doc_id']}")
+
+                if doc.get('contexts'):
+                    print(f"   Context snippets:")
+                    for j, ctx in enumerate(doc['contexts'][:2], 1):
+                        ctx_short = ctx[:120] + "..." if len(ctx) > 120 else ctx
+                        print(f"   {j}. {ctx_short}")
+                print()
+
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)

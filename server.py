@@ -8600,6 +8600,101 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": []
             }
+        ),
+        Tool(
+            name="extract_entity_relationships",
+            description="Extract co-occurrence relationships between entities in a document. Analyzes how entities appear together (e.g., VIC-II + raster interrupt, SID + sound programming). Returns entity pairs with relationship strength and context snippets.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to extract relationships from"
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Minimum confidence threshold for entities (0.0-1.0, default: 0.6)",
+                        "default": 0.6,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="get_entity_relationships",
+            description="Get all entities related to a specific entity. Shows which other entities frequently co-occur with the target entity, sorted by relationship strength. Great for discovering related concepts, hardware, and techniques.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_text": {
+                        "type": "string",
+                        "description": "The entity to find relationships for (e.g., 'VIC-II', 'SID', 'LDA')"
+                    },
+                    "min_strength": {
+                        "type": "number",
+                        "description": "Minimum relationship strength (0.0-1.0, default: 0.0)",
+                        "default": 0.0,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of related entities to return (default: 20)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    }
+                },
+                "required": ["entity_text"]
+            }
+        ),
+        Tool(
+            name="find_related_entities",
+            description="Discover entities related to a given entity (simplified version of get_entity_relationships). Returns top related entities for quick exploration and discovery.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_text": {
+                        "type": "string",
+                        "description": "The entity to find related entities for"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of related entities (default: 10)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["entity_text"]
+            }
+        ),
+        Tool(
+            name="search_entity_pair",
+            description="Find documents that contain both entities. Useful for finding documentation about specific combinations (e.g., 'VIC-II' AND 'raster interrupt'). Returns documents with both entity counts and context snippets.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity1": {
+                        "type": "string",
+                        "description": "First entity to search for"
+                    },
+                    "entity2": {
+                        "type": "string",
+                        "description": "Second entity to search for"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of documents to return (default: 10)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                },
+                "required": ["entity1", "entity2"]
+            }
         )
     ]
 
@@ -9805,6 +9900,132 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=output)]
         except Exception as e:
             return [TextContent(type="text", text=f"Error in bulk entity extraction: {str(e)}\n\nNote: Entity extraction requires LLM configuration. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY).")]
+
+    elif name == "extract_entity_relationships":
+        doc_id = arguments.get("doc_id")
+        min_confidence = arguments.get("min_confidence", 0.6)
+
+        if not doc_id:
+            return [TextContent(type="text", text="Error: doc_id is required")]
+
+        try:
+            result = kb.extract_entity_relationships(doc_id, min_confidence=min_confidence)
+
+            output = f"**Entity Relationship Extraction Complete**\n\n"
+            output += f"**Document:** {kb.documents[doc_id].title}\n"
+            output += f"**Relationships Found:** {result['relationship_count']}\n\n"
+
+            if result['relationships']:
+                output += f"**Top Relationships (by strength):**\n\n"
+                # Show top 10 relationships
+                for i, rel in enumerate(result['relationships'][:10], 1):
+                    output += f"{i}. **{rel['entity1']}** ({rel['entity1_type']}) ↔ **{rel['entity2']}** ({rel['entity2_type']})\n"
+                    output += f"   Strength: {rel['strength']:.2f}\n"
+                    if rel.get('context'):
+                        context = rel['context'][:100] + "..." if len(rel['context']) > 100 else rel['context']
+                        output += f"   *{context}*\n"
+                    output += "\n"
+
+                if len(result['relationships']) > 10:
+                    output += f"... and {len(result['relationships']) - 10} more relationships\n\n"
+
+                output += f"Use `get_entity_relationships` to explore specific entities.\n"
+            else:
+                output += "No relationships found. The document may not have enough entities extracted.\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error extracting relationships: {str(e)}")]
+
+    elif name == "get_entity_relationships":
+        entity_text = arguments.get("entity_text")
+        min_strength = arguments.get("min_strength", 0.0)
+        max_results = arguments.get("max_results", 20)
+
+        if not entity_text:
+            return [TextContent(type="text", text="Error: entity_text is required")]
+
+        try:
+            relationships = kb.get_entity_relationships(
+                entity_text=entity_text,
+                min_strength=min_strength,
+                max_results=max_results
+            )
+
+            if not relationships:
+                return [TextContent(type="text", text=f"No relationships found for entity '{entity_text}'.\n\nThis entity may not have been extracted yet, or it doesn't co-occur with other entities.")]
+
+            output = f"**Entities Related to '{entity_text}'**\n\n"
+            output += f"Found {len(relationships)} related entities:\n\n"
+
+            for i, rel in enumerate(relationships, 1):
+                output += f"{i}. **{rel['related_entity']}** ({rel['related_type']})\n"
+                output += f"   Strength: {rel['strength']:.2f} | Found in {rel['doc_count']} document(s)\n"
+                if rel.get('context_sample'):
+                    context = rel['context_sample'][:100] + "..." if len(rel['context_sample']) > 100 else rel['context_sample']
+                    output += f"   *{context}*\n"
+                output += "\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting relationships: {str(e)}")]
+
+    elif name == "find_related_entities":
+        entity_text = arguments.get("entity_text")
+        max_results = arguments.get("max_results", 10)
+
+        if not entity_text:
+            return [TextContent(type="text", text="Error: entity_text is required")]
+
+        try:
+            related = kb.find_related_entities(entity_text=entity_text, max_results=max_results)
+
+            if not related:
+                return [TextContent(type="text", text=f"No related entities found for '{entity_text}'.")]
+
+            output = f"**Entities Related to '{entity_text}'** (Top {len(related)})\n\n"
+
+            for i, rel in enumerate(related, 1):
+                output += f"{i}. **{rel['related_entity']}** ({rel['related_type']}) - strength: {rel['strength']:.2f}\n"
+
+            output += f"\nUse `get_entity_relationships` for more details and context.\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error finding related entities: {str(e)}")]
+
+    elif name == "search_entity_pair":
+        entity1 = arguments.get("entity1")
+        entity2 = arguments.get("entity2")
+        max_results = arguments.get("max_results", 10)
+
+        if not entity1 or not entity2:
+            return [TextContent(type="text", text="Error: Both entity1 and entity2 are required")]
+
+        try:
+            results = kb.search_by_entity_pair(entity1=entity1, entity2=entity2, max_results=max_results)
+
+            if not results:
+                return [TextContent(type="text", text=f"No documents found containing both '{entity1}' and '{entity2}'.")]
+
+            output = f"**Documents Containing Both '{entity1}' AND '{entity2}'**\n\n"
+            output += f"Found {len(results)} document(s):\n\n"
+
+            for i, doc in enumerate(results, 1):
+                output += f"**{i}. {doc['title']}**\n"
+                output += f"   '{entity1}': {doc['entity1_count']} mention(s) | '{entity2}': {doc['entity2_count']} mention(s)\n"
+                output += f"   Doc ID: `{doc['doc_id']}`\n"
+
+                if doc.get('contexts'):
+                    output += f"   **Context snippets:**\n"
+                    for j, context in enumerate(doc['contexts'][:2], 1):
+                        ctx_short = context[:150] + "..." if len(context) > 150 else context
+                        output += f"   {j}. *{ctx_short}*\n"
+                output += "\n"
+
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error searching entity pair: {str(e)}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

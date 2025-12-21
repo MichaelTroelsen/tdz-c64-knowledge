@@ -200,9 +200,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "success": False,
-            "error": exc.detail,
-            "status_code": exc.status_code
+            "detail": exc.detail
         }
     )
 
@@ -273,6 +271,7 @@ async def health_check():
             "status": "healthy",
             "version": __version__,
             "documents": doc_count,
+            "database": "connected",
             "semantic_search": kb.use_semantic,
             "timestamp": time.time()
         }
@@ -320,21 +319,15 @@ async def get_stats():
         return {
             "success": True,
             "data": {
-                "documents": {
-                    "total": len(docs),
-                    "total_chunks": total_chunks,
-                    "total_pages": total_pages
-                },
-                "tags": {
-                    "total": len(all_tags),
-                    "tags": sorted(all_tags)
-                },
-                "capabilities": {
-                    "fts5_search": kb._fts5_available(),
-                    "semantic_search": kb.use_semantic,
-                    "fuzzy_search": kb.use_fuzzy,
-                    "ocr": hasattr(kb, 'ocr_enabled') and kb.ocr_enabled or False
-                }
+                "total_documents": len(docs),
+                "total_chunks": total_chunks,
+                "total_pages": total_pages,
+                "total_tags": len(all_tags),
+                "tags": sorted(all_tags),
+                "fts5_search": kb._fts5_available(),
+                "semantic_search": kb.use_semantic,
+                "fuzzy_search": kb.use_fuzzy,
+                "ocr": hasattr(kb, 'ocr_enabled') and kb.ocr_enabled or False
             }
         }
     except Exception as e:
@@ -374,7 +367,7 @@ def format_search_results(results: list, query_time_ms: float, search_mode: str 
 
     return SearchResponse(
         success=True,
-        data=search_results,
+        data={"results": search_results},
         metadata={
             "total_results": len(search_results),
             "query_time_ms": round(query_time_ms, 2),
@@ -406,6 +399,13 @@ async def search(request: SearchRequest):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="KnowledgeBase not initialized"
+        )
+
+    # Validate query is not empty
+    if not request.query or not request.query.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Query cannot be empty"
         )
 
     try:
@@ -718,7 +718,7 @@ async def list_documents(
 
         return DocumentListResponse(
             success=True,
-            data=doc_metadata_list,
+            data={"documents": doc_metadata_list},
             metadata={
                 "total_documents": total_count,
                 "returned_count": len(doc_metadata_list),
@@ -843,18 +843,15 @@ async def upload_document(
             tags_list = [tag.strip() for tag in tags.split(',')]
 
         # Add document to knowledge base
-        doc_id = kb.add_document(
-            file_path=tmp_path,
+        doc = kb.add_document(
+            filepath=tmp_path,
             tags=tags_list,
-            custom_title=title
+            title=title
         )
 
         # Clean up temp file
         import os
         os.unlink(tmp_path)
-
-        # Get the added document
-        doc = kb.get_document(doc_id)
 
         return DocumentResponse(
             success=True,
@@ -904,11 +901,20 @@ async def update_document(doc_id: str, request: DocumentUpdateRequest):
         )
 
     try:
+        # Check if document exists
         doc = kb.get_document(doc_id)
         if not doc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Document not found: {doc_id}"
+            )
+
+        # Get document metadata for tags
+        doc_meta = kb.documents.get(doc_id)
+        if not doc_meta:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document metadata not found: {doc_id}"
             )
 
         # Update title if provided
@@ -921,28 +927,33 @@ async def update_document(doc_id: str, request: DocumentUpdateRequest):
             kb.update_document_tags(doc_id, request.tags)
         else:
             # Add/remove specific tags
-            current_tags = set(doc.tags)
+            current_tags = set(doc_meta.tags)
             if request.add_tags:
                 current_tags.update(request.add_tags)
             if request.remove_tags:
                 current_tags.difference_update(request.remove_tags)
             kb.update_document_tags(doc_id, list(current_tags))
 
-        # Get updated document
-        updated_doc = kb.get_document(doc_id)
+        # Get updated document metadata
+        updated_doc_meta = kb.documents.get(doc_id)
+        if not updated_doc_meta:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document metadata not found: {doc_id}"
+            )
 
         return DocumentResponse(
             success=True,
             data=DocumentMetadata(
-                doc_id=updated_doc.doc_id,
-                title=updated_doc.title,
-                filename=updated_doc.filename,
-                file_type=updated_doc.file_type,
-                total_chunks=updated_doc.total_chunks,
-                total_pages=updated_doc.total_pages,
-                indexed_at=updated_doc.indexed_at,
-                tags=updated_doc.tags,
-                source_url=updated_doc.source_url
+                doc_id=updated_doc_meta.doc_id,
+                title=updated_doc_meta.title,
+                filename=updated_doc_meta.filename,
+                file_type=updated_doc_meta.file_type,
+                total_chunks=updated_doc_meta.total_chunks,
+                total_pages=updated_doc_meta.total_pages,
+                indexed_at=updated_doc_meta.indexed_at,
+                tags=updated_doc_meta.tags,
+                source_url=updated_doc_meta.source_url
             )
         )
 
@@ -954,6 +965,71 @@ async def update_document(doc_id: str, request: DocumentUpdateRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update document: {str(e)}"
         )
+
+
+@app.delete("/api/v1/documents/bulk", response_model=BulkOperationResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
+async def bulk_delete(request: BulkDeleteRequest):
+    """
+    Delete multiple documents at once.
+
+    **Parameters:**
+    - **request**: Bulk delete request with doc_ids and confirmation
+
+    **Example:**
+    ```json
+    {
+        "doc_ids": ["89d0943d6009", "a1b2c3d4e5f6"],
+        "confirm": true
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    if not request.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bulk delete requires confirmation (set confirm: true)"
+        )
+
+    successful = []
+    failed = []
+    errors = {}
+
+    for doc_id in request.doc_ids:
+        try:
+            # Check if exists
+            doc = kb.get_document(doc_id)
+            if not doc:
+                failed.append(doc_id)
+                errors[doc_id] = "Document not found"
+                continue
+
+            # Delete
+            kb.remove_document(doc_id)
+            successful.append(doc_id)
+
+        except Exception as e:
+            failed.append(doc_id)
+            errors[doc_id] = str(e)
+            logger.error(f"Failed to delete {doc_id}: {e}")
+
+    return BulkOperationResponse(
+        success=len(failed) == 0,
+        data={
+            "successful": successful,
+            "failed": failed,
+            "errors": errors
+        },
+        metadata={
+            "total_requested": len(request.doc_ids),
+            "successful_count": len(successful),
+            "failed_count": len(failed)
+        }
+    )
 
 
 @app.delete("/api/v1/documents/{doc_id}", response_model=BulkOperationResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
@@ -1054,12 +1130,12 @@ async def bulk_upload(files: List[UploadFile] = File(...), tags: Optional[str] =
                 tmp_path = tmp_file.name
 
             # Add document
-            doc_id = kb.add_document(
-                file_path=tmp_path,
+            doc = kb.add_document(
+                filepath=tmp_path,
                 tags=tags_list
             )
 
-            successful.append(doc_id)
+            successful.append(doc.doc_id)
 
             # Clean up
             import os
@@ -1073,7 +1149,7 @@ async def bulk_upload(files: List[UploadFile] = File(...), tags: Optional[str] =
     return BulkOperationResponse(
         success=len(failed) == 0,
         data={
-            "successful": successful,
+            "added": successful,
             "failed": failed,
             "errors": errors
         },
@@ -1083,72 +1159,6 @@ async def bulk_upload(files: List[UploadFile] = File(...), tags: Optional[str] =
             "failed_count": len(failed)
         }
     )
-
-
-@app.delete("/api/v1/documents/bulk", response_model=BulkOperationResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
-async def bulk_delete(request: BulkDeleteRequest):
-    """
-    Delete multiple documents at once.
-
-    **Parameters:**
-    - **request**: Bulk delete request with doc_ids and confirmation
-
-    **Example:**
-    ```json
-    {
-        "doc_ids": ["89d0943d6009", "a1b2c3d4e5f6"],
-        "confirm": true
-    }
-    ```
-    """
-    if kb is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="KnowledgeBase not initialized"
-        )
-
-    if not request.confirm:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Bulk delete requires confirmation (set confirm: true)"
-        )
-
-    successful = []
-    failed = []
-    errors = {}
-
-    for doc_id in request.doc_ids:
-        try:
-            # Check if exists
-            doc = kb.get_document(doc_id)
-            if not doc:
-                failed.append(doc_id)
-                errors[doc_id] = "Document not found"
-                continue
-
-            # Delete
-            kb.remove_document(doc_id)
-            successful.append(doc_id)
-
-        except Exception as e:
-            failed.append(doc_id)
-            errors[doc_id] = str(e)
-            logger.error(f"Failed to delete {doc_id}: {e}")
-
-    return BulkOperationResponse(
-        success=len(failed) == 0,
-        data={
-            "successful": successful,
-            "failed": failed,
-            "errors": errors
-        },
-        metadata={
-            "total_requested": len(request.doc_ids),
-            "successful_count": len(successful),
-            "failed_count": len(failed)
-        }
-    )
-
 
 # ========== URL Scraping Endpoints ==========
 
@@ -1178,17 +1188,31 @@ async def scrape_url(request: ScrapeRequest):
             detail="KnowledgeBase not initialized"
         )
 
+    # Validate URL format
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(request.url)
+        if not parsed.scheme or not parsed.netloc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid URL format. URL must include scheme (http/https) and domain."
+            )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid URL format"
+        )
+
     try:
         start_time = time.time()
 
         # Scrape URL
         result = kb.scrape_url(
             url=request.url,
-            max_depth=request.max_depth,
-            max_pages=request.max_pages,
+            depth=request.max_depth,
             tags=request.tags or [],
-            allowed_domains=request.allowed_domains,
-            max_workers=request.max_workers
+            limit=request.allowed_domains[0] if request.allowed_domains else None,
+            threads=request.max_workers
         )
 
         duration = time.time() - start_time

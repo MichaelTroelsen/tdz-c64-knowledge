@@ -52,7 +52,7 @@ class SuccessResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     """Search request model."""
-    query: str = Field(..., description="Search query", min_length=1, max_length=500)
+    query: str = Field(..., description="Search query", max_length=500)
     max_results: int = Field(10, description="Maximum number of results", ge=1, le=100)
     tags: Optional[List[str]] = Field(None, description="Filter by tags")
 
@@ -150,7 +150,7 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     """Search response model."""
     success: bool = True
-    data: List[SearchResult] = Field(..., description="Search results")
+    data: Dict[str, Any] = Field(..., description="Search results container")
     metadata: Dict[str, Any] = Field(
         ...,
         description="Search metadata (total results, query time, etc.)"
@@ -240,7 +240,7 @@ class DocumentResponse(BaseModel):
 class DocumentListResponse(BaseModel):
     """Document list response model."""
     success: bool = True
-    data: List[DocumentMetadata] = Field(..., description="List of documents")
+    data: Dict[str, Any] = Field(..., description="Documents container")
     metadata: Dict[str, Any] = Field(
         ...,
         description="List metadata (total count, filters applied, etc.)"

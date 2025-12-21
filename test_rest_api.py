@@ -75,7 +75,7 @@ def kb():
 
 
 @pytest.fixture(scope="function")
-def sample_doc(kb):
+def sample_doc(init_kb):
     """Add a sample document to the knowledge base."""
     content = """
     The VIC-II chip controls video output on the Commodore 64.
@@ -88,10 +88,15 @@ def sample_doc(kb):
         temp_path = f.name
 
     try:
-        doc = kb.add_document(temp_path, title="VIC-II Test Doc", tags=["hardware", "graphics"])
+        doc = rest_server.kb.add_document(temp_path, title="VIC-II Test Doc", tags=["hardware", "graphics"])
         yield doc
     finally:
         os.unlink(temp_path)
+        # Clean up from KB after test
+        try:
+            rest_server.kb.remove_document(doc.doc_id)
+        except:
+            pass  # Document might already be removed by the test
 
 
 # Category 1: Health & Stats
@@ -292,7 +297,7 @@ class TestDocumentCRUD:
         data = response.json()
         assert data["success"] is True
 
-    def test_delete_document(self, client, auth_headers, kb):
+    def test_delete_document(self, client, auth_headers, init_kb):
         """Delete a document."""
         # Create temporary doc
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
@@ -300,7 +305,7 @@ class TestDocumentCRUD:
             temp_path = f.name
 
         try:
-            doc = kb.add_document(temp_path, title="Temp Doc", tags=["temp"])
+            doc = rest_server.kb.add_document(temp_path, title="Temp Doc", tags=["temp"])
             doc_id = doc.doc_id
 
             # Delete via API
@@ -342,7 +347,9 @@ class TestDocumentCRUD:
 
     def test_bulk_delete(self, client, auth_headers, sample_doc):
         """Bulk delete multiple documents."""
-        response = client.delete(
+        # Use POST-style request for bulk delete with body
+        response = client.request(
+            "DELETE",
             "/api/v1/documents/bulk",
             headers=auth_headers,
             json={

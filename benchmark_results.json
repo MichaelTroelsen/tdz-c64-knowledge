@@ -1,0 +1,158 @@
+{
+  "timestamp": 1766345980.611333,
+  "data_dir": "C:\\Users\\mit\\AppData\\Local\\Temp\\kb_benchmark_nofb9918",
+  "total_documents": 3,
+  "results": [
+    {
+      "name": "Document Ingestion (Small)",
+      "stats": {
+        "min": 0.0018582344055175781,
+        "max": 0.08905959129333496,
+        "mean": 0.0066010475158691405,
+        "median": 0.0022788047790527344,
+        "stdev": 0.019410042272588045,
+        "total": 0.1320209503173828,
+        "iterations": 20
+      },
+      "metadata": {
+        "doc_id": "3ebe65aef298",
+        "chunks": 1
+      }
+    },
+    {
+      "name": "Document Ingestion (Medium)",
+      "stats": {
+        "min": 0.012816667556762695,
+        "max": 0.0773460865020752,
+        "mean": 0.01994907855987549,
+        "median": 0.013472676277160645,
+        "stdev": 0.020174491561499686,
+        "total": 0.19949078559875488,
+        "iterations": 10
+      },
+      "metadata": {
+        "doc_id": "cee5fcc31132",
+        "chunks": 1
+      }
+    },
+    {
+      "name": "Document Ingestion (Large)",
+      "stats": {
+        "min": 0.12537002563476562,
+        "max": 0.5169219970703125,
+        "mean": 0.21098313331604004,
+        "median": 0.1360762119293213,
+        "stdev": 0.17114628580618768,
+        "total": 1.0549156665802002,
+        "iterations": 5
+      },
+      "metadata": {
+        "doc_id": "34c808e1d1b3",
+        "chunks": 12
+      }
+    },
+    {
+      "name": "Search (FTS5)",
+      "stats": {
+        "min": 3.5762786865234375e-06,
+        "max": 0.04317879676818848,
+        "mean": 0.0004436182975769043,
+        "median": 9.775161743164062e-06,
+        "stdev": 0.004316724704215862,
+        "total": 0.04436182975769043,
+        "iterations": 100
+      },
+      "metadata": {
+        "results": 10
+      }
+    },
+    {
+      "name": "Search (Semantic)",
+      "stats": {
+        "min": 0.006097555160522461,
+        "max": 0.016107797622680664,
+        "mean": 0.008305931091308593,
+        "median": 0.008076786994934082,
+        "stdev": 0.0016450783776647785,
+        "total": 0.4152965545654297,
+        "iterations": 50
+      },
+      "metadata": {
+        "results": 10
+      }
+    },
+    {
+      "name": "Search (Hybrid)",
+      "stats": {
+        "min": 0.01207590103149414,
+        "max": 0.02896904945373535,
+        "mean": 0.015243916511535645,
+        "median": 0.01480400562286377,
+        "stdev": 0.002578728722818039,
+        "total": 0.7621958255767822,
+        "iterations": 50
+      },
+      "metadata": {
+        "results": 10
+      }
+    },
+    {
+      "name": "Search (Complex Query)",
+      "stats": {
+        "min": 3.337860107421875e-06,
+        "max": 0.005940675735473633,
+        "mean": 6.349325180053711e-05,
+        "median": 3.5762786865234375e-06,
+        "stdev": 0.0005936728772978103,
+        "total": 0.006349325180053711,
+        "iterations": 100
+      },
+      "metadata": {
+        "results": 2
+      }
+    },
+    {
+      "name": "Entity Extraction",
+      "stats": {
+        "min": 2.5510787963867188e-05,
+        "max": 3.1147305965423584,
+        "mean": 0.3115142583847046,
+        "median": 2.9802322387695312e-05,
+        "stdev": 0.9849498230491829,
+        "total": 3.115142583847046,
+        "iterations": 10
+      },
+      "metadata": {}
+    },
+    {
+      "name": "Search (100 docs)",
+      "stats": {
+        "min": 6.9141387939453125e-06,
+        "max": 0.008454322814941406,
+        "mean": 0.0001776885986328125,
+        "median": 7.3909759521484375e-06,
+        "stdev": 0.0011944106517175535,
+        "total": 0.008884429931640625,
+        "iterations": 50
+      },
+      "metadata": {
+        "results": 10
+      }
+    },
+    {
+      "name": "Search (Large Result Set)",
+      "stats": {
+        "min": 9.059906005859375e-06,
+        "max": 0.007692813873291016,
+        "mean": 0.0003974318504333496,
+        "median": 9.5367431640625e-06,
+        "stdev": 0.0017172173390467345,
+        "total": 0.007948637008666992,
+        "iterations": 20
+      },
+      "metadata": {
+        "results": 12
+      }
+    }
+  ]
+}

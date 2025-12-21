@@ -253,10 +253,23 @@ class KnowledgeBase:
             cache_ttl = int(os.getenv('SEARCH_CACHE_TTL', '300'))  # 5 minutes
             self._search_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
             self._similar_cache = TTLCache(maxsize=cache_size, ttl=cache_ttl)
+
+            # Query embedding cache for semantic search (1 hour TTL for embeddings)
+            embedding_cache_ttl = int(os.getenv('EMBEDDING_CACHE_TTL', '3600'))  # 1 hour
+            self._embedding_cache = TTLCache(maxsize=cache_size, ttl=embedding_cache_ttl)
+
+            # Entity extraction result cache (24 hour TTL for expensive LLM operations)
+            entity_cache_ttl = int(os.getenv('ENTITY_CACHE_TTL', '86400'))  # 24 hours
+            self._entity_cache = TTLCache(maxsize=50, ttl=entity_cache_ttl)
+
             self.logger.info(f"Search caching enabled (size={cache_size}, ttl={cache_ttl}s)")
+            self.logger.info(f"Embedding caching enabled (size={cache_size}, ttl={embedding_cache_ttl}s)")
+            self.logger.info(f"Entity caching enabled (size=50, ttl={entity_cache_ttl}s)")
         else:
             self._search_cache = None
             self._similar_cache = None
+            self._embedding_cache = None
+            self._entity_cache = None
 
         # Initialize query preprocessing
         self.use_preprocessing = NLTK_SUPPORT and os.getenv('USE_QUERY_PREPROCESSING', '1') == '1'
@@ -4562,15 +4575,30 @@ Return ONLY the summary text, no preamble."""
         doc = self.documents[doc_id]
         self.logger.info(f"Extracting entities from document {doc_id} ({doc.title})")
 
-        # Check if entities already exist
+        # Check in-memory cache first (fastest)
+        cache_key = f"{doc_id}:{confidence_threshold}"
+        if not force_regenerate and self._entity_cache is not None:
+            cached_result = self._entity_cache.get(cache_key)
+            if cached_result is not None:
+                self.logger.debug(f"Entity cache HIT for document: {doc_id}")
+                return cached_result
+
+        # Check if entities already exist in database
         if not force_regenerate:
             cursor = self.db_conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM document_entities WHERE doc_id = ?", (doc_id,))
             existing_count = cursor.fetchone()[0]
             if existing_count > 0:
                 self.logger.info(f"Document {doc_id} already has {existing_count} entities (use force_regenerate=True to re-extract)")
-                # Return existing entities
-                return self.get_entities(doc_id)
+                # Return existing entities from database
+                result = self.get_entities(doc_id)
+
+                # Cache in memory for faster future access
+                if self._entity_cache is not None:
+                    self._entity_cache[cache_key] = result
+                    self.logger.debug(f"Cached entity result from database for document: {doc_id}")
+
+                return result
 
         # Get LLM client
         try:
@@ -4727,13 +4755,20 @@ Important:
             entity_type = entity['entity_type']
             types[entity_type] = types.get(entity_type, 0) + 1
 
-        return {
+        result = {
             'doc_id': doc_id,
             'doc_title': doc.title,
             'entities': unique_entities,
             'entity_count': len(unique_entities),
             'types': types
         }
+
+        # Cache result for future access (expensive LLM operation)
+        if self._entity_cache is not None:
+            self._entity_cache[cache_key] = result
+            self.logger.debug(f"Cached entity extraction result for document: {doc_id}")
+
+        return result
 
     def get_entities(self, doc_id: str,
                     entity_types: Optional[list[str]] = None,
@@ -7248,9 +7283,28 @@ Return ONLY the JSON object, no other text."""
         self.logger.info(f"Semantic search query: '{query}' (max_results={max_results}, tags={tags})")
         start_time = time.time()
 
-        # Encode query
-        query_embedding = self.embeddings_model.encode([query], convert_to_numpy=True)
-        faiss.normalize_L2(query_embedding)
+        # Check embedding cache first (expensive operation to avoid)
+        cache_key = hashlib.md5(query.encode('utf-8')).hexdigest()
+        query_embedding = None
+
+        if self._embedding_cache is not None:
+            query_embedding = self._embedding_cache.get(cache_key)
+            if query_embedding is not None:
+                self.logger.debug(f"Embedding cache HIT for query: '{query[:50]}'")
+
+        # Encode query if not cached
+        if query_embedding is None:
+            self.logger.debug(f"Embedding cache MISS for query: '{query[:50]}'")
+            query_embedding = self.embeddings_model.encode([query], convert_to_numpy=True)
+            faiss.normalize_L2(query_embedding)
+
+            # Cache the normalized embedding
+            if self._embedding_cache is not None:
+                self._embedding_cache[cache_key] = query_embedding
+                self.logger.debug(f"Cached embedding for query: '{query[:50]}'")
+        else:
+            # Embedding was cached and already normalized
+            pass
 
         # Search in FAISS index (get more results for filtering)
         k = min(max_results * 5, len(self.embeddings_doc_map))
@@ -7326,9 +7380,18 @@ Return ONLY the JSON object, no other text."""
         self.logger.info(f"Hybrid search query: '{query}' (max_results={max_results}, tags={tags}, semantic_weight={semantic_weight})")
         start_time = time.time()
 
-        # Get results from both search methods (request 2x max_results for better merging)
-        fts_results = self.search(query, max_results * 2, tags)
-        semantic_results = self.semantic_search(query, max_results * 2, tags)
+        # Run both search methods in parallel for better performance
+        # (FTS5 and semantic are independent operations)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # Submit both searches concurrently
+            fts_future = executor.submit(self.search, query, max_results * 2, tags)
+            semantic_future = executor.submit(self.semantic_search, query, max_results * 2, tags)
+
+            # Wait for both to complete
+            fts_results = fts_future.result()
+            semantic_results = semantic_future.result()
+
+        self.logger.debug(f"Parallel search completed: FTS={len(fts_results)}, Semantic={len(semantic_results)}")
 
         # Normalize scores to 0-1 range
         # FTS5 scores: higher absolute value is better, normalize by max

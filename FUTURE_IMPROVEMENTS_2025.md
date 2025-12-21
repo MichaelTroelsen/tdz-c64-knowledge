@@ -1,10 +1,10 @@
 # Future Improvements 2025 - Next Generation Features
 
-**Status:** Phase 1.1-1.4 ✅ Complete (80%) | Next: Phase 1.5 (RAG Q&A) ⏭️
+**Status:** Phase 1 Quick Wins ✅ Complete (100%) | Next: Phase 2 REST API Server ⏭️
 
 **Last Updated:** December 21, 2025
 
-**Current Version:** v2.16.0 - AI-Powered with Entity Relationships, Entity Extraction, Summarization & Auto-Tagging
+**Current Version:** v2.17.0 - Quick Wins Complete: NL Query Translation, Entity Analytics, Document Comparison, Export Features
 
 ---
 

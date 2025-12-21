@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.17.0"
-__version_info__ = (2, 17, 0)
+__version__ = "2.18.0"
+__version_info__ = (2, 18, 0)
 
 # Build information
 __build_date__ = "2025-12-21"
@@ -44,10 +44,36 @@ FEATURES = {
     "entity_extraction": "2.15.0",
     "entity_relationships": "2.16.0",
     "nl_query_translation": "2.17.0",
+    "rest_api_server": "2.18.0",
+    "api_authentication": "2.18.0",
+    "fastapi_integration": "2.18.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.18.0 (2025-12-21)
+  - Added REST API Server (Sprints 5-8: Complete)
+  - FastAPI-based HTTP/REST interface with 27 endpoints
+  - API key authentication via X-API-Key header
+  - CORS middleware for cross-origin requests
+  - OpenAPI/Swagger documentation (http://localhost:8000/api/docs)
+  - ReDoc documentation (http://localhost:8000/api/redoc)
+  - Endpoints organized in 6 categories:
+    * Health & Stats (2 endpoints): health check, KB statistics
+    * Search (5 endpoints): basic, semantic, hybrid, faceted, similar documents
+    * Documents (7 endpoints): CRUD operations, bulk upload/delete, file management
+    * URL Scraping (3 endpoints): scrape URL, rescrape document, check updates
+    * AI Features (5 endpoints): summarization, entity extraction/search, relationships
+    * Analytics & Export (5 endpoints): search analytics, CSV/JSON exports
+  - Complete Pydantic v2 request/response validation
+  - Request logging and error handling
+  - Export functionality for search results, documents, entities, relationships
+  - Comprehensive API documentation (README_REST_API.md)
+  - Windows batch script for easy server startup (run_rest_api.bat)
+  - Thread-safe KnowledgeBase sharing between MCP and REST servers
+  - All 27 endpoints tested and verified working
+  - Bug fixes: 7 issues resolved during testing (method signatures, return types, parameters)
+
 v2.17.0 (2025-12-21)
   - Added Natural Language Query Translation (Sprint 1: Quick Wins)
   - AI-powered query parsing with entity extraction

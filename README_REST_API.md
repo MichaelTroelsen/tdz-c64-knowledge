@@ -566,6 +566,11 @@ ls -la $TDZ_DATA_DIR
 
 ## Version
 
-Current REST API Version: **v2.18.0**
+Current REST API Version: **v2.18.0** (2025-12-21)
 
-See CHANGELOG.md for version history.
+- 27 fully functional endpoints across 6 categories
+- All endpoints tested and verified
+- Complete API documentation with examples
+- Production-ready with authentication and CORS support
+
+See version.py for complete version history.

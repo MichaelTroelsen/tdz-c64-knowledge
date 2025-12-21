@@ -331,10 +331,10 @@ async def get_stats():
                     "tags": sorted(all_tags)
                 },
                 "capabilities": {
-                    "fts5_search": kb.use_fts5,
+                    "fts5_search": kb._fts5_available(),
                     "semantic_search": kb.use_semantic,
                     "fuzzy_search": kb.use_fuzzy,
-                    "ocr": kb.ocr_enabled
+                    "ocr": hasattr(kb, 'ocr_enabled') and kb.ocr_enabled or False
                 }
             }
         }
@@ -462,11 +462,12 @@ async def semantic_search(request: SemanticSearchRequest):
     try:
         start_time = time.time()
 
+        # Note: top_k parameter is not used by semantic_search method
+        # It only accepts query, max_results, and tags
         results = kb.semantic_search(
             query=request.query,
             max_results=request.max_results,
-            tags=request.tags,
-            top_k=request.top_k
+            tags=request.tags
         )
 
         query_time_ms = (time.time() - start_time) * 1000
@@ -764,18 +765,27 @@ async def get_document(doc_id: str):
                 detail=f"Document not found: {doc_id}"
             )
 
+        # kb.get_document() returns a dict, not DocumentMeta
+        # Need to get metadata from kb.documents instead
+        doc_meta = kb.documents.get(doc_id)
+        if not doc_meta:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document metadata not found: {doc_id}"
+            )
+
         return DocumentResponse(
             success=True,
             data=DocumentMetadata(
-                doc_id=doc.doc_id,
-                title=doc.title,
-                filename=doc.filename,
-                file_type=doc.file_type,
-                total_chunks=doc.total_chunks,
-                total_pages=doc.total_pages,
-                indexed_at=doc.indexed_at,
-                tags=doc.tags,
-                source_url=doc.source_url
+                doc_id=doc_meta.doc_id,
+                title=doc_meta.title,
+                filename=doc_meta.filename,
+                file_type=doc_meta.file_type,
+                total_chunks=doc_meta.total_chunks,
+                total_pages=doc_meta.total_pages,
+                indexed_at=doc_meta.indexed_at,
+                tags=doc_meta.tags,
+                source_url=doc_meta.source_url
             )
         )
 

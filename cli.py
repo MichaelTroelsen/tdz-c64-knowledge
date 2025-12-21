@@ -62,7 +62,12 @@ Examples:
     search_parser.add_argument("query", help="Search query")
     search_parser.add_argument("--max", "-m", type=int, default=5, help="Max results")
     search_parser.add_argument("--tags", "-g", nargs="+", help="Filter by tags")
-    
+
+    # Translate query command
+    translate_parser = subparsers.add_parser("translate-query", help="Translate natural language query to structured search parameters")
+    translate_parser.add_argument("query", help="Natural language query (e.g., 'find sprite information')")
+    translate_parser.add_argument("--confidence", "-c", type=float, default=0.7, help="Minimum confidence threshold (0.0-1.0, default: 0.7)")
+
     # List command
     subparsers.add_parser("list", help="List all documents")
     
@@ -242,7 +247,48 @@ Examples:
             print(f"--- {i}. {r['title']} (score: {r['score']}) ---")
             print(f"ID: {r['doc_id']}, Chunk: {r['chunk_id']}")
             print(f"\n{r['snippet']}\n")
-    
+
+    elif args.command == "translate-query":
+        result = kb.translate_nl_query(args.query, args.confidence)
+
+        print("=" * 70)
+        print("Natural Language Query Translation")
+        print("=" * 70)
+        print(f"\nOriginal Query: \"{result['original_query']}\"\n")
+
+        print(f"Search Mode: {result['search_mode']} (confidence: {result['confidence']:.2f})")
+        print(f"Reasoning: {result['reasoning']}\n")
+
+        if result['search_terms']:
+            print("Search Terms:")
+            for term in result['search_terms']:
+                print(f"  • {term}")
+            print()
+
+        if result['facet_filters']:
+            print("Facet Filters:")
+            for facet_type, values in result['facet_filters'].items():
+                print(f"  • {facet_type}: {', '.join(values)}")
+            print()
+
+        if result['entities_found']:
+            print(f"Entities Detected ({len(result['entities_found'])}):")
+            for entity in result['entities_found']:
+                print(f"  • {entity['text']} ({entity['type']}, confidence: {entity['confidence']:.2f})")
+            print()
+
+        # Print suggested action
+        print("Suggested Action:")
+        if result['search_mode'] == 'keyword':
+            print(f"  python cli.py search \"{' '.join(result['search_terms'][:3])}\"")
+        elif result['search_mode'] == 'semantic':
+            print(f"  Use semantic search with: \"{result['original_query']}\"")
+        else:  # hybrid
+            print(f"  Use hybrid search for best results")
+
+        if result['facet_filters']:
+            print(f"  Apply facet filters: {result['facet_filters']}")
+
     elif args.command == "list":
         docs = kb.list_documents()
         if not docs:

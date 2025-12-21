@@ -7471,6 +7471,201 @@ Return ONLY the JSON object, no other text."""
 
         return results
 
+    def translate_nl_query(self, query: str, confidence_threshold: float = 0.7) -> dict:
+        """
+        Translate natural language query to structured search parameters using LLM.
+
+        Parses natural language queries and extracts:
+        - Search terms (keywords to search for)
+        - Entity mentions (hardware, addresses, people, etc.)
+        - Facet filters (hardware types, memory ranges, etc.)
+        - Recommended search mode (keyword, semantic, hybrid)
+
+        Args:
+            query: Natural language query (e.g., "find information about sprites on the VIC-II chip")
+            confidence_threshold: Minimum confidence for entity extraction (0.0-1.0, default: 0.7)
+
+        Returns:
+            {
+                'original_query': str,                    # Original query
+                'search_terms': [str],                    # Extracted keywords
+                'facet_filters': {                        # Mapped facet filters
+                    'hardware': ['VIC-II'],
+                    'registers': ['$D000-$D3FF'],
+                    ...
+                },
+                'search_mode': 'hybrid',                  # Recommended mode: 'keyword', 'semantic', 'hybrid'
+                'confidence': 0.85,                       # Overall confidence (0.0-1.0)
+                'entities_found': [                       # Extracted entities
+                    {'text': 'VIC-II', 'type': 'hardware', 'confidence': 0.95},
+                    ...
+                ],
+                'reasoning': str                          # Explanation of translation
+            }
+
+        Example:
+            >>> kb.translate_nl_query("find sprite information")
+            {
+                'search_terms': ['sprite', 'information'],
+                'facet_filters': {'hardware': ['VIC-II']},
+                'search_mode': 'hybrid',
+                'entities_found': [{'text': 'sprite', 'type': 'graphics', 'confidence': 0.8}],
+                ...
+            }
+        """
+        self.logger.info(f"Translating natural language query: '{query}'")
+        start_time = time.time()
+
+        # Get LLM client
+        try:
+            from llm_integration import get_llm_client
+        except ImportError:
+            raise ImportError("llm_integration module not found")
+
+        llm_client = get_llm_client()
+        if not llm_client:
+            # Fallback: Basic keyword extraction without LLM
+            self.logger.warning("LLM not configured, using basic keyword extraction")
+            words = query.lower().split()
+            return {
+                'original_query': query,
+                'search_terms': [w for w in words if len(w) > 3],
+                'facet_filters': {},
+                'search_mode': 'keyword',
+                'confidence': 0.5,
+                'entities_found': [],
+                'reasoning': 'LLM not available - basic keyword extraction used'
+            }
+
+        # Build structured prompt for LLM
+        prompt = f"""You are a Commodore 64 technical documentation query parser.
+
+User Query: "{query}"
+
+Parse this query and extract structured information in JSON format:
+
+{{
+  "search_terms": ["keyword1", "keyword2"],        // Main keywords to search for
+  "entities": [                                     // Detected technical entities
+    {{"text": "VIC-II", "type": "hardware", "confidence": 0.95}},
+    {{"text": "$D000", "type": "memory_address", "confidence": 0.90}}
+  ],
+  "search_mode": "hybrid",                         // "keyword", "semantic", or "hybrid"
+  "confidence": 0.85,                              // Overall confidence (0.0-1.0)
+  "reasoning": "Detected VIC-II chip mention..."  // Brief explanation
+}}
+
+Entity Types:
+- hardware: Chip names (VIC-II, SID, CIA, 6502, 6526, 6581, etc.)
+- memory_address: Memory addresses ($D000, $D020, 53280, 0xD020, etc.)
+- instruction: Assembly instructions (LDA, STA, JMP, JSR, etc.)
+- person: People mentioned (Bob Yannes, Jack Tramiel, etc.)
+- register: Hardware registers (sprite registers, color registers, etc.)
+- graphics: Graphics concepts (sprites, bitmap, character mode, etc.)
+- audio: Sound concepts (voices, waveforms, ADSR, etc.)
+
+Search Mode Guidelines:
+- "keyword": For specific technical terms, exact matches
+- "semantic": For conceptual questions, "how does X work", explanations
+- "hybrid": For mixed queries with both specific terms and concepts
+
+Return ONLY valid JSON, no additional text.
+"""
+
+        try:
+            # Call LLM with low temperature for deterministic parsing
+            response_text = llm_client.call(prompt, temperature=0.3, max_tokens=512)
+
+            # Parse JSON response
+            # Handle potential markdown code blocks
+            if '```json' in response_text:
+                # Extract JSON from code block
+                json_start = response_text.find('```json') + 7
+                json_end = response_text.find('```', json_start)
+                response_text = response_text[json_start:json_end].strip()
+            elif '```' in response_text:
+                # Extract from generic code block
+                json_start = response_text.find('```') + 3
+                json_end = response_text.find('```', json_start)
+                response_text = response_text[json_start:json_end].strip()
+
+            parsed = json.loads(response_text)
+
+            # Map entities to facet filters
+            facet_filters = {}
+            entities_found = parsed.get('entities', [])
+
+            for entity in entities_found:
+                if entity['confidence'] < confidence_threshold:
+                    continue
+
+                entity_type = entity['type']
+                entity_text = entity['text']
+
+                # Map entity types to facet categories
+                if entity_type == 'hardware':
+                    if 'hardware' not in facet_filters:
+                        facet_filters['hardware'] = []
+                    facet_filters['hardware'].append(entity_text)
+
+                elif entity_type in ['memory_address', 'register']:
+                    if 'registers' not in facet_filters:
+                        facet_filters['registers'] = []
+                    facet_filters['registers'].append(entity_text)
+
+                elif entity_type == 'instruction':
+                    if 'instructions' not in facet_filters:
+                        facet_filters['instructions'] = []
+                    facet_filters['instructions'].append(entity_text)
+
+            # Build result
+            result = {
+                'original_query': query,
+                'search_terms': parsed.get('search_terms', []),
+                'facet_filters': facet_filters,
+                'search_mode': parsed.get('search_mode', 'hybrid'),
+                'confidence': parsed.get('confidence', 0.7),
+                'entities_found': entities_found,
+                'reasoning': parsed.get('reasoning', '')
+            }
+
+            elapsed = (time.time() - start_time) * 1000
+            self.logger.info(f"Query translation completed in {elapsed:.2f}ms - mode: {result['search_mode']}, "
+                           f"entities: {len(entities_found)}, confidence: {result['confidence']:.2f}")
+
+            return result
+
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse LLM JSON response: {e}")
+            self.logger.error(f"Raw response: {response_text}")
+
+            # Fallback to basic keyword extraction
+            words = query.lower().split()
+            return {
+                'original_query': query,
+                'search_terms': [w for w in words if len(w) > 3],
+                'facet_filters': {},
+                'search_mode': 'keyword',
+                'confidence': 0.5,
+                'entities_found': [],
+                'reasoning': f'LLM response parsing failed: {str(e)}'
+            }
+
+        except Exception as e:
+            self.logger.error(f"Query translation error: {e}")
+
+            # Fallback to basic keyword extraction
+            words = query.lower().split()
+            return {
+                'original_query': query,
+                'search_terms': [w for w in words if len(w) > 3],
+                'facet_filters': {},
+                'search_mode': 'keyword',
+                'confidence': 0.5,
+                'entities_found': [],
+                'reasoning': f'Translation error: {str(e)}'
+            }
+
     def faceted_search(self, query: str, facet_filters: Optional[dict[str, list[str]]] = None,
                       max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
         """
@@ -8788,6 +8983,25 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="translate_query",
+            description="Translate natural language query to structured search parameters. Parses queries like 'find sprite information' or 'how does the SID chip work' into search terms, entity mentions, and facet filters. Returns recommended search mode (keyword/semantic/hybrid) and confidence score.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language query to translate (e.g., 'find information about VIC-II sprites')"
+                    },
+                    "confidence_threshold": {
+                        "type": "number",
+                        "description": "Minimum confidence for entity extraction (0.0-1.0, default: 0.7)",
+                        "default": 0.7
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
             name="get_chunk",
             description="Get the full content of a specific document chunk. Use after search_docs to read more context.",
             inputSchema={
@@ -9883,6 +10097,55 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += f"Score: {r['score']}\n"
             output += f"Snippet:\n{r['snippet']}\n\n"
         
+        return [TextContent(type="text", text=output)]
+
+    elif name == "translate_query":
+        query = arguments.get("query", "")
+        confidence_threshold = arguments.get("confidence_threshold", 0.7)
+
+        try:
+            result = kb.translate_nl_query(query, confidence_threshold)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Query translation error: {str(e)}")]
+
+        # Format the translation result
+        output = f"Natural Language Query Translation\n"
+        output += f"{'='*60}\n\n"
+        output += f"Original Query: \"{result['original_query']}\"\n\n"
+
+        output += f"Search Mode: {result['search_mode']} (confidence: {result['confidence']:.2f})\n"
+        output += f"Reasoning: {result['reasoning']}\n\n"
+
+        if result['search_terms']:
+            output += f"Search Terms:\n"
+            for term in result['search_terms']:
+                output += f"  - {term}\n"
+            output += "\n"
+
+        if result['facet_filters']:
+            output += f"Facet Filters:\n"
+            for facet_type, values in result['facet_filters'].items():
+                output += f"  {facet_type}: {', '.join(values)}\n"
+            output += "\n"
+
+        if result['entities_found']:
+            output += f"Entities Detected ({len(result['entities_found'])}):\n"
+            for entity in result['entities_found']:
+                output += f"  - {entity['text']} ({entity['type']}, confidence: {entity['confidence']:.2f})\n"
+            output += "\n"
+
+        # Add suggested next steps
+        output += f"Suggested Action:\n"
+        if result['search_mode'] == 'keyword':
+            output += f"  Use search_docs with terms: {', '.join(result['search_terms'][:3])}\n"
+        elif result['search_mode'] == 'semantic':
+            output += f"  Use semantic_search with query: \"{result['original_query']}\"\n"
+        else:  # hybrid
+            output += f"  Use hybrid_search for best results\n"
+
+        if result['facet_filters']:
+            output += f"  Apply facet filters: {result['facet_filters']}\n"
+
         return [TextContent(type="text", text=output)]
 
     elif name == "semantic_search":

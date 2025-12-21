@@ -1,11 +1,11 @@
 # TDZ C64 Knowledge Base - Project Status
-## v2.14.0 Release - December 18, 2025
+## v2.15.0 Release - December 20, 2025
 
 ---
 
 ## 📊 Project Completion Status
 
-### ✅ PHASE 1: AI-POWERED INTELLIGENCE (Q1 2025) - 67% COMPLETE
+### ✅ PHASE 1: AI-POWERED INTELLIGENCE (Q1 2025) - 75% COMPLETE
 
 **1.1 Smart Auto-Tagging with LLM** ✅ COMPLETE (v2.12.0)
 - AI-powered tag generation with confidence scoring
@@ -18,7 +18,14 @@
 - Bulk summarization support
 - Works with Claude and GPT models
 
-**1.3 RAG-Based Question Answering** ⏭️ NEXT PRIORITY
+**1.3 Named Entity Extraction** ✅ COMPLETE (v2.15.0)
+- 7 entity types: hardware, memory_address, instruction, person, company, product, concept
+- AI-powered extraction with confidence scoring
+- Full-text search across all entities
+- 2,972 entities extracted from 135 documents
+- MCP tools, CLI commands, and GUI interface
+
+**1.4 RAG-Based Question Answering** ⏭️ NEXT PRIORITY
 - Natural language question answering
 - Multi-document synthesis with citations
 - Confidence scoring and source attribution
@@ -30,28 +37,31 @@
 
 | Metric | Value |
 |--------|-------|
-| Documents | 149 (1 added in this session) |
-| Searchable Chunks | 4,680+ |
+| Documents | 158 |
+| Searchable Chunks | 2,525+ |
 | Total Words | 6.9+ million |
 | Extracted Tables | 209+ |
 | Code Blocks (BASIC/Assembly/Hex) | 1,876+ |
-| Cached Summaries | 0 (ready for generation) |
+| **Extracted Entities** | **2,972 entities** |
+| **Documents with Entities** | **135/158 (85.4%)** |
+| **Entity Types** | **7 types (hardware, instruction, concept, etc.)** |
 
 ---
 
 ## 🎯 Version Information
 
-- **Current Version:** v2.14.0
-- **Build Date:** 2025-12-18
-- **Previous Version:** v2.13.0 (2025-12-17)
+- **Current Version:** v2.15.0
+- **Build Date:** 2025-12-20
+- **Previous Version:** v2.14.0 (2025-12-18)
 
-### Features in v2.14.0
+### Features in v2.15.0
 
-✅ url_scraping (NEW)
-✅ web_content_ingestion (NEW)
-✅ mdscrape_integration (NEW)
-✅ loading_indicators (NEW)
-✅ dotenv_configuration (NEW)
+✅ **entity_extraction** (NEW) - AI-powered named entity recognition
+✅ **entity_search** (NEW) - Full-text search across all entities
+✅ **entity_relationships** (NEW) - Track co-occurrence and connections
+✅ url_scraping (v2.14.0)
+✅ web_content_ingestion (v2.14.0)
+✅ mdscrape_integration (v2.14.0)
 ✅ document_summarization (v2.13.0)
 ✅ ai_summary_caching (v2.13.0)
 ✅ smart_auto_tagging (v2.12.0)
@@ -223,13 +233,15 @@ results = kb.generate_summary_all(
 
 ## ✨ Project Highlights
 
-✓ 149 C64 technical documents indexed
-✓ 4,680+ searchable chunks with multiple search algorithms
+✓ 158 C64 technical documents indexed
+✓ 2,525+ searchable chunks with multiple search algorithms
+✓ **2,972 extracted entities across 7 types (NEW)**
+✓ **Entity search and relationship tracking (NEW)**
 ✓ AI-powered auto-tagging with confidence scoring
 ✓ AI-powered summarization with three detail levels
 ✓ Intelligent caching for performance (50-100x speedup)
 ✓ Dual LLM support (Claude & GPT)
-✓ Complete documentation (2,000+ lines)
+✓ Complete documentation (3,500+ lines)
 ✓ GitHub Actions CI/CD pipeline
 ✓ MCP integration with Claude Desktop
 ✓ Comprehensive error handling & logging
@@ -238,20 +250,21 @@ results = kb.generate_summary_all(
 
 ## 🎯 Next Steps - Priority Options
 
-### Option A: RAG Question Answering ⭐⭐⭐⭐⭐ (Impact)
+### Option A: Entity Relationships 🔄 IN PROGRESS ⭐⭐⭐⭐⭐ (Impact)
+**Goal:** Track how entities connect and co-occur
+- Co-occurrence analysis (entities appearing together)
+- Relationship strength scoring
+- Entity-pair search ("VIC-II AND raster interrupt")
+- Network visualization
+- **Effort:** 10-12 hours | **Status:** Starting now
+
+### Option B: RAG Question Answering ⭐⭐⭐⭐⭐ (Impact)
 **Goal:** Enable natural language Q&A with synthesized answers
-- Build on existing summarization & auto-tagging
+- Build on existing summarization & entity extraction
 - Retrieval + augmentation + generation pipeline
 - Citations to source documents
 - Confidence scoring
 - **Effort:** 16-24 hours
-
-### Option B: Entity Extraction ⭐⭐⭐⭐ (Impact)
-**Goal:** Extract hardware, instructions, memory addresses
-- Automatic entity recognition
-- Build knowledge graph
-- Enable entity-based navigation
-- **Effort:** 12-16 hours
 
 ### Option C: VICE Emulator Integration ⭐⭐⭐⭐ (Impact)
 **Goal:** Real-time documentation lookup from emulator
@@ -263,23 +276,24 @@ results = kb.generate_summary_all(
 
 ### Option D: Quick Wins
 - Natural Language Query Translation (8-12 hours)
-- Generate semantic embeddings (1 minute)
 - Summary analytics (4-6 hours)
-- Document relationship graphs (6-8 hours)
+- Document comparison (6-8 hours)
+- Entity export (CSV/JSON) (2-3 hours)
 
 ---
 
 ## 📊 Roadmap Status
 
-### Phase 1: AI-Powered Intelligence (Q1 2025) - 67% Complete
+### Phase 1: AI-Powered Intelligence (Q1 2025) - 75% Complete
 
 | Phase | Feature | Status | Version | Date |
 |-------|---------|--------|---------|------|
 | 1.1 | Smart Auto-Tagging | ✅ Complete | v2.12.0 | 2025-12-13 |
 | 1.2 | Document Summarization | ✅ Complete | v2.13.0 | 2025-12-17 |
-| 1.3 | RAG Question Answering | ⏭️ Next | TBD | Q1 2025 |
-| 1.4 | Entity Extraction | ⏳ Planned | TBD | Q1 2025 |
-| 1.5 | NL Query Translation | ⏳ Planned | TBD | Q1 2025 |
+| 1.3 | Named Entity Extraction | ✅ Complete | v2.15.0 | 2025-12-20 |
+| 1.4 | Entity Relationships | 🔄 In Progress | v2.16.0 | Q1 2025 |
+| 1.5 | RAG Question Answering | ⏭️ Next | v2.17.0 | Q1 2025 |
+| 1.6 | NL Query Translation | ⏳ Planned | TBD | Q1 2025 |
 
 ### Phase 2: Advanced Integration - Not Started
 
@@ -312,5 +326,5 @@ results = kb.generate_summary_all(
 ---
 
 **Project Status:** 🚀 Production Ready
-**Last Updated:** December 18, 2025
-**Version:** v2.14.0
+**Last Updated:** December 20, 2025
+**Version:** v2.15.0

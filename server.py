@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load .env file from current directory
 
 # Import version information
-from version import __version__, __project_name__, __build_date__, get_full_version_string
+from version import __build_date__, get_full_version_string
 
 # Caching support
 try:
@@ -40,7 +40,6 @@ from mcp.types import (
     Tool,
     TextContent,
     Resource,
-    ResourceTemplate,
 )
 
 # Optional imports for PDF support
@@ -1674,8 +1673,6 @@ class KnowledgeBase:
 
         try:
             # Try to import pdf2image
-            from pdf2image import convert_from_path
-            from pdf2image.exceptions import PDFInfoNotInstalledError
 
             # Create a minimal test - just try to access pdfinfo
             import subprocess
@@ -2583,7 +2580,7 @@ class KnowledgeBase:
         html += f"    <div class='meta'><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>\n\n"
 
         for i, result in enumerate(results, 1):
-            html += f"    <div class='result'>\n"
+            html += "    <div class='result'>\n"
             html += f"        <h2>{i}. {result.get('title', 'Untitled')}</h2>\n"
 
             html += "        <div class='result-meta'>\n"
@@ -3133,7 +3130,7 @@ class KnowledgeBase:
                     'error': f"mdscrape failed: {error_msg}"
                 }
 
-            self.logger.info(f"Scraping completed successfully")
+            self.logger.info("Scraping completed successfully")
 
         except subprocess.TimeoutExpired:
             self.logger.error("Scraping timeout (>1 hour)")
@@ -6224,7 +6221,7 @@ Important:
 
         elif format == 'markdown':
             lines = []
-            lines.append(f"# Document Export")
+            lines.append("# Document Export")
             lines.append(f"\n**Total Documents:** {len(docs_to_export)}")
             lines.append(f"**Exported:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             lines.append("---\n")
@@ -8527,7 +8524,7 @@ Return ONLY the JSON object, no other text."""
 
             if embeddings_map_path.exists():
                 shutil.copy2(embeddings_map_path, backup_path / "embeddings_map.json")
-                self.logger.info(f"Backed up embeddings map")
+                self.logger.info("Backed up embeddings map")
 
             # Create metadata file
             metadata = {
@@ -8648,12 +8645,12 @@ Return ONLY the JSON object, no other text."""
             if embeddings_source.exists():
                 embeddings_dest = Path(self.data_dir) / "embeddings.faiss"
                 shutil.copy2(embeddings_source, embeddings_dest)
-                self.logger.info(f"Restored embeddings index")
+                self.logger.info("Restored embeddings index")
 
             if embeddings_map_source.exists():
                 embeddings_map_dest = Path(self.data_dir) / "embeddings_map.json"
                 shutil.copy2(embeddings_map_source, embeddings_map_dest)
-                self.logger.info(f"Restored embeddings map")
+                self.logger.info("Restored embeddings map")
 
             # Reload knowledge base
             self.logger.info("Reloading knowledge base...")
@@ -9989,7 +9986,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         
         try:
             doc = kb.add_document(filepath, title, tags)
-            output = f"Successfully added document:\n"
+            output = "Successfully added document:\n"
             output += f"  Title: {doc.title}\n"
             output += f"  ID: {doc.doc_id}\n"
             output += f"  Type: {doc.file_type}\n"
@@ -10022,7 +10019,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 selector=selector
             )
 
-            output = f"Scraping Result:\n\n"
+            output = "Scraping Result:\n\n"
             output += f"Status: {result['status']}\n"
             output += f"URL: {result['url']}\n"
             output += f"Files scraped: {result['files_scraped']}\n"
@@ -10035,7 +10032,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output += f"\nError: {result['error']}\n"
 
             if result.get('doc_ids'):
-                output += f"\nAdded document IDs:\n"
+                output += "\nAdded document IDs:\n"
                 for doc_id in result['doc_ids'][:10]:  # Show first 10
                     doc = kb.documents.get(doc_id)
                     if doc:
@@ -10057,7 +10054,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             result = kb.rescrape_document(doc_id)
 
-            output = f"Re-scrape Result:\n\n"
+            output = "Re-scrape Result:\n\n"
             output += f"Status: {result['status']}\n"
             output += f"Original doc ID: {result['old_doc_id']}\n"
             output += f"Documents added: {result['docs_added']}\n"
@@ -10066,7 +10063,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output += f"Error: {result['error']}\n"
 
             if result.get('doc_ids'):
-                output += f"\nNew document IDs:\n"
+                output += "\nNew document IDs:\n"
                 for doc_id in result['doc_ids'][:5]:
                     doc = kb.documents.get(doc_id)
                     if doc:
@@ -10549,13 +10546,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             backup_path = kb.create_backup(dest_dir, compress)
 
-            output = f"✓ Backup created successfully!\n\n"
+            output = "✓ Backup created successfully!\n\n"
             output += f"Location: {backup_path}\n"
             output += f"Format: {'Compressed (ZIP)' if compress else 'Uncompressed directory'}\n\n"
-            output += f"The backup includes:\n"
+            output += "The backup includes:\n"
             output += f"- Database ({len(kb.documents)} documents)\n"
-            output += f"- Embeddings (if available)\n"
-            output += f"- Metadata file with timestamp and version info\n"
+            output += "- Embeddings (if available)\n"
+            output += "- Metadata file with timestamp and version info\n"
 
             return [TextContent(type="text", text=output)]
         except Exception as e:
@@ -10571,19 +10568,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             result = kb.restore_from_backup(backup_path, verify)
 
-            output = f"✓ Restore completed successfully!\n\n"
+            output = "✓ Restore completed successfully!\n\n"
             output += f"Backup source: {backup_path}\n"
             output += f"Documents restored: {result['restored_documents']}\n"
             output += f"Time elapsed: {result['elapsed_seconds']:.2f}s\n\n"
 
             if 'backup_metadata' in result:
                 metadata = result['backup_metadata']
-                output += f"Backup info:\n"
+                output += "Backup info:\n"
                 output += f"- Created: {metadata.get('created_at', 'Unknown')}\n"
                 output += f"- Version: {metadata.get('version', 'Unknown')}\n"
                 output += f"- Original document count: {metadata.get('document_count', 'Unknown')}\n"
 
-            output += f"\nNote: A safety backup was created before restoration."
+            output += "\nNote: A safety backup was created before restoration."
 
             return [TextContent(type="text", text=output)]
         except Exception as e:
@@ -10606,7 +10603,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 append=append
             )
 
-            output = f"✓ Auto-tagged document successfully!\n\n"
+            output = "✓ Auto-tagged document successfully!\n\n"
             output += f"**Document:** {result['doc_title']}\n"
             output += f"**Document ID:** {doc_id}\n\n"
 
@@ -10622,7 +10619,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     if tag_info['tag'] in result['skipped_tags']:
                         output += f"  - {tag_info['tag']} (confidence: {tag_info['confidence']:.2f})\n"
 
-            output += f"\n**Tag Summary:**\n"
+            output += "\n**Tag Summary:**\n"
             output += f"  - Existing tags: {', '.join(result['existing_tags']) if result['existing_tags'] else 'None'}\n"
             output += f"  - New tags: {', '.join(result['new_tags'])}\n"
             output += f"  - Total tags added: {len(set(result['new_tags']) - set(result['existing_tags']))}\n"
@@ -10647,15 +10644,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 max_docs=max_docs
             )
 
-            output = f"✓ Bulk auto-tagging complete!\n\n"
-            output += f"**Statistics:**\n"
+            output = "✓ Bulk auto-tagging complete!\n\n"
+            output += "**Statistics:**\n"
             output += f"  - Documents processed: {results['processed']}\n"
             output += f"  - Documents skipped: {results['skipped']}\n"
             output += f"  - Documents failed: {results['failed']}\n"
             output += f"  - Total tags added: {results['total_tags_added']}\n\n"
 
             if results['processed'] > 0:
-                output += f"**Sample Results (first 5):**\n"
+                output += "**Sample Results (first 5):**\n"
                 for i, result in enumerate(results['results'][:5], 1):
                     if 'error' in result:
                         output += f"\n{i}. {result['doc_id']} - ERROR: {result['error']}\n"
@@ -10732,16 +10729,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 max_docs=max_docs
             )
 
-            output = f"✓ Bulk summarization complete!\n\n"
-            output += f"**Statistics:**\n"
+            output = "✓ Bulk summarization complete!\n\n"
+            output += "**Statistics:**\n"
             output += f"  - Documents processed: {results['processed']}\n"
             output += f"  - Documents failed: {results['failed']}\n"
             output += f"  - Total summaries generated: {results['total_summaries']}\n"
-            output += f"  - By type:\n"
+            output += "  - By type:\n"
             for summary_type, count in results['by_type'].items():
                 output += f"    - {summary_type}: {count}\n"
 
-            output += f"\n**Sample Results (first 3):**\n"
+            output += "\n**Sample Results (first 3):**\n"
             for i, result in enumerate(results['results'][:3], 1):
                 output += f"\n{i}. {result['title']}\n"
                 for summary_type, summary_result in result['summaries'].items():
@@ -10775,7 +10772,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 force_regenerate=force_regenerate
             )
 
-            output = f"✓ Entity extraction complete!\n\n"
+            output = "✓ Entity extraction complete!\n\n"
             output += f"**Document:** {result['doc_title']}\n"
             output += f"**Document ID:** {doc_id}\n"
             output += f"**Entities Found:** {result['entity_count']}\n\n"
@@ -10800,7 +10797,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         output += f"  ... and {len(entities_of_type) - 5} more\n"
                     output += "\n"
 
-                output += f"Use `list_entities` tool to see all entities with filtering options.\n"
+                output += "Use `list_entities` tool to see all entities with filtering options.\n"
             else:
                 output += "No entities found with the current confidence threshold.\n"
 
@@ -10828,7 +10825,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             # Show filters if applied
             if entity_types or min_confidence > 0:
-                output += f"**Filters:** "
+                output += "**Filters:** "
                 filters = []
                 if entity_types:
                     filters.append(f"types={', '.join(entity_types)}")
@@ -10883,7 +10880,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             # Show filters if applied
             if entity_types or min_confidence > 0:
-                output += f"**Filters:** "
+                output += "**Filters:** "
                 filters = []
                 if entity_types:
                     filters.append(f"types={', '.join(entity_types)}")
@@ -10924,7 +10921,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             result = kb.get_entity_stats(entity_type=entity_type)
 
-            output = f"**Entity Statistics**\n"
+            output = "**Entity Statistics**\n"
             if entity_type:
                 output += f"**Type Filter:** {entity_type}\n"
             output += "\n"
@@ -10934,14 +10931,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             # Breakdown by type
             if result['by_type']:
-                output += f"**Entities by Type:**\n"
+                output += "**Entities by Type:**\n"
                 for ent_type, count in sorted(result['by_type'].items(), key=lambda x: x[1], reverse=True):
                     output += f"  - {ent_type.replace('_', ' ')}: {count}\n"
                 output += "\n"
 
             # Top entities
             if result['top_entities']:
-                output += f"**Top Entities (by document count):**\n"
+                output += "**Top Entities (by document count):**\n"
                 for i, entity in enumerate(result['top_entities'][:10], 1):
                     output += f"{i}. **{entity['entity_text']}** ({entity['entity_type']})\n"
                     output += f"   - Found in {entity['document_count']} document(s)\n"
@@ -10951,7 +10948,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             # Documents with most entities
             if result['documents_with_most_entities']:
-                output += f"**Documents with Most Entities:**\n"
+                output += "**Documents with Most Entities:**\n"
                 for i, doc in enumerate(result['documents_with_most_entities'], 1):
                     output += f"{i}. **{doc['doc_title']}**: {doc['entity_count']} entities\n"
 
@@ -10973,21 +10970,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 skip_existing=skip_existing
             )
 
-            output = f"**Bulk Entity Extraction Complete**\n\n"
+            output = "**Bulk Entity Extraction Complete**\n\n"
             output += f"**Processed:** {result['processed']} documents\n"
             output += f"**Skipped:** {result['skipped']} documents (already have entities)\n"
             output += f"**Failed:** {result['failed']} documents\n"
             output += f"**Total Entities Extracted:** {result['total_entities']}\n\n"
 
             if result['by_type']:
-                output += f"**Entities by Type:**\n"
+                output += "**Entities by Type:**\n"
                 for ent_type, count in sorted(result['by_type'].items(), key=lambda x: x[1], reverse=True):
                     output += f"  - {ent_type.replace('_', ' ')}: {count}\n"
                 output += "\n"
 
             # Show sample results
             if result['results']:
-                output += f"**Sample Results (first 10):**\n"
+                output += "**Sample Results (first 10):**\n"
                 for i, doc_result in enumerate(result['results'][:10], 1):
                     status_emoji = "✓" if doc_result['status'] == 'success' else "⊗" if doc_result['status'] == 'failed' else "⊘"
                     output += f"{i}. {status_emoji} **{doc_result['title']}**"
@@ -11013,12 +11010,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         try:
             result = kb.extract_entity_relationships(doc_id, min_confidence=min_confidence)
 
-            output = f"**Entity Relationship Extraction Complete**\n\n"
+            output = "**Entity Relationship Extraction Complete**\n\n"
             output += f"**Document:** {kb.documents[doc_id].title}\n"
             output += f"**Relationships Found:** {result['relationship_count']}\n\n"
 
             if result['relationships']:
-                output += f"**Top Relationships (by strength):**\n\n"
+                output += "**Top Relationships (by strength):**\n\n"
                 # Show top 10 relationships
                 for i, rel in enumerate(result['relationships'][:10], 1):
                     output += f"{i}. **{rel['entity1']}** ({rel['entity1_type']}) ↔ **{rel['entity2']}** ({rel['entity2_type']})\n"
@@ -11031,7 +11028,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 if len(result['relationships']) > 10:
                     output += f"... and {len(result['relationships']) - 10} more relationships\n\n"
 
-                output += f"Use `get_entity_relationships` to explore specific entities.\n"
+                output += "Use `get_entity_relationships` to explore specific entities.\n"
             else:
                 output += "No relationships found. The document may not have enough entities extracted.\n"
 
@@ -11090,7 +11087,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             for i, rel in enumerate(related, 1):
                 output += f"{i}. **{rel['related_entity']}** ({rel['related_type']}) - strength: {rel['strength']:.2f}\n"
 
-            output += f"\nUse `get_entity_relationships` for more details and context.\n"
+            output += "\nUse `get_entity_relationships` for more details and context.\n"
 
             return [TextContent(type="text", text=output)]
         except Exception as e:
@@ -11119,7 +11116,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output += f"   Doc ID: `{doc['doc_id']}`\n"
 
                 if doc.get('contexts'):
-                    output += f"   **Context snippets:**\n"
+                    output += "   **Context snippets:**\n"
                     for j, context in enumerate(doc['contexts'][:2], 1):
                         ctx_short = context[:150] + "..." if len(context) > 150 else context
                         output += f"   {j}. *{ctx_short}*\n"
@@ -11140,7 +11137,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = kb.translate_nl_query(query=query, confidence_threshold=confidence_threshold)
 
             # Build formatted output
-            output = f"**Natural Language Query Translation**\n\n"
+            output = "**Natural Language Query Translation**\n\n"
             output += f"**Original Query:** {result['original_query']}\n"
             output += f"**Suggested Query:** {result['suggested_query']}\n"
             output += f"**Confidence:** {result['confidence']:.2f}\n"
@@ -11162,7 +11159,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             # Show facet filters
             if result.get('facet_filters'):
-                output += f"**Facet Filters:**\n"
+                output += "**Facet Filters:**\n"
                 for facet_type, values in result['facet_filters'].items():
                     output += f"  - {facet_type}: {', '.join(values)}\n"
                 output += "\n"
@@ -11205,14 +11202,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = kb.compare_documents(doc_id_1, doc_id_2, comparison_type)
 
             # Build formatted output
-            output = f"**Document Comparison**\n\n"
+            output = "**Document Comparison**\n\n"
             output += f"**Similarity Score:** {result['similarity_score']:.1%}\n"
             output += f"**Summary:** {result['summary']}\n\n"
 
             # Metadata differences
             output += "**Metadata Comparison:**\n"
             md = result['metadata_diff']
-            output += f"- **Titles:** \n"
+            output += "- **Titles:** \n"
             output += f"  - Doc 1: {md['title'][0]}\n"
             output += f"  - Doc 2: {md['title'][1]}\n"
             output += f"- **Files:** {md['filename'][0]} vs {md['filename'][1]}\n"
@@ -11238,17 +11235,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output += f"- Common Entities: {len(ec['common_entities'])}\n"
 
                 if ec['common_entities'][:5]:  # Show first 5
-                    output += f"\n**Top Common Entities:**\n"
+                    output += "\n**Top Common Entities:**\n"
                     for ent in ec['common_entities'][:5]:
                         output += f"  - **{ent['text']}** ({ent['type']})\n"
 
                 if ec['unique_to_doc1'][:3]:
-                    output += f"\n**Sample Unique to Doc 1:**\n"
+                    output += "\n**Sample Unique to Doc 1:**\n"
                     for ent in ec['unique_to_doc1'][:3]:
                         output += f"  - **{ent['text']}** ({ent['type']})\n"
 
                 if ec['unique_to_doc2'][:3]:
-                    output += f"\n**Sample Unique to Doc 2:**\n"
+                    output += "\n**Sample Unique to Doc 2:**\n"
                     for ent in ec['unique_to_doc2'][:3]:
                         output += f"  - **{ent['text']}** ({ent['type']})\n"
 
@@ -11290,7 +11287,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 import json
                 entity_count = len(json.loads(result))
 
-            output = f"**Entity Export Complete**\n\n"
+            output = "**Entity Export Complete**\n\n"
             output += f"**Format:** {format.upper()}\n"
             output += f"**Entities Exported:** {entity_count}\n"
             output += f"**Min Confidence:** {min_confidence:.2f}\n"
@@ -11333,7 +11330,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 import json
                 rel_count = len(json.loads(result))
 
-            output = f"**Relationship Export Complete**\n\n"
+            output = "**Relationship Export Complete**\n\n"
             output += f"**Format:** {format.upper()}\n"
             output += f"**Relationships Exported:** {rel_count}\n"
             output += f"**Min Strength:** {min_strength:.2f}\n"

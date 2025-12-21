@@ -21,11 +21,10 @@ Usage:
 """
 
 import os
-import sys
 import time
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, List
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -49,7 +48,7 @@ from rest_models import (
     ScrapeRequest, RescrapeRequest, ScrapeResponse, UpdateCheckResponse,
     SummarizeRequest, SummarizeResponse, EntityExtractionRequest, EntitySearchRequest,
     EntityResponse, RelationshipResponse,
-    SearchAnalyticsResponse, ExportFormat
+    SearchAnalyticsResponse
 )
 
 # Configure logging

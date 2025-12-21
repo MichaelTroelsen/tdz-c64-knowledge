@@ -282,7 +282,7 @@ Examples:
         try:
             results = kb.remove_documents_bulk(doc_ids=args.doc_ids, tags=args.tags)
 
-            print(f"Bulk Remove Results:")
+            print("Bulk Remove Results:")
             print(f"  Removed: {len(results['removed'])} documents")
             print(f"  Failed: {len(results['failed'])} documents")
 
@@ -317,7 +317,7 @@ Examples:
                 replace_tags=args.replace
             )
 
-            print(f"Bulk Tag Update Results:")
+            print("Bulk Tag Update Results:")
             print(f"  Updated: {len(results['updated'])} documents")
             print(f"  Failed: {len(results['failed'])} documents")
 
@@ -373,7 +373,7 @@ Examples:
 
             print(f"=== {args.type.upper()} SUMMARY ===\n")
             print(summary)
-            print(f"\n=== END SUMMARY ===")
+            print("\n=== END SUMMARY ===")
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -388,12 +388,12 @@ Examples:
                 max_docs=args.max
             )
 
-            print(f"\n✓ Summarization Complete!\n")
-            print(f"Statistics:")
+            print("\n✓ Summarization Complete!\n")
+            print("Statistics:")
             print(f"  Documents processed: {results['processed']}")
             print(f"  Documents failed: {results['failed']}")
             print(f"  Total summaries: {results['total_summaries']}")
-            print(f"  By type:")
+            print("  By type:")
             for summary_type, count in results['by_type'].items():
                 print(f"    - {summary_type}: {count}")
 
@@ -401,8 +401,8 @@ Examples:
                 print(f"\nWarning: {results['failed']} documents failed. Check logs for details.")
         except Exception as e:
             print(f"Error: {e}")
-            print(f"\nNote: Summarization requires LLM configuration.")
-            print(f"Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
+            print("\nNote: Summarization requires LLM configuration.")
+            print("Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
             sys.exit(1)
 
     elif args.command == "extract-entities":
@@ -421,12 +421,12 @@ Examples:
                 force_regenerate=args.force
             )
 
-            print(f"[OK] Extraction Complete!\n")
+            print("[OK] Extraction Complete!\n")
             print(f"Document: {result['doc_title']}")
             print(f"Total entities: {result['entity_count']}\n")
 
             if result['entities']:
-                print(f"Entities by type:")
+                print("Entities by type:")
                 for entity_type in sorted(result['types'].keys()):
                     print(f"\n{entity_type.upper().replace('_', ' ')} ({result['types'][entity_type]}):")
                     entities_of_type = [e for e in result['entities'] if e['entity_type'] == entity_type]
@@ -441,13 +441,13 @@ Examples:
                 print("No entities found with the current confidence threshold.")
         except Exception as e:
             print(f"Error: {e}")
-            print(f"\nNote: Entity extraction requires LLM configuration.")
-            print(f"Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
+            print("\nNote: Entity extraction requires LLM configuration.")
+            print("Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
             sys.exit(1)
 
     elif args.command == "extract-all-entities":
         try:
-            print(f"Extracting entities from all documents")
+            print("Extracting entities from all documents")
             print(f"Confidence threshold: {args.confidence}\n")
 
             results = kb.extract_entities_bulk(
@@ -457,15 +457,15 @@ Examples:
                 skip_existing=not args.no_skip
             )
 
-            print(f"\n[OK] Bulk Extraction Complete!\n")
-            print(f"Statistics:")
+            print("\n[OK] Bulk Extraction Complete!\n")
+            print("Statistics:")
             print(f"  Documents processed: {results['processed']}")
             print(f"  Documents skipped: {results['skipped']}")
             print(f"  Documents failed: {results['failed']}")
             print(f"  Total entities: {results['total_entities']}")
 
             if results['by_type']:
-                print(f"\n  Entities by type:")
+                print("\n  Entities by type:")
                 for entity_type, count in sorted(results['by_type'].items(), key=lambda x: x[1], reverse=True):
                     print(f"    - {entity_type.replace('_', ' ')}: {count}")
 
@@ -473,8 +473,8 @@ Examples:
                 print(f"\nWarning: {results['failed']} documents failed. Check logs for details.")
         except Exception as e:
             print(f"Error: {e}")
-            print(f"\nNote: Entity extraction requires LLM configuration.")
-            print(f"Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
+            print("\nNote: Entity extraction requires LLM configuration.")
+            print("Set LLM_PROVIDER and ANTHROPIC_API_KEY or OPENAI_API_KEY")
             sys.exit(1)
 
     elif args.command == "search-entity":
@@ -514,7 +514,7 @@ Examples:
         try:
             results = kb.get_entity_stats(entity_type=args.type)
 
-            print(f"Entity Extraction Statistics")
+            print("Entity Extraction Statistics")
             if args.type:
                 print(f"Type filter: {args.type}")
             print()
@@ -523,12 +523,12 @@ Examples:
             print(f"Documents with entities: {results['total_documents_with_entities']}")
 
             if results['by_type']:
-                print(f"\nEntities by type:")
+                print("\nEntities by type:")
                 for entity_type, count in sorted(results['by_type'].items(), key=lambda x: x[1], reverse=True):
                     print(f"  - {entity_type.replace('_', ' ')}: {count}")
 
             if results['top_entities']:
-                print(f"\nTop 10 entities (by document count):")
+                print("\nTop 10 entities (by document count):")
                 for i, entity in enumerate(results['top_entities'][:10], 1):
                     print(f"{i}. {entity['entity_text']} ({entity['entity_type']})")
                     print(f"   - Found in {entity['document_count']} document(s)")
@@ -536,7 +536,7 @@ Examples:
                     print(f"   - Avg confidence: {entity['avg_confidence']:.2f}")
 
             if results['documents_with_most_entities']:
-                print(f"\nDocuments with most entities:")
+                print("\nDocuments with most entities:")
                 for i, doc in enumerate(results['documents_with_most_entities'], 1):
                     print(f"{i}. {doc['doc_title']}: {doc['entity_count']} entities")
         except Exception as e:
@@ -555,11 +555,11 @@ Examples:
 
             result = kb.extract_entity_relationships(doc_id=args.doc_id, min_confidence=args.confidence)
 
-            print(f"[OK] Relationship extraction complete!")
+            print("[OK] Relationship extraction complete!")
             print(f"Relationships found: {result['relationship_count']}\n")
 
             if result['relationships']:
-                print(f"Top relationships (by strength):\n")
+                print("Top relationships (by strength):\n")
                 for i, rel in enumerate(result['relationships'][:15], 1):
                     print(f"{i}. {rel['entity1']} ({rel['entity1_type']}) <-> {rel['entity2']} ({rel['entity2_type']})")
                     print(f"   Strength: {rel['strength']:.2f}")
@@ -579,7 +579,7 @@ Examples:
 
     elif args.command == "extract-all-relationships":
         try:
-            print(f"Extracting entity relationships from all documents with entities...")
+            print("Extracting entity relationships from all documents with entities...")
             print(f"Confidence threshold: {args.confidence}\n")
 
             result = kb.extract_relationships_bulk(
@@ -587,7 +587,7 @@ Examples:
                 max_docs=args.max
             )
 
-            print(f"\n[OK] Bulk relationship extraction complete!\n")
+            print("\n[OK] Bulk relationship extraction complete!\n")
             print(f"Processed: {result['processed']}")
             print(f"Failed: {result['failed']}")
             print(f"Total relationships: {result['total_relationships']}")
@@ -643,7 +643,7 @@ Examples:
                 print(f"   Doc ID: {doc['doc_id']}")
 
                 if doc.get('contexts'):
-                    print(f"   Context snippets:")
+                    print("   Context snippets:")
                     for j, ctx in enumerate(doc['contexts'][:2], 1):
                         ctx_short = ctx[:120] + "..." if len(ctx) > 120 else ctx
                         print(f"   {j}. {ctx_short}")
@@ -683,7 +683,7 @@ Examples:
                     print(f"  ... and {len(result['entities_found']) - 15} more")
 
             if result.get('facet_filters'):
-                print(f"\nFacet Filters:")
+                print("\nFacet Filters:")
                 for facet_type, values in result['facet_filters'].items():
                     print(f"  - {facet_type}: {', '.join(values)}")
 
@@ -742,7 +742,7 @@ Examples:
 
             # Tags Comparison
             if meta['tags']:
-                print(f"\nTags:")
+                print("\nTags:")
                 if meta['tags']['common']:
                     print(f"  Common: {', '.join(meta['tags']['common'])}")
                 if meta['tags']['only_in_doc1']:
@@ -750,7 +750,7 @@ Examples:
                 if meta['tags']['only_in_doc2']:
                     print(f"  Only in Doc 2: {', '.join(meta['tags']['only_in_doc2'])}")
             else:
-                print(f"\nTags: (none)")
+                print("\nTags: (none)")
 
             # Entity Comparison
             if result.get('entity_comparison'):
@@ -764,7 +764,7 @@ Examples:
                 print(f"Unique to Doc 2: {len(ent['unique_to_doc2'])}")
 
                 if ent['common_entities']:
-                    print(f"\nCommon Entities (showing first 10):")
+                    print("\nCommon Entities (showing first 10):")
                     for entity_text, entity_type in ent['common_entities'][:10]:
                         print(f"  - {entity_text} ({entity_type})")
                     if len(ent['common_entities']) > 10:

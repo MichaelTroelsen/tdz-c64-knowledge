@@ -523,6 +523,99 @@ find_similar(
 
 Uses semantic embeddings (FAISS) if available, otherwise falls back to TF-IDF cosine similarity. Returns documents sorted by similarity score with snippets.
 
+### semantic_search
+Search using semantic/conceptual similarity (requires USE_SEMANTIC_SEARCH=1).
+
+```
+semantic_search(
+  query="How do sprites work?",
+  max_results=5,
+  tags=["graphics"]
+)
+```
+
+Finds documents based on meaning, not just keywords. Example: searching for "movable objects" can find documents about "sprites".
+
+### hybrid_search
+Perform hybrid search combining FTS5 keyword search and semantic search.
+
+```
+hybrid_search(
+  query="SID chip sound programming",
+  max_results=10,
+  semantic_weight=0.7,  # 0.0-1.0, higher favors semantic
+  tags=["audio"]
+)
+```
+
+Best of both worlds - finds exact keyword matches AND conceptually related content. Results ranked by weighted combination of both scores.
+
+### faceted_search
+Search with entity-based facet filtering.
+
+```
+faceted_search(
+  query="graphics programming",
+  max_results=10,
+  facet_filters={
+    "hardware": ["VIC-II"],
+    "concept": ["sprite", "raster"]
+  }
+)
+```
+
+Filters results by detected entities. Requires entity extraction to be run on documents first.
+
+### search_tables
+Search specifically within extracted PDF tables.
+
+```
+search_tables(
+  query="memory map",
+  max_results=5,
+  tags=["reference"]
+)
+```
+
+Searches only table content extracted from PDFs, useful for finding structured data like register maps, memory layouts, and opcode tables.
+
+### search_code
+Search specifically within detected code blocks.
+
+```
+search_code(
+  query="LDA STA",
+  max_results=5,
+  code_type="assembly"  # or "basic", "hex"
+)
+```
+
+Searches only code blocks (BASIC, Assembly, Hex) extracted from documents. Useful for finding code examples and programming patterns.
+
+### find_by_reference
+Find documents by cross-reference or citation.
+
+```
+find_by_reference(
+  reference="page 142",
+  max_results=5
+)
+```
+
+Searches for document cross-references, page numbers, and citations within the knowledge base.
+
+### suggest_queries
+Get query suggestions based on knowledge base content.
+
+```
+suggest_queries(
+  partial_query="VIC",
+  max_suggestions=5
+)
+```
+
+Returns suggested search queries based on indexed content, helpful for discovery and exploration.
+
 ### check_updates
 Check all indexed documents for updates and optionally re-index changed files.
 
@@ -630,6 +723,213 @@ Total: 3 removed, 0 failed
 - Clean up multiple documents at once
 - Tag-based removal for flexible document management
 - Detailed failure reporting
+
+### URL Scraping Tools
+
+#### scrape_url
+Scrape a documentation website and add all pages to the knowledge base.
+
+```
+scrape_url(
+  url="https://www.c64-wiki.com/wiki/VIC",
+  tags=["c64-wiki", "reference"],
+  depth=2,          # Maximum link depth
+  limit="https://www.c64-wiki.com",  # Only scrape URLs with this prefix
+  threads=5,        # Concurrent download threads
+  delay=100        # Delay between requests (ms)
+)
+```
+
+Uses mdscrape to convert HTML to markdown. Automatically follows links and indexes all discovered pages.
+
+#### rescrape_document
+Re-scrape a URL-sourced document to check for updates.
+
+```
+rescrape_document(
+  doc_id="abc123",  # Must be a URL-sourced document
+  force=false       # Force rescrape even if not modified
+)
+```
+
+Removes the old version and re-scrapes the original URL with the same configuration. Checks Last-Modified headers to avoid unnecessary downloads.
+
+#### check_url_updates
+Check all URL-sourced documents for updates.
+
+```
+check_url_updates(
+  auto_rescrape=false  # Automatically re-scrape changed URLs
+)
+```
+
+Compares Last-Modified headers for all scraped documents. Returns list of documents that have been updated since last scrape.
+
+### Document Analysis Tools
+
+#### compare_documents
+Compare two documents side-by-side with similarity scoring.
+
+```
+compare_documents(
+  doc_id_1="abc123",
+  doc_id_2="def456",
+  comparison_type="full"  # or "metadata", "content", "entities"
+)
+```
+
+**Returns:**
+- Similarity score (0.0-1.0) using cosine similarity
+- Metadata differences (title, tags, etc.)
+- Content diff (unified diff format)
+- Entity comparison (common, unique to each)
+- Chunk count comparison
+
+Useful for finding duplicate or related documents, tracking document changes, and analyzing content overlap.
+
+#### health_check
+Perform health check on the knowledge base system.
+
+```
+health_check()
+```
+
+**Returns:**
+- System status (healthy/degraded/unhealthy)
+- Database connectivity and integrity
+- Feature availability (FTS5, semantic search, OCR)
+- Performance metrics (query times, cache hit rates)
+- Any detected issues or warnings
+
+Use for monitoring and diagnostics.
+
+### System Management Tools
+
+#### update_tags_bulk
+Update tags for multiple documents at once.
+
+```
+update_tags_bulk(
+  doc_ids=["abc123", "def456"],
+  add_tags=["updated", "v2"],
+  remove_tags=["draft", "old"]
+)
+```
+
+Efficiently update tags across many documents. Can add tags, remove tags, or both in a single operation.
+
+#### create_backup
+Create a backup of the knowledge base.
+
+```
+create_backup(
+  backup_path="C:/backups/kb-2025-12-21.db",
+  include_embeddings=true  # Include FAISS indexes
+)
+```
+
+Creates a complete backup including database, embeddings, and configuration. Returns backup file path and size.
+
+#### restore_backup
+Restore knowledge base from a backup file.
+
+```
+restore_backup(
+  backup_path="C:/backups/kb-2025-12-21.db",
+  confirm=true  # Required safety check
+)
+```
+
+**Warning:** This will replace the current knowledge base. All existing data will be lost.
+
+#### search_analytics
+Get search analytics and usage statistics.
+
+```
+search_analytics(
+  time_range_days=30,  # Analysis period
+  group_by="query"     # or "tag", "date"
+)
+```
+
+**Returns:**
+- Top search queries
+- Search volume trends
+- Popular tags
+- Average results per query
+- Query performance metrics
+
+Useful for understanding usage patterns and optimizing content.
+
+### Export Tools
+
+#### export_results
+Export search results to CSV or JSON.
+
+```
+export_results(
+  query="VIC-II",
+  format="csv",  # or "json"
+  output_path="search_results.csv",
+  max_results=100
+)
+```
+
+Exports search results with all metadata, snippets, and scores for external analysis.
+
+#### export_documents_bulk
+Export document metadata for all documents.
+
+```
+export_documents_bulk(
+  format="csv",  # or "json"
+  output_path="documents.csv",
+  tags=["reference"],  # Optional filter
+  include_stats=true   # Include chunk counts, entity counts
+)
+```
+
+Exports comprehensive document metadata including titles, tags, file info, statistics, and timestamps.
+
+#### export_entities
+Export all extracted entities to CSV or JSON.
+
+```
+export_entities(
+  format="csv",  # or "json"
+  output_path="entities.csv",
+  entity_type="hardware",  # Optional filter by type
+  min_confidence=0.7       # Optional confidence threshold
+)
+```
+
+**CSV columns:**
+- entity_text, entity_type, confidence, document_count, total_occurrences
+
+**JSON format:**
+- Full entity objects with contexts, document IDs, and metadata
+
+Useful for analyzing entity distribution, building taxonomies, and external processing.
+
+#### export_relationships
+Export all entity relationships to CSV or JSON.
+
+```
+export_relationships(
+  format="csv",  # or "json"
+  output_path="relationships.csv",
+  min_strength=0.5,  # Optional strength threshold
+  entity_type=null   # Optional filter by entity type
+)
+```
+
+**CSV columns:**
+- entity1, entity1_type, entity2, entity2_type, strength, co_occurrence_count, document_count
+
+**JSON format:**
+- Full relationship objects with contexts, documents, and statistics
+
+Perfect for network analysis, knowledge graphs, and relationship visualization.
 
 ### AI-Powered Tools
 
@@ -804,6 +1104,117 @@ Sample Results (first 10):
 ```
 
 **Note:** Entity extraction requires LLM configuration. Set `LLM_PROVIDER` and appropriate API key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`).
+
+#### summarize_document
+Generate an AI summary of a document.
+
+```
+summarize_document(
+  doc_id="abc123",
+  summary_type="brief",  # or "detailed", "bullet"
+  max_length=300,
+  style="technical"      # or "simple", "detailed"
+)
+```
+
+**Summary types:**
+- `brief` - 2-3 sentence overview
+- `detailed` - Comprehensive multi-paragraph summary
+- `bullet` - Key points as bullet list
+
+**Styles:**
+- `technical` - Preserves technical terminology
+- `simple` - Accessible language
+- `detailed` - In-depth analysis
+
+Summaries are cached in the database for fast retrieval.
+
+#### summarize_all
+Bulk summarize all documents in the knowledge base.
+
+```
+summarize_all(
+  summary_type="brief",
+  force_regenerate=false,  # Re-summarize even if cached
+  max_docs=null,           # Process all documents
+  skip_existing=true
+)
+```
+
+**Returns:** Processing statistics with summary counts and status for each document.
+
+**Example output:**
+```
+Bulk Summarization Complete
+
+Processed: 42 documents
+Skipped: 15 documents (already have summaries)
+Failed: 2 documents (LLM errors)
+
+Sample Summaries:
+1. ✓ C64 Programmer's Reference - Brief summary generated
+2. ✓ VIC-II Guide - Brief summary generated
+3. ⊘ Memory Map - skipped (has summary)
+...
+```
+
+#### get_summary
+Retrieve cached summary for a document.
+
+```
+get_summary(
+  doc_id="abc123",
+  summary_type="brief"
+)
+```
+
+Returns previously generated summary if available, or generates a new one if needed.
+
+#### auto_tag_document
+Generate AI-powered tag suggestions for a document.
+
+```
+auto_tag_document(
+  doc_id="abc123",
+  max_tags=10,
+  confidence_threshold=0.7,  # Minimum confidence for suggestions
+  apply_tags=false           # Auto-apply high-confidence tags
+)
+```
+
+**Returns:** Suggested tags with confidence scores (0.0-1.0).
+
+**Example output:**
+```
+Tag Suggestions for: C64 Programmer's Reference
+
+High Confidence (>0.8):
+  - reference (0.95)
+  - programming (0.92)
+  - memory-map (0.88)
+
+Medium Confidence (0.7-0.8):
+  - basic (0.75)
+  - assembly (0.72)
+
+Low Confidence (<0.7):
+  - graphics (0.65)
+```
+
+#### auto_tag_all
+Bulk auto-tag all documents in the knowledge base.
+
+```
+auto_tag_all(
+  confidence_threshold=0.8,  # Only apply tags with high confidence
+  apply_tags=true,           # Automatically apply tags
+  max_tags_per_doc=5
+)
+```
+
+**Returns:** Processing statistics with tag counts and application results.
+
+Useful for automatically organizing and categorizing large document collections.
 
 #### translate_query
 Translate natural language queries to structured search parameters using AI.

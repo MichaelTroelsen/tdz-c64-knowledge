@@ -49,8 +49,9 @@ def extract_documented_tools_from_readme() -> Set[str]:
 
     content = readme_path.read_text(encoding='utf-8')
 
-    # Find tool headers (#### tool_name)
-    pattern = r'^####\s+([a-z_]+)\s*$'
+    # Find tool headers (### or #### followed by tool_name)
+    # Matches both ### tool_name and #### tool_name
+    pattern = r'^#{3,4}\s+([a-z_]+)\s*$'
     matches = re.findall(pattern, content, re.MULTILINE)
 
     for match in matches:

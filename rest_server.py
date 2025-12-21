@@ -39,6 +39,12 @@ from version import __version__, __project_name__
 # Import KnowledgeBase
 from server import KnowledgeBase
 
+# Import Pydantic models
+from rest_models import (
+    SearchRequest, SemanticSearchRequest, HybridSearchRequest, FacetedSearchRequest,
+    SearchResult, SearchResponse
+)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -333,8 +339,305 @@ async def get_stats():
         )
 
 
+# ========== Helper Functions ==========
+
+def format_search_results(results: list, query_time_ms: float, search_mode: str = "keyword") -> SearchResponse:
+    """
+    Format search results into SearchResponse model.
+
+    Args:
+        results: List of search results from KnowledgeBase
+        query_time_ms: Query execution time in milliseconds
+        search_mode: Search mode used (keyword, semantic, hybrid, faceted)
+
+    Returns:
+        SearchResponse with formatted results and metadata
+    """
+    search_results = []
+    for result in results:
+        search_results.append(SearchResult(
+            doc_id=result.get('doc_id', ''),
+            chunk_id=result.get('chunk_id', 0),
+            title=result.get('title', ''),
+            filename=result.get('filename', ''),
+            snippet=result.get('snippet', ''),
+            score=result.get('score', 0.0),
+            page=result.get('page'),
+            tags=result.get('tags', [])
+        ))
+
+    return SearchResponse(
+        success=True,
+        data=search_results,
+        metadata={
+            "total_results": len(search_results),
+            "query_time_ms": round(query_time_ms, 2),
+            "search_mode": search_mode
+        }
+    )
+
+
+# ========== Search Endpoints ==========
+
+@app.post("/api/v1/search", response_model=SearchResponse, tags=["Search"], dependencies=[Depends(verify_api_key)])
+async def search(request: SearchRequest):
+    """
+    Basic keyword search using FTS5 or BM25.
+
+    Searches through document chunks using full-text search.
+    Returns ranked results based on relevance scores.
+
+    **Example:**
+    ```json
+    {
+        "query": "sprite graphics VIC-II",
+        "max_results": 10,
+        "tags": ["graphics", "hardware"]
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        start_time = time.time()
+
+        results = kb.search(
+            query=request.query,
+            max_results=request.max_results,
+            tags=request.tags
+        )
+
+        query_time_ms = (time.time() - start_time) * 1000
+
+        return format_search_results(results, query_time_ms, "keyword")
+
+    except Exception as e:
+        logger.error(f"Search error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Search failed: {str(e)}"
+        )
+
+
+@app.post("/api/v1/search/semantic", response_model=SearchResponse, tags=["Search"], dependencies=[Depends(verify_api_key)])
+async def semantic_search(request: SemanticSearchRequest):
+    """
+    Semantic search using embeddings and vector similarity.
+
+    Searches based on meaning rather than exact keywords.
+    Requires semantic search to be enabled.
+
+    **Example:**
+    ```json
+    {
+        "query": "How do sprites work on the VIC-II chip?",
+        "max_results": 5,
+        "top_k": 50
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    if not kb.use_semantic:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Semantic search not enabled. Set USE_SEMANTIC_SEARCH=1"
+        )
+
+    try:
+        start_time = time.time()
+
+        results = kb.semantic_search(
+            query=request.query,
+            max_results=request.max_results,
+            tags=request.tags,
+            top_k=request.top_k
+        )
+
+        query_time_ms = (time.time() - start_time) * 1000
+
+        return format_search_results(results, query_time_ms, "semantic")
+
+    except Exception as e:
+        logger.error(f"Semantic search error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Semantic search failed: {str(e)}"
+        )
+
+
+@app.post("/api/v1/search/hybrid", response_model=SearchResponse, tags=["Search"], dependencies=[Depends(verify_api_key)])
+async def hybrid_search(request: HybridSearchRequest):
+    """
+    Hybrid search combining keyword and semantic search.
+
+    Blends FTS5/BM25 results with semantic results using configurable weighting.
+    Provides best of both worlds: exact matches + contextual understanding.
+
+    **Example:**
+    ```json
+    {
+        "query": "SID chip sound programming",
+        "max_results": 10,
+        "semantic_weight": 0.7,
+        "top_k": 100
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    if not kb.use_semantic:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hybrid search requires semantic search. Set USE_SEMANTIC_SEARCH=1"
+        )
+
+    try:
+        start_time = time.time()
+
+        results = kb.hybrid_search(
+            query=request.query,
+            max_results=request.max_results,
+            tags=request.tags,
+            semantic_weight=request.semantic_weight,
+            top_k=request.top_k
+        )
+
+        query_time_ms = (time.time() - start_time) * 1000
+
+        return format_search_results(results, query_time_ms, "hybrid")
+
+    except Exception as e:
+        logger.error(f"Hybrid search error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Hybrid search failed: {str(e)}"
+        )
+
+
+@app.post("/api/v1/search/faceted", response_model=SearchResponse, tags=["Search"], dependencies=[Depends(verify_api_key)])
+async def faceted_search(request: FacetedSearchRequest):
+    """
+    Faceted search with entity-based filtering.
+
+    Searches with structured filters on extracted entities.
+    Useful for narrowing results to specific hardware, concepts, etc.
+
+    **Example:**
+    ```json
+    {
+        "query": "programming",
+        "max_results": 10,
+        "facet_filters": {
+            "hardware": ["VIC-II", "SID"],
+            "concept": ["sprite", "sound"]
+        }
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        start_time = time.time()
+
+        results = kb.faceted_search(
+            query=request.query,
+            facet_filters=request.facet_filters,
+            max_results=request.max_results,
+            tags=request.tags
+        )
+
+        query_time_ms = (time.time() - start_time) * 1000
+
+        return format_search_results(results, query_time_ms, "faceted")
+
+    except Exception as e:
+        logger.error(f"Faceted search error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Faceted search failed: {str(e)}"
+        )
+
+
+@app.get("/api/v1/similar/{doc_id}", response_model=SearchResponse, tags=["Search"], dependencies=[Depends(verify_api_key)])
+async def find_similar(
+    doc_id: str,
+    chunk_id: Optional[int] = None,
+    max_results: int = 5,
+    tags: Optional[str] = None
+):
+    """
+    Find documents similar to a given document.
+
+    Uses TF-IDF or semantic similarity to find related documents.
+    Useful for "more like this" functionality.
+
+    **Parameters:**
+    - **doc_id**: Document ID to find similar documents for
+    - **chunk_id**: Optional specific chunk ID (if None, uses all chunks)
+    - **max_results**: Maximum number of results (default: 5)
+    - **tags**: Optional comma-separated tags filter (e.g., "graphics,hardware")
+
+    **Example:**
+    ```
+    GET /api/v1/similar/89d0943d6009?max_results=5&tags=graphics,hardware
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    # Parse tags from query string
+    tags_list = None
+    if tags:
+        tags_list = [tag.strip() for tag in tags.split(',')]
+
+    try:
+        start_time = time.time()
+
+        results = kb.find_similar_documents(
+            doc_id=doc_id,
+            chunk_id=chunk_id,
+            max_results=max_results,
+            tags=tags_list
+        )
+
+        query_time_ms = (time.time() - start_time) * 1000
+
+        return format_search_results(results, query_time_ms, "similar")
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Similar documents error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Similar search failed: {str(e)}"
+        )
+
+
 # ========== Placeholder for future endpoints ==========
-# Search endpoints will be added in Sprint 6
 # Document CRUD endpoints will be added in Sprint 7
 # AI feature endpoints will be added in Sprint 7
 # Export endpoints will be added in Sprint 8

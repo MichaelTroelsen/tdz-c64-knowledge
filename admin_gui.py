@@ -148,7 +148,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["📊 Dashboard", "📚 Documents", "🌐 Web Scraping", "🏷️ Tag Management", "🧠 Entity Extraction", "🔗 Relationship Graph", "🔍 Search", "💾 Backup & Restore", "📈 Analytics"]
+    ["📊 Dashboard", "📚 Documents", "🌐 Web Scraping", "🏷️ Tag Management", "🧠 Entity Extraction", "🔗 Relationship Graph", "📈 Entity Analytics", "🔍 Search", "💾 Backup & Restore", "📉 System Analytics"]
 )
 
 st.sidebar.markdown("---")
@@ -2733,9 +2733,207 @@ elif page == "💾 Backup & Restore":
                 except Exception as e:
                     st.error(f"Restore failed: {str(e)}")
 
-# ========== ANALYTICS PAGE ==========
-elif page == "📈 Analytics":
-    st.title("📈 Search Analytics")
+# ========== ENTITY ANALYTICS PAGE ==========
+elif page == "📈 Entity Analytics":
+    st.title("📈 Entity Analytics Dashboard")
+
+    # Get analytics data
+    with st.spinner("Loading analytics data..."):
+        analytics = kb.get_entity_analytics(time_range_days=365)
+
+    # Summary Metrics Row
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric(
+            "Total Entities",
+            f"{analytics['summary_metrics']['total_entities']:,}",
+            delta=f"{analytics['summary_metrics']['docs_with_entities']}/{analytics['summary_metrics']['total_docs']} docs"
+        )
+    with col2:
+        st.metric(
+            "Total Relationships",
+            f"{analytics['summary_metrics']['total_relationships']:,}",
+            delta=f"{analytics['summary_metrics']['docs_with_relationships']} docs"
+        )
+    with col3:
+        st.metric(
+            "Avg Entities/Doc",
+            f"{analytics['summary_metrics']['avg_entities_per_doc']:.1f}",
+            delta=f"{len(analytics['entity_distribution'])} types"
+        )
+    with col4:
+        if analytics['relationship_stats']['total'] > 0:
+            st.metric(
+                "Avg Relationship Strength",
+                f"{analytics['relationship_stats']['avg_strength']:.2f}",
+                delta="0.0-1.0 scale"
+            )
+        else:
+            st.metric("Avg Relationship Strength", "N/A", delta="No relationships")
+
+    st.markdown("---")
+
+    # Tab Navigation
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🏆 Top Entities", "🔗 Relationships", "📈 Trends"])
+
+    # ========== TAB 1: OVERVIEW ==========
+    with tab1:
+        st.subheader("Entity Distribution by Type")
+
+        if analytics['entity_distribution']:
+            # Prepare data for bar chart
+            import pandas as pd
+            dist_df = pd.DataFrame([
+                {'Type': k, 'Count': v}
+                for k, v in analytics['entity_distribution'].items()
+            ])
+
+            # Bar chart
+            st.bar_chart(dist_df.set_index('Type'))
+
+            # Data table
+            st.dataframe(
+                dist_df.sort_values('Count', ascending=False).reset_index(drop=True),
+                use_container_width=True
+            )
+        else:
+            st.info("No entities extracted yet. Use the Entity Extraction page to extract entities.")
+
+    # ========== TAB 2: TOP ENTITIES ==========
+    with tab2:
+        st.subheader("Top 50 Entities")
+
+        # Filters
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            entity_types = ['All'] + list(analytics['entity_distribution'].keys())
+            selected_type = st.selectbox("Filter by Type", entity_types)
+        with col2:
+            min_doc_count = st.number_input("Min Documents", min_value=0, value=1)
+        with col3:
+            min_confidence = st.slider("Min Confidence", 0.0, 1.0, 0.0, 0.1)
+
+        # Filter entities
+        filtered_entities = analytics['top_entities']
+        if selected_type != 'All':
+            filtered_entities = [e for e in filtered_entities if e['entity_type'] == selected_type]
+        filtered_entities = [e for e in filtered_entities if e['doc_count'] >= min_doc_count]
+        filtered_entities = [e for e in filtered_entities if e['avg_confidence'] >= min_confidence]
+
+        if filtered_entities:
+            # Convert to DataFrame
+            import pandas as pd
+            entity_df = pd.DataFrame(filtered_entities)
+            entity_df['avg_confidence'] = entity_df['avg_confidence'].apply(lambda x: f"{x:.1%}")
+
+            st.dataframe(
+                entity_df.rename(columns={
+                    'entity_text': 'Entity',
+                    'entity_type': 'Type',
+                    'doc_count': 'Documents',
+                    'avg_confidence': 'Confidence',
+                    'total_occurrences': 'Occurrences'
+                }),
+                use_container_width=True
+            )
+
+            st.caption(f"Showing {len(filtered_entities)} entities")
+        else:
+            st.warning("No entities match the selected filters.")
+
+    # ========== TAB 3: RELATIONSHIPS ==========
+    with tab3:
+        st.subheader("Entity Relationships")
+
+        if analytics['relationship_stats']['total'] > 0:
+            # Relationship type distribution
+            st.markdown("**Relationship Types Distribution**")
+            if analytics['relationship_stats']['by_entity_type']:
+                import pandas as pd
+                rel_type_data = [
+                    {
+                        'From Type': k[0],
+                        'To Type': k[1],
+                        'Count': v
+                    }
+                    for k, v in analytics['relationship_stats']['by_entity_type'].items()
+                ]
+                rel_type_df = pd.DataFrame(rel_type_data).sort_values('Count', ascending=False)
+                st.dataframe(rel_type_df, use_container_width=True)
+
+            st.markdown("---")
+
+            # Top relationships
+            st.markdown("**Top 50 Relationships by Strength**")
+
+            # Filters
+            col1, col2 = st.columns(2)
+            with col1:
+                min_strength = st.slider("Min Strength", 0.0, 1.0, 0.0, 0.05)
+            with col2:
+                min_docs = st.number_input("Min Shared Documents", min_value=1, value=1)
+
+            # Filter relationships
+            filtered_rels = [
+                r for r in analytics['top_relationships']
+                if r['strength'] >= min_strength and r['doc_count'] >= min_docs
+            ]
+
+            if filtered_rels:
+                import pandas as pd
+                rel_df = pd.DataFrame(filtered_rels[:50])  # Limit to 50
+                rel_df['strength'] = rel_df['strength'].apply(lambda x: f"{x:.2f}")
+
+                st.dataframe(
+                    rel_df.rename(columns={
+                        'entity1': 'Entity 1',
+                        'entity1_type': 'Type 1',
+                        'entity2': 'Entity 2',
+                        'entity2_type': 'Type 2',
+                        'strength': 'Strength',
+                        'doc_count': 'Shared Docs'
+                    }),
+                    use_container_width=True
+                )
+
+                st.caption(f"Showing {len(filtered_rels[:50])} relationships")
+            else:
+                st.warning("No relationships match the selected filters.")
+
+        else:
+            st.info("No relationships extracted yet. Use the Relationship Graph page to extract relationships.")
+
+    # ========== TAB 4: TRENDS ==========
+    with tab4:
+        st.subheader("Entity Extraction Timeline")
+
+        if analytics['extraction_timeline']:
+            import pandas as pd
+            timeline_df = pd.DataFrame(analytics['extraction_timeline'])
+
+            # Line chart
+            st.line_chart(timeline_df.set_index('date'))
+
+            # Summary stats
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Days", len(timeline_df))
+            with col2:
+                avg_per_day = timeline_df['count'].mean()
+                st.metric("Avg Entities/Day", f"{avg_per_day:.1f}")
+            with col3:
+                max_day = timeline_df.loc[timeline_df['count'].idxmax()]
+                st.metric("Peak Day", max_day['date'], delta=f"{max_day['count']} entities")
+
+            # Raw data
+            with st.expander("View Raw Data"):
+                st.dataframe(timeline_df, use_container_width=True)
+        else:
+            st.info("No timeline data available. Entity extraction dates are tracked from document creation.")
+
+# ========== SYSTEM ANALYTICS PAGE ==========
+elif page == "📉 System Analytics":
+    st.title("📉 Search Analytics")
 
     # Time range selection
     col1, col2 = st.columns([1, 3])

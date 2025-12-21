@@ -2407,10 +2407,13 @@ elif page == "🔍 Search":
 
                 # Display translation results in an expander
                 with st.expander("🔍 Query Translation Results", expanded=True):
-                    st.markdown(f"**Original Query:** {nl_result['original_query']}")
-                    st.markdown(f"**Suggested Query:** `{nl_result['suggested_query']}`")
-                    st.markdown(f"**Search Mode Recommendation:** {nl_result['search_mode'].upper()}")
+                    st.markdown(f"**Original Query:** \"{nl_result['original_query']}\"")
+                    st.markdown(f"**Search Mode Recommendation:** `{nl_result['search_mode'].upper()}`")
                     st.markdown(f"**Confidence:** {nl_result['confidence']:.0%}")
+                    st.markdown(f"**Reasoning:** {nl_result['reasoning']}")
+
+                    if nl_result.get('search_terms'):
+                        st.markdown(f"**Search Terms:** {', '.join(nl_result['search_terms'])}")
 
                     if nl_result.get('entities_found'):
                         st.markdown(f"**Entities Detected:** {len(nl_result['entities_found'])} found")
@@ -2419,8 +2422,7 @@ elif page == "🔍 Search":
                             entity_data.append({
                                 'Entity': e['text'],
                                 'Type': e['type'],
-                                'Confidence': f"{e['confidence']:.0%}",
-                                'Source': '🔍 Regex' if e['source'] == 'regex' else '🤖 AI'
+                                'Confidence': f"{e['confidence']:.0%}"
                             })
                         st.dataframe(pd.DataFrame(entity_data), use_container_width=True)
                         if len(nl_result['entities_found']) > 10:
@@ -2431,11 +2433,22 @@ elif page == "🔍 Search":
                         for facet_type, values in nl_result['facet_filters'].items():
                             st.markdown(f"- **{facet_type}:** {', '.join(values)}")
 
-                    if nl_result.get('fallback'):
-                        st.warning("⚠️ LLM unavailable - using fallback keyword extraction")
+                    # Show if LLM was unavailable
+                    if nl_result.get('confidence', 1.0) < 0.6:
+                        st.warning("⚠️ LLM may be unavailable - using basic keyword extraction")
 
-                # Use the suggested query for search
-                query = nl_result['suggested_query']
+                # Override search mode based on translation recommendation
+                if nl_result['search_mode'] == 'semantic':
+                    search_mode = "Semantic"
+                elif nl_result['search_mode'] == 'hybrid':
+                    search_mode = "Hybrid"
+                else:
+                    search_mode = "Keyword (FTS5)"
+
+                # Use search terms from translation if available, otherwise use original query
+                if nl_result.get('search_terms'):
+                    query = ' '.join(nl_result['search_terms'])
+                # else keep original query
 
             except ValueError as e:
                 st.error(f"Translation error: {e}\n\nMake sure LLM_PROVIDER and API key are configured.")

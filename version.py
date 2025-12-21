@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.15.0"
-__version_info__ = (2, 15, 0)
+__version__ = "2.16.0"
+__version_info__ = (2, 16, 0)
 
 # Build information
-__build_date__ = "2025-12-20"
+__build_date__ = "2025-12-21"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"
@@ -42,10 +42,23 @@ FEATURES = {
     "loading_indicators": "2.14.0",
     "dotenv_configuration": "2.14.0",
     "entity_extraction": "2.15.0",
+    "entity_relationships": "2.16.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.16.0 (2025-12-21)
+  - Added Entity Relationship Tracking
+  - Track co-occurrence of entities within documents
+  - Database schema: entity_relationships table with 4 indexes
+  - Core methods: extract_entity_relationships(), get_entity_relationships(), find_related_entities(), search_by_entity_pair(), extract_relationships_bulk()
+  - MCP tools: extract_entity_relationships, get_entity_relationships, find_related_entities, search_entity_pair
+  - CLI commands: extract-relationships, extract-all-relationships, show-relationships, search-pair
+  - GUI: 4-tab Entity Relationships interface
+  - Relationship strength scoring (0.0-1.0) based on co-occurrence frequency
+  - Context extraction for relationship examples
+  - Incremental updates across multiple documents
+
 v2.15.0 (2025-12-20)
   - Added AI-Powered Named Entity Extraction
   - 7 entity types: hardware, memory_address, instruction, person, company, product, concept

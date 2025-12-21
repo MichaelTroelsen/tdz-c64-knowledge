@@ -1,11 +1,11 @@
 # TDZ C64 Knowledge Base - Project Status
-## v2.15.0 Release - December 20, 2025
+## v2.16.0 Release - December 21, 2025
 
 ---
 
 ## 📊 Project Completion Status
 
-### ✅ PHASE 1: AI-POWERED INTELLIGENCE (Q1 2025) - 75% COMPLETE
+### ✅ PHASE 1: AI-POWERED INTELLIGENCE (Q1 2025) - 80% COMPLETE
 
 **1.1 Smart Auto-Tagging with LLM** ✅ COMPLETE (v2.12.0)
 - AI-powered tag generation with confidence scoring
@@ -25,7 +25,14 @@
 - 2,972 entities extracted from 135 documents
 - MCP tools, CLI commands, and GUI interface
 
-**1.4 RAG-Based Question Answering** ⏭️ NEXT PRIORITY
+**1.4 Entity Relationship Tracking** ✅ COMPLETE (v2.16.0)
+- Co-occurrence analysis of entities within documents
+- Relationship strength scoring (0.0-1.0)
+- 128 relationships extracted from sample document
+- Bidirectional queries and entity pair search
+- MCP tools, CLI commands, and GUI interface
+
+**1.5 RAG-Based Question Answering** ⏭️ NEXT PRIORITY
 - Natural language question answering
 - Multi-document synthesis with citations
 - Confidence scoring and source attribution
@@ -50,15 +57,18 @@
 
 ## 🎯 Version Information
 
-- **Current Version:** v2.15.0
-- **Build Date:** 2025-12-20
-- **Previous Version:** v2.14.0 (2025-12-18)
+- **Current Version:** v2.16.0
+- **Build Date:** 2025-12-21
+- **Previous Version:** v2.15.0 (2025-12-20)
 
-### Features in v2.15.0
+### Features in v2.16.0
 
-✅ **entity_extraction** (NEW) - AI-powered named entity recognition
-✅ **entity_search** (NEW) - Full-text search across all entities
-✅ **entity_relationships** (NEW) - Track co-occurrence and connections
+✅ **entity_relationships** (NEW) - Track entity co-occurrence patterns
+✅ **relationship_strength** (NEW) - Normalized scoring (0.0-1.0)
+✅ **entity_pair_search** (NEW) - Find documents with both entities
+✅ **relationship_gui** (NEW) - 4-tab interface for exploring relationships
+✅ **entity_extraction** (v2.15.0) - AI-powered named entity recognition
+✅ **entity_search** (v2.15.0) - Full-text search across all entities
 ✅ url_scraping (v2.14.0)
 ✅ web_content_ingestion (v2.14.0)
 ✅ mdscrape_integration (v2.14.0)
@@ -250,15 +260,7 @@ results = kb.generate_summary_all(
 
 ## 🎯 Next Steps - Priority Options
 
-### Option A: Entity Relationships 🔄 IN PROGRESS ⭐⭐⭐⭐⭐ (Impact)
-**Goal:** Track how entities connect and co-occur
-- Co-occurrence analysis (entities appearing together)
-- Relationship strength scoring
-- Entity-pair search ("VIC-II AND raster interrupt")
-- Network visualization
-- **Effort:** 10-12 hours | **Status:** Starting now
-
-### Option B: RAG Question Answering ⭐⭐⭐⭐⭐ (Impact)
+### Option A: RAG Question Answering ⭐⭐⭐⭐⭐ (Impact) - RECOMMENDED
 **Goal:** Enable natural language Q&A with synthesized answers
 - Build on existing summarization & entity extraction
 - Retrieval + augmentation + generation pipeline
@@ -284,14 +286,14 @@ results = kb.generate_summary_all(
 
 ## 📊 Roadmap Status
 
-### Phase 1: AI-Powered Intelligence (Q1 2025) - 75% Complete
+### Phase 1: AI-Powered Intelligence (Q1 2025) - 80% Complete
 
 | Phase | Feature | Status | Version | Date |
 |-------|---------|--------|---------|------|
 | 1.1 | Smart Auto-Tagging | ✅ Complete | v2.12.0 | 2025-12-13 |
 | 1.2 | Document Summarization | ✅ Complete | v2.13.0 | 2025-12-17 |
 | 1.3 | Named Entity Extraction | ✅ Complete | v2.15.0 | 2025-12-20 |
-| 1.4 | Entity Relationships | 🔄 In Progress | v2.16.0 | Q1 2025 |
+| 1.4 | Entity Relationships | ✅ Complete | v2.16.0 | 2025-12-21 |
 | 1.5 | RAG Question Answering | ⏭️ Next | v2.17.0 | Q1 2025 |
 | 1.6 | NL Query Translation | ⏳ Planned | TBD | Q1 2025 |
 
@@ -326,5 +328,5 @@ results = kb.generate_summary_all(
 ---
 
 **Project Status:** 🚀 Production Ready
-**Last Updated:** December 20, 2025
-**Version:** v2.15.0
+**Last Updated:** December 21, 2025
+**Version:** v2.16.0

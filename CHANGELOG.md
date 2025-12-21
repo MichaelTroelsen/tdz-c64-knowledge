@@ -2,6 +2,108 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+## [2.16.0] - 2025-12-21
+
+### Added - Entity Relationship Tracking
+
+#### 🔗 Relationship Discovery Engine
+- **New Feature:** Track co-occurrence patterns between entities within documents
+- **Relationship Type:** Co-occurrence-based (entities appearing together in chunks)
+- **Strength Scoring:** Normalized 0.0-1.0 scores based on frequency
+- **Context Preservation:** Sample text showing how entities relate
+- **Incremental Updates:** Relationships averaged across multiple documents
+
+#### 💾 Database Schema
+- **New Table:** `entity_relationships` - Stores entity co-occurrence data
+  - Fields: entity1_text, entity1_type, entity2_text, entity2_type, relationship_type, strength, doc_count, first_seen_doc, context_sample, last_updated
+  - Composite PRIMARY KEY on (entity1_text, entity2_text, relationship_type)
+  - Automatic deduplication (VIC-II + sprite == sprite + VIC-II)
+- **Indexes:** 4 indexes for fast queries
+  - idx_relationships_entity1 on entity1_text
+  - idx_relationships_entity2 on entity2_text
+  - idx_relationships_type on relationship_type
+  - idx_relationships_strength on strength
+
+#### 🔧 Core Methods (5 new methods)
+- **`extract_entity_relationships(doc_id, min_confidence, force_regenerate)`** - Extract relationships from document
+  - Analyzes entity co-occurrence within chunks
+  - Normalizes strength scores per document
+  - Updates existing relationships with weighted average
+- **`get_entity_relationships(entity_text, relationship_type, min_strength, max_results)`** - Query relationships for entity
+  - Find all entities related to a given entity
+  - Filter by relationship type and minimum strength
+  - Returns sorted by strength (strongest first)
+- **`find_related_entities(entity_text, max_results)`** - Simplified relationship discovery
+  - Convenience wrapper with min_strength=0.3
+  - Quick way to find strongly related entities
+- **`search_by_entity_pair(entity1, entity2, max_results)`** - Find documents with both entities
+  - Searches for documents containing entity pair
+  - Returns occurrence counts for each entity
+  - Sorted by total occurrences
+- **`extract_relationships_bulk(min_confidence, max_docs, skip_existing)`** - Bulk processing
+  - Extract relationships from multiple documents
+  - Comprehensive error handling and progress tracking
+  - Returns statistics on processed documents
+
+#### 🔌 MCP Tools (4 new tools)
+- **`extract_entity_relationships`** - Extract relationships from a document
+  - Inputs: doc_id (required), min_confidence, force_regenerate
+  - Returns: Top 10 relationships sorted by strength
+- **`get_entity_relationships`** - Get relationships for an entity
+  - Inputs: entity_text (required), relationship_type, min_strength, max_results
+  - Returns: Related entities with strength scores and contexts
+- **`find_related_entities`** - Quick relationship lookup
+  - Inputs: entity_text (required), max_results
+  - Returns: Strongly related entities (strength ≥ 0.3)
+- **`search_entity_pair`** - Find documents with entity pair
+  - Inputs: entity1 (required), entity2 (required), max_results
+  - Returns: Documents containing both entities with occurrence counts
+
+#### 💻 CLI Commands (4 new commands)
+- **`extract-relationships <doc_id>`** - Extract relationships from document
+  - Options: --confidence (entity threshold)
+  - Shows top 15 relationships with strength scores
+- **`extract-all-relationships`** - Bulk extract from all documents
+  - Options: --confidence, --max, --no-skip
+  - Shows processing statistics
+- **`show-relationships <entity>`** - Show related entities
+  - Options: --min-strength, --max
+  - Lists related entities sorted by strength
+- **`search-pair <entity1> <entity2>`** - Find docs with both entities
+  - Options: --max
+  - Shows documents with occurrence counts
+
+#### 🖥️ GUI Interface
+- **New Page:** "Entity Relationships" (4 tabs)
+  - Tab 1: Extract relationships from single document
+  - Tab 2: View relationships for specific entity
+  - Tab 3: Search documents by entity pair
+  - Tab 4: Bulk extraction across documents
+- **Statistics Dashboard:** Total relationships and unique entities
+- **Interactive Results:** Expandable displays with context snippets
+- **Progress Tracking:** Real-time progress bars for bulk operations
+
+#### ✅ Features
+- Bidirectional relationship queries (A→B or B→A)
+- Relationship strength normalization across documents
+- Context preservation for understanding relationships
+- Database migration for existing installations
+- Comprehensive error handling
+- Full integration with entity extraction system
+
+### Technical Details
+- **Lines Added:** ~750 lines in server.py, ~145 lines in cli.py, ~300 lines in admin_gui.py
+- **Database Tables:** 1 table + 4 indexes
+- **Backward Compatibility:** 100% compatible with existing code
+- **Performance:** Indexed queries for fast relationship lookups
+
+### Testing Results
+- ✅ Extracted 128 relationships from C64 Programmer's Reference Guide
+- ✅ VIC-II correctly linked to sprite, SID, CIA, IRQ concepts
+- ✅ Assembly instructions (LDA, STA, JMP) properly co-located
+- ✅ Entity pair search successfully found 5 documents with VIC-II + sprite
+- ✅ All MCP tools, CLI commands, and GUI tabs validated
+
 ## [2.15.0] - 2025-12-20
 
 ### Added - AI-Powered Named Entity Extraction

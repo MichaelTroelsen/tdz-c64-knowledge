@@ -1,10 +1,10 @@
 # Future Improvements 2025 - Next Generation Features
 
-**Status:** Phase 1.1-1.3 ✅ Complete | Phase 1.4 (Entity Relationships) 🔄 In Progress | Next: Phase 1.5 (RAG Q&A)
+**Status:** Phase 1.1-1.4 ✅ Complete (80%) | Next: Phase 1.5 (RAG Q&A) ⏭️
 
-**Last Updated:** December 20, 2025
+**Last Updated:** December 21, 2025
 
-**Current Version:** v2.15.0 - AI-Powered with Entity Extraction, Summarization & Auto-Tagging
+**Current Version:** v2.16.0 - AI-Powered with Entity Relationships, Entity Extraction, Summarization & Auto-Tagging
 
 ---
 

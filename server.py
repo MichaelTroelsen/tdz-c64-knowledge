@@ -3516,6 +3516,128 @@ class KnowledgeBase:
         self.remove_document(existing_doc.doc_id)
         return self.add_document(filepath, title, tags)
 
+    def update_document_title(self, doc_id: str, title: str) -> None:
+        """
+        Update the title of a document.
+
+        Args:
+            doc_id: Document ID
+            title: New title for the document
+
+        Raises:
+            ValueError: If document not found
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        # Update in-memory
+        self.documents[doc_id].title = title
+
+        # Update in database
+        cursor = self.db_conn.cursor()
+        cursor.execute(
+            "UPDATE documents SET title = ? WHERE doc_id = ?",
+            (title, doc_id)
+        )
+        self.db_conn.commit()
+
+        self.logger.info(f"Updated title for document {doc_id[:12]}: {title}")
+
+    def update_document_tags(self, doc_id: str, tags: list[str]) -> None:
+        """
+        Update the tags for a document.
+
+        Args:
+            doc_id: Document ID
+            tags: New list of tags (replaces existing tags)
+
+        Raises:
+            ValueError: If document not found
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        # Update in-memory
+        self.documents[doc_id].tags = tags
+
+        # Update in database
+        cursor = self.db_conn.cursor()
+        tags_str = ','.join(tags) if tags else ''
+        cursor.execute(
+            "UPDATE documents SET tags = ? WHERE doc_id = ?",
+            (tags_str, doc_id)
+        )
+        self.db_conn.commit()
+
+        self.logger.info(f"Updated tags for document {doc_id[:12]}: {tags}")
+
+    def summarize_document(self, doc_id: str,
+                          max_length: int = 500,
+                          style: str = "technical") -> str:
+        """
+        Generate an AI summary of a document.
+
+        Args:
+            doc_id: Document ID to summarize
+            max_length: Maximum summary length in words
+            style: Summary style (technical, simple, or detailed)
+
+        Returns:
+            Summary text
+
+        Raises:
+            ValueError: If document not found or LLM not available
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        # Check if LLM client is available
+        if not hasattr(self, 'llm_client') or self.llm_client is None:
+            # Try to initialize it
+            try:
+                from llm_integration import LLMClient
+                self.llm_client = LLMClient()
+            except Exception as e:
+                raise ValueError(f"LLM client not available: {e}")
+
+        doc = self.documents[doc_id]
+
+        # Get document content (first 10 chunks to keep context reasonable)
+        chunks = self._get_chunks_db(doc_id)
+        content_chunks = chunks[:10] if len(chunks) > 10 else chunks
+        content = '\n\n'.join([chunk.content for chunk in content_chunks])
+
+        # Truncate content if too long (max 20000 chars)
+        if len(content) > 20000:
+            content = content[:20000] + "..."
+
+        # Build prompt based on style
+        style_prompts = {
+            "technical": "Provide a concise technical summary focusing on key concepts, technologies, and implementation details.",
+            "simple": "Provide a simple, easy-to-understand summary suitable for beginners.",
+            "detailed": "Provide a comprehensive detailed summary covering all major topics and subtopics."
+        }
+
+        style_instruction = style_prompts.get(style, style_prompts["technical"])
+
+        prompt = f"""Summarize the following document in approximately {max_length} words.
+
+Document Title: {doc.title}
+
+{style_instruction}
+
+Document Content:
+{content}
+
+Summary:"""
+
+        try:
+            summary = self.llm_client.call(prompt, max_tokens=max_length * 2, temperature=0.3)
+            return summary.strip()
+        except Exception as e:
+            self.logger.error(f"Failed to generate summary: {e}")
+            raise ValueError(f"Failed to generate summary: {e}")
+
     def check_all_updates(self, auto_update: bool = False) -> dict:
         """
         Check all indexed documents for updates.

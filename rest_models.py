@@ -271,10 +271,282 @@ class DocumentListResponse(BaseModel):
     )
 
 
+# ========== Document CRUD Models (Sprint 7) ==========
+
+class DocumentUpdateRequest(BaseModel):
+    """Document update request model."""
+    title: Optional[str] = Field(None, description="New title")
+    tags: Optional[List[str]] = Field(None, description="New tags (replaces existing)")
+    add_tags: Optional[List[str]] = Field(None, description="Tags to add")
+    remove_tags: Optional[List[str]] = Field(None, description="Tags to remove")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "title": "Updated C64 Reference Guide",
+                "add_tags": ["updated", "v2"],
+                "remove_tags": ["draft"]
+            }
+        }
+    )
+
+
+class BulkDeleteRequest(BaseModel):
+    """Bulk delete request model."""
+    doc_ids: List[str] = Field(..., description="List of document IDs to delete", min_length=1)
+    confirm: bool = Field(False, description="Confirmation flag (must be true)")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "doc_ids": ["89d0943d6009", "a1b2c3d4e5f6"],
+                "confirm": True
+            }
+        }
+    )
+
+
+class BulkOperationResponse(BaseModel):
+    """Bulk operation response model."""
+    success: bool = True
+    data: Dict[str, Any] = Field(..., description="Operation results")
+    metadata: Dict[str, Any] = Field(..., description="Operation metadata")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "data": {
+                    "successful": ["89d0943d6009"],
+                    "failed": [],
+                    "errors": {}
+                },
+                "metadata": {
+                    "total_requested": 1,
+                    "successful_count": 1,
+                    "failed_count": 0
+                }
+            }
+        }
+    )
+
+
+# ========== URL Scraping Models (Sprint 7) ==========
+
+class ScrapeRequest(BaseModel):
+    """URL scraping request model."""
+    url: str = Field(..., description="URL to scrape", min_length=1)
+    max_depth: int = Field(1, description="Maximum crawl depth", ge=1, le=5)
+    max_pages: int = Field(10, description="Maximum pages to scrape", ge=1, le=100)
+    tags: Optional[List[str]] = Field(None, description="Tags to apply to scraped documents")
+    allowed_domains: Optional[List[str]] = Field(None, description="Restrict scraping to these domains")
+    max_workers: int = Field(3, description="Number of concurrent workers", ge=1, le=10)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "url": "https://www.c64-wiki.com/wiki/VIC",
+                "max_depth": 2,
+                "max_pages": 20,
+                "tags": ["c64-wiki", "reference"],
+                "allowed_domains": ["c64-wiki.com"],
+                "max_workers": 5
+            }
+        }
+    )
+
+
+class RescrapeRequest(BaseModel):
+    """Re-scrape request model."""
+    force: bool = Field(False, description="Force re-scrape even if no changes detected")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "force": False
+            }
+        }
+    )
+
+
+class ScrapeResponse(BaseModel):
+    """Scrape response model."""
+    success: bool = True
+    data: Dict[str, Any] = Field(..., description="Scrape results")
+    metadata: Dict[str, Any] = Field(..., description="Scrape metadata")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "data": {
+                    "documents_added": 5,
+                    "pages_scraped": 5,
+                    "doc_ids": ["abc123", "def456"]
+                },
+                "metadata": {
+                    "start_url": "https://example.com",
+                    "duration_seconds": 12.5,
+                    "errors": []
+                }
+            }
+        }
+    )
+
+
+class UpdateCheckResponse(BaseModel):
+    """URL update check response model."""
+    success: bool = True
+    data: Dict[str, Any] = Field(..., description="Update check results")
+    metadata: Dict[str, Any] = Field(..., description="Check metadata")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "data": {
+                    "total_checked": 10,
+                    "updates_available": 2,
+                    "updated_docs": ["abc123", "def456"]
+                },
+                "metadata": {
+                    "check_time": "2025-12-21T10:30:00Z"
+                }
+            }
+        }
+    )
+
+
+# ========== AI Feature Models (Sprint 7) ==========
+
+class SummarizeRequest(BaseModel):
+    """Document summarization request model."""
+    max_length: int = Field(500, description="Maximum summary length in words", ge=50, le=2000)
+    style: str = Field("technical", description="Summary style", pattern="^(technical|simple|detailed)$")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "max_length": 300,
+                "style": "technical"
+            }
+        }
+    )
+
+
+class SummarizeResponse(BaseModel):
+    """Summarization response model."""
+    success: bool = True
+    data: Dict[str, Any] = Field(..., description="Summarization results")
+    metadata: Dict[str, Any] = Field(..., description="Summarization metadata")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "data": {
+                    "summary": "This document covers VIC-II sprite graphics...",
+                    "doc_id": "89d0943d6009",
+                    "title": "C64 Programmer's Reference"
+                },
+                "metadata": {
+                    "word_count": 287,
+                    "generation_time_ms": 1250.5
+                }
+            }
+        }
+    )
+
+
+class EntityExtractionRequest(BaseModel):
+    """Entity extraction request model."""
+    confidence_threshold: float = Field(0.7, description="Minimum confidence for entities", ge=0.0, le=1.0)
+    entity_types: Optional[List[str]] = Field(None, description="Limit to specific entity types")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "confidence_threshold": 0.8,
+                "entity_types": ["hardware", "instruction"]
+            }
+        }
+    )
+
+
+class EntitySearchRequest(BaseModel):
+    """Entity search request model."""
+    entity_text: str = Field(..., description="Entity text to search for", min_length=1)
+    entity_type: Optional[str] = Field(None, description="Filter by entity type")
+    min_confidence: float = Field(0.0, description="Minimum confidence", ge=0.0, le=1.0)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "entity_text": "VIC-II",
+                "entity_type": "hardware",
+                "min_confidence": 0.7
+            }
+        }
+    )
+
+
+class EntityResponse(BaseModel):
+    """Entity response model."""
+    success: bool = True
+    data: List[Dict[str, Any]] = Field(..., description="Entity data")
+    metadata: Dict[str, Any] = Field(..., description="Entity metadata")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "data": [
+                    {
+                        "entity_text": "VIC-II",
+                        "entity_type": "hardware",
+                        "confidence": 0.95,
+                        "occurrences": 42
+                    }
+                ],
+                "metadata": {
+                    "total_entities": 1,
+                    "doc_id": "89d0943d6009"
+                }
+            }
+        }
+    )
+
+
+class RelationshipResponse(BaseModel):
+    """Relationship response model."""
+    success: bool = True
+    data: List[Dict[str, Any]] = Field(..., description="Relationship data")
+    metadata: Dict[str, Any] = Field(..., description="Relationship metadata")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "data": [
+                    {
+                        "entity1": "VIC-II",
+                        "entity1_type": "hardware",
+                        "entity2": "sprite",
+                        "entity2_type": "concept",
+                        "relationship_strength": 0.89,
+                        "co_occurrences": 15
+                    }
+                ],
+                "metadata": {
+                    "total_relationships": 1,
+                    "entity": "VIC-II"
+                }
+            }
+        }
+    )
+
+
 # ========== Placeholder Models for Future Sprints ==========
 
-# Sprint 7: Document CRUD models
-# Sprint 7: URL scraping models
-# Sprint 7: AI feature models
 # Sprint 8: Export models
 # Sprint 8: Analytics models

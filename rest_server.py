@@ -27,8 +27,9 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
+from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Request, Depends, status
+from fastapi import FastAPI, HTTPException, Request, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -42,7 +43,12 @@ from server import KnowledgeBase
 # Import Pydantic models
 from rest_models import (
     SearchRequest, SemanticSearchRequest, HybridSearchRequest, FacetedSearchRequest,
-    SearchResult, SearchResponse
+    SearchResult, SearchResponse,
+    DocumentMetadata, DocumentResponse, DocumentListResponse, DocumentUpdateRequest,
+    BulkDeleteRequest, BulkOperationResponse,
+    ScrapeRequest, RescrapeRequest, ScrapeResponse, UpdateCheckResponse,
+    SummarizeRequest, SummarizeResponse, EntityExtractionRequest, EntitySearchRequest,
+    EntityResponse, RelationshipResponse
 )
 
 # Configure logging
@@ -637,9 +643,982 @@ async def find_similar(
         )
 
 
+# ========== Document CRUD Endpoints ==========
+
+@app.get("/api/v1/documents", response_model=DocumentListResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
+async def list_documents(
+    tags: Optional[str] = None,
+    file_type: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: int = 0
+):
+    """
+    List all documents in the knowledge base.
+
+    **Parameters:**
+    - **tags**: Optional comma-separated tags filter
+    - **file_type**: Optional file type filter (pdf, txt, md, html, xlsx)
+    - **limit**: Maximum number of documents to return
+    - **offset**: Number of documents to skip (for pagination)
+
+    **Example:**
+    ```
+    GET /api/v1/documents?tags=reference,c64&file_type=pdf&limit=20&offset=0
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        # Parse tags from query string
+        tags_list = None
+        if tags:
+            tags_list = [tag.strip() for tag in tags.split(',')]
+
+        # Get all documents
+        all_docs = kb.list_documents()
+
+        # Apply filters
+        filtered_docs = []
+        for doc in all_docs:
+            # Filter by tags
+            if tags_list and not any(tag in doc.tags for tag in tags_list):
+                continue
+            # Filter by file type
+            if file_type and doc.file_type != file_type:
+                continue
+            filtered_docs.append(doc)
+
+        # Apply pagination
+        total_count = len(filtered_docs)
+        if offset:
+            filtered_docs = filtered_docs[offset:]
+        if limit:
+            filtered_docs = filtered_docs[:limit]
+
+        # Convert to response format
+        doc_metadata_list = []
+        for doc in filtered_docs:
+            doc_metadata_list.append(DocumentMetadata(
+                doc_id=doc.doc_id,
+                title=doc.title,
+                filename=doc.filename,
+                file_type=doc.file_type,
+                total_chunks=doc.total_chunks,
+                total_pages=doc.total_pages,
+                indexed_at=doc.indexed_at,
+                tags=doc.tags,
+                source_url=doc.source_url
+            ))
+
+        return DocumentListResponse(
+            success=True,
+            data=doc_metadata_list,
+            metadata={
+                "total_documents": total_count,
+                "returned_count": len(doc_metadata_list),
+                "offset": offset,
+                "filters": {
+                    "tags": tags_list,
+                    "file_type": file_type
+                }
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"List documents error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list documents: {str(e)}"
+        )
+
+
+@app.get("/api/v1/documents/{doc_id}", response_model=DocumentResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
+async def get_document(doc_id: str):
+    """
+    Get metadata for a specific document.
+
+    **Parameters:**
+    - **doc_id**: Document ID
+
+    **Example:**
+    ```
+    GET /api/v1/documents/89d0943d6009
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        doc = kb.get_document(doc_id)
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {doc_id}"
+            )
+
+        return DocumentResponse(
+            success=True,
+            data=DocumentMetadata(
+                doc_id=doc.doc_id,
+                title=doc.title,
+                filename=doc.filename,
+                file_type=doc.file_type,
+                total_chunks=doc.total_chunks,
+                total_pages=doc.total_pages,
+                indexed_at=doc.indexed_at,
+                tags=doc.tags,
+                source_url=doc.source_url
+            )
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get document error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get document: {str(e)}"
+        )
+
+
+@app.post("/api/v1/documents", response_model=DocumentResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
+async def upload_document(
+    file: UploadFile = File(...),
+    tags: Optional[str] = None,
+    title: Optional[str] = None
+):
+    """
+    Upload a new document to the knowledge base.
+
+    **Parameters:**
+    - **file**: File to upload (PDF, TXT, MD, HTML, XLSX)
+    - **tags**: Optional comma-separated tags
+    - **title**: Optional custom title (defaults to filename)
+
+    **Example:**
+    ```
+    POST /api/v1/documents
+    Content-Type: multipart/form-data
+
+    file: <binary data>
+    tags: "reference,c64"
+    title: "C64 Programmer's Reference Guide"
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        # Save uploaded file to temp location
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
+            content = await file.read()
+            tmp_file.write(content)
+            tmp_path = tmp_file.name
+
+        # Parse tags
+        tags_list = []
+        if tags:
+            tags_list = [tag.strip() for tag in tags.split(',')]
+
+        # Add document to knowledge base
+        doc_id = kb.add_document(
+            file_path=tmp_path,
+            tags=tags_list,
+            custom_title=title
+        )
+
+        # Clean up temp file
+        import os
+        os.unlink(tmp_path)
+
+        # Get the added document
+        doc = kb.get_document(doc_id)
+
+        return DocumentResponse(
+            success=True,
+            data=DocumentMetadata(
+                doc_id=doc.doc_id,
+                title=doc.title,
+                filename=doc.filename,
+                file_type=doc.file_type,
+                total_chunks=doc.total_chunks,
+                total_pages=doc.total_pages,
+                indexed_at=doc.indexed_at,
+                tags=doc.tags,
+                source_url=doc.source_url
+            )
+        )
+
+    except Exception as e:
+        logger.error(f"Upload document error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload document: {str(e)}"
+        )
+
+
+@app.put("/api/v1/documents/{doc_id}", response_model=DocumentResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
+async def update_document(doc_id: str, request: DocumentUpdateRequest):
+    """
+    Update document metadata (title, tags).
+
+    **Parameters:**
+    - **doc_id**: Document ID
+    - **request**: Update request with title and/or tag changes
+
+    **Example:**
+    ```json
+    {
+        "title": "Updated C64 Reference Guide",
+        "add_tags": ["updated", "v2"],
+        "remove_tags": ["draft"]
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        doc = kb.get_document(doc_id)
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {doc_id}"
+            )
+
+        # Update title if provided
+        if request.title:
+            kb.update_document_title(doc_id, request.title)
+
+        # Handle tag updates
+        if request.tags is not None:
+            # Replace all tags
+            kb.update_document_tags(doc_id, request.tags)
+        else:
+            # Add/remove specific tags
+            current_tags = set(doc.tags)
+            if request.add_tags:
+                current_tags.update(request.add_tags)
+            if request.remove_tags:
+                current_tags.difference_update(request.remove_tags)
+            kb.update_document_tags(doc_id, list(current_tags))
+
+        # Get updated document
+        updated_doc = kb.get_document(doc_id)
+
+        return DocumentResponse(
+            success=True,
+            data=DocumentMetadata(
+                doc_id=updated_doc.doc_id,
+                title=updated_doc.title,
+                filename=updated_doc.filename,
+                file_type=updated_doc.file_type,
+                total_chunks=updated_doc.total_chunks,
+                total_pages=updated_doc.total_pages,
+                indexed_at=updated_doc.indexed_at,
+                tags=updated_doc.tags,
+                source_url=updated_doc.source_url
+            )
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update document error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update document: {str(e)}"
+        )
+
+
+@app.delete("/api/v1/documents/{doc_id}", response_model=BulkOperationResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
+async def delete_document(doc_id: str):
+    """
+    Delete a document from the knowledge base.
+
+    **Parameters:**
+    - **doc_id**: Document ID to delete
+
+    **Example:**
+    ```
+    DELETE /api/v1/documents/89d0943d6009
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        # Check if document exists
+        doc = kb.get_document(doc_id)
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {doc_id}"
+            )
+
+        # Delete document
+        kb.remove_document(doc_id)
+
+        return BulkOperationResponse(
+            success=True,
+            data={
+                "successful": [doc_id],
+                "failed": [],
+                "errors": {}
+            },
+            metadata={
+                "total_requested": 1,
+                "successful_count": 1,
+                "failed_count": 0
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete document error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete document: {str(e)}"
+        )
+
+
+@app.post("/api/v1/documents/bulk", response_model=BulkOperationResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
+async def bulk_upload(files: List[UploadFile] = File(...), tags: Optional[str] = None):
+    """
+    Upload multiple documents at once.
+
+    **Parameters:**
+    - **files**: List of files to upload
+    - **tags**: Optional comma-separated tags to apply to all files
+
+    **Example:**
+    ```
+    POST /api/v1/documents/bulk
+    Content-Type: multipart/form-data
+
+    files: [<file1>, <file2>, ...]
+    tags: "reference,bulk-import"
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    successful = []
+    failed = []
+    errors = {}
+
+    # Parse tags
+    tags_list = []
+    if tags:
+        tags_list = [tag.strip() for tag in tags.split(',')]
+
+    for file in files:
+        try:
+            # Save to temp file
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
+                content = await file.read()
+                tmp_file.write(content)
+                tmp_path = tmp_file.name
+
+            # Add document
+            doc_id = kb.add_document(
+                file_path=tmp_path,
+                tags=tags_list
+            )
+
+            successful.append(doc_id)
+
+            # Clean up
+            import os
+            os.unlink(tmp_path)
+
+        except Exception as e:
+            failed.append(file.filename)
+            errors[file.filename] = str(e)
+            logger.error(f"Failed to upload {file.filename}: {e}")
+
+    return BulkOperationResponse(
+        success=len(failed) == 0,
+        data={
+            "successful": successful,
+            "failed": failed,
+            "errors": errors
+        },
+        metadata={
+            "total_requested": len(files),
+            "successful_count": len(successful),
+            "failed_count": len(failed)
+        }
+    )
+
+
+@app.delete("/api/v1/documents/bulk", response_model=BulkOperationResponse, tags=["Documents"], dependencies=[Depends(verify_api_key)])
+async def bulk_delete(request: BulkDeleteRequest):
+    """
+    Delete multiple documents at once.
+
+    **Parameters:**
+    - **request**: Bulk delete request with doc_ids and confirmation
+
+    **Example:**
+    ```json
+    {
+        "doc_ids": ["89d0943d6009", "a1b2c3d4e5f6"],
+        "confirm": true
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    if not request.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bulk delete requires confirmation (set confirm: true)"
+        )
+
+    successful = []
+    failed = []
+    errors = {}
+
+    for doc_id in request.doc_ids:
+        try:
+            # Check if exists
+            doc = kb.get_document(doc_id)
+            if not doc:
+                failed.append(doc_id)
+                errors[doc_id] = "Document not found"
+                continue
+
+            # Delete
+            kb.remove_document(doc_id)
+            successful.append(doc_id)
+
+        except Exception as e:
+            failed.append(doc_id)
+            errors[doc_id] = str(e)
+            logger.error(f"Failed to delete {doc_id}: {e}")
+
+    return BulkOperationResponse(
+        success=len(failed) == 0,
+        data={
+            "successful": successful,
+            "failed": failed,
+            "errors": errors
+        },
+        metadata={
+            "total_requested": len(request.doc_ids),
+            "successful_count": len(successful),
+            "failed_count": len(failed)
+        }
+    )
+
+
+# ========== URL Scraping Endpoints ==========
+
+@app.post("/api/v1/scrape", response_model=ScrapeResponse, tags=["URL Scraping"], dependencies=[Depends(verify_api_key)])
+async def scrape_url(request: ScrapeRequest):
+    """
+    Scrape a URL and add content to knowledge base.
+
+    **Parameters:**
+    - **request**: Scrape request with URL and options
+
+    **Example:**
+    ```json
+    {
+        "url": "https://www.c64-wiki.com/wiki/VIC",
+        "max_depth": 2,
+        "max_pages": 20,
+        "tags": ["c64-wiki", "reference"],
+        "allowed_domains": ["c64-wiki.com"],
+        "max_workers": 5
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        start_time = time.time()
+
+        # Scrape URL
+        result = kb.scrape_url(
+            url=request.url,
+            max_depth=request.max_depth,
+            max_pages=request.max_pages,
+            tags=request.tags or [],
+            allowed_domains=request.allowed_domains,
+            max_workers=request.max_workers
+        )
+
+        duration = time.time() - start_time
+
+        return ScrapeResponse(
+            success=True,
+            data={
+                "documents_added": result.get('documents_added', 0),
+                "pages_scraped": result.get('pages_scraped', 0),
+                "doc_ids": result.get('doc_ids', [])
+            },
+            metadata={
+                "start_url": request.url,
+                "duration_seconds": round(duration, 2),
+                "errors": result.get('errors', [])
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Scrape URL error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to scrape URL: {str(e)}"
+        )
+
+
+@app.post("/api/v1/scrape/rescrape/{doc_id}", response_model=ScrapeResponse, tags=["URL Scraping"], dependencies=[Depends(verify_api_key)])
+async def rescrape_document(doc_id: str, request: RescrapeRequest):
+    """
+    Re-scrape a URL-sourced document to check for updates.
+
+    **Parameters:**
+    - **doc_id**: Document ID to re-scrape
+    - **request**: Re-scrape options
+
+    **Example:**
+    ```json
+    {
+        "force": false
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        start_time = time.time()
+
+        # Re-scrape document
+        result = kb.rescrape_document(doc_id, force=request.force)
+
+        duration = time.time() - start_time
+
+        if result.get('status') == 'no_changes':
+            return ScrapeResponse(
+                success=True,
+                data={
+                    "documents_added": 0,
+                    "pages_scraped": 1,
+                    "doc_ids": [doc_id],
+                    "status": "no_changes"
+                },
+                metadata={
+                    "doc_id": doc_id,
+                    "duration_seconds": round(duration, 2),
+                    "message": "No changes detected"
+                }
+            )
+        else:
+            return ScrapeResponse(
+                success=True,
+                data={
+                    "documents_added": 1,
+                    "pages_scraped": 1,
+                    "doc_ids": [doc_id],
+                    "status": "updated"
+                },
+                metadata={
+                    "doc_id": doc_id,
+                    "duration_seconds": round(duration, 2),
+                    "message": "Document updated"
+                }
+            )
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Re-scrape error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to re-scrape document: {str(e)}"
+        )
+
+
+@app.post("/api/v1/scrape/check-updates", response_model=UpdateCheckResponse, tags=["URL Scraping"], dependencies=[Depends(verify_api_key)])
+async def check_url_updates():
+    """
+    Check all URL-sourced documents for updates.
+
+    **Example:**
+    ```
+    POST /api/v1/scrape/check-updates
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        result = kb.check_url_updates()
+
+        return UpdateCheckResponse(
+            success=True,
+            data={
+                "total_checked": result.get('total_checked', 0),
+                "updates_available": result.get('updates_available', 0),
+                "updated_docs": result.get('updated_docs', [])
+            },
+            metadata={
+                "check_time": datetime.now().isoformat() + "Z"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Check updates error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check for updates: {str(e)}"
+        )
+
+
+# ========== AI Feature Endpoints ==========
+
+@app.post("/api/v1/summarize/{doc_id}", response_model=SummarizeResponse, tags=["AI Features"], dependencies=[Depends(verify_api_key)])
+async def summarize_document(doc_id: str, request: SummarizeRequest):
+    """
+    Generate an AI summary of a document.
+
+    **Parameters:**
+    - **doc_id**: Document ID to summarize
+    - **request**: Summarization options
+
+    **Example:**
+    ```json
+    {
+        "max_length": 300,
+        "style": "technical"
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        start_time = time.time()
+
+        # Get document
+        doc = kb.get_document(doc_id)
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {doc_id}"
+            )
+
+        # Generate summary
+        summary = kb.summarize_document(
+            doc_id=doc_id,
+            max_length=request.max_length,
+            style=request.style
+        )
+
+        generation_time_ms = (time.time() - start_time) * 1000
+        word_count = len(summary.split())
+
+        return SummarizeResponse(
+            success=True,
+            data={
+                "summary": summary,
+                "doc_id": doc_id,
+                "title": doc.title
+            },
+            metadata={
+                "word_count": word_count,
+                "generation_time_ms": round(generation_time_ms, 2)
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Summarize error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to summarize document: {str(e)}"
+        )
+
+
+@app.post("/api/v1/entities/extract/{doc_id}", response_model=EntityResponse, tags=["AI Features"], dependencies=[Depends(verify_api_key)])
+async def extract_entities(doc_id: str, request: EntityExtractionRequest):
+    """
+    Extract entities from a document using AI.
+
+    **Parameters:**
+    - **doc_id**: Document ID
+    - **request**: Extraction options
+
+    **Example:**
+    ```json
+    {
+        "confidence_threshold": 0.8,
+        "entity_types": ["hardware", "instruction"]
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        # Check if document exists
+        doc = kb.get_document(doc_id)
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {doc_id}"
+            )
+
+        # Extract entities
+        kb.extract_entities(
+            doc_id=doc_id,
+            confidence_threshold=request.confidence_threshold,
+            entity_types=request.entity_types
+        )
+
+        # Get extracted entities
+        entities = kb.get_entities(
+            doc_id=doc_id,
+            min_confidence=request.confidence_threshold,
+            entity_types=request.entity_types
+        )
+
+        return EntityResponse(
+            success=True,
+            data=entities,
+            metadata={
+                "total_entities": len(entities),
+                "doc_id": doc_id
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Extract entities error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to extract entities: {str(e)}"
+        )
+
+
+@app.post("/api/v1/entities/search", response_model=EntityResponse, tags=["AI Features"], dependencies=[Depends(verify_api_key)])
+async def search_entities(request: EntitySearchRequest):
+    """
+    Search for entities across all documents.
+
+    **Parameters:**
+    - **request**: Entity search parameters
+
+    **Example:**
+    ```json
+    {
+        "entity_text": "VIC-II",
+        "entity_type": "hardware",
+        "min_confidence": 0.7
+    }
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        # Search for entities (using search_entities method)
+        result = kb.search_entities(
+            query=request.entity_text,
+            entity_types=[request.entity_type] if request.entity_type else None,
+            min_confidence=request.min_confidence,
+            max_results=50
+        )
+
+        # Flatten results from documents structure to simple list
+        entities = []
+        if 'documents' in result:
+            for doc in result['documents']:
+                for match in doc.get('matches', []):
+                    entities.append(match)
+
+        return EntityResponse(
+            success=True,
+            data=entities,
+            metadata={
+                "total_entities": len(entities),
+                "search_term": request.entity_text
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Search entities error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to search entities: {str(e)}"
+        )
+
+
+@app.get("/api/v1/entities/{doc_id}", response_model=EntityResponse, tags=["AI Features"], dependencies=[Depends(verify_api_key)])
+async def get_document_entities(
+    doc_id: str,
+    entity_type: Optional[str] = None,
+    min_confidence: float = 0.0
+):
+    """
+    Get all entities for a specific document.
+
+    **Parameters:**
+    - **doc_id**: Document ID
+    - **entity_type**: Optional entity type filter
+    - **min_confidence**: Minimum confidence threshold
+
+    **Example:**
+    ```
+    GET /api/v1/entities/89d0943d6009?entity_type=hardware&min_confidence=0.7
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        # Check if document exists
+        doc = kb.get_document(doc_id)
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {doc_id}"
+            )
+
+        # Get entities
+        entity_types = [entity_type] if entity_type else None
+        entities = kb.get_entities(
+            doc_id=doc_id,
+            min_confidence=min_confidence,
+            entity_types=entity_types
+        )
+
+        return EntityResponse(
+            success=True,
+            data=entities,
+            metadata={
+                "total_entities": len(entities),
+                "doc_id": doc_id
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get entities error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get entities: {str(e)}"
+        )
+
+
+@app.get("/api/v1/relationships/{entity_text}", response_model=RelationshipResponse, tags=["AI Features"], dependencies=[Depends(verify_api_key)])
+async def get_entity_relationships(
+    entity_text: str,
+    min_strength: float = 0.0,
+    max_results: int = 50
+):
+    """
+    Get relationships for a specific entity.
+
+    **Parameters:**
+    - **entity_text**: Entity text to find relationships for
+    - **min_strength**: Minimum relationship strength
+    - **max_results**: Maximum number of results
+
+    **Example:**
+    ```
+    GET /api/v1/relationships/VIC-II?min_strength=0.5&max_results=20
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        # Get relationships
+        relationships = kb.get_relationships(
+            entity_text=entity_text,
+            min_strength=min_strength,
+            max_results=max_results
+        )
+
+        return RelationshipResponse(
+            success=True,
+            data=relationships,
+            metadata={
+                "total_relationships": len(relationships),
+                "entity": entity_text
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Get relationships error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get relationships: {str(e)}"
+        )
+
+
 # ========== Placeholder for future endpoints ==========
-# Document CRUD endpoints will be added in Sprint 7
-# AI feature endpoints will be added in Sprint 7
 # Export endpoints will be added in Sprint 8
 
 

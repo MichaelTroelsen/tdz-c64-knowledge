@@ -1,6 +1,6 @@
 # TDZ C64 Knowledge
 
-[![Version](https://img.shields.io/badge/version-2.15.0-brightgreen.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge)
+[![Version](https://img.shields.io/badge/version-2.18.0-brightgreen.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge)
 [![CI/CD Pipeline](https://github.com/MichaelTroelsen/tdz-c64-knowledge/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -54,6 +54,13 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
 - **ACID transactions** - SQLite ensures data integrity
 
 ### AI-Powered Features
+- **Natural Language Query Translation** - Convert natural language queries to structured search parameters
+  - **AI-powered parsing** - Understands "find sprite info on VIC-II" and translates to structured query
+  - **Entity extraction** - Identifies hardware, concepts, and technical terms in user queries
+  - **Search mode recommendation** - Suggests keyword/semantic/hybrid based on query
+  - **Facet filter generation** - Automatically creates filters from detected entities
+  - **Confidence scoring** - 0.0-1.0 confidence in translation accuracy
+  - **Graceful fallback** - Works without LLM using regex patterns
 - **Named Entity Extraction** - Extract and catalog technical entities from documentation using LLM
   - **7 entity types**: hardware (SID, VIC-II), memory addresses ($D000), instructions (LDA, STA), people, companies, products, concepts
   - **Confidence scoring** - Each entity has 0.0-1.0 confidence score
@@ -62,8 +69,39 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
   - **Full-text search** - Search across all entities with FTS5
   - **Statistics dashboard** - View top entities and documents
   - **Bulk processing** - Extract entities from entire knowledge base
+- **Entity Relationship Tracking** - Discover connections between technical entities
+  - **Co-occurrence analysis** - Tracks which entities appear together in documents
+  - **Relationship strength** - 0.0-1.0 scoring based on frequency and context
+  - **Interactive network visualization** - Drag-and-drop graph with pyvis
+    - **Color-coded nodes** - 7 colors for entity types (hardware: red, memory_address: teal, instruction: blue, person: coral, company: mint, product: yellow, concept: purple)
+    - **Edge thickness** - Width scaled by relationship strength
+    - **Edge transparency** - Alpha scaled by strength (stronger = more opaque)
+    - **Physics simulation** - Barnes-Hut algorithm for natural node arrangement
+    - **Hover tooltips** - Entity type, relationship strength, shared document count
+    - **Adjustable controls** - Max nodes (10-100), min strength threshold (0.0-1.0)
+    - **Responsive design** - 600px height, dark theme optimized
+    - **Performance** - Handles 100+ nodes smoothly with drag interaction
+  - **Context extraction** - Shows example sentences where entities co-occur
+  - **Bulk extraction** - Process relationships across entire knowledge base
+  - **Search by entity pair** - Find documents discussing specific entity combinations
 - **Document Summarization** - Generate AI summaries (brief, detailed, bullet-point)
 - **Smart Auto-Tagging** - AI-powered tag suggestions with confidence scoring
+
+### REST API Server
+- **FastAPI-based REST interface** - HTTP/REST API with 27 endpoints
+- **OpenAPI/Swagger documentation** - Interactive API docs at `/api/docs`
+- **6 endpoint categories**:
+  - Health & Stats (2 endpoints) - System monitoring
+  - Search (5 endpoints) - All search modes (keyword, semantic, hybrid, faceted)
+  - Documents (7 endpoints) - Full CRUD operations with bulk support
+  - URL Scraping (3 endpoints) - Web content ingestion
+  - AI Features (5 endpoints) - Summarization, entity extraction, relationships
+  - Analytics & Export (5 endpoints) - CSV/JSON export capabilities
+- **API key authentication** - Secure access via X-API-Key header
+- **CORS support** - Cross-origin resource sharing configuration
+- **Pydantic v2 validation** - Request/response validation
+- **Production ready** - Can run alongside MCP server
+- See [README_REST_API.md](README_REST_API.md) for complete API documentation
 
 ## Installation (Windows)
 
@@ -766,6 +804,142 @@ Sample Results (first 10):
 ```
 
 **Note:** Entity extraction requires LLM configuration. Set `LLM_PROVIDER` and appropriate API key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`).
+
+#### translate_query
+Translate natural language queries to structured search parameters using AI.
+
+```
+translate_query(
+  query="find information about sprites on the VIC-II chip",
+  confidence_threshold=0.7  # Minimum confidence for entity extraction
+)
+```
+
+**Returns:** Structured search parameters including:
+- Extracted search terms
+- Detected entities by type
+- Recommended search mode (keyword/semantic/hybrid)
+- Auto-generated facet filters
+- Confidence score
+
+**Example output:**
+```
+Natural Language Query Translation
+
+Original Query: "find information about sprites on the VIC-II chip"
+
+Search Parameters:
+  Terms: sprite, information
+  Mode: hybrid (recommended)
+  Confidence: 0.85
+
+Detected Entities:
+  - VIC-II (hardware, conf: 0.95)
+  - sprite (concept, conf: 0.88)
+
+Suggested Facet Filters:
+  hardware: [VIC-II]
+  concept: [sprite]
+
+Ready to execute search with these parameters.
+```
+
+#### extract_entity_relationships
+Extract entity relationships (co-occurrences) from a document.
+
+```
+extract_entity_relationships(
+  doc_id="abc123",
+  min_strength=0.3  # Minimum relationship strength to include
+)
+```
+
+**Returns:** Entity pairs found in the document with strength scores and contexts.
+
+**Example output:**
+```
+✓ Relationship extraction complete!
+
+Document: C64 Programmer's Reference
+Relationships Found: 28
+
+Top 10 Relationships:
+1. VIC-II ↔ sprite (strength: 0.92, 8 co-occurrences)
+   *The VIC-II chip controls sprite graphics with hardware registers...*
+
+2. $D000 ↔ VIC-II (strength: 0.88, 6 co-occurrences)
+   *Register $D000 is the base address for VIC-II sprite control...*
+   ...
+```
+
+#### get_entity_relationships
+Get all relationships for a specific entity across all documents.
+
+```
+get_entity_relationships(
+  entity_text="VIC-II",
+  min_strength=0.5,
+  max_results=20
+)
+```
+
+**Returns:** All entities related to the specified entity with strength scores.
+
+#### find_related_entities
+Find entities most strongly related to a given entity.
+
+```
+find_related_entities(
+  entity_text="VIC-II",
+  entity_type="hardware",  # Optional filter
+  min_strength=0.5,
+  max_results=10
+)
+```
+
+**Returns:** Top related entities sorted by relationship strength.
+
+#### search_entity_pair
+Find documents where two specific entities co-occur.
+
+```
+search_entity_pair(
+  entity1="VIC-II",
+  entity2="sprite",
+  max_results=10
+)
+```
+
+**Returns:** Documents containing both entities with relationship contexts.
+
+**Example output:**
+```
+Entity Pair Search: VIC-II ↔ sprite
+Documents Found: 12
+
+1. C64 Programmer's Reference (programmers_ref)
+   Relationship Strength: 0.92
+   Co-occurrences: 8
+   Contexts:
+     *The VIC-II chip controls sprite graphics...*
+     *Eight hardware sprites are managed by VIC-II registers...*
+   ...
+```
+
+#### extract_relationships_bulk
+Bulk extract relationships from multiple documents.
+
+```
+extract_relationships_bulk(
+  min_strength=0.3,
+  max_docs=null,  # Process all documents
+  skip_existing=true
+)
+```
+
+**Returns:** Processing statistics and relationship breakdowns.
+
+**Note:** Relationship extraction requires prior entity extraction. Run `extract_entities` or `extract_entities_bulk` first.
 
 ## Duplicate Detection
 

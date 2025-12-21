@@ -2,6 +2,69 @@
 
 All notable changes to the TDZ C64 Knowledge Base project.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- **Interactive Network Graph** for entity relationships in Entity Analytics dashboard
+  - Drag-and-drop node exploration with pyvis
+  - Color-coded entity types with 7-color legend
+  - Adjustable controls (max nodes, min strength, show/hide)
+  - Edge thickness and transparency scaled by relationship strength
+  - Hover tooltips with entity details and relationship strength
+  - 600px responsive visualization with dark theme
+  - ~100 lines of code in admin_gui.py
+
+## [2.18.0] - 2025-12-21
+
+### Added
+- **REST API Server** - Complete FastAPI-based HTTP/REST interface
+  - 27 endpoints across 6 categories
+  - API key authentication via X-API-Key header
+  - CORS middleware for cross-origin requests
+  - OpenAPI/Swagger documentation at `/api/docs`
+  - ReDoc documentation at `/api/redoc`
+- **Endpoint Categories:**
+  - Health & Stats (2 endpoints): health check, KB statistics
+  - Search (5 endpoints): basic, semantic, hybrid, faceted, similar documents
+  - Documents (7 endpoints): CRUD operations, bulk upload/delete
+  - URL Scraping (3 endpoints): scrape URL, rescrape, check updates
+  - AI Features (5 endpoints): summarization, entity extraction/search, relationships
+  - Analytics & Export (5 endpoints): search analytics, CSV/JSON exports
+- Pydantic v2 request/response validation
+- Request logging and comprehensive error handling
+- Export functionality for search results, documents, entities, relationships
+- README_REST_API.md - 576 lines of complete API documentation
+- run_rest_api.bat - Windows startup script
+
+### Changed
+- Thread-safe KnowledgeBase sharing between MCP and REST servers
+
+### Fixed
+- 7 REST API bugs during comprehensive testing
+  - Stats endpoint: kb.use_fts5 attribute error
+  - Semantic search: top_k parameter not supported
+  - Get document: dict vs object return type mismatch
+  - Hybrid search: top_k parameter compatibility
+  - Get entities: list extraction from dict return
+  - Get relationships: method name correction (get_entity_relationships)
+  - Faceted search: validation requirement clarification
+
+## [2.17.0] - 2025-12-21
+
+### Added
+- **Natural Language Query Translation** - AI-powered query parsing
+  - Dual extraction: Regex patterns for C64-specific hardware + LLM for contextual entities
+  - `translate_nl_query()` method with confidence scoring
+  - MCP tool: `translate_query`
+  - CLI command: `translate-query` with formatted output
+  - GUI integration in Search page with NL translation toggle
+  - Automatic search mode recommendation (keyword/semantic/hybrid)
+  - Facet filter generation from detected entities
+  - Graceful fallback when LLM unavailable
+
 ## [2.16.0] - 2025-12-21
 
 ### Added - Entity Relationship Tracking

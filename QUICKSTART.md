@@ -100,6 +100,79 @@ For best performance, enable these features in your MCP config:
 - ~7-16ms search speed after embeddings are built
 - Particularly useful for natural language questions
 
+### Enable AI-Powered Features
+```cmd
+# Set up your LLM provider (choose one)
+# For Anthropic Claude:
+set ANTHROPIC_API_KEY=sk-ant-...
+set LLM_PROVIDER=anthropic
+
+# For OpenAI GPT:
+set OPENAI_API_KEY=sk-...
+set LLM_PROVIDER=openai
+```
+
+**Available AI Features:**
+- **Natural Language Query Translation** - "find sprite info on VIC-II" → structured search
+- **Entity Extraction** - Extract hardware, memory addresses, instructions, concepts
+- **Relationship Tracking** - Discover connections between entities
+- **Document Summarization** - Generate AI summaries (brief, detailed, bullet-point)
+- **Smart Auto-Tagging** - AI-powered tag suggestions
+
+**Quick Examples:**
+```cmd
+# Extract entities from a document
+.venv\Scripts\python.exe cli.py extract-entities <doc-id>
+
+# Search for entities
+.venv\Scripts\python.exe cli.py search-entity "VIC-II"
+
+# Show entity relationships
+.venv\Scripts\python.exe cli.py show-relationships "VIC-II" --max 10
+
+# Translate natural language query
+.venv\Scripts\python.exe cli.py translate-query "find sprite graphics info"
+```
+
+### Run the REST API Server
+```cmd
+# Install REST dependencies
+.venv\Scripts\pip.exe install -e ".[rest]"
+
+# Start the server
+.venv\Scripts\python.exe -m uvicorn rest_server:app --reload --port 8000
+
+# Or use the batch file (Windows)
+run_rest_api.bat
+
+# Access API documentation
+# http://localhost:8000/api/docs
+```
+
+**What you get:**
+- 27 HTTP endpoints for all knowledge base operations
+- API key authentication for secure access
+- OpenAPI/Swagger documentation
+- Can run alongside MCP server
+- See [README_REST_API.md](README_REST_API.md) for complete API docs
+
+### Run the Web GUI (Streamlit)
+```cmd
+# Start the Streamlit admin interface
+.venv\Scripts\python.exe -m streamlit run admin_gui.py
+
+# Opens browser at http://localhost:8501
+```
+
+**What you get:**
+- Document management (upload, delete, view)
+- Interactive search with all modes (keyword, semantic, hybrid, faceted)
+- Entity analytics dashboard with network graph visualization
+- Document comparison tool
+- Bulk operations and statistics
+- Natural language query translation interface
+- Entity relationship explorer
+
 ### Enable OCR for Scanned PDFs
 ```bash
 pip install pytesseract pdf2image Pillow
@@ -160,12 +233,36 @@ Ask Claude: "Check if any indexed documents have been updated"
 ## 🎉 You're Ready!
 
 Start asking Claude Code about your C64 documentation. The knowledge base will handle:
-- ✅ Full-text search with BM25 ranking
+
+**Core Search:**
+- ✅ SQLite FTS5 full-text search (480x faster than BM25)
+- ✅ Semantic search with embeddings
+- ✅ Hybrid search (combines keyword + semantic)
 - ✅ Fuzzy search for typo tolerance
 - ✅ Phrase search with quotes
 - ✅ Tag-based filtering
 - ✅ Search result caching
+
+**AI-Powered:**
+- ✅ Natural Language Query Translation
+- ✅ Entity Extraction (7 entity types)
+- ✅ Entity Relationship Tracking with network graphs
+- ✅ Document Summarization
+- ✅ Smart Auto-Tagging
+
+**Document Management:**
 - ✅ Automatic duplicate detection
+- ✅ Multiple file formats (PDF, TXT, MD, HTML, Excel)
 - ✅ OCR for scanned PDFs (if enabled)
+- ✅ Content-based update detection
+- ✅ Bulk operations
+
+**Access Methods:**
+- ✅ MCP Server for Claude Code/Desktop
+- ✅ REST API Server (27 HTTP endpoints)
+- ✅ Streamlit Web GUI
+- ✅ CLI for batch operations
 
 Happy retro computing! 🎮
+
+**Version:** 2.18.0 (2025-12-21)

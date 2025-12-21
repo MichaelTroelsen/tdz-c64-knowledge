@@ -13,6 +13,7 @@ import logging
 import time
 import sqlite3
 import threading
+import queue
 from pathlib import Path
 from typing import Optional, Callable
 from dataclasses import dataclass, asdict
@@ -361,6 +362,17 @@ class KnowledgeBase:
         # Load documents (with automatic migration if needed)
         self._load_documents()
         self.logger.info(f"Loaded {len(self.documents)} documents")
+
+        # Initialize background entity extraction queue
+        self._extraction_queue = queue.Queue()
+        self._extraction_shutdown = threading.Event()
+        self._extraction_worker = threading.Thread(
+            target=self._extraction_worker_loop,
+            daemon=True,
+            name="EntityExtractionWorker"
+        )
+        self._extraction_worker.start()
+        self.logger.info("Background entity extraction worker started")
 
     def _init_database(self):
         """Initialize SQLite database and create schema if needed."""
@@ -715,8 +727,29 @@ class KnowledgeBase:
             cursor.execute("CREATE INDEX idx_relationships_type ON entity_relationships(relationship_type)")
             cursor.execute("CREATE INDEX idx_relationships_strength ON entity_relationships(strength)")
 
+            # Create extraction_jobs table for background entity extraction
+            cursor.execute("""
+                CREATE TABLE extraction_jobs (
+                    job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    doc_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    confidence_threshold REAL NOT NULL,
+                    queued_at TEXT NOT NULL,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    error_message TEXT,
+                    entities_extracted INTEGER,
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create indexes for extraction jobs queries
+            cursor.execute("CREATE INDEX idx_extraction_jobs_doc_id ON extraction_jobs(doc_id)")
+            cursor.execute("CREATE INDEX idx_extraction_jobs_status ON extraction_jobs(status)")
+            cursor.execute("CREATE INDEX idx_extraction_jobs_queued_at ON extraction_jobs(queued_at)")
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, summaries, entities, and relationships)")
+            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, summaries, entities, relationships, and extraction jobs)")
         else:
             self.logger.info("Using existing database")
 
@@ -1147,6 +1180,36 @@ class KnowledgeBase:
 
                 self.db_conn.commit()
                 self.logger.info("entity_relationships table created")
+
+            # Migrate: Add extraction_jobs table if not exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='extraction_jobs'
+            """)
+            if not cursor.fetchone():
+                self.logger.info("Creating extraction_jobs table for background entity extraction")
+                cursor.execute("""
+                    CREATE TABLE extraction_jobs (
+                        job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        doc_id TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        confidence_threshold REAL NOT NULL,
+                        queued_at TEXT NOT NULL,
+                        started_at TEXT,
+                        completed_at TEXT,
+                        error_message TEXT,
+                        entities_extracted INTEGER,
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Create indexes for extraction jobs queries
+                cursor.execute("CREATE INDEX idx_extraction_jobs_doc_id ON extraction_jobs(doc_id)")
+                cursor.execute("CREATE INDEX idx_extraction_jobs_status ON extraction_jobs(status)")
+                cursor.execute("CREATE INDEX idx_extraction_jobs_queued_at ON extraction_jobs(queued_at)")
+
+                self.db_conn.commit()
+                self.logger.info("extraction_jobs table created")
 
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
@@ -3012,6 +3075,23 @@ class KnowledgeBase:
                 item=filename
             ))
 
+        # Auto-queue entity extraction (configurable via environment variable)
+        auto_extract = os.getenv('AUTO_EXTRACT_ENTITIES', '1') == '1'
+        if auto_extract:
+            try:
+                result = self.queue_entity_extraction(
+                    doc_id=doc_meta.doc_id,
+                    confidence_threshold=0.6,
+                    skip_if_exists=True
+                )
+                if result.get('queued'):
+                    self.logger.info(f"Auto-queued entity extraction job {result['job_id']} for document {doc_meta.doc_id}")
+                else:
+                    self.logger.debug(f"Entity extraction not queued: {result.get('reason', 'unknown')}")
+            except Exception as e:
+                # Don't fail document ingestion if extraction queueing fails
+                self.logger.warning(f"Failed to auto-queue entity extraction: {e}")
+
         return doc_meta
 
     def scrape_url(self, url: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
@@ -4769,6 +4849,255 @@ Important:
             self.logger.debug(f"Cached entity extraction result for document: {doc_id}")
 
         return result
+
+    def _extraction_worker_loop(self):
+        """Background worker that processes entity extraction jobs from the queue."""
+        self.logger.info("Entity extraction worker started")
+
+        while not self._extraction_shutdown.is_set():
+            try:
+                # Wait for a job with timeout to allow checking shutdown flag
+                try:
+                    job = self._extraction_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+
+                doc_id = job['doc_id']
+                job_id = job['job_id']
+                confidence_threshold = job['confidence_threshold']
+
+                self.logger.info(f"Processing extraction job {job_id} for document {doc_id}")
+
+                # Update job status to 'running'
+                cursor = self.db_conn.cursor()
+                cursor.execute("""
+                    UPDATE extraction_jobs
+                    SET status = 'running', started_at = ?
+                    WHERE job_id = ?
+                """, (datetime.utcnow().isoformat(), job_id))
+                self.db_conn.commit()
+
+                try:
+                    # Extract entities (this calls the existing method)
+                    result = self.extract_entities(
+                        doc_id=doc_id,
+                        confidence_threshold=confidence_threshold,
+                        force_regenerate=False
+                    )
+
+                    # Update job status to 'completed'
+                    cursor.execute("""
+                        UPDATE extraction_jobs
+                        SET status = 'completed',
+                            completed_at = ?,
+                            entities_extracted = ?
+                        WHERE job_id = ?
+                    """, (
+                        datetime.utcnow().isoformat(),
+                        result.get('entity_count', 0),
+                        job_id
+                    ))
+                    self.db_conn.commit()
+
+                    self.logger.info(f"Completed extraction job {job_id}: {result.get('entity_count', 0)} entities extracted")
+
+                except Exception as e:
+                    # Update job status to 'failed'
+                    error_msg = str(e)
+                    self.logger.error(f"Extraction job {job_id} failed: {error_msg}")
+
+                    cursor.execute("""
+                        UPDATE extraction_jobs
+                        SET status = 'failed',
+                            completed_at = ?,
+                            error_message = ?
+                        WHERE job_id = ?
+                    """, (datetime.utcnow().isoformat(), error_msg, job_id))
+                    self.db_conn.commit()
+
+                # Mark job as done in the queue
+                self._extraction_queue.task_done()
+
+            except Exception as e:
+                self.logger.error(f"Error in extraction worker loop: {e}")
+
+        self.logger.info("Entity extraction worker stopped")
+
+    def queue_entity_extraction(self, doc_id: str,
+                                confidence_threshold: float = 0.6,
+                                skip_if_exists: bool = True) -> dict:
+        """
+        Queue a document for background entity extraction.
+
+        Args:
+            doc_id: Document ID to extract entities from
+            confidence_threshold: Minimum confidence threshold (0.0-1.0, default: 0.6)
+            skip_if_exists: If True, skip if entities already exist or job is queued
+
+        Returns:
+            {
+                'queued': bool,          # True if job was queued
+                'job_id': int,           # Job ID if queued
+                'reason': str,           # Reason if not queued
+                'existing_job_id': int   # Existing job ID if already queued
+            }
+        """
+        # Validate document exists
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        # Check if entities already exist
+        if skip_if_exists:
+            cursor = self.db_conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM document_entities WHERE doc_id = ?", (doc_id,))
+            existing_count = cursor.fetchone()[0]
+            if existing_count > 0:
+                return {
+                    'queued': False,
+                    'reason': f"Document already has {existing_count} entities",
+                    'existing_entities': existing_count
+                }
+
+            # Check if job already queued or running
+            cursor.execute("""
+                SELECT job_id, status FROM extraction_jobs
+                WHERE doc_id = ? AND status IN ('queued', 'running')
+                ORDER BY queued_at DESC
+                LIMIT 1
+            """, (doc_id,))
+            existing_job = cursor.fetchone()
+            if existing_job:
+                return {
+                    'queued': False,
+                    'reason': f"Extraction already {existing_job[1]} for this document",
+                    'existing_job_id': existing_job[0]
+                }
+
+        # Create extraction job record
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            INSERT INTO extraction_jobs (doc_id, status, confidence_threshold, queued_at)
+            VALUES (?, 'queued', ?, ?)
+        """, (doc_id, confidence_threshold, datetime.utcnow().isoformat()))
+        self.db_conn.commit()
+
+        job_id = cursor.lastrowid
+
+        # Add job to queue
+        self._extraction_queue.put({
+            'job_id': job_id,
+            'doc_id': doc_id,
+            'confidence_threshold': confidence_threshold
+        })
+
+        self.logger.info(f"Queued entity extraction job {job_id} for document {doc_id}")
+
+        return {
+            'queued': True,
+            'job_id': job_id
+        }
+
+    def get_extraction_status(self, doc_id: str) -> dict:
+        """
+        Get the entity extraction status for a document.
+
+        Args:
+            doc_id: Document ID
+
+        Returns:
+            {
+                'doc_id': str,
+                'has_entities': bool,
+                'entity_count': int,
+                'jobs': [list of job dicts with status, queued_at, etc.]
+            }
+        """
+        # Check if entities exist
+        cursor = self.db_conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM document_entities WHERE doc_id = ?", (doc_id,))
+        entity_count = cursor.fetchone()[0]
+
+        # Get extraction jobs for this document
+        cursor.execute("""
+            SELECT job_id, status, confidence_threshold, queued_at,
+                   started_at, completed_at, error_message, entities_extracted
+            FROM extraction_jobs
+            WHERE doc_id = ?
+            ORDER BY queued_at DESC
+        """, (doc_id,))
+
+        jobs = []
+        for row in cursor.fetchall():
+            jobs.append({
+                'job_id': row[0],
+                'status': row[1],
+                'confidence_threshold': row[2],
+                'queued_at': row[3],
+                'started_at': row[4],
+                'completed_at': row[5],
+                'error_message': row[6],
+                'entities_extracted': row[7]
+            })
+
+        return {
+            'doc_id': doc_id,
+            'has_entities': entity_count > 0,
+            'entity_count': entity_count,
+            'jobs': jobs
+        }
+
+    def get_all_extraction_jobs(self, status_filter: Optional[str] = None,
+                                limit: int = 100) -> list[dict]:
+        """
+        Get all entity extraction jobs.
+
+        Args:
+            status_filter: Optional status filter ('queued', 'running', 'completed', 'failed')
+            limit: Maximum number of jobs to return (default: 100)
+
+        Returns:
+            List of job dicts with doc_id, status, timestamps, etc.
+        """
+        cursor = self.db_conn.cursor()
+
+        if status_filter:
+            cursor.execute("""
+                SELECT j.job_id, j.doc_id, d.title, j.status, j.confidence_threshold,
+                       j.queued_at, j.started_at, j.completed_at, j.error_message,
+                       j.entities_extracted
+                FROM extraction_jobs j
+                LEFT JOIN documents d ON j.doc_id = d.doc_id
+                WHERE j.status = ?
+                ORDER BY j.queued_at DESC
+                LIMIT ?
+            """, (status_filter, limit))
+        else:
+            cursor.execute("""
+                SELECT j.job_id, j.doc_id, d.title, j.status, j.confidence_threshold,
+                       j.queued_at, j.started_at, j.completed_at, j.error_message,
+                       j.entities_extracted
+                FROM extraction_jobs j
+                LEFT JOIN documents d ON j.doc_id = d.doc_id
+                ORDER BY j.queued_at DESC
+                LIMIT ?
+            """, (limit,))
+
+        jobs = []
+        for row in cursor.fetchall():
+            jobs.append({
+                'job_id': row[0],
+                'doc_id': row[1],
+                'doc_title': row[2],
+                'status': row[3],
+                'confidence_threshold': row[4],
+                'queued_at': row[5],
+                'started_at': row[6],
+                'completed_at': row[7],
+                'error_message': row[8],
+                'entities_extracted': row[9]
+            })
+
+        return jobs
 
     def get_entities(self, doc_id: str,
                     entity_types: Optional[list[str]] = None,

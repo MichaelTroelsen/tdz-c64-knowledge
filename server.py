@@ -7413,6 +7413,214 @@ Return ONLY the JSON object, no other text."""
         doc_similarities.sort(key=lambda x: x['similarity'], reverse=True)
         return doc_similarities[:max_results]
 
+    def compare_documents(self, doc_id_1: str, doc_id_2: str,
+                         comparison_type: str = 'full') -> dict:
+        """
+        Compare two documents side-by-side with similarity scoring and diff analysis.
+
+        Args:
+            doc_id_1: First document ID
+            doc_id_2: Second document ID
+            comparison_type: Type of comparison ('full', 'metadata', 'content')
+
+        Returns:
+            Dictionary with comparison results:
+            {
+                'similarity_score': float,         # Cosine similarity 0.0-1.0
+                'metadata_diff': {                 # Metadata differences
+                    'title': [title1, title2],
+                    'filename': [filename1, filename2],
+                    'tags': {
+                        'common': [...],
+                        'only_in_doc1': [...],
+                        'only_in_doc2': [...]
+                    },
+                    'file_type': [type1, type2],
+                    'total_pages': [pages1, pages2]
+                },
+                'chunk_count': [count1, count2],   # Number of chunks in each doc
+                'content_diff': [                  # Unified diff lines (limited)
+                    'diff line 1',
+                    'diff line 2',
+                    ...
+                ],
+                'entity_comparison': {             # Entity comparison
+                    'common_entities': [           # Entities in both docs
+                        {'text': str, 'type': str},
+                        ...
+                    ],
+                    'unique_to_doc1': [...],       # Entities only in doc1
+                    'unique_to_doc2': [...],       # Entities only in doc2
+                    'total_doc1': int,
+                    'total_doc2': int
+                },
+                'summary': str                     # Human-readable summary
+            }
+
+        Raises:
+            ValueError: If either document not found
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> result = kb.compare_documents('doc1', 'doc2')
+            >>> print(f"Similarity: {result['similarity_score']:.1%}")
+            >>> print(f"Common tags: {result['metadata_diff']['tags']['common']}")
+        """
+        from collections import Counter
+        import math
+        import difflib
+
+        # Validate both documents exist
+        if doc_id_1 not in self.documents:
+            raise ValueError(f"Document not found: {doc_id_1}")
+        if doc_id_2 not in self.documents:
+            raise ValueError(f"Document not found: {doc_id_2}")
+
+        doc1 = self.documents[doc_id_1]
+        doc2 = self.documents[doc_id_2]
+
+        # 1. Calculate Cosine Similarity using TF-IDF
+        similarity_score = 0.0
+        if comparison_type in ['full', 'content']:
+            # Get chunks for both documents
+            chunks1 = self._get_chunks_db(doc_id_1)
+            chunks2 = self._get_chunks_db(doc_id_2)
+
+            if chunks1 and chunks2:
+                # Build term vectors
+                terms1 = []
+                for chunk in chunks1:
+                    words = chunk.content.lower().split()
+                    terms1.extend(words)
+
+                terms2 = []
+                for chunk in chunks2:
+                    words = chunk.content.lower().split()
+                    terms2.extend(words)
+
+                tf1 = Counter(terms1)
+                tf2 = Counter(terms2)
+
+                length1 = math.sqrt(sum(count**2 for count in tf1.values()))
+                length2 = math.sqrt(sum(count**2 for count in tf2.values()))
+
+                # Calculate cosine similarity
+                dot_product = sum(tf1[term] * tf2[term] for term in tf1 if term in tf2)
+
+                if length1 > 0 and length2 > 0:
+                    similarity_score = dot_product / (length1 * length2)
+
+        # 2. Metadata Comparison
+        metadata_diff = {
+            'title': [doc1.title, doc2.title],
+            'filename': [doc1.filename, doc2.filename],
+            'file_type': [doc1.file_type, doc2.file_type],
+            'total_pages': [doc1.total_pages, doc2.total_pages],
+            'tags': {
+                'common': list(set(doc1.tags) & set(doc2.tags)),
+                'only_in_doc1': list(set(doc1.tags) - set(doc2.tags)),
+                'only_in_doc2': list(set(doc2.tags) - set(doc1.tags))
+            }
+        }
+
+        # 3. Chunk Count
+        chunk_count = [doc1.total_chunks, doc2.total_chunks]
+
+        # 4. Content Diff (limited to avoid huge output)
+        content_diff = []
+        if comparison_type in ['full', 'content']:
+            # Get first few chunks for comparison
+            chunks1 = self._get_chunks_db(doc_id_1)
+            chunks2 = self._get_chunks_db(doc_id_2)
+
+            if chunks1 and chunks2:
+                # Concatenate first 5 chunks from each doc
+                text1_sample = '\n\n'.join(c.content for c in chunks1[:5])
+                text2_sample = '\n\n'.join(c.content for c in chunks2[:5])
+
+                # Generate unified diff (limit to first 100 lines)
+                diff_lines = list(difflib.unified_diff(
+                    text1_sample.splitlines(keepends=True),
+                    text2_sample.splitlines(keepends=True),
+                    fromfile=doc1.filename,
+                    tofile=doc2.filename,
+                    lineterm=''
+                ))
+                content_diff = diff_lines[:100]  # Limit to 100 lines
+
+        # 5. Entity Comparison
+        entity_comparison = {
+            'common_entities': [],
+            'unique_to_doc1': [],
+            'unique_to_doc2': [],
+            'total_doc1': 0,
+            'total_doc2': 0
+        }
+
+        if comparison_type in ['full', 'metadata']:
+            cursor = self.db_conn.cursor()
+
+            # Get entities for doc1
+            cursor.execute("""
+                SELECT entity_text, entity_type
+                FROM document_entities
+                WHERE doc_id = ?
+            """, (doc_id_1,))
+            entities1 = {(row[0], row[1]) for row in cursor.fetchall()}
+            entity_comparison['total_doc1'] = len(entities1)
+
+            # Get entities for doc2
+            cursor.execute("""
+                SELECT entity_text, entity_type
+                FROM document_entities
+                WHERE doc_id = ?
+            """, (doc_id_2,))
+            entities2 = {(row[0], row[1]) for row in cursor.fetchall()}
+            entity_comparison['total_doc2'] = len(entities2)
+
+            # Find common and unique entities
+            common = entities1 & entities2
+            unique1 = entities1 - entities2
+            unique2 = entities2 - entities1
+
+            entity_comparison['common_entities'] = [
+                {'text': e[0], 'type': e[1]} for e in sorted(common)
+            ]
+            entity_comparison['unique_to_doc1'] = [
+                {'text': e[0], 'type': e[1]} for e in sorted(unique1)
+            ]
+            entity_comparison['unique_to_doc2'] = [
+                {'text': e[0], 'type': e[1]} for e in sorted(unique2)
+            ]
+
+        # 6. Generate Summary
+        summary_parts = []
+        summary_parts.append(f"Similarity: {similarity_score:.1%}")
+
+        if metadata_diff['title'][0] == metadata_diff['title'][1]:
+            summary_parts.append("Same title")
+        else:
+            summary_parts.append("Different titles")
+
+        common_tags = len(metadata_diff['tags']['common'])
+        if common_tags > 0:
+            summary_parts.append(f"{common_tags} common tag(s)")
+
+        if entity_comparison['total_doc1'] > 0 and entity_comparison['total_doc2'] > 0:
+            common_ent = len(entity_comparison['common_entities'])
+            summary_parts.append(f"{common_ent} common entit{'y' if common_ent == 1 else 'ies'}")
+
+        summary = " | ".join(summary_parts)
+
+        return {
+            'similarity_score': round(similarity_score, 4),
+            'metadata_diff': metadata_diff,
+            'chunk_count': chunk_count,
+            'content_diff': content_diff,
+            'entity_comparison': entity_comparison,
+            'summary': summary
+        }
+
     def get_chunk(self, doc_id: str, chunk_id: int) -> Optional[DocumentChunk]:
         """Get a specific chunk from database."""
         cursor = self.db_conn.cursor()
@@ -9152,6 +9360,30 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["query"]
             }
+        ),
+        Tool(
+            name="compare_documents",
+            description="Compare two documents side-by-side with similarity scoring, metadata diff, content diff, and entity comparison. Perfect for finding differences between document versions, comparing related documents, or analyzing document similarity. Returns comprehensive comparison with cosine similarity score (0.0-1.0).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id_1": {
+                        "type": "string",
+                        "description": "First document ID to compare"
+                    },
+                    "doc_id_2": {
+                        "type": "string",
+                        "description": "Second document ID to compare"
+                    },
+                    "comparison_type": {
+                        "type": "string",
+                        "description": "Type of comparison: 'full' (all), 'metadata' (metadata + entities), 'content' (metadata + similarity + diff)",
+                        "enum": ["full", "metadata", "content"],
+                        "default": "full"
+                    }
+                },
+                "required": ["doc_id_1", "doc_id_2"]
+            }
         )
     ]
 
@@ -10547,6 +10779,82 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Translation error: {str(e)}\n\nMake sure LLM_PROVIDER and API key are configured.")]
         except Exception as e:
             return [TextContent(type="text", text=f"Error translating query: {str(e)}")]
+
+    elif name == "compare_documents":
+        doc_id_1 = arguments.get("doc_id_1")
+        doc_id_2 = arguments.get("doc_id_2")
+        comparison_type = arguments.get("comparison_type", "full")
+
+        if not doc_id_1 or not doc_id_2:
+            return [TextContent(type="text", text="Error: Both doc_id_1 and doc_id_2 are required")]
+
+        try:
+            result = kb.compare_documents(doc_id_1, doc_id_2, comparison_type)
+
+            # Build formatted output
+            output = f"**Document Comparison**\n\n"
+            output += f"**Similarity Score:** {result['similarity_score']:.1%}\n"
+            output += f"**Summary:** {result['summary']}\n\n"
+
+            # Metadata differences
+            output += "**Metadata Comparison:**\n"
+            md = result['metadata_diff']
+            output += f"- **Titles:** \n"
+            output += f"  - Doc 1: {md['title'][0]}\n"
+            output += f"  - Doc 2: {md['title'][1]}\n"
+            output += f"- **Files:** {md['filename'][0]} vs {md['filename'][1]}\n"
+            output += f"- **Types:** {md['file_type'][0]} vs {md['file_type'][1]}\n"
+            output += f"- **Chunks:** {result['chunk_count'][0]} vs {result['chunk_count'][1]}\n\n"
+
+            # Tags comparison
+            tags = md['tags']
+            if tags['common']:
+                output += f"**Common Tags ({len(tags['common'])}):** {', '.join(tags['common'])}\n"
+            if tags['only_in_doc1']:
+                output += f"**Only in Doc 1 ({len(tags['only_in_doc1'])}):** {', '.join(tags['only_in_doc1'])}\n"
+            if tags['only_in_doc2']:
+                output += f"**Only in Doc 2 ({len(tags['only_in_doc2'])}):** {', '.join(tags['only_in_doc2'])}\n"
+            output += "\n"
+
+            # Entity comparison
+            ec = result['entity_comparison']
+            if ec['total_doc1'] > 0 or ec['total_doc2'] > 0:
+                output += "**Entity Comparison:**\n"
+                output += f"- Total in Doc 1: {ec['total_doc1']}\n"
+                output += f"- Total in Doc 2: {ec['total_doc2']}\n"
+                output += f"- Common Entities: {len(ec['common_entities'])}\n"
+
+                if ec['common_entities'][:5]:  # Show first 5
+                    output += f"\n**Top Common Entities:**\n"
+                    for ent in ec['common_entities'][:5]:
+                        output += f"  - **{ent['text']}** ({ent['type']})\n"
+
+                if ec['unique_to_doc1'][:3]:
+                    output += f"\n**Sample Unique to Doc 1:**\n"
+                    for ent in ec['unique_to_doc1'][:3]:
+                        output += f"  - **{ent['text']}** ({ent['type']})\n"
+
+                if ec['unique_to_doc2'][:3]:
+                    output += f"\n**Sample Unique to Doc 2:**\n"
+                    for ent in ec['unique_to_doc2'][:3]:
+                        output += f"  - **{ent['text']}** ({ent['type']})\n"
+
+            # Content diff preview
+            if result['content_diff']:
+                output += f"\n**Content Diff Preview:** (First {min(len(result['content_diff']), 20)} lines)\n"
+                output += "```diff\n"
+                for line in result['content_diff'][:20]:
+                    output += line + "\n"
+                output += "```\n"
+                if len(result['content_diff']) > 20:
+                    output += f"... {len(result['content_diff']) - 20} more lines\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except ValueError as e:
+            return [TextContent(type="text", text=f"Error: {str(e)}")]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error comparing documents: {str(e)}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

@@ -156,6 +156,12 @@ Examples:
     translate_parser.add_argument("query", help="Natural language query (e.g., 'find sprite info on VIC-II')")
     translate_parser.add_argument("--confidence", "-c", type=float, default=0.7, help="Minimum confidence for entities (0.0-1.0, default: 0.7)")
 
+    # Compare documents command
+    compare_parser = subparsers.add_parser("compare-docs", help="Compare two documents side-by-side with similarity scoring")
+    compare_parser.add_argument("doc_id_1", help="First document ID")
+    compare_parser.add_argument("doc_id_2", help="Second document ID")
+    compare_parser.add_argument("--type", "-t", choices=['full', 'metadata', 'content'], default='full', help="Comparison type (default: full)")
+
     args = parser.parse_args()
     
     if not args.command:
@@ -687,6 +693,90 @@ Examples:
             print(f"Error: {e}")
             print("\nMake sure LLM_PROVIDER and appropriate API key are configured.")
             sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "compare-docs":
+        try:
+            result = kb.compare_documents(
+                doc_id_1=args.doc_id_1,
+                doc_id_2=args.doc_id_2,
+                comparison_type=args.type
+            )
+
+            print("=" * 70)
+            print("DOCUMENT COMPARISON")
+            print("=" * 70)
+
+            # Similarity Score
+            print(f"\nSimilarity Score: {result['similarity_score']:.1%}")
+            print(f"Summary: {result['summary']}")
+
+            # Metadata Comparison
+            print("\n" + "-" * 70)
+            print("METADATA COMPARISON")
+            print("-" * 70)
+            meta = result['metadata_diff']
+            print(f"Title:       {meta['title'][0]}")
+            print(f"             {meta['title'][1]}")
+            print(f"Filename:    {meta['filename'][0]}")
+            print(f"             {meta['filename'][1]}")
+            print(f"File Type:   {meta['file_type'][0]} vs {meta['file_type'][1]}")
+            print(f"Pages:       {meta['total_pages'][0]} vs {meta['total_pages'][1]}")
+            print(f"Chunks:      {result['chunk_count'][0]} vs {result['chunk_count'][1]}")
+
+            # Tags Comparison
+            if meta['tags']:
+                print(f"\nTags:")
+                if meta['tags']['common']:
+                    print(f"  Common: {', '.join(meta['tags']['common'])}")
+                if meta['tags']['only_in_doc1']:
+                    print(f"  Only in Doc 1: {', '.join(meta['tags']['only_in_doc1'])}")
+                if meta['tags']['only_in_doc2']:
+                    print(f"  Only in Doc 2: {', '.join(meta['tags']['only_in_doc2'])}")
+            else:
+                print(f"\nTags: (none)")
+
+            # Entity Comparison
+            if result.get('entity_comparison'):
+                print("\n" + "-" * 70)
+                print("ENTITY COMPARISON")
+                print("-" * 70)
+                ent = result['entity_comparison']
+                print(f"Total Entities: {ent['total_doc1']} vs {ent['total_doc2']}")
+                print(f"Common Entities: {len(ent['common_entities'])}")
+                print(f"Unique to Doc 1: {len(ent['unique_to_doc1'])}")
+                print(f"Unique to Doc 2: {len(ent['unique_to_doc2'])}")
+
+                if ent['common_entities']:
+                    print(f"\nCommon Entities (showing first 10):")
+                    for entity_text, entity_type in ent['common_entities'][:10]:
+                        print(f"  - {entity_text} ({entity_type})")
+                    if len(ent['common_entities']) > 10:
+                        print(f"  ... and {len(ent['common_entities']) - 10} more")
+
+            # Content Diff Preview
+            if result.get('content_diff') and len(result['content_diff']) > 0:
+                print("\n" + "-" * 70)
+                print("CONTENT DIFF (first 20 lines)")
+                print("-" * 70)
+                for line in result['content_diff'][:20]:
+                    # Color code diff lines
+                    if line.startswith('+'):
+                        print(f"\033[92m{line}\033[0m")  # Green for additions
+                    elif line.startswith('-'):
+                        print(f"\033[91m{line}\033[0m")  # Red for deletions
+                    elif line.startswith('@'):
+                        print(f"\033[94m{line}\033[0m")  # Blue for context
+                    else:
+                        print(line)
+
+                if len(result['content_diff']) > 20:
+                    print(f"\n... {len(result['content_diff']) - 20} more diff lines")
+
+            print("\n" + "=" * 70)
+
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)

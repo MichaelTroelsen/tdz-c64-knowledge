@@ -2019,208 +2019,326 @@ elif page == "🧠 Entity Extraction":
                         st.error(f"Error during bulk extraction: {str(e)}")
                         st.exception(e)
 
-# ========== RELATIONSHIP GRAPH PAGE ==========
+# ========== ENTITY RELATIONSHIPS PAGE ==========
 elif page == "🔗 Relationship Graph":
-    st.title("🔗 Document Relationship Graph")
+    st.title("🔗 Entity Relationships")
+    st.write("Explore how entities (hardware, instructions, concepts) co-occur and relate to each other in documents")
 
-    st.write("**Visualize connections between documents**")
-    st.write("Explore how documents relate to each other through references, prerequisites, and related content.")
+    # Show database statistics
+    cursor = kb.db_conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM entity_relationships")
+    total_relationships = cursor.fetchone()[0]
 
-    # Import visualization libraries
-    try:
-        from pyvis.network import Network
-        import streamlit.components.v1 as components
-        import tempfile
-        import os
-    except ImportError:
-        st.error("📦 Visualization libraries not installed. Run: `pip install pyvis networkx`")
-        st.stop()
+    cursor.execute("SELECT COUNT(DISTINCT entity1_text) + COUNT(DISTINCT entity2_text) FROM entity_relationships")
+    unique_entities = cursor.fetchone()[0]
 
-    # Filters
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("🔗 Total Relationships", f"{total_relationships:,}")
+    with col2:
+        st.metric("🏷️ Unique Entities", f"{unique_entities:,}")
+
     st.markdown("---")
-    st.subheader("🎛️ Filters")
 
-    filter_col1, filter_col2 = st.columns(2)
+    # Operation tabs
+    tabs = st.tabs([
+        "🔍 Extract Relationships",
+        "📊 View Relationships",
+        "🔎 Search Entity Pair",
+        "⚡ Bulk Extraction"
+    ])
 
-    with filter_col1:
-        # Get all tags
-        all_tags = set()
-        for doc in kb.documents.values():
-            all_tags.update(doc.tags)
+    # Tab 1: Extract relationships from single document
+    with tabs[0]:
+        st.subheader("🔍 Extract Entity Relationships from Document")
+        st.write("Analyze entity co-occurrence patterns in a document")
 
-        if all_tags:
-            selected_tags = st.multiselect(
-                "Filter by tags:",
-                options=sorted(list(all_tags)),
-                default=None
+        # Document selection
+        doc_options = {f"{doc.title} ({doc_id[:12]}...)": doc_id
+                      for doc_id, doc in kb.documents.items()}
+
+        if doc_options:
+            selected_doc = st.selectbox(
+                "Select document:",
+                options=list(doc_options.keys()),
+                key="extract_rel_doc_select"
             )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                confidence = st.slider(
+                    "Entity confidence threshold:",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.6,
+                    step=0.05,
+                    key="rel_confidence",
+                    help="Only use entities with confidence above this threshold"
+                )
+            with col2:
+                force_regen = st.checkbox(
+                    "Force regenerate",
+                    value=False,
+                    key="rel_force_regen",
+                    help="Re-extract even if relationships already exist"
+                )
+
+            if st.button("🚀 Extract Relationships", type="primary"):
+                doc_id = doc_options[selected_doc]
+
+                with st.spinner(f"Extracting relationships from {selected_doc}..."):
+                    try:
+                        result = kb.extract_entity_relationships(
+                            doc_id=doc_id,
+                            min_confidence=confidence,
+                            force_regenerate=force_regen
+                        )
+
+                        st.success(f"✅ Extracted {result['relationship_count']} relationships!")
+
+                        # Display top relationships
+                        if result['relationships']:
+                            st.markdown("### Top Relationships by Strength")
+
+                            for i, rel in enumerate(result['relationships'][:20], 1):
+                                col1, col2 = st.columns([3, 1])
+
+                                with col1:
+                                    st.markdown(
+                                        f"{i}. **{rel['entity1']}** ({rel['entity1_type']}) ↔ "
+                                        f"**{rel['entity2']}** ({rel['entity2_type']})"
+                                    )
+                                    if rel.get('context'):
+                                        st.caption(f"Context: {rel['context'][:150]}...")
+
+                                with col2:
+                                    st.metric("Strength", f"{rel['strength']:.2f}")
+
+                            if len(result['relationships']) > 20:
+                                st.caption(f"... and {len(result['relationships']) - 20} more")
+
+                    except Exception as e:
+                        st.error(f"Error extracting relationships: {str(e)}")
         else:
-            selected_tags = None
-            st.info("No tags found")
+            st.info("No documents available. Add documents first.")
 
-    with filter_col2:
-        selected_rel_types = st.multiselect(
-            "Relationship types:",
-            options=["related", "references", "prerequisite", "sequel"],
-            default=["related", "references", "prerequisite", "sequel"]
+    # Tab 2: View relationships for an entity
+    with tabs[1]:
+        st.subheader("📊 View Entity Relationships")
+        st.write("Show all entities related to a specific entity")
+
+        entity_search = st.text_input(
+            "Entity name:",
+            placeholder="e.g., VIC-II, SID, sprite, LDA",
+            key="entity_rel_search"
         )
 
-    # Get graph data
-    try:
-        graph_data = kb.get_relationship_graph(
-            tags=selected_tags if selected_tags else None,
-            relationship_types=selected_rel_types if selected_rel_types else None
-        )
-
-        # Display stats
-        st.markdown("---")
-        col1, col2, col3 = st.columns(3)
-
+        col1, col2 = st.columns(2)
         with col1:
-            st.metric("📄 Documents", graph_data['stats']['total_nodes'])
+            min_strength = st.slider(
+                "Minimum relationship strength:",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.0,
+                step=0.05,
+                key="min_strength"
+            )
         with col2:
-            st.metric("🔗 Relationships", graph_data['stats']['total_edges'])
-        with col3:
-            if graph_data['stats']['relationship_types']:
-                st.metric("🏷️ Types", len(graph_data['stats']['relationship_types']))
-            else:
-                st.metric("🏷️ Types", 0)
+            max_results = st.number_input(
+                "Max results:",
+                min_value=5,
+                max_value=100,
+                value=20,
+                step=5,
+                key="max_rel_results"
+            )
 
-        if graph_data['stats']['total_nodes'] == 0:
-            st.warning("⚠️ No documents with relationships found. Create relationships in the Documents page.")
-        elif graph_data['stats']['total_edges'] == 0:
-            st.warning("⚠️ No relationships match the selected filters.")
-        else:
-            st.markdown("---")
-
-            # Visualization options
-            with st.expander("⚙️ Visualization Options", expanded=False):
-                viz_col1, viz_col2 = st.columns(2)
-
-                with viz_col1:
-                    physics_enabled = st.checkbox("Enable physics simulation", value=True)
-                    show_arrows = st.checkbox("Show relationship direction", value=True)
-                    node_size = st.slider("Node size", 10, 50, 25)
-
-                with viz_col2:
-                    layout = st.selectbox(
-                        "Layout algorithm:",
-                        ["hierarchical", "force_atlas", "barnes_hut", "repulsion"]
+        if st.button("🔍 Find Relationships", key="find_rel_btn") and entity_search:
+            with st.spinner(f"Searching for entities related to '{entity_search}'..."):
+                try:
+                    relationships = kb.get_entity_relationships(
+                        entity_text=entity_search,
+                        min_strength=min_strength,
+                        max_results=max_results
                     )
-                    edge_color = st.color_picker("Edge color", "#808080")
 
-            # Create network graph
-            net = Network(height="600px", width="100%", bgcolor="#ffffff", font_color="black")
+                    if relationships:
+                        st.success(f"Found {len(relationships)} related entities")
 
-            # Set physics
-            if physics_enabled:
-                if layout == "hierarchical":
-                    net.set_options("""
-                    {
-                        "physics": {
-                            "enabled": true,
-                            "hierarchicalRepulsion": {
-                                "centralGravity": 0.0,
-                                "springLength": 100,
-                                "springConstant": 0.01,
-                                "nodeDistance": 120,
-                                "damping": 0.09
-                            },
-                            "solver": "hierarchicalRepulsion"
-                        },
-                        "layout": {
-                            "hierarchical": {
-                                "enabled": true,
-                                "direction": "UD",
-                                "sortMethod": "directed"
-                            }
-                        }
-                    }
-                    """)
-                else:
-                    net.toggle_physics(True)
-            else:
-                net.toggle_physics(False)
+                        # Display results
+                        for i, rel in enumerate(relationships, 1):
+                            with st.expander(
+                                f"{i}. **{rel['related_entity']}** ({rel['related_type']}) - "
+                                f"Strength: {rel['strength']:.2f}"
+                            ):
+                                col1, col2 = st.columns(2)
 
-            # Add nodes
-            node_colors = {
-                'related': '#4CAF50',
-                'references': '#2196F3',
-                'prerequisite': '#FF9800',
-                'sequel': '#9C27B0'
-            }
+                                with col1:
+                                    st.metric("Relationship Strength", f"{rel['strength']:.2f}")
+                                with col2:
+                                    st.metric("Documents", rel['doc_count'])
 
-            for node in graph_data['nodes']:
-                # Color nodes based on their outgoing relationship types
-                color = "#808080"  # Default gray
-                net.add_node(
-                    node['id'],
-                    label=node['label'][:50],  # Truncate long titles
-                    title=node['title'],
-                    size=node_size,
-                    color=color
-                )
+                                if rel.get('context'):
+                                    st.markdown("**Context:**")
+                                    st.caption(rel['context'])
+                    else:
+                        st.info(f"No relationships found for '{entity_search}'")
 
-            # Add edges
-            for edge in graph_data['edges']:
-                color = node_colors.get(edge['type'], edge_color)
-                net.add_edge(
-                    edge['from'],
-                    edge['to'],
-                    title=edge['title'],
-                    label=edge['label'],
-                    color=color,
-                    arrows='to' if show_arrows else ''
-                )
+                except Exception as e:
+                    st.error(f"Error finding relationships: {str(e)}")
 
-            # Generate and display graph
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.html', mode='w', encoding='utf-8') as f:
-                html_path = f.name
-                net.save_graph(html_path)
+    # Tab 3: Search by entity pair
+    with tabs[2]:
+        st.subheader("🔎 Search by Entity Pair")
+        st.write("Find documents that contain both entities")
 
-            # Read and display
-            with open(html_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
+        col1, col2 = st.columns(2)
+        with col1:
+            entity1 = st.text_input(
+                "First entity:",
+                placeholder="e.g., VIC-II",
+                key="entity1_search"
+            )
+        with col2:
+            entity2 = st.text_input(
+                "Second entity:",
+                placeholder="e.g., sprite",
+                key="entity2_search"
+            )
 
-            # Clean up
-            os.unlink(html_path)
+        max_docs = st.number_input(
+            "Max documents:",
+            min_value=5,
+            max_value=50,
+            value=10,
+            step=5,
+            key="max_pair_docs"
+        )
 
-            # Display in streamlit
-            st.markdown("### 📊 Interactive Graph")
-            st.write("💡 **Tip:** Click and drag nodes to explore. Hover for details. Scroll to zoom.")
-            components.html(html_content, height=620, scrolling=False)
+        if st.button("🔍 Search Pair", key="search_pair_btn") and entity1 and entity2:
+            with st.spinner(f"Searching for documents with '{entity1}' AND '{entity2}'..."):
+                try:
+                    results = kb.search_by_entity_pair(
+                        entity1=entity1,
+                        entity2=entity2,
+                        max_results=max_docs
+                    )
 
-            # Legend
-            st.markdown("---")
-            st.markdown("### 🎨 Legend")
-            legend_cols = st.columns(4)
+                    if results:
+                        st.success(f"Found {len(results)} documents containing both entities")
 
-            with legend_cols[0]:
-                st.markdown(f"🟢 **related** - General relationship")
-            with legend_cols[1]:
-                st.markdown(f"🔵 **references** - Cites/references")
-            with legend_cols[2]:
-                st.markdown(f"🟠 **prerequisite** - Must read first")
-            with legend_cols[3]:
-                st.markdown(f"🟣 **sequel** - Continuation")
+                        for i, doc_result in enumerate(results, 1):
+                            doc = kb.documents.get(doc_result['doc_id'])
+                            if doc:
+                                with st.expander(
+                                    f"{i}. {doc.title} - "
+                                    f"'{entity1}': {doc_result['entity1_count']}, "
+                                    f"'{entity2}': {doc_result['entity2_count']}"
+                                ):
+                                    st.markdown(f"**Document ID:** `{doc_result['doc_id']}`")
+                                    st.markdown(f"**File:** {doc.file_path}")
 
-            # Export option
-            st.markdown("---")
-            if st.button("📥 Export Graph Data as JSON"):
-                import json
-                graph_json = json.dumps(graph_data, indent=2)
-                st.download_button(
-                    label="Download JSON",
-                    data=graph_json,
-                    file_name=f"relationship_graph_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json"
-                )
+                                    col1, col2 = st.columns(2)
+                                    with col1:
+                                        st.metric(f"'{entity1}' occurrences", doc_result['entity1_count'])
+                                    with col2:
+                                        st.metric(f"'{entity2}' occurrences", doc_result['entity2_count'])
 
-    except Exception as e:
-        st.error(f"Error generating graph: {str(e)}")
-        import traceback
-        with st.expander("Error details"):
-            st.code(traceback.format_exc())
+                                    # Show context samples
+                                    if doc_result.get('contexts'):
+                                        st.markdown("**Context Samples:**")
+                                        for ctx in doc_result['contexts'][:3]:
+                                            st.caption(f"• {ctx}")
+                    else:
+                        st.info(f"No documents found containing both '{entity1}' and '{entity2}'")
+
+                except Exception as e:
+                    st.error(f"Error searching entity pair: {str(e)}")
+
+    # Tab 4: Bulk extraction
+    with tabs[3]:
+        st.subheader("⚡ Bulk Relationship Extraction")
+        st.write("Extract entity relationships from multiple documents at once")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            bulk_confidence = st.slider(
+                "Entity confidence threshold:",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.6,
+                step=0.05,
+                key="bulk_rel_confidence"
+            )
+        with col2:
+            max_docs_bulk = st.number_input(
+                "Max documents to process:",
+                min_value=1,
+                max_value=500,
+                value=50,
+                step=10,
+                key="max_bulk_docs",
+                help="Process this many documents"
+            )
+
+        skip_existing = st.checkbox(
+            "Skip documents with existing relationships",
+            value=True,
+            key="skip_existing_rels",
+            help="Don't re-extract from documents that already have relationships"
+        )
+
+        # Count documents that would be processed
+        cursor.execute("""
+            SELECT COUNT(DISTINCT doc_id)
+            FROM document_entities
+            WHERE doc_id NOT IN (SELECT DISTINCT first_seen_doc FROM entity_relationships)
+        """)
+        docs_to_process = cursor.fetchone()[0]
+
+        st.info(f"📊 {docs_to_process} documents with entities have no relationships yet")
+
+        if st.button("🚀 Start Bulk Extraction", type="primary", key="bulk_extract_btn"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            with st.spinner("Extracting relationships from documents..."):
+                try:
+                    result = kb.extract_relationships_bulk(
+                        min_confidence=bulk_confidence,
+                        max_docs=max_docs_bulk if max_docs_bulk else None,
+                        skip_existing=skip_existing
+                    )
+
+                    progress_bar.progress(1.0)
+                    status_text.empty()
+
+                    st.success(f"✅ Bulk extraction complete!")
+
+                    # Display summary
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Documents Processed", result['processed'])
+                    with col2:
+                        st.metric("Total Relationships", result['total_relationships'])
+                    with col3:
+                        if result['processed'] > 0:
+                            avg = result['total_relationships'] / result['processed']
+                            st.metric("Avg per Document", f"{avg:.1f}")
+
+                    if result.get('failed'):
+                        st.warning(f"⚠️ {len(result['failed'])} documents failed")
+                        with st.expander("Show failed documents"):
+                            for doc_id in result['failed']:
+                                doc = kb.documents.get(doc_id)
+                                if doc:
+                                    st.write(f"- {doc.title} (`{doc_id}`)")
+
+                except Exception as e:
+                    st.error(f"Error during bulk extraction: {str(e)}")
+                    import traceback
+                    with st.expander("Error details"):
+                        st.code(traceback.format_exc())
 
 # ========== SEARCH PAGE ==========
 elif page == "🔍 Search":

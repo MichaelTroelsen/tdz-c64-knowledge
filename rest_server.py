@@ -48,7 +48,8 @@ from rest_models import (
     BulkDeleteRequest, BulkOperationResponse,
     ScrapeRequest, RescrapeRequest, ScrapeResponse, UpdateCheckResponse,
     SummarizeRequest, SummarizeResponse, EntityExtractionRequest, EntitySearchRequest,
-    EntityResponse, RelationshipResponse
+    EntityResponse, RelationshipResponse,
+    SearchAnalyticsResponse, ExportFormat
 )
 
 # Configure logging
@@ -1618,8 +1619,409 @@ async def get_entity_relationships(
         )
 
 
-# ========== Placeholder for future endpoints ==========
-# Export endpoints will be added in Sprint 8
+# ========== Analytics Endpoints ==========
+
+@app.get("/api/v1/analytics/search", response_model=SearchAnalyticsResponse, tags=["Analytics"], dependencies=[Depends(verify_api_key)])
+async def get_search_analytics(time_range_days: int = 30):
+    """
+    Get search analytics and statistics.
+
+    **Parameters:**
+    - **time_range_days**: Number of days to analyze (default: 30)
+
+    **Example:**
+    ```
+    GET /api/v1/analytics/search?time_range_days=30
+    ```
+
+    Note: This is a placeholder implementation. In a production system,
+    you would track search queries in a separate analytics table.
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    try:
+        # Placeholder analytics data
+        # In production, this would query an analytics/search_log table
+        analytics_data = {
+            "total_searches": 0,
+            "unique_queries": 0,
+            "avg_results_per_search": 0.0,
+            "top_queries": [],
+            "search_mode_distribution": {
+                "keyword": 0,
+                "semantic": 0,
+                "hybrid": 0,
+                "faceted": 0
+            },
+            "avg_query_time_ms": 0.0
+        }
+
+        return SearchAnalyticsResponse(
+            success=True,
+            data=analytics_data,
+            metadata={
+                "time_range_days": time_range_days,
+                "generated_at": datetime.now().isoformat() + "Z",
+                "note": "Placeholder implementation - analytics tracking not yet implemented"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Analytics error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get analytics: {str(e)}"
+        )
+
+
+# ========== Export Endpoints ==========
+
+@app.get("/api/v1/export/search", tags=["Export"], dependencies=[Depends(verify_api_key)])
+async def export_search_results(
+    query: str,
+    format: str = "csv",
+    max_results: int = 100,
+    tags: Optional[str] = None
+):
+    """
+    Export search results to CSV or JSON.
+
+    **Parameters:**
+    - **query**: Search query
+    - **format**: Export format (csv or json)
+    - **max_results**: Maximum results to export
+    - **tags**: Optional comma-separated tags filter
+
+    **Example:**
+    ```
+    GET /api/v1/export/search?query=sprite&format=csv&max_results=50
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    if format not in ['csv', 'json']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format must be 'csv' or 'json'"
+        )
+
+    try:
+        # Parse tags
+        tags_list = None
+        if tags:
+            tags_list = [tag.strip() for tag in tags.split(',')]
+
+        # Perform search
+        results = kb.search(query=query, max_results=max_results, tags=tags_list)
+
+        # Export to CSV
+        if format == 'csv':
+            import csv
+            from io import StringIO
+
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['doc_id', 'chunk_id', 'title', 'filename', 'snippet', 'score', 'page', 'tags'])
+
+            for result in results:
+                writer.writerow([
+                    result.get('doc_id', ''),
+                    result.get('chunk_id', ''),
+                    result.get('title', ''),
+                    result.get('filename', ''),
+                    result.get('snippet', '').replace('\n', ' '),
+                    result.get('score', 0.0),
+                    result.get('page', ''),
+                    ','.join(result.get('tags', []))
+                ])
+
+            from fastapi.responses import Response
+            return Response(
+                content=output.getvalue(),
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": f'attachment; filename="search_results_{query[:20]}.csv"'
+                }
+            )
+
+        # Export to JSON
+        else:
+            import json
+            from fastapi.responses import Response
+            return Response(
+                content=json.dumps(results, indent=2),
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": f'attachment; filename="search_results_{query[:20]}.json"'
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"Export search error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to export search results: {str(e)}"
+        )
+
+
+@app.get("/api/v1/export/documents", tags=["Export"], dependencies=[Depends(verify_api_key)])
+async def export_documents(
+    format: str = "csv",
+    tags: Optional[str] = None,
+    file_type: Optional[str] = None
+):
+    """
+    Export document list to CSV or JSON.
+
+    **Parameters:**
+    - **format**: Export format (csv or json)
+    - **tags**: Optional comma-separated tags filter
+    - **file_type**: Optional file type filter
+
+    **Example:**
+    ```
+    GET /api/v1/export/documents?format=csv&tags=reference
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    if format not in ['csv', 'json']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format must be 'csv' or 'json'"
+        )
+
+    try:
+        # Parse tags
+        tags_list = None
+        if tags:
+            tags_list = [tag.strip() for tag in tags.split(',')]
+
+        # Get all documents
+        all_docs = kb.list_documents()
+
+        # Apply filters
+        filtered_docs = []
+        for doc in all_docs:
+            if tags_list and not any(tag in doc.tags for tag in tags_list):
+                continue
+            if file_type and doc.file_type != file_type:
+                continue
+            filtered_docs.append(doc)
+
+        # Export to CSV
+        if format == 'csv':
+            import csv
+            from io import StringIO
+
+            output = StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['doc_id', 'title', 'filename', 'file_type', 'total_chunks',
+                           'total_pages', 'indexed_at', 'tags', 'source_url'])
+
+            for doc in filtered_docs:
+                writer.writerow([
+                    doc.doc_id,
+                    doc.title,
+                    doc.filename,
+                    doc.file_type,
+                    doc.total_chunks,
+                    doc.total_pages or '',
+                    doc.indexed_at,
+                    ','.join(doc.tags),
+                    doc.source_url or ''
+                ])
+
+            from fastapi.responses import Response
+            return Response(
+                content=output.getvalue(),
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": 'attachment; filename="documents.csv"'
+                }
+            )
+
+        # Export to JSON
+        else:
+            import json
+            docs_data = []
+            for doc in filtered_docs:
+                docs_data.append({
+                    'doc_id': doc.doc_id,
+                    'title': doc.title,
+                    'filename': doc.filename,
+                    'file_type': doc.file_type,
+                    'total_chunks': doc.total_chunks,
+                    'total_pages': doc.total_pages,
+                    'indexed_at': doc.indexed_at,
+                    'tags': doc.tags,
+                    'source_url': doc.source_url
+                })
+
+            from fastapi.responses import Response
+            return Response(
+                content=json.dumps(docs_data, indent=2),
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": 'attachment; filename="documents.json"'
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"Export documents error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to export documents: {str(e)}"
+        )
+
+
+@app.get("/api/v1/export/entities", tags=["Export"], dependencies=[Depends(verify_api_key)])
+async def export_entities(
+    format: str = "csv",
+    entity_type: Optional[str] = None,
+    min_confidence: float = 0.0
+):
+    """
+    Export entities to CSV or JSON.
+
+    **Parameters:**
+    - **format**: Export format (csv or json)
+    - **entity_type**: Optional entity type filter
+    - **min_confidence**: Minimum confidence threshold
+
+    **Example:**
+    ```
+    GET /api/v1/export/entities?format=csv&entity_type=hardware&min_confidence=0.7
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    if format not in ['csv', 'json']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format must be 'csv' or 'json'"
+        )
+
+    try:
+        # Use existing export method from KnowledgeBase
+        entity_types = [entity_type] if entity_type else None
+        export_data = kb.export_entities(
+            format=format,
+            entity_types=entity_types,
+            min_confidence=min_confidence
+        )
+
+        from fastapi.responses import Response
+
+        if format == 'csv':
+            return Response(
+                content=export_data,
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": 'attachment; filename="entities.csv"'
+                }
+            )
+        else:
+            return Response(
+                content=export_data,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": 'attachment; filename="entities.json"'
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"Export entities error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to export entities: {str(e)}"
+        )
+
+
+@app.get("/api/v1/export/relationships", tags=["Export"], dependencies=[Depends(verify_api_key)])
+async def export_relationships(
+    format: str = "csv",
+    min_strength: float = 0.0,
+    entity_type: Optional[str] = None
+):
+    """
+    Export entity relationships to CSV or JSON.
+
+    **Parameters:**
+    - **format**: Export format (csv or json)
+    - **min_strength**: Minimum relationship strength
+    - **entity_type**: Optional entity type filter
+
+    **Example:**
+    ```
+    GET /api/v1/export/relationships?format=csv&min_strength=0.5
+    ```
+    """
+    if kb is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="KnowledgeBase not initialized"
+        )
+
+    if format not in ['csv', 'json']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Format must be 'csv' or 'json'"
+        )
+
+    try:
+        # Use existing export method from KnowledgeBase
+        entity_types = [entity_type] if entity_type else None
+        export_data = kb.export_relationships(
+            format=format,
+            min_strength=min_strength,
+            entity_types=entity_types
+        )
+
+        from fastapi.responses import Response
+
+        if format == 'csv':
+            return Response(
+                content=export_data,
+                media_type="text/csv",
+                headers={
+                    "Content-Disposition": 'attachment; filename="relationships.csv"'
+                }
+            )
+        else:
+            return Response(
+                content=export_data,
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": 'attachment; filename="relationships.json"'
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"Export relationships error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to export relationships: {str(e)}"
+        )
+
+
+# ========== End of Sprint 8 Endpoints ==========
 
 
 if __name__ == "__main__":

@@ -546,7 +546,51 @@ class RelationshipResponse(BaseModel):
     )
 
 
-# ========== Placeholder Models for Future Sprints ==========
+# ========== Analytics Models (Sprint 8) ==========
 
-# Sprint 8: Export models
-# Sprint 8: Analytics models
+class SearchAnalyticsResponse(BaseModel):
+    """Search analytics response model."""
+    success: bool = True
+    data: Dict[str, Any] = Field(..., description="Analytics data")
+    metadata: Dict[str, Any] = Field(..., description="Analytics metadata")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "data": {
+                    "total_searches": 1250,
+                    "unique_queries": 487,
+                    "avg_results_per_search": 8.3,
+                    "top_queries": [
+                        {"query": "sprite", "count": 45},
+                        {"query": "VIC-II", "count": 38}
+                    ],
+                    "search_mode_distribution": {
+                        "keyword": 650,
+                        "semantic": 350,
+                        "hybrid": 250
+                    }
+                },
+                "metadata": {
+                    "time_range_days": 30,
+                    "generated_at": "2025-12-21T10:30:00Z"
+                }
+            }
+        }
+    )
+
+
+# ========== Export Models (Sprint 8) ==========
+
+class ExportFormat(BaseModel):
+    """Export format selection."""
+    format: str = Field("csv", description="Export format", pattern="^(csv|json)$")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "format": "csv"
+            }
+        }
+    )

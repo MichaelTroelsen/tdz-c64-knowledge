@@ -5204,9 +5204,9 @@ Important:
         self.logger.info(f"Extracting entity relationships from document {doc_id}")
 
         # Get all entities for this document
-        entities = self.get_entities(doc_id, min_confidence=min_confidence)
+        entity_result = self.get_entities(doc_id, min_confidence=min_confidence)
 
-        if not entities:
+        if not entity_result['entities']:
             self.logger.info(f"No entities found for document {doc_id}")
             return {
                 'doc_id': doc_id,
@@ -5225,8 +5225,8 @@ Important:
                 'relationships': []
             }
 
-        # Build entity -> type mapping
-        entity_map = {e['entity_text']: e['entity_type'] for e in entities}
+        # Build entity -> type mapping from the entities list
+        entity_map = {e['entity_text']: e['entity_type'] for e in entity_result['entities']}
 
         # Find co-occurrences
         relationships = {}  # (entity1, entity2) -> strength

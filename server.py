@@ -10578,6 +10578,68 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": []
             }
+        ),
+        Tool(
+            name="queue_entity_extraction",
+            description="Queue a document for background entity extraction. Extraction happens asynchronously without blocking. Use this to extract entities from documents without waiting for LLM processing. Returns job ID for tracking progress.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to extract entities from"
+                    },
+                    "confidence_threshold": {
+                        "type": "number",
+                        "description": "Minimum confidence threshold (0.0-1.0, default: 0.6)",
+                        "default": 0.6,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "skip_if_exists": {
+                        "type": "boolean",
+                        "description": "Skip if entities already exist or job is queued (default: true)",
+                        "default": True
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="get_extraction_status",
+            description="Get the entity extraction status for a document. Shows whether entities exist, extraction job status (queued/running/completed/failed), timestamps, and error messages if any. Use this to check if extraction is complete before querying entities.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to check extraction status for"
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="get_extraction_jobs",
+            description="Get all entity extraction jobs with optional status filtering. Shows job queue, running jobs, completed extractions, and failed jobs. Useful for monitoring background extraction progress across all documents.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "status_filter": {
+                        "type": "string",
+                        "description": "Filter by status: 'queued', 'running', 'completed', or 'failed'. Leave empty for all jobs.",
+                        "enum": ["queued", "running", "completed", "failed"]
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of jobs to return (default: 100)",
+                        "default": 100,
+                        "minimum": 1,
+                        "maximum": 1000
+                    }
+                },
+                "required": []
+            }
         )
     ]
 
@@ -12184,6 +12246,128 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         except Exception as e:
             return [TextContent(type="text", text=f"Error exporting relationships: {str(e)}")]
+
+    elif name == "queue_entity_extraction":
+        doc_id = arguments.get("doc_id")
+        confidence_threshold = arguments.get("confidence_threshold", 0.6)
+        skip_if_exists = arguments.get("skip_if_exists", True)
+
+        if not doc_id:
+            return [TextContent(type="text", text="Error: doc_id is required")]
+
+        try:
+            result = kb.queue_entity_extraction(
+                doc_id=doc_id,
+                confidence_threshold=confidence_threshold,
+                skip_if_exists=skip_if_exists
+            )
+
+            if result.get('queued'):
+                output = "**Entity Extraction Queued**\n\n"
+                output += f"**Job ID:** {result['job_id']}\n"
+                output += f"**Document ID:** {doc_id}\n"
+                output += f"**Confidence Threshold:** {confidence_threshold:.1%}\n\n"
+                output += "✅ Extraction job has been queued and will run in the background.\n"
+                output += "Use `get_extraction_status` to check progress.\n"
+            else:
+                output = "**Entity Extraction Not Queued**\n\n"
+                output += f"**Reason:** {result.get('reason', 'Unknown')}\n"
+                if 'existing_job_id' in result:
+                    output += f"**Existing Job ID:** {result['existing_job_id']}\n"
+                if 'existing_entities' in result:
+                    output += f"**Existing Entities:** {result['existing_entities']}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error queuing extraction: {str(e)}")]
+
+    elif name == "get_extraction_status":
+        doc_id = arguments.get("doc_id")
+
+        if not doc_id:
+            return [TextContent(type="text", text="Error: doc_id is required")]
+
+        try:
+            status = kb.get_extraction_status(doc_id)
+
+            output = f"**Entity Extraction Status for Document: {doc_id}**\n\n"
+            output += f"**Has Entities:** {'✅ Yes' if status['has_entities'] else '❌ No'}\n"
+            output += f"**Entity Count:** {status['entity_count']}\n\n"
+
+            if status['jobs']:
+                output += "**Extraction Jobs:**\n\n"
+                for job in status['jobs']:
+                    output += f"- **Job {job['job_id']}**\n"
+                    output += f"  - Status: {job['status'].upper()}\n"
+                    output += f"  - Confidence: {job['confidence_threshold']:.1%}\n"
+                    output += f"  - Queued: {job['queued_at']}\n"
+                    if job['started_at']:
+                        output += f"  - Started: {job['started_at']}\n"
+                    if job['completed_at']:
+                        output += f"  - Completed: {job['completed_at']}\n"
+                    if job['entities_extracted']:
+                        output += f"  - Entities Extracted: {job['entities_extracted']}\n"
+                    if job['error_message']:
+                        output += f"  - Error: {job['error_message']}\n"
+                    output += "\n"
+            else:
+                output += "**No extraction jobs found for this document.**\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting extraction status: {str(e)}")]
+
+    elif name == "get_extraction_jobs":
+        status_filter = arguments.get("status_filter")
+        limit = arguments.get("limit", 100)
+
+        try:
+            jobs = kb.get_all_extraction_jobs(
+                status_filter=status_filter,
+                limit=limit
+            )
+
+            output = "**Entity Extraction Jobs**\n\n"
+            if status_filter:
+                output += f"**Filter:** {status_filter.upper()}\n"
+            output += f"**Total Jobs:** {len(jobs)}\n\n"
+
+            if jobs:
+                # Group by status
+                by_status = {}
+                for job in jobs:
+                    status = job['status']
+                    if status not in by_status:
+                        by_status[status] = []
+                    by_status[status].append(job)
+
+                # Show summary
+                output += "**Summary:**\n"
+                for status, job_list in sorted(by_status.items()):
+                    output += f"- {status.upper()}: {len(job_list)}\n"
+                output += "\n"
+
+                # Show recent jobs (limit to 10 for readability)
+                output += f"**Recent Jobs (showing {min(len(jobs), 10)} of {len(jobs)}):**\n\n"
+                for job in jobs[:10]:
+                    output += f"- **Job {job['job_id']}** ({job['status'].upper()})\n"
+                    output += f"  - Document: {job['doc_title'][:50]}...\n"
+                    output += f"  - Doc ID: {job['doc_id']}\n"
+                    output += f"  - Queued: {job['queued_at']}\n"
+                    if job['entities_extracted']:
+                        output += f"  - Entities: {job['entities_extracted']}\n"
+                    if job['error_message']:
+                        output += f"  - Error: {job['error_message'][:100]}...\n"
+                    output += "\n"
+            else:
+                output += "**No jobs found.**\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting extraction jobs: {str(e)}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

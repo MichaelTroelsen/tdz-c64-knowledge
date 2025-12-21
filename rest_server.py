@@ -515,12 +515,13 @@ async def hybrid_search(request: HybridSearchRequest):
     try:
         start_time = time.time()
 
+        # Note: hybrid_search doesn't accept top_k parameter
+        # It only accepts query, max_results, tags, semantic_weight
         results = kb.hybrid_search(
             query=request.query,
             max_results=request.max_results,
             tags=request.tags,
-            semantic_weight=request.semantic_weight,
-            top_k=request.top_k
+            semantic_weight=request.semantic_weight
         )
 
         query_time_ms = (time.time() - start_time) * 1000
@@ -1554,18 +1555,21 @@ async def get_document_entities(
 
         # Get entities
         entity_types = [entity_type] if entity_type else None
-        entities = kb.get_entities(
+        result = kb.get_entities(
             doc_id=doc_id,
             min_confidence=min_confidence,
             entity_types=entity_types
         )
 
+        # kb.get_entities returns a dict with 'entities' list
+        # Extract the list for the response
         return EntityResponse(
             success=True,
-            data=entities,
+            data=result['entities'],  # Extract list from dict
             metadata={
-                "total_entities": len(entities),
-                "doc_id": doc_id
+                "total_entities": len(result['entities']),
+                "doc_id": doc_id,
+                "entity_types": result.get('types', {})
             }
         )
 
@@ -1605,9 +1609,10 @@ async def get_entity_relationships(
         )
 
     try:
-        # Get relationships
-        relationships = kb.get_relationships(
+        # Get relationships using get_entity_relationships method
+        relationships = kb.get_entity_relationships(
             entity_text=entity_text,
+            relationship_type=None,  # Get all relationship types
             min_strength=min_strength,
             max_results=max_results
         )

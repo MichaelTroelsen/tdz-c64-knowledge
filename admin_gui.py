@@ -2758,21 +2758,21 @@ elif page == "📈 Entity Analytics":
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric(
-            "Total Entities",
-            f"{analytics['summary_metrics']['total_entities']:,}",
-            delta=f"{analytics['summary_metrics']['docs_with_entities']}/{analytics['summary_metrics']['total_docs']} docs"
+            "Unique Entities",
+            f"{analytics['overall']['unique_entities']:,}",
+            delta=f"{analytics['overall']['docs_with_entities']} docs"
         )
     with col2:
         st.metric(
             "Total Relationships",
-            f"{analytics['summary_metrics']['total_relationships']:,}",
-            delta=f"{analytics['summary_metrics']['docs_with_relationships']} docs"
+            f"{analytics['relationship_stats']['total']:,}",
+            delta=f"{len(analytics['relationship_stats']['by_type'])} types"
         )
     with col3:
         st.metric(
             "Avg Entities/Doc",
-            f"{analytics['summary_metrics']['avg_entities_per_doc']:.1f}",
-            delta=f"{len(analytics['entity_distribution'])} types"
+            f"{analytics['overall']['avg_entities_per_doc']:.1f}",
+            delta=f"{len(analytics['entity_distribution'])} entity types"
         )
     with col4:
         if analytics['relationship_stats']['total'] > 0:
@@ -2907,15 +2907,11 @@ elif page == "📈 Entity Analytics":
         if analytics['relationship_stats']['total'] > 0:
             # Relationship type distribution
             st.markdown("**Relationship Types Distribution**")
-            if analytics['relationship_stats']['by_entity_type']:
+            if analytics['relationship_stats']['by_type']:
                 import pandas as pd
                 rel_type_data = [
-                    {
-                        'From Type': k[0],
-                        'To Type': k[1],
-                        'Count': v
-                    }
-                    for k, v in analytics['relationship_stats']['by_entity_type'].items()
+                    {'Relationship Type': k, 'Count': v}
+                    for k, v in analytics['relationship_stats']['by_type'].items()
                 ]
                 rel_type_df = pd.DataFrame(rel_type_data).sort_values('Count', ascending=False)
                 st.dataframe(rel_type_df, use_container_width=True)

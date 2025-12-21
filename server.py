@@ -6387,6 +6387,184 @@ Important:
 
         return removed
 
+    def get_entity_analytics(self, time_range_days: int = 30) -> dict:
+        """
+        Get comprehensive entity analytics for dashboard visualization.
+
+        Provides aggregate statistics and trends for entities and relationships
+        across the knowledge base.
+
+        Args:
+            time_range_days: Number of days to include in timeline (default: 30)
+
+        Returns:
+            {
+                'entity_distribution': {                    # Entities by type
+                    'hardware': 45,
+                    'memory_address': 120,
+                    'instruction': 89,
+                    ...
+                },
+                'top_entities': [                           # Most common entities
+                    {
+                        'entity_text': 'VIC-II',
+                        'entity_type': 'hardware',
+                        'doc_count': 15,
+                        'total_occurrences': 127,
+                        'avg_confidence': 0.92
+                    },
+                    ...
+                ],
+                'relationship_stats': {                     # Relationship statistics
+                    'total': 234,
+                    'avg_strength': 0.75,
+                    'by_type': {'references': 120, 'related_to': 114}
+                },
+                'top_relationships': [                      # Strongest relationships
+                    {
+                        'entity1': 'VIC-II',
+                        'entity2': 'sprite',
+                        'strength': 0.95,
+                        'doc_count': 12
+                    },
+                    ...
+                ],
+                'extraction_timeline': [                    # Entities extracted over time
+                    {'date': '2024-12-01', 'count': 45},
+                    {'date': '2024-12-02', 'count': 67},
+                    ...
+                ]
+            }
+        """
+        cursor = self.db_conn.cursor()
+        analytics = {}
+
+        # 1. Entity distribution by type
+        cursor.execute("""
+            SELECT entity_type, COUNT(DISTINCT entity_text) as count
+            FROM document_entities
+            GROUP BY entity_type
+            ORDER BY count DESC
+        """)
+        analytics['entity_distribution'] = {row[0]: row[1] for row in cursor.fetchall()}
+
+        # 2. Top entities (most common across documents)
+        cursor.execute("""
+            SELECT
+                entity_text,
+                entity_type,
+                COUNT(DISTINCT doc_id) as doc_count,
+                SUM(occurrence_count) as total_occurrences,
+                AVG(confidence) as avg_confidence
+            FROM document_entities
+            GROUP BY entity_text, entity_type
+            HAVING doc_count >= 2
+            ORDER BY doc_count DESC, total_occurrences DESC
+            LIMIT 50
+        """)
+
+        analytics['top_entities'] = []
+        for row in cursor.fetchall():
+            analytics['top_entities'].append({
+                'entity_text': row[0],
+                'entity_type': row[1],
+                'doc_count': row[2],
+                'total_occurrences': row[3],
+                'avg_confidence': round(row[4], 2)
+            })
+
+        # 3. Relationship statistics
+        cursor.execute("""
+            SELECT COUNT(*) FROM entity_relationships
+        """)
+        total_relationships = cursor.fetchone()[0]
+
+        cursor.execute("""
+            SELECT AVG(strength) FROM entity_relationships
+        """)
+        avg_strength = cursor.fetchone()[0] or 0.0
+
+        cursor.execute("""
+            SELECT relationship_type, COUNT(*) as count
+            FROM entity_relationships
+            GROUP BY relationship_type
+            ORDER BY count DESC
+        """)
+        by_type = {row[0]: row[1] for row in cursor.fetchall()}
+
+        analytics['relationship_stats'] = {
+            'total': total_relationships,
+            'avg_strength': round(avg_strength, 2),
+            'by_type': by_type
+        }
+
+        # 4. Top relationships (strongest entity pairs)
+        cursor.execute("""
+            SELECT
+                r.entity1_text,
+                r.entity1_type,
+                r.entity2_text,
+                r.entity2_type,
+                r.strength,
+                r.doc_count
+            FROM entity_relationships r
+            WHERE r.doc_count >= 1
+            ORDER BY r.strength DESC, r.doc_count DESC
+            LIMIT 50
+        """)
+
+        analytics['top_relationships'] = []
+        for row in cursor.fetchall():
+            analytics['top_relationships'].append({
+                'entity1': row[0],
+                'entity1_type': row[1],
+                'entity2': row[2],
+                'entity2_type': row[3],
+                'strength': round(row[4], 2) if row[4] else 0.0,
+                'doc_count': row[5]
+            })
+
+        # 5. Extraction timeline (entities extracted per day)
+        from datetime import datetime, timedelta
+        start_date = datetime.now() - timedelta(days=time_range_days)
+        start_date_str = start_date.strftime('%Y-%m-%d')
+
+        cursor.execute("""
+            SELECT
+                DATE(generated_at) as extraction_date,
+                COUNT(DISTINCT entity_text) as count
+            FROM document_entities
+            WHERE generated_at >= ?
+            GROUP BY DATE(generated_at)
+            ORDER BY extraction_date ASC
+        """, (start_date_str,))
+
+        analytics['extraction_timeline'] = []
+        for row in cursor.fetchall():
+            analytics['extraction_timeline'].append({
+                'date': row[0],
+                'count': row[1]
+            })
+
+        # 6. Overall statistics
+        cursor.execute("""
+            SELECT
+                COUNT(DISTINCT entity_text) as unique_entities,
+                COUNT(*) as total_entity_instances,
+                COUNT(DISTINCT doc_id) as docs_with_entities
+            FROM document_entities
+        """)
+        row = cursor.fetchone()
+
+        analytics['overall'] = {
+            'unique_entities': row[0],
+            'total_instances': row[1],
+            'docs_with_entities': row[2],
+            'avg_entities_per_doc': round(row[1] / row[2], 1) if row[2] > 0 else 0
+        }
+
+        return analytics
+
     def get_relationships(self, doc_id: str, direction: str = "both") -> list[dict]:
         """
         Get all relationships for a document.

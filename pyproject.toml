@@ -38,6 +38,12 @@ gui = [
     "pyvis>=0.3.2",
     "networkx>=3.0",
 ]
+rest = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.0.0",
+    "python-multipart>=0.0.6",
+]
 
 [project.scripts]
 tdz-c64-knowledge = "server:main"

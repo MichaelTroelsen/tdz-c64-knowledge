@@ -7,20 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.18.0] - 2025-12-21
+
 ### Added
-- **Interactive Network Graph** for entity relationships in Entity Analytics dashboard
+
+#### 🚀 Background Entity Extraction (Phase 2)
+- **Zero-delay entity extraction** - Extraction happens asynchronously in background
+- **Background Worker Thread** - Dedicated daemon thread processes extraction queue
+- **Job Tracking System** - Full visibility into extraction progress
+  - Database table: `extraction_jobs` with status tracking
+  - Status transitions: queued → running → completed/failed
+  - Timestamps: queued_at, started_at, completed_at
+  - Error messages and entity counts stored
+- **Auto-Queue on Ingestion** - Documents automatically queued when added
+  - Configurable via `AUTO_EXTRACT_ENTITIES=1` (default: enabled)
+  - Doesn't block document ingestion
+  - Duplicate prevention (skip if entities exist or job queued)
+- **Job Management Methods** (3 new methods)
+  - `queue_entity_extraction()` - Queue extraction for a document
+  - `get_extraction_status()` - Check status for specific document
+  - `get_all_extraction_jobs()` - List all jobs with filtering
+- **MCP Tools** (3 new tools)
+  - `queue_entity_extraction` - Manual job queuing
+  - `get_extraction_status` - Status checking with job history
+  - `get_extraction_jobs` - Monitor queue and job progress
+- **Benefits:**
+  - Users never wait for LLM extraction (previously 3-30 seconds)
+  - Work continues immediately after document upload
+  - Full job visibility and monitoring
+  - Robust error handling
+
+#### 📊 Entity Analytics Dashboard (Sprint 2)
+- **Comprehensive Analytics** - `get_entity_analytics()` method
+  - 6 data structures for complete entity analysis
+  - Entity distribution by type (9 types tracked)
+  - Top 50 entities by document count
+  - Relationship statistics with type breakdown
+  - Top 50 strongest relationships
+  - 30-day extraction timeline
+  - Overall summary statistics
+- **Interactive GUI Dashboard** - 4-tab interface in admin_gui.py
+  - **Overview Tab:** Entity distribution bar chart and data table
+  - **Top Entities Tab:** Sortable table with filters (type, doc count, confidence)
+  - **Relationships Tab:** Network graph + top relationships table
+  - **Trends Tab:** Timeline of entity extractions over time
+- **Interactive Network Graph** for entity relationships
   - Drag-and-drop node exploration with pyvis
   - Color-coded entity types with 7-color legend
   - Adjustable controls (max nodes, min strength, show/hide)
   - Edge thickness and transparency scaled by relationship strength
   - Hover tooltips with entity details and relationship strength
   - 600px responsive visualization with dark theme
-  - ~100 lines of code in admin_gui.py
+- **Export Buttons** - CSV and JSON downloads from dashboard
+- **Real-time Statistics** - 989 unique entities, 128 relationships tracked
 
-## [2.18.0] - 2025-12-21
+#### ⚡ Performance Optimizations (Phase 1)
+- **Semantic Search - 43% Faster** (14.53ms → 8.31ms)
+  - Query embedding cache (LRU, 1-hour TTL)
+  - First query: 14ms, subsequent: 6-8ms (cached)
+  - Configurable via `EMBEDDING_CACHE_TTL` (default: 3600s)
+- **Hybrid Search - 22% Faster** (19.44ms → 15.24ms)
+  - Parallel execution of FTS5 + semantic searches
+  - ThreadPoolExecutor with max_workers=2
+  - Combined with embedding cache for even better results
+- **Entity Extraction Caching**
+  - Two-tier caching: memory (TTLCache) + database
+  - Cached calls: 0.03ms (4x faster than database-only: 0.12ms)
+  - First extraction: ~3s (LLM), subsequent: sub-millisecond
+  - Configurable via `ENTITY_CACHE_TTL` (default: 86400s / 24 hours)
+- **Overall Benchmark Improvement: 8% faster**
+  - Total benchmark time: 6.27s → 5.75s
+  - Memory impact: ~6.5MB for all caches (minimal)
+- **Detailed Reporting**
+  - PERFORMANCE_IMPROVEMENTS.md - Complete analysis
+  - benchmark.py - Comprehensive benchmarking suite
+  - Before/after comparisons with statistical analysis
 
-### Added
-- **REST API Server** - Complete FastAPI-based HTTP/REST interface
+#### 📄 Document Comparison (Sprint 3) - Already Existed
+- Verified complete implementation
+- Side-by-side comparison with 89.7% similarity scoring
+- Metadata diff, content diff, entity comparison
+- 4-tab GUI interface
+
+#### 📤 Export Features (Sprint 4) - Already Existed
+- Verified export_entities() and export_relationships()
+- CSV and JSON export formats
+- 996 entities exported successfully in testing
+
+#### 🌐 REST API Server
+- **Complete FastAPI-based HTTP/REST interface**
   - 27 endpoints across 6 categories
   - API key authentication via X-API-Key header
   - CORS middleware for cross-origin requests

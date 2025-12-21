@@ -47,32 +47,53 @@ FEATURES = {
     "rest_api_server": "2.18.0",
     "api_authentication": "2.18.0",
     "fastapi_integration": "2.18.0",
+    "background_entity_extraction": "2.18.0",
+    "entity_analytics_dashboard": "2.18.0",
+    "performance_optimizations": "2.18.0",
+    "query_embedding_cache": "2.18.0",
+    "parallel_hybrid_search": "2.18.0",
 }
 
 # Version history
 VERSION_HISTORY = """
 v2.18.0 (2025-12-21)
-  - Added REST API Server (Sprints 5-8: Complete)
+  🚀 MAJOR RELEASE: Background Entity Extraction + Performance Optimizations + Analytics Dashboard
+
+  Background Entity Extraction (Phase 2):
+  - Zero-delay asynchronous entity extraction with background worker thread
+  - Auto-queue on document ingestion (configurable via AUTO_EXTRACT_ENTITIES=1)
+  - extraction_jobs table for full job tracking (queued/running/completed/failed)
+  - 3 new methods: queue_entity_extraction(), get_extraction_status(), get_all_extraction_jobs()
+  - 3 new MCP tools: queue_entity_extraction, get_extraction_status, get_extraction_jobs
+  - Users never wait for LLM extraction (previously 3-30 seconds)
+
+  Entity Analytics Dashboard (Sprint 2):
+  - get_entity_analytics() method with 6 comprehensive data structures
+  - 4-tab interactive GUI: Overview, Top Entities, Relationships, Trends
+  - Interactive network graph with pyvis (drag-and-drop, color-coded, 7-type legend)
+  - Export buttons for CSV/JSON downloads
+  - Real-time stats: 989 unique entities, 128 relationships
+
+  Performance Optimizations (Phase 1):
+  - Semantic search 43% faster (14.53ms → 8.31ms) via query embedding cache
+  - Hybrid search 22% faster (19.44ms → 15.24ms) via parallel execution
+  - Entity extraction 4x faster for cached calls (0.12ms → 0.03ms)
+  - Overall 8% faster benchmark time (6.27s → 5.75s)
+  - Memory impact: ~6.5MB for all caches
+  - PERFORMANCE_IMPROVEMENTS.md with detailed analysis
+
+  REST API Server:
   - FastAPI-based HTTP/REST interface with 27 endpoints
-  - API key authentication via X-API-Key header
-  - CORS middleware for cross-origin requests
-  - OpenAPI/Swagger documentation (http://localhost:8000/api/docs)
-  - ReDoc documentation (http://localhost:8000/api/redoc)
-  - Endpoints organized in 6 categories:
-    * Health & Stats (2 endpoints): health check, KB statistics
-    * Search (5 endpoints): basic, semantic, hybrid, faceted, similar documents
-    * Documents (7 endpoints): CRUD operations, bulk upload/delete, file management
-    * URL Scraping (3 endpoints): scrape URL, rescrape document, check updates
-    * AI Features (5 endpoints): summarization, entity extraction/search, relationships
-    * Analytics & Export (5 endpoints): search analytics, CSV/JSON exports
-  - Complete Pydantic v2 request/response validation
-  - Request logging and error handling
-  - Export functionality for search results, documents, entities, relationships
-  - Comprehensive API documentation (README_REST_API.md)
-  - Windows batch script for easy server startup (run_rest_api.bat)
-  - Thread-safe KnowledgeBase sharing between MCP and REST servers
-  - All 27 endpoints tested and verified working
-  - Bug fixes: 7 issues resolved during testing (method signatures, return types, parameters)
+  - API key authentication, CORS middleware
+  - OpenAPI/Swagger docs at /api/docs
+  - 6 endpoint categories: Health, Search, Documents, URL Scraping, AI, Analytics
+  - Complete Pydantic v2 validation
+  - README_REST_API.md documentation
+
+  New Environment Variables:
+  - AUTO_EXTRACT_ENTITIES=1 (default: enabled)
+  - EMBEDDING_CACHE_TTL=3600 (1 hour)
+  - ENTITY_CACHE_TTL=86400 (24 hours)
 
 v2.17.0 (2025-12-21)
   - Added Natural Language Query Translation (Sprint 1: Quick Wins)

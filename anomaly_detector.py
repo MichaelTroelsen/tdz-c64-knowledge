@@ -183,71 +183,72 @@ class AnomalyDetector:
     def _update_baseline(self, doc_id: str):
         """Update baseline statistics for a document.
 
+        NOTE: This method assumes the caller already holds self.kb._lock.
+
         Args:
             doc_id: Document ID
         """
         cutoff_date = (datetime.now() - timedelta(days=self.learning_period_days)).isoformat()
 
-        with self.kb._lock:
-            cursor = self.kb.db_conn.cursor()
+        cursor = self.kb.db_conn.cursor()
 
-            # Get historical data
-            cursor.execute("""
-                SELECT
-                    COUNT(*) as total_checks,
-                    SUM(CASE WHEN status = 'changed' THEN 1 ELSE 0 END) as total_changes,
-                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as total_failures,
-                    AVG(response_time) as avg_response_time
-                FROM monitoring_history
-                WHERE doc_id = ? AND check_date >= ?
-            """, (doc_id, cutoff_date))
+        # Get historical data
+        cursor.execute("""
+            SELECT
+                COUNT(*) as total_checks,
+                SUM(CASE WHEN status = 'changed' THEN 1 ELSE 0 END) as total_changes,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as total_failures,
+                AVG(response_time) as avg_response_time
+            FROM monitoring_history
+            WHERE doc_id = ? AND check_date >= ?
+        """, (doc_id, cutoff_date))
 
-            row = cursor.fetchone()
-            total_checks = row[0] or 0
-            total_changes = row[1] or 0
-            total_failures = row[2] or 0
-            avg_response_time = row[3] or 0.0
+        row = cursor.fetchone()
+        total_checks = row[0] or 0
+        total_changes = row[1] or 0
+        total_failures = row[2] or 0
+        avg_response_time = row[3] or 0.0
 
-            # Calculate average update interval
-            cursor.execute("""
-                SELECT check_date
-                FROM monitoring_history
-                WHERE doc_id = ? AND status = 'changed' AND check_date >= ?
-                ORDER BY check_date ASC
-            """, (doc_id, cutoff_date))
+        # Calculate average update interval
+        cursor.execute("""
+            SELECT check_date
+            FROM monitoring_history
+            WHERE doc_id = ? AND status = 'changed' AND check_date >= ?
+            ORDER BY check_date ASC
+        """, (doc_id, cutoff_date))
 
-            change_dates = [datetime.fromisoformat(row[0]) for row in cursor.fetchall()]
-            if len(change_dates) >= 2:
-                intervals = [
-                    (change_dates[i+1] - change_dates[i]).total_seconds() / 3600
-                    for i in range(len(change_dates) - 1)
-                ]
-                avg_update_interval = sum(intervals) / len(intervals)
-            else:
-                avg_update_interval = 0.0
+        change_dates = [datetime.fromisoformat(row[0]) for row in cursor.fetchall()]
+        if len(change_dates) >= 2:
+            intervals = [
+                (change_dates[i+1] - change_dates[i]).total_seconds() / 3600
+                for i in range(len(change_dates) - 1)
+            ]
+            avg_update_interval = sum(intervals) / len(intervals)
+        else:
+            avg_update_interval = 0.0
 
-            # Calculate average change magnitude (placeholder for now)
-            avg_change_magnitude = 0.0
+        # Calculate average change magnitude (placeholder for now)
+        avg_change_magnitude = 0.0
 
-            # Update or insert baseline
-            cursor.execute("""
-                INSERT OR REPLACE INTO anomaly_baselines
-                (doc_id, avg_update_interval_hours, avg_response_time_ms,
-                 avg_change_magnitude, total_checks, total_changes, total_failures,
-                 last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                doc_id,
-                avg_update_interval,
-                avg_response_time * 1000,  # Convert to ms
-                avg_change_magnitude,
-                total_checks,
-                total_changes,
-                total_failures,
-                datetime.now().isoformat()
-            ))
+        # Update or insert baseline
+        cursor.execute("""
+            INSERT OR REPLACE INTO anomaly_baselines
+            (doc_id, avg_update_interval_hours, avg_response_time_ms,
+             avg_change_magnitude, total_checks, total_changes, total_failures,
+             last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            doc_id,
+            avg_update_interval,
+            avg_response_time * 1000,  # Convert to ms
+            avg_change_magnitude,
+            total_checks,
+            total_changes,
+            total_failures,
+            datetime.now().isoformat()
+        ))
 
-            self.kb.db_conn.commit()
+        self.kb.db_conn.commit()
 
     def update_baselines_batch(self, doc_ids: List[str]):
         """Update baselines for multiple documents in a single transaction (optimized).

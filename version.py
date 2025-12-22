@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.17.1"
-__version_info__ = (2, 17, 1)
+__version__ = "2.18.0"
+__version_info__ = (2, 18, 0)
 
 # Build information
 __build_date__ = "2025-12-22"
@@ -50,10 +50,51 @@ FEATURES = {
     "relationship_export": "2.17.0",
     "frame_detection": "2.17.1",
     "automatic_frame_scraping": "2.17.1",
+    "rest_api": "2.18.0",
+    "file_upload_api": "2.18.0",
+    "export_api": "2.18.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.18.0 (2025-12-22)
+  🚀 MAJOR RELEASE: Complete REST API Server
+
+  REST API Implementation (18 functional endpoints):
+  - FastAPI-based HTTP/REST interface
+  - Complete CRUD operations for documents
+  - All search types (FTS5, semantic, hybrid, faceted, similar)
+  - AI features (summarization, entity extraction)
+  - Export capabilities (CSV/JSON for entities and relationships)
+  - File upload with multipart/form-data support
+  - URL scraping with automatic frame detection
+  - API key authentication (X-API-Key header)
+  - CORS middleware with configurable origins
+  - Auto-generated OpenAPI documentation at /api/docs
+
+  Files Created:
+  - rest_models.py (340 lines): Pydantic v2 validation models
+  - rest_server.py (880+ lines): FastAPI server implementation
+  - run_rest_api.bat: Windows startup script
+
+  Endpoints by Category:
+  - Health & Analytics (2): health check, KB statistics
+  - Search (5): basic, semantic, hybrid, faceted, similar
+  - Documents (5): list, get, create/upload, update, delete
+  - AI Features (3): summarize, extract entities, get entities
+  - Export (2): entities CSV/JSON, relationships CSV/JSON
+  - URL Scraping (1): scrape with frame detection
+
+  Configuration:
+  - TDZ_DATA_DIR: Database directory
+  - TDZ_API_KEYS: API keys (comma-separated, optional)
+  - CORS_ORIGINS: Allowed origins (default: *)
+
+  Usage:
+  - python -m uvicorn rest_server:app --reload --port 8000
+  - Or run_rest_api.bat on Windows
+  - Access docs at http://localhost:8000/api/docs
+
 v2.17.1 (2025-12-22)
   🌐 ENHANCEMENT: Automatic HTML Frame Detection and Scraping
 

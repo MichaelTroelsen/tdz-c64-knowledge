@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.19.0"
-__version_info__ = (2, 19, 0)
+__version__ = "2.20.0"
+__version_info__ = (2, 20, 0)
 
 # Build information
 __build_date__ = "2025-12-22"
@@ -56,10 +56,61 @@ FEATURES = {
     "lazy_loading_embeddings": "2.19.0",
     "performance_optimizations_phase2": "2.19.0",
     "instant_startup": "2.19.0",
+    "enhanced_url_update_checking": "2.20.0",
+    "url_structure_discovery": "2.20.0",
+    "new_page_detection": "2.20.0",
+    "missing_page_detection": "2.20.0",
+    "project_directory_security_fix": "2.20.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.20.0 (2025-12-22)
+  🚀 RELEASE: Enhanced URL Update Checking + Security Fix
+
+  Enhanced URL Update Checking:
+  - Fixed datetime comparison bug (offset-naive vs offset-aware datetimes)
+  - Added comprehensive structure discovery with website crawling
+  - New page detection: Discovers URLs not in database
+  - Missing page detection: Identifies removed or inaccessible pages
+  - Scrape session grouping: Organizes by base URL for efficient checking
+  - Configurable check modes: Quick (Last-Modified only) or Full (with structure)
+  - Enhanced logging with detailed progress tracking
+  - Max pages limit (default 100) to prevent excessive crawling
+  - Depth capping (max 5) for controlled discovery
+  - Timeout handling (15s per URL) for reliability
+
+  Security Fix:
+  - Project directory now automatically allowed for document ingestion
+  - No more "Path outside allowed directories" errors for uploads/ folder
+  - Maintains security: Still prevents path traversal attacks
+  - Auto-includes: scraped_docs, current working directory, ALLOWED_DOCS_DIRS
+  - Duplicate directory removal for cleaner configuration
+
+  New Methods:
+  - _discover_urls(): Website crawling with BeautifulSoup
+  - Enhanced check_url_updates() with check_structure parameter
+
+  Dependencies Added:
+  - requests>=2.31.0 (HTTP operations)
+  - beautifulsoup4>=4.9.0 (already present, now actively used)
+
+  Return Structure Enhancement:
+  - check_url_updates() now returns:
+    - unchanged: Pages with no updates
+    - changed: Pages with newer Last-Modified dates
+    - new_pages: Discovered URLs not in database
+    - missing_pages: Database URLs that are 404 or not discoverable
+    - scrape_sessions: Per-session statistics
+    - failed: URLs where check failed
+    - rescraped: Auto-rescraped document IDs
+
+  Impact:
+  - Users can now track website structure changes over time
+  - Automatically discover new documentation pages
+  - Identify removed or moved pages
+  - No more security errors when adding files from project folders
+
 v2.19.0 (2025-12-22)
   🚀 MAJOR RELEASE: Performance Optimizations Phase 2 - Instant Startup!
 

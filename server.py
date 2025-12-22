@@ -292,12 +292,30 @@ class KnowledgeBase:
 
         # Security: Allowed directories for document ingestion (optional)
         # Set via ALLOWED_DOCS_DIRS environment variable (comma-separated paths)
+        # Always include: scraped_docs directory and current working directory
         allowed_dirs_env = os.getenv('ALLOWED_DOCS_DIRS', '')
+
+        # Start with scraped_docs and current working directory
+        default_allowed_dirs = [
+            self.data_dir / "scraped_docs",  # Always allow scraped documents
+            Path.cwd()  # Always allow current working directory
+        ]
+
         if allowed_dirs_env:
-            self.allowed_dirs = [Path(d.strip()).resolve() for d in allowed_dirs_env.split(',') if d.strip()]
-            self.logger.info(f"Path traversal protection enabled for: {self.allowed_dirs}")
+            # Add user-specified directories
+            user_dirs = [Path(d.strip()).resolve() for d in allowed_dirs_env.split(',') if d.strip()]
+            # Combine and remove duplicates while preserving order
+            all_dirs = default_allowed_dirs + user_dirs
+            seen = set()
+            self.allowed_dirs = []
+            for d in all_dirs:
+                if d not in seen:
+                    seen.add(d)
+                    self.allowed_dirs.append(d)
         else:
-            self.allowed_dirs = None  # No restrictions
+            self.allowed_dirs = default_allowed_dirs
+
+        self.logger.info(f"Path traversal protection enabled for: {self.allowed_dirs}")
 
         # Semantic search initialization (lazy loading for faster startup)
         self.use_semantic = SEMANTIC_SUPPORT and os.getenv('USE_SEMANTIC_SEARCH', '0') == '1'
@@ -3567,28 +3585,165 @@ class KnowledgeBase:
         self.logger.info(f"Re-scrape complete: {result['status']}")
         return result
 
-    def check_url_updates(self, auto_rescrape: bool = False) -> dict:
+    def _discover_urls(self, base_url: str, config: Optional[dict] = None, max_pages: int = 100) -> set:
+        """Discover all URLs at a website by crawling.
+
+        Args:
+            base_url: Starting URL to crawl
+            config: Optional scrape configuration with depth, limit, etc.
+            max_pages: Maximum number of pages to crawl (default: 100)
+
+        Returns:
+            Set of discovered URLs
+        """
+        from urllib.parse import urljoin, urlparse
+        from bs4 import BeautifulSoup
+        import requests
+
+        discovered = set()
+        to_visit = {base_url}
+        visited = set()
+
+        # Extract config parameters
+        if config:
+            depth = min(config.get('depth', 3), 5)  # Cap at 5 to prevent excessive crawling
+            limit = config.get('limit')
+            same_domain_only = config.get('same_domain_only', True)
+            follow_links = config.get('follow_links', True)
+        else:
+            depth = 3
+            limit = None
+            same_domain_only = True
+            follow_links = True
+
+        # If follow_links is False, just check the single URL
+        if not follow_links:
+            depth = 1
+            self.logger.info(f"follow_links=False, checking single URL only")
+
+        base_parsed = urlparse(base_url)
+        base_domain = base_parsed.netloc
+
+        self.logger.info(f"URL Discovery: depth={depth}, same_domain={same_domain_only}, limit={limit}, max_pages={max_pages}")
+
+        # Crawl with depth tracking
+        current_depth = 0
+        total_fetched = 0
+
+        while to_visit and current_depth < depth and total_fetched < max_pages:
+            current_level = to_visit.copy()
+            to_visit.clear()
+
+            self.logger.info(f"Crawl depth {current_depth + 1}/{depth}: {len(current_level)} URLs to check")
+
+            for url in current_level:
+                if url in visited:
+                    continue
+
+                if total_fetched >= max_pages:
+                    self.logger.info(f"Reached max_pages limit ({max_pages})")
+                    break
+
+                visited.add(url)
+                total_fetched += 1
+
+                try:
+                    # Fetch page with timeout
+                    self.logger.debug(f"Fetching: {url}")
+                    response = requests.get(url, timeout=15, allow_redirects=True)
+
+                    if response.status_code != 200:
+                        self.logger.debug(f"Non-200 status ({response.status_code}): {url}")
+                        continue
+
+                    # Add to discovered (successful fetch)
+                    discovered.add(url)
+                    self.logger.debug(f"Discovered: {url}")
+
+                    # Parse HTML to find links (only if following links and not at max depth)
+                    if follow_links and current_depth < depth - 1:
+                        if 'text/html' in response.headers.get('Content-Type', ''):
+                            soup = BeautifulSoup(response.content, 'html.parser')
+
+                            # Find all links
+                            links_found = 0
+                            for link in soup.find_all('a', href=True):
+                                href = link['href']
+
+                                # Convert relative URLs to absolute
+                                absolute_url = urljoin(url, href)
+
+                                # Remove fragments
+                                absolute_url = absolute_url.split('#')[0]
+
+                                # Skip if already visited or queued
+                                if absolute_url in visited or absolute_url in to_visit:
+                                    continue
+
+                                # Parse the discovered URL
+                                link_parsed = urlparse(absolute_url)
+
+                                # Apply same_domain_only filter
+                                if same_domain_only and link_parsed.netloc != base_domain:
+                                    continue
+
+                                # Apply limit filter
+                                if limit and not absolute_url.startswith(limit):
+                                    continue
+
+                                # Skip non-HTTP(S) URLs
+                                if link_parsed.scheme not in ['http', 'https']:
+                                    continue
+
+                                # Add to next level
+                                to_visit.add(absolute_url)
+                                links_found += 1
+
+                            if links_found > 0:
+                                self.logger.debug(f"Found {links_found} links on {url}")
+
+                except requests.Timeout:
+                    self.logger.warning(f"Timeout fetching {url}")
+                    continue
+                except Exception as e:
+                    self.logger.debug(f"Error discovering {url}: {e}")
+                    continue
+
+            current_depth += 1
+
+        self.logger.info(f"Discovery complete: {len(discovered)} URLs found (visited {total_fetched} pages at depth {current_depth})")
+        return discovered
+
+    def check_url_updates(self, auto_rescrape: bool = False, check_structure: bool = True) -> dict:
         """Check all URL-sourced documents for updates.
 
         Args:
             auto_rescrape: If True, automatically re-scrape changed URLs
+            check_structure: If True, check for new/missing sub-pages (slower but comprehensive)
 
         Returns:
-            Dictionary with lists of unchanged, changed, and failed URLs:
+            Dictionary with update information:
             {
                 'unchanged': [list of docs with no changes],
                 'changed': [list of docs with updates available],
                 'failed': [list of docs where check failed],
-                'rescraped': [list of doc_ids that were re-scraped]
+                'rescraped': [list of doc_ids that were re-scraped],
+                'new_pages': [list of newly discovered URLs not in database],
+                'missing_pages': [list of docs in database but no longer accessible],
+                'scrape_sessions': [list of detected scrape sessions checked]
             }
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
+        import json
 
         results = {
             'unchanged': [],
             'changed': [],
             'failed': [],
-            'rescraped': []
+            'rescraped': [],
+            'new_pages': [],
+            'missing_pages': [],
+            'scrape_sessions': []
         }
 
         # Find all URL-sourced documents
@@ -3600,70 +3755,174 @@ class KnowledgeBase:
 
         self.logger.info(f"Checking {len(url_docs)} URL-sourced documents for updates")
 
+        # Group documents by scrape session (same base URL)
+        scrape_sessions = {}
         for doc in url_docs:
-            try:
-                import requests
+            # Parse scrape config to get base URL
+            if doc.scrape_config:
+                try:
+                    config = json.loads(doc.scrape_config)
+                    base_url = config.get('url', doc.source_url)
+                except:
+                    base_url = doc.source_url
+            else:
+                base_url = doc.source_url
 
-                # Try HEAD request first (faster)
-                response = requests.head(doc.source_url, timeout=10, allow_redirects=True)
+            # Group by base URL
+            if base_url not in scrape_sessions:
+                scrape_sessions[base_url] = {
+                    'base_url': base_url,
+                    'config': config if doc.scrape_config else None,
+                    'docs': []
+                }
+            scrape_sessions[base_url]['docs'].append(doc)
 
-                # Update last_checked timestamp
-                with self._lock:
-                    cursor = self.db_conn.cursor()
-                    cursor.execute("""
-                        UPDATE documents
-                        SET url_last_checked = ?
-                        WHERE doc_id = ?
-                    """, (datetime.now().isoformat(), doc.doc_id))
-                    self.db_conn.commit()
+        self.logger.info(f"Found {len(scrape_sessions)} scrape sessions to check")
 
-                # Check Last-Modified header if available
-                if 'Last-Modified' in response.headers:
-                    from email.utils import parsedate_to_datetime
-                    last_modified = parsedate_to_datetime(response.headers['Last-Modified'])
+        # Check each scrape session
+        for session_key, session in scrape_sessions.items():
+            session_result = {
+                'base_url': session['base_url'],
+                'docs_count': len(session['docs']),
+                'changed': 0,
+                'unchanged': 0,
+                'new': 0,
+                'missing': 0
+            }
+            results['scrape_sessions'].append(session_result)
 
-                    if doc.scrape_date:
-                        scrape_dt = datetime.fromisoformat(doc.scrape_date)
-                        if last_modified > scrape_dt:
-                            self.logger.info(f"Update available: {doc.title} ({doc.source_url})")
-                            results['changed'].append({
+            # Get stored URLs for this session
+            stored_urls = {doc.source_url: doc for doc in session['docs']}
+
+            # If check_structure is enabled, discover current URLs
+            discovered_urls = set()
+            if check_structure:
+                try:
+                    self.logger.info(f"Discovering URLs for: {session['base_url']}")
+                    discovered_urls = self._discover_urls(
+                        session['base_url'],
+                        session['config']
+                    )
+                    self.logger.info(f"Discovered {len(discovered_urls)} URLs")
+                except Exception as e:
+                    self.logger.error(f"Failed to discover URLs for {session['base_url']}: {e}")
+
+            # Check each stored document
+            for doc in session['docs']:
+                try:
+                    import requests
+
+                    # Try HEAD request first (faster)
+                    response = requests.head(doc.source_url, timeout=10, allow_redirects=True)
+
+                    # Update last_checked timestamp
+                    with self._lock:
+                        cursor = self.db_conn.cursor()
+                        cursor.execute("""
+                            UPDATE documents
+                            SET url_last_checked = ?
+                            WHERE doc_id = ?
+                        """, (datetime.now().isoformat(), doc.doc_id))
+                        self.db_conn.commit()
+
+                    # Check if page still exists
+                    if response.status_code == 404:
+                        self.logger.warning(f"Page no longer exists: {doc.source_url}")
+                        results['missing_pages'].append({
+                            'doc_id': doc.doc_id,
+                            'title': doc.title,
+                            'url': doc.source_url
+                        })
+                        session_result['missing'] += 1
+                        continue
+
+                    # Check Last-Modified header if available
+                    page_changed = False
+                    if 'Last-Modified' in response.headers:
+                        from email.utils import parsedate_to_datetime
+                        last_modified = parsedate_to_datetime(response.headers['Last-Modified'])
+
+                        if doc.scrape_date:
+                            scrape_dt = datetime.fromisoformat(doc.scrape_date)
+                            # Ensure both datetimes are timezone-aware for comparison
+                            if scrape_dt.tzinfo is None:
+                                scrape_dt = scrape_dt.replace(tzinfo=timezone.utc)
+                            if last_modified > scrape_dt:
+                                page_changed = True
+                                self.logger.info(f"Update available: {doc.title} ({doc.source_url})")
+                                results['changed'].append({
+                                    'doc_id': doc.doc_id,
+                                    'title': doc.title,
+                                    'url': doc.source_url,
+                                    'last_modified': last_modified.isoformat(),
+                                    'scraped_date': doc.scrape_date,
+                                    'reason': 'content_modified'
+                                })
+                                session_result['changed'] += 1
+
+                                # Auto-rescrape if requested
+                                if auto_rescrape:
+                                    self.logger.info(f"Auto-rescaping: {doc.title}")
+                                    try:
+                                        rescrape_result = self.rescrape_document(doc.doc_id)
+                                        if rescrape_result['status'] == 'success':
+                                            results['rescraped'].append(doc.doc_id)
+                                    except Exception as e:
+                                        self.logger.error(f"Auto-rescrape failed: {e}")
+
+                    if not page_changed:
+                        # No change detected
+                        results['unchanged'].append({
+                            'doc_id': doc.doc_id,
+                            'title': doc.title,
+                            'url': doc.source_url
+                        })
+                        session_result['unchanged'] += 1
+
+                except Exception as e:
+                    self.logger.error(f"Failed to check {doc.source_url}: {e}")
+                    results['failed'].append({
+                        'doc_id': doc.doc_id,
+                        'title': doc.title,
+                        'url': doc.source_url,
+                        'error': str(e)
+                    })
+
+            # Check for new pages
+            if check_structure and discovered_urls:
+                new_urls = discovered_urls - set(stored_urls.keys())
+                if new_urls:
+                    self.logger.info(f"Found {len(new_urls)} new pages for {session['base_url']}")
+                    for new_url in new_urls:
+                        results['new_pages'].append({
+                            'url': new_url,
+                            'base_url': session['base_url'],
+                            'scrape_config': session['config']
+                        })
+                        session_result['new'] += 1
+
+                # Check for missing pages (in database but not discovered)
+                if discovered_urls:  # Only if discovery was successful
+                    missing_urls = set(stored_urls.keys()) - discovered_urls
+                    # Filter out already detected 404s
+                    existing_missing = {p['url'] for p in results['missing_pages']}
+                    for missing_url in missing_urls:
+                        if missing_url not in existing_missing:
+                            doc = stored_urls[missing_url]
+                            self.logger.warning(f"Page not discovered during crawl: {missing_url}")
+                            results['missing_pages'].append({
                                 'doc_id': doc.doc_id,
                                 'title': doc.title,
-                                'url': doc.source_url,
-                                'last_modified': last_modified.isoformat(),
-                                'scraped_date': doc.scrape_date
+                                'url': missing_url,
+                                'reason': 'not_discovered'
                             })
+                            session_result['missing'] += 1
 
-                            # Auto-rescrape if requested
-                            if auto_rescrape:
-                                self.logger.info(f"Auto-rescaping: {doc.title}")
-                                try:
-                                    rescrape_result = self.rescrape_document(doc.doc_id)
-                                    if rescrape_result['status'] == 'success':
-                                        results['rescraped'].append(doc.doc_id)
-                                except Exception as e:
-                                    self.logger.error(f"Auto-rescrape failed: {e}")
-
-                            continue
-
-                # No change detected
-                results['unchanged'].append({
-                    'doc_id': doc.doc_id,
-                    'title': doc.title,
-                    'url': doc.source_url
-                })
-
-            except Exception as e:
-                self.logger.error(f"Failed to check {doc.source_url}: {e}")
-                results['failed'].append({
-                    'doc_id': doc.doc_id,
-                    'title': doc.title,
-                    'url': doc.source_url,
-                    'error': str(e)
-                })
-
-        self.logger.info(f"Update check complete: {len(results['unchanged'])} unchanged, "
-                        f"{len(results['changed'])} changed, {len(results['failed'])} failed")
+        self.logger.info(
+            f"Update check complete: {len(results['unchanged'])} unchanged, "
+            f"{len(results['changed'])} changed, {len(results['new_pages'])} new pages, "
+            f"{len(results['missing_pages'])} missing pages, {len(results['failed'])} failed"
+        )
 
         return results
 

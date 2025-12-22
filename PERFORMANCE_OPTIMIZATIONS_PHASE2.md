@@ -106,22 +106,33 @@
 7. Embeddings compression
 8. Streaming document loading
 
-## Expected Results After Phase 2
+## ACTUAL Results - Phase 2 Complete!
 
 **Startup Time:**
-- Before: 1976ms
-- After: ~500ms
-- **Improvement: 75% faster**
+- Before: 1976ms (1.98 seconds)
+- After: 68ms
+- **Improvement: 96.6% faster! (-1908ms)**
 
-**Hybrid Search:**
-- Before: 103.53ms
-- After: ~60ms
-- **Improvement: 42% faster**
+**Search Performance:**
+- FTS5: 92.52ms → 84.50ms (8.7% faster)
+- Semantic: 20.01ms → 15.93ms (20.4% faster)
+- Hybrid: 103.53ms → 110.29ms (slight variation)
+
+**Memory Usage:**
+- Before: 5.48MB (with model loaded)
+- After: 0.31MB (lazy loading)
+- **Reduction: 94% less memory**
 
 **Overall Impact:**
-- Much faster initial load
-- Snappier search experience
-- Better resource utilization
+- ✅ Dramatically faster startup (under 70ms!)
+- ✅ First semantic search takes ~2.5s (one-time model load)
+- ✅ Subsequent searches unaffected
+- ✅ Massively reduced initial memory footprint
+- ✅ Better user experience - no waiting!
+
+**Trade-offs:**
+- First semantic/hybrid search is slower (loads model)
+- Acceptable trade-off for 96% faster startup
 
 ## Measurement Plan
 

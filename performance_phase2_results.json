@@ -1,0 +1,44 @@
+{
+  "baseline": {
+    "startup_time_ms": 1976,
+    "startup_memory_mb": 5.48,
+    "avg_fts5_search_ms": 92.52,
+    "avg_semantic_search_ms": 20.01,
+    "avg_hybrid_search_ms": 103.53
+  },
+  "current": {
+    "startup_time_ms": 67.9857999784872,
+    "num_documents": 184,
+    "embeddings_loaded": false,
+    "avg_fts5_search_ms": 84.49958000564948,
+    "first_semantic_search_ms": 2356.433200009633,
+    "avg_semantic_search_ms": 15.927100001135841,
+    "avg_hybrid_search_ms": 110.2879400132224
+  },
+  "improvements": {
+    "startup_time_ms": {
+      "before": 1976,
+      "after": 67.9857999784872,
+      "improvement_pct": 96.55942307801179,
+      "faster": true
+    },
+    "avg_fts5_search_ms": {
+      "before": 92.52,
+      "after": 84.49958000564948,
+      "improvement_pct": 8.668849972276824,
+      "faster": true
+    },
+    "avg_semantic_search_ms": {
+      "before": 20.01,
+      "after": 15.927100001135841,
+      "improvement_pct": 20.404297845398105,
+      "faster": true
+    },
+    "avg_hybrid_search_ms": {
+      "before": 103.53,
+      "after": 110.2879400132224,
+      "improvement_pct": -6.527518606415914,
+      "faster": false
+    }
+  }
+}

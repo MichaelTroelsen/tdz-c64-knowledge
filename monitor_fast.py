@@ -19,6 +19,7 @@ import sys
 import argparse
 import json
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from email.utils import parsedate_to_datetime
@@ -34,53 +35,182 @@ except ImportError:
     print("ERROR: aiohttp not installed. Install with: pip install aiohttp")
     sys.exit(1)
 
+# Configure logging
+logger = logging.getLogger('monitor_fast')
+logger.setLevel(logging.INFO)
 
-async def check_url_async(session, url, timeout=10):
-    """Async check of a single URL using HEAD request."""
-    try:
-        async with session.head(url, timeout=timeout, allow_redirects=True) as response:
+# Create console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# Create formatter
+formatter = logging.Formatter('[%(levelname)s] %(message)s')
+console_handler.setFormatter(formatter)
+
+# Add handler if not already added
+if not logger.handlers:
+    logger.addHandler(console_handler)
+
+
+async def check_url_async(session, url, timeout=10, max_retries=3):
+    """Async check of a single URL using HEAD request with retry logic.
+
+    Args:
+        session: aiohttp ClientSession
+        url: URL to check
+        timeout: Request timeout in seconds
+        max_retries: Maximum number of retry attempts (default: 3)
+
+    Returns:
+        Dictionary with check results
+    """
+    last_error = None
+
+    for attempt in range(max_retries):
+        try:
+            async with session.head(url, timeout=timeout, allow_redirects=True) as response:
+                return {
+                    'url': url,
+                    'status': response.status,
+                    'headers': dict(response.headers),
+                    'error': None,
+                    'attempts': attempt + 1
+                }
+        except asyncio.TimeoutError as e:
+            last_error = 'Timeout'
+            if attempt < max_retries - 1:
+                # Exponential backoff: 1s, 2s, 4s
+                backoff = 2 ** attempt
+                logger.debug(f"Timeout for {url}, retrying in {backoff}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(backoff)
+                continue
+        except aiohttp.ClientConnectorError as e:
+            last_error = f'Connection error: {str(e)}'
+            if attempt < max_retries - 1:
+                backoff = 2 ** attempt
+                logger.debug(f"Connection error for {url}, retrying in {backoff}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(backoff)
+                continue
+        except aiohttp.ServerTimeoutError as e:
+            last_error = 'Server timeout'
+            if attempt < max_retries - 1:
+                backoff = 2 ** attempt
+                logger.debug(f"Server timeout for {url}, retrying in {backoff}s (attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(backoff)
+                continue
+        except Exception as e:
+            # Don't retry on other errors (DNS, SSL, etc.)
             return {
                 'url': url,
-                'status': response.status,
-                'headers': dict(response.headers),
-                'error': None
+                'status': None,
+                'headers': {},
+                'error': str(e),
+                'attempts': attempt + 1
             }
-    except asyncio.TimeoutError:
-        return {
-            'url': url,
-            'status': None,
-            'headers': {},
-            'error': 'Timeout'
-        }
-    except Exception as e:
-        return {
-            'url': url,
-            'status': None,
-            'headers': {},
-            'error': str(e)
-        }
+
+    # All retries exhausted
+    return {
+        'url': url,
+        'status': None,
+        'headers': {},
+        'error': last_error,
+        'attempts': max_retries
+    }
 
 
-async def check_urls_concurrent(urls, max_concurrent=10, show_progress=True):
-    """Check multiple URLs concurrently with rate limiting."""
+async def check_urls_concurrent(urls, max_concurrent=10, show_progress=True, adaptive=True):
+    """Check multiple URLs concurrently with connection pooling and adaptive concurrency.
+
+    Args:
+        urls: List of URLs to check
+        max_concurrent: Maximum concurrent requests (default: 10)
+        show_progress: Show progress bar (default: True)
+        adaptive: Enable adaptive concurrency based on response times (default: True)
+
+    Returns:
+        List of check results
+    """
     from tqdm.asyncio import tqdm as async_tqdm
+    import time
 
-    semaphore = asyncio.Semaphore(max_concurrent)
+    # Adaptive concurrency tracking
+    response_times = []
+    current_concurrency = max_concurrent if not adaptive else min(5, max_concurrent)
+
+    semaphore = asyncio.Semaphore(current_concurrency)
     results = []
 
     async def check_with_semaphore(session, url, pbar=None):
         async with semaphore:
+            start_time = time.time()
             result = await check_url_async(session, url)
+            elapsed = time.time() - start_time
+
+            # Track response times for adaptive concurrency
+            if adaptive:
+                response_times.append(elapsed)
+
             if pbar:
                 pbar.update(1)
             return result
 
-    timeout = aiohttp.ClientTimeout(total=30)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    # Connection pooling configuration
+    connector = aiohttp.TCPConnector(
+        limit=max_concurrent * 2,  # Total connection limit
+        limit_per_host=5,  # Per-host connection limit
+        ttl_dns_cache=300,  # DNS cache TTL (5 minutes)
+        enable_cleanup_closed=True,  # Clean up closed connections
+        force_close=False,  # Reuse connections (keep-alive)
+    )
+
+    timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=15)
+
+    async with aiohttp.ClientSession(
+        timeout=timeout,
+        connector=connector,
+        headers={'Connection': 'keep-alive'}  # Enable HTTP keep-alive
+    ) as session:
         if show_progress:
             with async_tqdm(total=len(urls), desc="Checking URLs", unit="url") as pbar:
-                tasks = [check_with_semaphore(session, url, pbar) for url in urls]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Process in batches for adaptive concurrency
+                if adaptive and len(urls) > 20:
+                    # Process first batch to measure performance
+                    batch_size = min(10, len(urls))
+                    first_batch = urls[:batch_size]
+                    remaining = urls[batch_size:]
+
+                    tasks = [check_with_semaphore(session, url, pbar) for url in first_batch]
+                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                    results.extend(batch_results)
+
+                    # Adjust concurrency based on response times
+                    if response_times:
+                        avg_time = sum(response_times) / len(response_times)
+                        old_concurrency = current_concurrency
+
+                        if avg_time < 0.5:  # Fast responses
+                            current_concurrency = min(max_concurrent, current_concurrency * 2)
+                            logger.info(f"Fast responses (avg {avg_time:.2f}s), increasing concurrency: {old_concurrency} → {current_concurrency}")
+                        elif avg_time > 2.0:  # Slow responses
+                            current_concurrency = max(5, current_concurrency // 2)
+                            logger.info(f"Slow responses (avg {avg_time:.2f}s), decreasing concurrency: {old_concurrency} → {current_concurrency}")
+                        else:
+                            logger.debug(f"Response times normal (avg {avg_time:.2f}s), maintaining concurrency: {current_concurrency}")
+
+                        # Update semaphore with new concurrency
+                        semaphore = asyncio.Semaphore(current_concurrency)
+                        if show_progress:
+                            pbar.set_description(f"Checking URLs (concurrency: {current_concurrency})")
+
+                    # Process remaining URLs
+                    if remaining:
+                        tasks = [check_with_semaphore(session, url, pbar) for url in remaining]
+                        remaining_results = await asyncio.gather(*tasks, return_exceptions=True)
+                        results.extend(remaining_results)
+                else:
+                    # Non-adaptive or small batch - process all at once
+                    tasks = [check_with_semaphore(session, url, pbar) for url in urls]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
         else:
             tasks = [check_with_semaphore(session, url) for url in urls]
             results = await asyncio.gather(*tasks, return_exceptions=True)

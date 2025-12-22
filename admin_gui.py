@@ -1112,6 +1112,29 @@ elif page == "🌐 Web Scraping":
             help="Enter the starting URL to scrape"
         )
 
+        # Simple options (above the fold)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            follow_links = st.checkbox(
+                "Follow Links",
+                value=True,
+                help="Follow links to scrape sub-pages (uncheck to scrape only the single page)"
+            )
+        with col2:
+            same_domain_only = st.checkbox(
+                "Same Domain Only",
+                value=True,
+                help="Only follow links on the same domain (prevents scraping external sites)"
+            )
+        with col3:
+            max_pages = st.number_input(
+                "Max Pages",
+                min_value=1,
+                max_value=500,
+                value=50,
+                help="Maximum number of pages to scrape"
+            )
+
         # Configuration options
         with st.expander("⚙️ Advanced Scraping Options", expanded=False):
             col1, col2 = st.columns(2)
@@ -1120,9 +1143,9 @@ elif page == "🌐 Web Scraping":
                 scrape_depth = st.number_input(
                     "Max Depth",
                     min_value=1,
-                    max_value=100,
-                    value=50,
-                    help="Maximum link depth to follow from the starting URL"
+                    max_value=10,
+                    value=3,
+                    help="Maximum link depth to follow (1=single page, 2=linked pages, 3=two levels deep)"
                 )
                 scrape_threads = st.number_input(
                     "Threads",
@@ -1143,7 +1166,7 @@ elif page == "🌐 Web Scraping":
                 scrape_limit = st.text_input(
                     "Limit URLs (optional)",
                     placeholder="https://docs.example.com/api/",
-                    help="Only scrape URLs with this prefix (useful for staying within a section)"
+                    help="Advanced: Only scrape URLs with this prefix (overrides Same Domain Only)"
                 )
 
             scrape_selector = st.text_input(
@@ -1227,6 +1250,9 @@ elif page == "🌐 Web Scraping":
                         url=url_input,
                         title=scrape_title or None,
                         tags=tags,
+                        follow_links=follow_links,
+                        same_domain_only=same_domain_only,
+                        max_pages=max_pages,
                         depth=scrape_depth,
                         limit=scrape_limit or None,
                         threads=scrape_threads,

@@ -1,0 +1,65 @@
+{
+  "_comment": "Configuration file for URL monitoring scripts",
+
+  "data_dir": "~/.tdz-c64-knowledge",
+
+  "daily": {
+    "enabled": true,
+    "auto_rescrape": false,
+    "notify": false,
+    "schedule": {
+      "time": "02:00",
+      "description": "Run daily at 2:00 AM"
+    }
+  },
+
+  "weekly": {
+    "enabled": true,
+    "auto_rescrape": false,
+    "notify": true,
+    "check_structure": true,
+    "schedule": {
+      "day": "Sunday",
+      "time": "03:00",
+      "description": "Run weekly on Sunday at 3:00 AM"
+    }
+  },
+
+  "notifications": {
+    "_comment": "Notification settings (to be implemented)",
+    "email": {
+      "enabled": false,
+      "smtp_server": "smtp.example.com",
+      "smtp_port": 587,
+      "from_address": "monitor@example.com",
+      "to_addresses": ["admin@example.com"],
+      "subject_prefix": "[C64 KB Monitor]"
+    },
+    "slack": {
+      "enabled": false,
+      "webhook_url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+    },
+    "webhook": {
+      "enabled": false,
+      "url": "https://example.com/webhook",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json"
+      }
+    }
+  },
+
+  "output": {
+    "save_results": true,
+    "output_dir": ".",
+    "keep_days": 30,
+    "description": "Save check results and auto-cleanup files older than 30 days"
+  },
+
+  "logging": {
+    "level": "INFO",
+    "file": "monitor.log",
+    "max_size_mb": 10,
+    "backup_count": 5
+  }
+}

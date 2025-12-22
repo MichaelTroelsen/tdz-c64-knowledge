@@ -151,8 +151,9 @@ class TestSearchEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        assert "data" in data
-        assert "results" in data["data"]
+        assert "results" in data
+        assert "query" in data
+        assert data["query"] == "VIC-II"
 
     def test_semantic_search(self, client, auth_headers, sample_doc):
         """Semantic search endpoint should work."""

@@ -49,9 +49,13 @@ kb = None  # Will be initialized in lifespan
 async def lifespan(app: FastAPI):
     """Lifecycle manager - initialize KB on startup, cleanup on shutdown."""
     global kb
-    print(f"Initializing Knowledge Base at {DATA_DIR}")
-    kb = KnowledgeBase(DATA_DIR)
-    print(f"Knowledge Base initialized with {len(kb.documents)} documents")
+    # Only initialize if not already initialized (e.g., for testing)
+    if kb is None:
+        print(f"Initializing Knowledge Base at {DATA_DIR}")
+        kb = KnowledgeBase(DATA_DIR)
+        print(f"Knowledge Base initialized with {len(kb.documents)} documents")
+    else:
+        print("Knowledge Base already initialized (test mode)")
     yield
     print("Shutting down REST API server")
 
@@ -138,7 +142,7 @@ async def general_exception_handler(request, exc):
 # Health & Status Endpoints
 # ============================================================================
 
-@app.get("/health", response_model=models.HealthResponse, tags=["Health"])
+@app.get("/api/v1/health", response_model=models.HealthResponse, tags=["Health"])
 async def health_check():
     """
     Health check endpoint (no authentication required).
@@ -146,8 +150,8 @@ async def health_check():
     Returns service health status and component availability.
     """
     try:
-        database_ok = kb is not None and kb.db_path.exists()
-        semantic_ok = kb is not None and hasattr(kb, 'use_semantic_search') and kb.use_semantic_search
+        database_ok = kb is not None and kb.db_file.exists()
+        semantic_ok = kb is not None and hasattr(kb, 'use_semantic') and kb.use_semantic
 
         status_str = "healthy" if database_ok else "unhealthy"
 
@@ -181,7 +185,7 @@ async def get_stats(authenticated: bool = Depends(verify_api_key)):
         total_docs = len(kb.documents)
 
         # Get chunk count
-        cursor = kb.conn.cursor()
+        cursor = kb.db_conn.cursor()
         total_chunks = cursor.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
 
         # Get entity count
@@ -201,7 +205,7 @@ async def get_stats(authenticated: bool = Depends(verify_api_key)):
             total_relationships = 0
 
         # Get database size
-        db_size_bytes = kb.db_path.stat().st_size
+        db_size_bytes = kb.db_file.stat().st_size
         db_size_mb = db_size_bytes / (1024 * 1024)
 
         return models.StatsResponse(
@@ -211,7 +215,7 @@ async def get_stats(authenticated: bool = Depends(verify_api_key)):
             total_entities=total_entities,
             total_relationships=total_relationships,
             database_size_mb=round(db_size_mb, 2),
-            semantic_search_enabled=kb.use_semantic_search
+            semantic_search_enabled=kb.use_semantic
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
@@ -276,7 +280,7 @@ async def semantic_search(
     Finds documents by meaning/context rather than exact keywords.
     Requires semantic search to be enabled.
     """
-    if not kb.use_semantic_search:
+    if not kb.use_semantic:
         raise HTTPException(
             status_code=503,
             detail="Semantic search not available. Install sentence-transformers."
@@ -326,7 +330,7 @@ async def hybrid_search(
 
     Blends keyword and meaning-based search for best results.
     """
-    if not kb.use_semantic_search:
+    if not kb.use_semantic:
         raise HTTPException(
             status_code=503,
             detail="Hybrid search requires semantic search. Install sentence-transformers."
@@ -699,13 +703,13 @@ async def update_document(
             doc_meta.tags = [t for t in doc_meta.tags if t not in request.remove_tags]
 
         # Save to database
-        cursor = kb.conn.cursor()
+        cursor = kb.db_conn.cursor()
         cursor.execute("""
             UPDATE documents
             SET title = ?, tags = ?
             WHERE doc_id = ?
         """, (doc_meta.title, ','.join(doc_meta.tags), doc_id))
-        kb.conn.commit()
+        kb.db_conn.commit()
 
         return models.SuccessResponse(
             success=True,

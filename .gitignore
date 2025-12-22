@@ -50,6 +50,12 @@ profile_*.py
 url_check*.json
 *_url_check*.json
 
+# Test and benchmark results
+test_*.json
+benchmark_*.json
+*_results.json
+*_check.json
+
 # Scraped website directories
 unusedino.de_*/
 www.sidmusic.org_*/

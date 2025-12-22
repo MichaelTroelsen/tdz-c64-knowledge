@@ -269,6 +269,35 @@ kb.scrape_url(url, same_domain_only=True)  # Stay on domain
 kb.scrape_url(url, selector="article.content")
 ```
 
+### Problem: HTML Frames (Frameset Pages)
+**Automatic Detection:** Frame-based websites are automatically detected and handled!
+
+**What are frames?**
+- Obsolete HTML technology from the 1990s
+- Uses `<frameset>` and `<frame>` tags instead of regular links
+- Examples: sidmusic.org, some old documentation sites
+
+**How it works:**
+```
+1. Detects <frameset> page → Extracts frame sources
+2. Scrapes each frame individually with link following
+3. Combines all results into single response
+```
+
+**Example:**
+```python
+# This automatically detects and handles frames!
+result = kb.scrape_url("http://www.sidmusic.org/sid/")
+# ✅ Detects 2 frames (main.html + menu.html)
+# ✅ Scrapes both frames and their sub-pages
+# ✅ Returns 18+ documents
+
+print(result['frames_detected'])  # 2
+print(result['files_scraped'])    # 18
+```
+
+**No special configuration needed** - frame detection is automatic!
+
 ---
 
 ## 📊 Example Results
@@ -291,23 +320,31 @@ result = kb.scrape_url(
 {
     'status': 'success',
     'url': 'http://www.sidmusic.org/sid/',
+    'frames_detected': 2,          # ✨ Automatically detected frames!
     'files_scraped': 18,
     'docs_added': 18,
     'docs_updated': 0,
     'docs_failed': 0,
-    'pages_scraped': [
-        'http://www.sidmusic.org/sid/index.html',
-        'http://www.sidmusic.org/sid/technical.html',
-        'http://www.sidmusic.org/sid/links.html',
-        'http://www.sidmusic.org/sid/composers.html',
-        # ... more URLs
+    'doc_ids': [
+        '87d8c0535be1',  # main.html
+        '44397d40fabb',  # rhubbard.html (Rob Hubbard bio)
+        '400639f0011e',  # sidcomp.html (composers)
+        '1699a4bf6738',  # sidlinks.html (links)
+        '1df0eddccf56',  # sidplay.html (SID player)
+        '052b43e312d7',  # sidproj.html (projects)
+        'ead4aa10e9b5',  # sidtech.html (technical docs)
+        '1d50f177a191',  # sidtunes.html (SID tunes)
+        '21fd50a0e9cd',  # top100.html (charts)
+        # ... more doc IDs
     ],
-    'doc_ids': ['abc123...', 'def456...', ...]
+    'message': 'Scraped 2 frames with 18 total documents'
 }
 ```
 
 **What You Get:**
 - 18 new documents in knowledge base
+- **Automatic frame detection and handling** (2 frames: main.html + menu.html)
+- Pages include: technical docs, composers, SID player, projects, charts, links
 - All pages tagged with `sidmusic.org` and `scraped`
 - Full-text search across all scraped content
 - Entity extraction queued for each document

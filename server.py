@@ -3120,6 +3120,56 @@ class KnowledgeBase:
 
         return doc_meta
 
+    def _detect_and_extract_frames(self, url: str) -> list[str]:
+        """Detect HTML frames/iframes and extract their source URLs.
+
+        Args:
+            url: The URL to check for frames
+
+        Returns:
+            List of frame source URLs (relative URLs converted to absolute)
+        """
+        import re
+        import requests
+
+        try:
+            # Fetch the HTML content
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            html_content = response.text
+
+            # Check if this is a frameset page
+            if '<FRAMESET' not in html_content.upper() and '<FRAME' not in html_content.upper() and '<IFRAME' not in html_content.upper():
+                return []
+
+            self.logger.info(f"Detected frameset page at {url}")
+
+            # Extract frame/iframe src attributes using regex
+            # Match <frame src="..."> and <iframe src="...">
+            frame_pattern = r'<(?:frame|iframe)[^>]+src=["\']([\w\-\.\/]+)["\']'
+            matches = re.findall(frame_pattern, html_content, re.IGNORECASE)
+
+            if not matches:
+                return []
+
+            # Convert relative URLs to absolute
+            from urllib.parse import urljoin
+            frame_urls = []
+            for src in matches:
+                # Skip external URLs and special targets
+                if src.startswith('http://') or src.startswith('https://') or src.startswith('javascript:'):
+                    continue
+
+                absolute_url = urljoin(url, src)
+                frame_urls.append(absolute_url)
+                self.logger.info(f"Found frame source: {absolute_url}")
+
+            return frame_urls
+
+        except Exception as e:
+            self.logger.warning(f"Failed to detect frames at {url}: {e}")
+            return []
+
     def scrape_url(self, url: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
                    follow_links: bool = True, same_domain_only: bool = True,
                    max_pages: int = 50, depth: int = 3, limit: Optional[str] = None,
@@ -3207,6 +3257,61 @@ class KnowledgeBase:
             depth = 1
             self.logger.info("follow_links=False: Scraping single page only (depth=1)")
 
+        # 3b. Detect and handle HTML frames
+        frame_urls = self._detect_and_extract_frames(url)
+        if frame_urls:
+            self.logger.info(f"Detected {len(frame_urls)} frame(s), will scrape each individually")
+
+            # Scrape each frame source recursively
+            all_doc_ids = []
+            all_files_scraped = 0
+            all_docs_added = 0
+
+            for frame_url in frame_urls:
+                self.logger.info(f"Scraping frame: {frame_url}")
+
+                # For frames, use the parent directory as limit if same_domain_only
+                # This allows following links from the frame
+                frame_limit = limit
+                if same_domain_only and limit is None:
+                    # Use the parent directory of the original URL
+                    frame_limit = f"{parsed.scheme}://{parsed.netloc}{parsed.path.rsplit('/', 1)[0]}"
+                    if not frame_limit.endswith('/'):
+                        frame_limit += '/'
+
+                frame_result = self.scrape_url(
+                    url=frame_url,
+                    title=title,
+                    tags=tags,
+                    follow_links=follow_links,
+                    same_domain_only=False,  # Disable auto-limit for frames
+                    max_pages=max_pages,
+                    depth=depth,
+                    limit=frame_limit,  # Use parent directory as limit
+                    threads=threads,
+                    delay=delay,
+                    selector=selector,
+                    progress_callback=progress_callback
+                )
+
+                if frame_result['status'] == 'success':
+                    all_doc_ids.extend(frame_result.get('doc_ids', []))
+                    all_files_scraped += frame_result.get('files_scraped', 0)
+                    all_docs_added += frame_result.get('docs_added', 0)
+
+            # Return combined results from all frames
+            return {
+                'status': 'success',
+                'url': url,
+                'frames_detected': len(frame_urls),
+                'files_scraped': all_files_scraped,
+                'docs_added': all_docs_added,
+                'docs_updated': 0,
+                'docs_failed': 0,
+                'doc_ids': all_doc_ids,
+                'message': f'Scraped {len(frame_urls)} frames with {all_docs_added} total documents'
+            }
+
         if same_domain_only and limit is None:
             # Automatically set limit to base domain URL to stay on same domain
             # Extract base URL (scheme + netloc + path up to last /)
@@ -3249,8 +3354,8 @@ class KnowledgeBase:
             cmd.extend(['--limit', limit])
         if selector:
             cmd.extend(['--selector', selector])
-        if max_pages and max_pages > 0:
-            cmd.extend(['--max-pages', str(max_pages)])
+        # Note: max_pages is a UI parameter only - mdscrape doesn't support it yet
+        # Use depth to control crawl scope instead
 
         # 5. Store scrape config
         scrape_config = {

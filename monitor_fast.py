@@ -264,7 +264,11 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
 
     print(f"[*] Checked {len(urls)} URLs in {elapsed:.2f}s ({len(urls)/elapsed:.1f} URLs/sec)")
 
-    # Process results
+    # Collect all checks for batch processing
+    all_checks = []
+    check_map = {}  # Map doc_id to (check, result, page_changed)
+
+    # First pass: Process results and collect checks
     for result in check_results:
         url = result['url']
         doc = url_to_doc.get(url)
@@ -275,16 +279,6 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
         # Calculate response time
         response_time = result.get('response_time', 0.0)
 
-        # Update last_checked timestamp
-        with kb._lock:
-            cursor = kb.db_conn.cursor()
-            cursor.execute("""
-                UPDATE documents
-                SET url_last_checked = ?
-                WHERE doc_id = ?
-            """, (datetime.now().isoformat(), doc.doc_id))
-            kb.db_conn.commit()
-
         # Handle errors
         if result['error']:
             results['failed'].append({
@@ -293,7 +287,7 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
                 'url': url,
                 'error': result['error']
             })
-            # Record failed check
+            # Collect failed check
             if detector:
                 check = CheckResult(
                     doc_id=doc.doc_id,
@@ -302,7 +296,7 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
                     http_status=result.get('status'),
                     error_message=result['error']
                 )
-                detector.record_check(check)
+                all_checks.append(check)
             continue
 
         # Check status code
@@ -313,7 +307,7 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
                 'url': url,
                 'error': '404 Not Found'
             })
-            # Record failed check
+            # Collect failed check
             if detector:
                 check = CheckResult(
                     doc_id=doc.doc_id,
@@ -322,12 +316,11 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
                     http_status=404,
                     error_message='404 Not Found'
                 )
-                detector.record_check(check)
+                all_checks.append(check)
             continue
 
         # Check Last-Modified header
         page_changed = False
-        anomaly_score = None
 
         if 'Last-Modified' in result['headers']:
             try:
@@ -345,7 +338,7 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
                 # Ignore date parsing errors
                 pass
 
-        # Record check and calculate anomaly score
+        # Collect check for batch processing
         if detector:
             check = CheckResult(
                 doc_id=doc.doc_id,
@@ -354,19 +347,51 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
                 response_time=response_time,
                 http_status=result['status']
             )
-            detector.record_check(check)
+            all_checks.append(check)
+            check_map[doc.doc_id] = (check, result, page_changed)
 
-            # Calculate anomaly score
-            score = detector.calculate_anomaly_score(doc.doc_id, check)
+    # Batch operations for performance
+    if detector and all_checks:
+        print(f"[*] Recording {len(all_checks)} checks in batch...")
+        start_batch = asyncio.get_event_loop().time()
+        detector.record_checks_batch(all_checks)
+        batch_elapsed = asyncio.get_event_loop().time() - start_batch
+        print(f"[*] Batch recording completed in {batch_elapsed:.2f}s")
+
+    # Second pass: Calculate anomaly scores and build results
+    print("[*] Calculating anomaly scores...")
+    for doc_id, (check, result, page_changed) in check_map.items():
+        doc = kb.documents.get(doc_id)
+        if not doc:
+            continue
+
+        url = result['url']
+        anomaly_score = None
+
+        # Calculate anomaly score (baselines are now updated)
+        if detector:
+            score = detector.calculate_anomaly_score(doc_id, check)
             anomaly_score = score.total_score
 
-            # Update score in database
-            detector.update_anomaly_score(doc.doc_id, check)
+            # Update score in monitoring_history
+            with kb._lock:
+                cursor = kb.db_conn.cursor()
+                cursor.execute("""
+                    UPDATE monitoring_history
+                    SET anomaly_score = ?
+                    WHERE doc_id = ?
+                      AND check_date = (
+                          SELECT MAX(check_date)
+                          FROM monitoring_history
+                          WHERE doc_id = ?
+                      )
+                """, (anomaly_score, doc_id, doc_id))
+                kb.db_conn.commit()
 
             # Track anomalies (moderate or critical)
             if score.severity in ['moderate', 'critical']:
                 results['anomalies'].append({
-                    'doc_id': doc.doc_id,
+                    'doc_id': doc_id,
                     'title': doc.title,
                     'url': url,
                     'anomaly_score': anomaly_score,
@@ -377,7 +402,7 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
         # Add to results
         if page_changed:
             change_info = {
-                'doc_id': doc.doc_id,
+                'doc_id': doc_id,
                 'title': doc.title,
                 'url': url,
                 'reason': 'content_modified'
@@ -387,13 +412,26 @@ async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detectio
             results['changed'].append(change_info)
         else:
             unchanged_info = {
-                'doc_id': doc.doc_id,
+                'doc_id': doc_id,
                 'title': doc.title,
                 'url': url
             }
             if anomaly_score is not None:
                 unchanged_info['anomaly_score'] = anomaly_score
             results['unchanged'].append(unchanged_info)
+
+    # Batch update last_checked timestamps
+    if url_docs:
+        print("[*] Updating last_checked timestamps...")
+        current_time = datetime.now().isoformat()
+        with kb._lock:
+            cursor = kb.db_conn.cursor()
+            cursor.executemany("""
+                UPDATE documents
+                SET url_last_checked = ?
+                WHERE doc_id = ?
+            """, [(current_time, doc.doc_id) for doc in url_docs])
+            kb.db_conn.commit()
 
     # Group by scrape session for statistics
     scrape_sessions = {}

@@ -106,11 +106,13 @@ class AnomalyDetector:
                     "Run migration_v2_21_0.py first."
                 )
 
-    def record_check(self, check: CheckResult):
+    def record_check(self, check: CheckResult, update_baseline: bool = True):
         """Record a monitoring check result.
 
         Args:
             check: CheckResult instance
+            update_baseline: Whether to update baseline immediately (default: True)
+                            Set to False when batch processing, then call update_baselines_batch()
         """
         with self.kb._lock:
             cursor = self.kb.db_conn.cursor()
@@ -131,8 +133,52 @@ class AnomalyDetector:
             ))
             self.kb.db_conn.commit()
 
-            # Update baseline
-            self._update_baseline(check.doc_id)
+            # Update baseline if requested
+            if update_baseline:
+                self._update_baseline(check.doc_id)
+
+    def record_checks_batch(self, checks: List[CheckResult]):
+        """Record multiple checks in a single transaction (optimized).
+
+        Args:
+            checks: List of CheckResult instances
+        """
+        if not checks:
+            return
+
+        current_time = datetime.now().isoformat()
+
+        with self.kb._lock:
+            cursor = self.kb.db_conn.cursor()
+
+            # Batch insert all checks in one transaction
+            check_data = [
+                (
+                    check.doc_id,
+                    current_time,
+                    check.status,
+                    check.change_type,
+                    check.response_time,
+                    check.content_hash,
+                    check.http_status,
+                    check.error_message
+                )
+                for check in checks
+            ]
+
+            cursor.executemany("""
+                INSERT INTO monitoring_history
+                (doc_id, check_date, status, change_type, response_time,
+                 content_hash, http_status, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, check_data)
+
+            # Single commit for all inserts
+            self.kb.db_conn.commit()
+
+        # Update baselines for all affected documents in batch
+        doc_ids = list(set(check.doc_id for check in checks))
+        self.update_baselines_batch(doc_ids)
 
     def _update_baseline(self, doc_id: str):
         """Update baseline statistics for a document.
@@ -201,6 +247,85 @@ class AnomalyDetector:
                 datetime.now().isoformat()
             ))
 
+            self.kb.db_conn.commit()
+
+    def update_baselines_batch(self, doc_ids: List[str]):
+        """Update baselines for multiple documents in a single transaction (optimized).
+
+        Args:
+            doc_ids: List of document IDs to update
+        """
+        if not doc_ids:
+            return
+
+        cutoff_date = (datetime.now() - timedelta(days=self.learning_period_days)).isoformat()
+        current_time = datetime.now().isoformat()
+
+        with self.kb._lock:
+            cursor = self.kb.db_conn.cursor()
+
+            baseline_data = []
+
+            for doc_id in doc_ids:
+                # Get historical data for this document
+                cursor.execute("""
+                    SELECT
+                        COUNT(*) as total_checks,
+                        SUM(CASE WHEN status = 'changed' THEN 1 ELSE 0 END) as total_changes,
+                        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as total_failures,
+                        AVG(response_time) as avg_response_time
+                    FROM monitoring_history
+                    WHERE doc_id = ? AND check_date >= ?
+                """, (doc_id, cutoff_date))
+
+                row = cursor.fetchone()
+                total_checks = row[0] or 0
+                total_changes = row[1] or 0
+                total_failures = row[2] or 0
+                avg_response_time = row[3] or 0.0
+
+                # Calculate average update interval
+                cursor.execute("""
+                    SELECT check_date
+                    FROM monitoring_history
+                    WHERE doc_id = ? AND status = 'changed' AND check_date >= ?
+                    ORDER BY check_date ASC
+                """, (doc_id, cutoff_date))
+
+                change_dates = [datetime.fromisoformat(row[0]) for row in cursor.fetchall()]
+                if len(change_dates) >= 2:
+                    intervals = [
+                        (change_dates[i+1] - change_dates[i]).total_seconds() / 3600
+                        for i in range(len(change_dates) - 1)
+                    ]
+                    avg_update_interval = sum(intervals) / len(intervals)
+                else:
+                    avg_update_interval = 0.0
+
+                # Calculate average change magnitude (placeholder)
+                avg_change_magnitude = 0.0
+
+                baseline_data.append((
+                    doc_id,
+                    avg_update_interval,
+                    avg_response_time * 1000,  # Convert to ms
+                    avg_change_magnitude,
+                    total_checks,
+                    total_changes,
+                    total_failures,
+                    current_time
+                ))
+
+            # Batch update all baselines in one transaction
+            cursor.executemany("""
+                INSERT OR REPLACE INTO anomaly_baselines
+                (doc_id, avg_update_interval_hours, avg_response_time_ms,
+                 avg_change_magnitude, total_checks, total_changes, total_failures,
+                 last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, baseline_data)
+
+            # Single commit for all updates
             self.kb.db_conn.commit()
 
     def get_baseline(self, doc_id: str) -> Optional[Baseline]:

@@ -299,24 +299,18 @@ class KnowledgeBase:
         else:
             self.allowed_dirs = None  # No restrictions
 
-        # Semantic search initialization
+        # Semantic search initialization (lazy loading for faster startup)
         self.use_semantic = SEMANTIC_SUPPORT and os.getenv('USE_SEMANTIC_SEARCH', '0') == '1'
         self.embeddings_model = None
         self.embeddings_index = None
         self.embeddings_doc_map = []  # Maps FAISS index positions to (doc_id, chunk_id)
+        self._embeddings_loaded = False  # Track if model has been loaded
 
         if self.use_semantic:
-            try:
-                model_name = os.getenv('SEMANTIC_MODEL', 'all-MiniLM-L6-v2')
-                self.logger.info(f"Loading embeddings model: {model_name}")
-                self.embeddings_model = SentenceTransformer(model_name)
-                self.embeddings_file = self.data_dir / "embeddings.faiss"
-                self.embeddings_map_file = self.data_dir / "embeddings_map.json"
-                self._load_embeddings()
-                self.logger.info("Semantic search enabled")
-            except Exception as e:
-                self.logger.error(f"Failed to initialize semantic search: {e}")
-                self.use_semantic = False
+            # Don't load model yet - will load on first use for faster startup
+            self.embeddings_file = self.data_dir / "embeddings.faiss"
+            self.embeddings_map_file = self.data_dir / "embeddings_map.json"
+            self.logger.info("Semantic search enabled (lazy loading - model will load on first use)")
         else:
             if SEMANTIC_SUPPORT:
                 self.logger.info("Semantic search disabled via USE_SEMANTIC_SEARCH=0")
@@ -7824,6 +7818,32 @@ Return ONLY the JSON object, no other text."""
 
         return snippet
 
+    def _ensure_embeddings_loaded(self):
+        """
+        Lazy load embeddings model and index on first use.
+
+        This significantly improves startup time by deferring the ~2.5 second
+        model loading until semantic search is actually needed.
+        """
+        if not self.use_semantic or self._embeddings_loaded:
+            return
+
+        try:
+            # Load the sentence transformer model (this is the slow part)
+            model_name = os.getenv('SEMANTIC_MODEL', 'all-MiniLM-L6-v2')
+            self.logger.info(f"Lazy loading embeddings model: {model_name} (first semantic search)")
+            self.embeddings_model = SentenceTransformer(model_name)
+
+            # Load the pre-computed embeddings index
+            self._load_embeddings()
+
+            self._embeddings_loaded = True
+            self.logger.info("Embeddings model and index loaded successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to lazy load embeddings: {e}")
+            self.use_semantic = False
+            self._embeddings_loaded = False
+
     def _load_embeddings(self):
         """Load FAISS embeddings index from disk."""
         if not self.use_semantic:
@@ -7857,7 +7877,13 @@ Return ONLY the JSON object, no other text."""
 
     def _build_embeddings(self):
         """Build FAISS index from all document chunks."""
-        if not self.use_semantic or self.embeddings_model is None:
+        if not self.use_semantic:
+            return
+
+        # Ensure model is loaded
+        self._ensure_embeddings_loaded()
+
+        if self.embeddings_model is None:
             return
 
         self.logger.info("Building embeddings index for all chunks...")
@@ -7974,8 +8000,14 @@ Return ONLY the JSON object, no other text."""
         Returns:
             List of search results with scores
         """
-        if not self.use_semantic or self.embeddings_model is None:
+        if not self.use_semantic:
             raise RuntimeError("Semantic search not available. Enable with USE_SEMANTIC_SEARCH=1")
+
+        # Lazy load embeddings model on first use (saves ~2.5s on startup)
+        self._ensure_embeddings_loaded()
+
+        if self.embeddings_model is None:
+            raise RuntimeError("Failed to load embeddings model")
 
         # Build embeddings index if not yet built
         if self.embeddings_index is None or len(self.embeddings_doc_map) == 0:

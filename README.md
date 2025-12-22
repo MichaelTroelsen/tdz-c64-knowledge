@@ -1,6 +1,6 @@
 # TDZ C64 Knowledge
 
-[![Version](https://img.shields.io/badge/version-2.18.0-brightgreen.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge)
+[![Version](https://img.shields.io/badge/version-2.20.0-brightgreen.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge)
 [![CI/CD Pipeline](https://github.com/MichaelTroelsen/tdz-c64-knowledge/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -755,15 +755,50 @@ rescrape_document(
 Removes the old version and re-scrapes the original URL with the same configuration. Checks Last-Modified headers to avoid unnecessary downloads.
 
 #### check_url_updates
-Check all URL-sourced documents for updates.
+Check all URL-sourced documents for updates with comprehensive structure discovery.
 
 ```
 check_url_updates(
-  auto_rescrape=false  # Automatically re-scrape changed URLs
+  auto_rescrape=false,     # Automatically re-scrape changed URLs
+  check_structure=true     # Discover new/missing sub-pages (slower)
 )
 ```
 
-Compares Last-Modified headers for all scraped documents. Returns list of documents that have been updated since last scrape.
+**Quick Mode** (`check_structure=false`): Fast check using Last-Modified headers only
+- Checks all scraped pages for content updates
+- ~1 second per site
+- Returns: unchanged, changed, failed
+
+**Full Mode** (`check_structure=true`): Comprehensive structure discovery
+- Crawls websites to discover all current pages
+- Detects new pages not in database
+- Identifies missing/removed pages
+- ~10-60 seconds per site (max 100 pages, depth 5)
+- Returns: unchanged, changed, new_pages, missing_pages, scrape_sessions, failed
+
+**Features:**
+- Groups documents by scrape session (base URL)
+- Concurrent crawling with BeautifulSoup
+- Respects original scrape configuration (depth, limit, same_domain)
+- Automatic 404 detection for removed pages
+- Per-session statistics and progress logging
+
+**Example Response:**
+```json
+{
+  "unchanged": 34,
+  "changed": 0,
+  "new_pages": [
+    {"url": "https://example.com/new-page.html", "base_url": "https://example.com"}
+  ],
+  "missing_pages": [
+    {"doc_id": "abc123", "url": "https://example.com/deleted.html", "reason": "404"}
+  ],
+  "scrape_sessions": [
+    {"base_url": "https://example.com", "docs_count": 10, "new": 1, "missing": 1}
+  ]
+}
+```
 
 ### Document Analysis Tools
 

@@ -21,6 +21,9 @@ env/
 *.swo
 *~
 
+# Claude Code settings
+.claude/settings.local.json
+
 # Knowledge base data
 .tdz-c64-knowledge/
 *.db
@@ -40,6 +43,25 @@ test_*.py
 check_*.py
 reimport_*.py
 debug_*.py
+run_*.py
+profile_*.py
+
+# URL monitoring results
+url_check*.json
+*_url_check*.json
+
+# Scraped website directories
+unusedino.de_*/
+www.sidmusic.org_*/
+blog.chordian.net_*/
+
+# Temporary uploads
+uploads/
+lib/
+
+# Temp files
+nul
+=*
 
 # OS
 .DS_Store

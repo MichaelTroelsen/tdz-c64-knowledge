@@ -10,12 +10,15 @@ Run with: uvicorn rest_server:app --reload --port 8000
 
 import os
 import time
+import io
+import tempfile
+import shutil
 from typing import Optional, List
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Depends, Header, status
+from fastapi import FastAPI, HTTPException, Depends, Header, status, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from contextlib import asynccontextmanager
 
 from server import KnowledgeBase
@@ -615,6 +618,269 @@ async def scrape_url(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+
+
+# ============================================================================
+# File Upload Endpoint
+# ============================================================================
+
+@app.post("/api/v1/documents", tags=["Documents"])
+async def upload_document(
+    file: UploadFile,
+    title: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+    authenticated: bool = Depends(verify_api_key)
+):
+    """
+    Upload a document file to the knowledge base.
+
+    Supported formats: PDF, TXT, MD, HTML, XLSX
+    """
+    try:
+        # Parse tags
+        tag_list = [t.strip() for t in tags.split(',')] if tags else None
+
+        # Save uploaded file to temporary location
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
+            shutil.copyfileobj(file.file, tmp_file)
+            tmp_path = tmp_file.name
+
+        try:
+            # Add document to knowledge base
+            doc = kb.add_document(
+                filepath=tmp_path,
+                title=title,
+                tags=tag_list
+            )
+
+            return {
+                "success": True,
+                "message": f"Document '{doc.title}' uploaded successfully",
+                "data": {
+                    "doc_id": doc.doc_id,
+                    "title": doc.title,
+                    "filename": doc.filename,
+                    "num_chunks": doc.num_chunks
+                }
+            }
+        finally:
+            # Clean up temp file
+            Path(tmp_path).unlink(missing_ok=True)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.put("/api/v1/documents/{doc_id}", tags=["Documents"])
+async def update_document(
+    doc_id: str,
+    request: models.DocumentUpdateRequest,
+    authenticated: bool = Depends(verify_api_key)
+):
+    """
+    Update document metadata (title, tags).
+    """
+    if doc_id not in kb.documents:
+        raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+
+    try:
+        doc_meta = kb.documents[doc_id]
+
+        # Update title
+        if request.title:
+            doc_meta.title = request.title
+
+        # Update tags
+        if request.tags is not None:
+            doc_meta.tags = request.tags
+        elif request.add_tags:
+            doc_meta.tags = list(set(doc_meta.tags + request.add_tags))
+        elif request.remove_tags:
+            doc_meta.tags = [t for t in doc_meta.tags if t not in request.remove_tags]
+
+        # Save to database
+        cursor = kb.conn.cursor()
+        cursor.execute("""
+            UPDATE documents
+            SET title = ?, tags = ?
+            WHERE doc_id = ?
+        """, (doc_meta.title, ','.join(doc_meta.tags), doc_id))
+        kb.conn.commit()
+
+        return models.SuccessResponse(
+            success=True,
+            message=f"Document '{doc_meta.title}' updated successfully",
+            data={"doc_id": doc_id}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")
+
+
+# ============================================================================
+# AI Endpoints
+# ============================================================================
+
+@app.post("/api/v1/documents/{doc_id}/summarize", tags=["AI Features"])
+async def summarize_document(
+    doc_id: str,
+    summary_type: str = "brief",
+    authenticated: bool = Depends(verify_api_key)
+):
+    """
+    Generate AI summary of a document.
+
+    Summary types: brief, detailed, bullet
+    """
+    if doc_id not in kb.documents:
+        raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+
+    try:
+        result = kb.summarize_document(
+            doc_id=doc_id,
+            summary_type=summary_type
+        )
+
+        return {
+            "success": True,
+            "doc_id": doc_id,
+            "summary_type": summary_type,
+            "summary": result['summary'],
+            "cached": result.get('cached', False)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
+
+
+@app.post("/api/v1/documents/{doc_id}/entities/extract", tags=["AI Features"])
+async def extract_entities(
+    doc_id: str,
+    confidence_threshold: float = 0.7,
+    authenticated: bool = Depends(verify_api_key)
+):
+    """
+    Extract named entities from a document using AI.
+
+    Entity types: hardware, memory_address, instruction, person, company, product, concept
+    """
+    if doc_id not in kb.documents:
+        raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+
+    try:
+        result = kb.extract_entities(
+            doc_id=doc_id,
+            confidence_threshold=confidence_threshold
+        )
+
+        return {
+            "success": True,
+            "doc_id": doc_id,
+            "entities_extracted": result['entities_count'],
+            "entities": result['entities']
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Entity extraction failed: {str(e)}")
+
+
+@app.get("/api/v1/documents/{doc_id}/entities", tags=["AI Features"])
+async def get_document_entities(
+    doc_id: str,
+    authenticated: bool = Depends(verify_api_key)
+):
+    """
+    Get all entities extracted from a document.
+    """
+    if doc_id not in kb.documents:
+        raise HTTPException(status_code=404, detail=f"Document {doc_id} not found")
+
+    try:
+        entities = kb.get_entities(doc_id=doc_id)
+
+        return {
+            "success": True,
+            "doc_id": doc_id,
+            "total_entities": len(entities),
+            "entities": [
+                {
+                    "text": e['entity_text'],
+                    "type": e['entity_type'],
+                    "confidence": e['confidence'],
+                    "occurrences": e.get('occurrences', 1)
+                }
+                for e in entities
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get entities: {str(e)}")
+
+
+# ============================================================================
+# Export Endpoints
+# ============================================================================
+
+@app.get("/api/v1/export/entities", tags=["Export"])
+async def export_entities(
+    format: str = "csv",
+    min_confidence: float = 0.0,
+    authenticated: bool = Depends(verify_api_key)
+):
+    """
+    Export all entities as CSV or JSON.
+
+    Formats: csv, json
+    """
+    try:
+        result = kb.export_entities(
+            format=format,
+            min_confidence=min_confidence
+        )
+
+        if format == "csv":
+            return StreamingResponse(
+                io.StringIO(result),
+                media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=entities.csv"}
+            )
+        else:  # json
+            return StreamingResponse(
+                io.StringIO(result),
+                media_type="application/json",
+                headers={"Content-Disposition": "attachment; filename=entities.json"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+@app.get("/api/v1/export/relationships", tags=["Export"])
+async def export_relationships(
+    format: str = "csv",
+    min_strength: float = 0.0,
+    authenticated: bool = Depends(verify_api_key)
+):
+    """
+    Export all entity relationships as CSV or JSON.
+
+    Formats: csv, json
+    """
+    try:
+        result = kb.export_relationships(
+            format=format,
+            min_strength=min_strength
+        )
+
+        if format == "csv":
+            return StreamingResponse(
+                io.StringIO(result),
+                media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=relationships.csv"}
+            )
+        else:  # json
+            return StreamingResponse(
+                io.StringIO(result),
+                media_type="application/json",
+                headers={"Content-Disposition": "attachment; filename=relationships.json"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 
 # ============================================================================

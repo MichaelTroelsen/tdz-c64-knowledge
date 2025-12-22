@@ -566,11 +566,40 @@ ls -la $TDZ_DATA_DIR
 
 ## Version
 
-Current REST API Version: **v2.18.0** (2025-12-21)
+Current REST API Version: **v2.18.0** (2025-12-22)
 
-- 27 fully functional endpoints across 6 categories
-- All endpoints tested and verified
+- 18 fully functional endpoints across 6 categories
+- Core endpoints tested and verified
 - Complete API documentation with examples
 - Production-ready with authentication and CORS support
+- Bug fixes applied for correct attribute names (db_conn, db_file, use_semantic)
 
 See version.py for complete version history.
+
+## Testing
+
+### Smoke Tests
+
+Run the smoke test suite to verify core functionality:
+
+```bash
+pytest test_rest_smoke.py -v
+```
+
+This tests:
+- Health check endpoint
+- Statistics endpoint
+- Basic search
+- Document listing
+- Authentication
+- API documentation (Swagger/ReDoc)
+
+### Full Test Suite
+
+Run comprehensive tests:
+
+```bash
+pytest test_rest_api.py -v
+```
+
+Note: Some tests may require manual updates to match the current API response format.

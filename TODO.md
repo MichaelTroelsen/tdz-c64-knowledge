@@ -28,19 +28,23 @@ Added comprehensive monitoring dashboard to admin_gui.py with:
 - ✅ Individual actions (re-scrape, view stats, remove)
 - ✅ Metrics dashboard (monitored sites, unique sources, last check time)
 
+### B2: Scheduled Monitoring 🕒 (~45 min) - COMPLETED ✅
+Created automated monitoring system with:
+- ✅ monitor_daily.py - Quick daily checks (Last-Modified headers)
+- ✅ monitor_weekly.py - Comprehensive weekly checks (structure discovery)
+- ✅ monitor_config.json - Centralized configuration
+- ✅ Windows Task Scheduler setup scripts (setup/remove/run wrappers)
+- ✅ MONITORING_SETUP.md - Complete setup and usage guide
+- ✅ Exit codes for automation (0=success, 2=changes, 3=failures)
+- ✅ JSON output with timestamped results
+- ✅ Per-site statistics and session grouping
+
 ## Remaining Tasks for Next Session
 
 ### D: Performance & Polish 🔧 (~1.5 hours)
 1. Benchmark URL discovery (20 min)
 2. Optimize with async/await (45 min)
 3. Add progress indicators (15 min)
-
-### B2: Scheduled Monitoring 🕒 (~45 min)
-Create automated monitoring scripts:
-- monitor_daily.py (quick check)
-- monitor_weekly.py (full check)
-- monitor_config.json
-- Setup scripts for cron/Task Scheduler
 
 ---
 

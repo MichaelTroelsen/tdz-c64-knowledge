@@ -3121,21 +3121,37 @@ class KnowledgeBase:
         return doc_meta
 
     def scrape_url(self, url: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
-                   depth: int = 50, limit: Optional[str] = None, threads: int = 10,
-                   delay: int = 100, selector: Optional[str] = None,
+                   follow_links: bool = True, same_domain_only: bool = True,
+                   max_pages: int = 50, depth: int = 3, limit: Optional[str] = None,
+                   threads: int = 10, delay: int = 100, selector: Optional[str] = None,
                    progress_callback: ProgressCallback = None) -> dict:
         """Scrape a URL using mdscrape and add resulting documents to knowledge base.
 
+        Supports recursive scraping of entire websites by following links.
+
         Args:
-            url: Starting URL to scrape
+            url: Starting URL to scrape (e.g., http://www.sidmusic.org/sid/)
             title: Optional base title for scraped documents
             tags: Optional list of tags (domain name auto-added)
-            depth: Maximum crawl depth (default: 50)
-            limit: Limit scraping to URLs with this prefix (default: url)
+            follow_links: Follow links to scrape sub-pages (default: True)
+            same_domain_only: Only follow links on the same domain (default: True)
+            max_pages: Maximum number of pages to scrape (default: 50)
+            depth: Maximum crawl depth - how many link levels to follow (default: 3)
+            limit: Advanced: Limit scraping to URLs with this prefix (overrides same_domain_only)
             threads: Number of concurrent threads (default: 10)
             delay: Delay between requests in ms (default: 100)
             selector: CSS selector for main content (optional)
             progress_callback: Optional callback for progress updates
+
+        Examples:
+            # Scrape single page only
+            kb.scrape_url("http://example.com/page.html", follow_links=False)
+
+            # Scrape entire site (stay on same domain, max 3 levels deep)
+            kb.scrape_url("http://www.sidmusic.org/sid/", follow_links=True, same_domain_only=True, depth=3)
+
+            # Scrape specific section (limit to /sid/ prefix)
+            kb.scrape_url("http://www.sidmusic.org/sid/", limit="http://www.sidmusic.org/sid/")
 
         Returns:
             Dictionary with scraping results:
@@ -3147,6 +3163,7 @@ class KnowledgeBase:
                 'docs_added': count,
                 'docs_updated': count,
                 'docs_failed': count,
+                'pages_scraped': list_of_urls,
                 'error': error_message (if failed),
                 'doc_ids': [list of added doc_ids]
             }
@@ -3184,6 +3201,32 @@ class KnowledgeBase:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_dir = scraped_base / f"{safe_domain}_{timestamp}"
 
+        # 3a. Handle follow_links and same_domain_only parameters
+        if not follow_links:
+            # Don't follow any links - just scrape the single page
+            depth = 1
+            self.logger.info("follow_links=False: Scraping single page only (depth=1)")
+
+        if same_domain_only and limit is None:
+            # Automatically set limit to base domain URL to stay on same domain
+            # Extract base URL (scheme + netloc + path up to last /)
+            base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+            # If URL has a path, use it as the limit prefix
+            if parsed.path and parsed.path != '/':
+                # Get the directory part of the path (not the file)
+                path_parts = parsed.path.rstrip('/').split('/')
+                if path_parts:
+                    # Use the full path as prefix to stay within that section
+                    base_path = '/'.join(path_parts)
+                    limit = f"{base_url}{base_path}"
+                else:
+                    limit = base_url
+            else:
+                limit = base_url
+
+            self.logger.info(f"same_domain_only=True: Limiting to URLs starting with '{limit}'")
+
         # 4. Build mdscrape command
         mdscrape_path = self._find_mdscrape_executable()
         if not mdscrape_path:
@@ -3206,10 +3249,15 @@ class KnowledgeBase:
             cmd.extend(['--limit', limit])
         if selector:
             cmd.extend(['--selector', selector])
+        if max_pages and max_pages > 0:
+            cmd.extend(['--max-pages', str(max_pages)])
 
         # 5. Store scrape config
         scrape_config = {
             'url': url,
+            'follow_links': follow_links,
+            'same_domain_only': same_domain_only,
+            'max_pages': max_pages,
             'depth': depth,
             'limit': limit,
             'threads': threads,
@@ -9698,13 +9746,13 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="scrape_url",
-            description="Scrape a documentation website and add all pages to the knowledge base using mdscrape. Useful for ingesting online documentation, tutorials, and technical resources. Follows links and converts HTML to searchable markdown.",
+            description="Scrape a documentation website and add all pages to the knowledge base. Supports recursive scraping of entire sites by following links. Great for ingesting online documentation like http://www.sidmusic.org/sid/. Converts HTML to searchable markdown.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "url": {
                         "type": "string",
-                        "description": "Starting URL to scrape (e.g., https://docs.example.com/api/)"
+                        "description": "Starting URL to scrape (e.g., http://www.sidmusic.org/sid/)"
                     },
                     "title": {
                         "type": "string",
@@ -9715,24 +9763,47 @@ async def list_tools() -> list[Tool]:
                         "items": {"type": "string"},
                         "description": "Tags for scraped documents (domain name auto-added)"
                     },
+                    "follow_links": {
+                        "type": "boolean",
+                        "description": "Follow links to scrape sub-pages (default: true). Set to false to scrape only the single page.",
+                        "default": True
+                    },
+                    "same_domain_only": {
+                        "type": "boolean",
+                        "description": "Only follow links on the same domain (default: true). Prevents scraping external sites.",
+                        "default": True
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "Maximum number of pages to scrape (default: 50)",
+                        "default": 50,
+                        "minimum": 1,
+                        "maximum": 500
+                    },
                     "depth": {
                         "type": "integer",
-                        "description": "Maximum link depth to follow (default: 50)",
-                        "default": 50
+                        "description": "Maximum link depth to follow (default: 3). Depth of 1=single page, 2=linked pages, 3=two levels deep.",
+                        "default": 3,
+                        "minimum": 1,
+                        "maximum": 10
                     },
                     "limit": {
                         "type": "string",
-                        "description": "Only scrape URLs with this prefix (default: starting URL)"
+                        "description": "Advanced: Only scrape URLs with this prefix (overrides same_domain_only)"
                     },
                     "threads": {
                         "type": "integer",
                         "description": "Number of concurrent download threads (default: 10)",
-                        "default": 10
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 20
                     },
                     "delay": {
                         "type": "integer",
                         "description": "Delay between requests in milliseconds (default: 100)",
-                        "default": 100
+                        "default": 100,
+                        "minimum": 0,
+                        "maximum": 5000
                     },
                     "selector": {
                         "type": "string",
@@ -11038,7 +11109,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         url = arguments.get("url")
         title = arguments.get("title")
         tags = arguments.get("tags", [])
-        depth = arguments.get("depth", 50)
+        follow_links = arguments.get("follow_links", True)
+        same_domain_only = arguments.get("same_domain_only", True)
+        max_pages = arguments.get("max_pages", 50)
+        depth = arguments.get("depth", 3)
         limit = arguments.get("limit")
         threads = arguments.get("threads", 10)
         delay = arguments.get("delay", 100)
@@ -11049,6 +11123,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 url=url,
                 title=title,
                 tags=tags,
+                follow_links=follow_links,
+                same_domain_only=same_domain_only,
+                max_pages=max_pages,
                 depth=depth,
                 limit=limit,
                 threads=threads,

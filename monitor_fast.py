@@ -28,6 +28,7 @@ from email.utils import parsedate_to_datetime
 sys.path.insert(0, str(Path(__file__).parent))
 
 from server import KnowledgeBase
+from anomaly_detector import AnomalyDetector, CheckResult
 
 try:
     import aiohttp
@@ -64,17 +65,21 @@ async def check_url_async(session, url, timeout=10, max_retries=3):
     Returns:
         Dictionary with check results
     """
+    import time
     last_error = None
 
     for attempt in range(max_retries):
+        start_time = time.time()
         try:
             async with session.head(url, timeout=timeout, allow_redirects=True) as response:
+                response_time = time.time() - start_time
                 return {
                     'url': url,
                     'status': response.status,
                     'headers': dict(response.headers),
                     'error': None,
-                    'attempts': attempt + 1
+                    'attempts': attempt + 1,
+                    'response_time': response_time
                 }
         except asyncio.TimeoutError as e:
             last_error = 'Timeout'
@@ -114,7 +119,8 @@ async def check_url_async(session, url, timeout=10, max_retries=3):
         'status': None,
         'headers': {},
         'error': last_error,
-        'attempts': max_retries
+        'attempts': max_retries,
+        'response_time': 0.0
     }
 
 
@@ -218,14 +224,25 @@ async def check_urls_concurrent(urls, max_concurrent=10, show_progress=True, ada
     return [r if not isinstance(r, Exception) else {'url': 'unknown', 'error': str(r)} for r in results]
 
 
-async def check_url_updates_async(kb, max_concurrent=10):
+async def check_url_updates_async(kb, max_concurrent=10, enable_anomaly_detection=True):
     """Async version of check_url_updates using aiohttp for concurrent requests."""
     results = {
         'unchanged': [],
         'changed': [],
         'failed': [],
-        'scrape_sessions': []
+        'scrape_sessions': [],
+        'anomalies': []
     }
+
+    # Initialize anomaly detector
+    detector = None
+    if enable_anomaly_detection:
+        try:
+            detector = AnomalyDetector(kb)
+            print("[*] Anomaly detection enabled")
+        except RuntimeError as e:
+            print(f"[WARNING] Anomaly detection disabled: {e}")
+            detector = None
 
     # Find all URL-sourced documents
     url_docs = [doc for doc in kb.documents.values() if doc.source_url]
@@ -255,6 +272,9 @@ async def check_url_updates_async(kb, max_concurrent=10):
         if not doc:
             continue
 
+        # Calculate response time
+        response_time = result.get('response_time', 0.0)
+
         # Update last_checked timestamp
         with kb._lock:
             cursor = kb.db_conn.cursor()
@@ -273,6 +293,16 @@ async def check_url_updates_async(kb, max_concurrent=10):
                 'url': url,
                 'error': result['error']
             })
+            # Record failed check
+            if detector:
+                check = CheckResult(
+                    doc_id=doc.doc_id,
+                    status='failed',
+                    response_time=response_time,
+                    http_status=result.get('status'),
+                    error_message=result['error']
+                )
+                detector.record_check(check)
             continue
 
         # Check status code
@@ -283,10 +313,22 @@ async def check_url_updates_async(kb, max_concurrent=10):
                 'url': url,
                 'error': '404 Not Found'
             })
+            # Record failed check
+            if detector:
+                check = CheckResult(
+                    doc_id=doc.doc_id,
+                    status='failed',
+                    response_time=response_time,
+                    http_status=404,
+                    error_message='404 Not Found'
+                )
+                detector.record_check(check)
             continue
 
         # Check Last-Modified header
         page_changed = False
+        anomaly_score = None
+
         if 'Last-Modified' in result['headers']:
             try:
                 last_modified = parsedate_to_datetime(result['headers']['Last-Modified'])
@@ -299,24 +341,59 @@ async def check_url_updates_async(kb, max_concurrent=10):
 
                     if last_modified > scrape_dt:
                         page_changed = True
-                        results['changed'].append({
-                            'doc_id': doc.doc_id,
-                            'title': doc.title,
-                            'url': url,
-                            'last_modified': last_modified.isoformat(),
-                            'scraped_date': doc.scrape_date,
-                            'reason': 'content_modified'
-                        })
             except Exception as e:
                 # Ignore date parsing errors
                 pass
 
-        if not page_changed:
-            results['unchanged'].append({
+        # Record check and calculate anomaly score
+        if detector:
+            check = CheckResult(
+                doc_id=doc.doc_id,
+                status='changed' if page_changed else 'unchanged',
+                change_type='content' if page_changed else None,
+                response_time=response_time,
+                http_status=result['status']
+            )
+            detector.record_check(check)
+
+            # Calculate anomaly score
+            score = detector.calculate_anomaly_score(doc.doc_id, check)
+            anomaly_score = score.total_score
+
+            # Update score in database
+            detector.update_anomaly_score(doc.doc_id, check)
+
+            # Track anomalies (moderate or critical)
+            if score.severity in ['moderate', 'critical']:
+                results['anomalies'].append({
+                    'doc_id': doc.doc_id,
+                    'title': doc.title,
+                    'url': url,
+                    'anomaly_score': anomaly_score,
+                    'severity': score.severity,
+                    'status': 'changed' if page_changed else 'unchanged'
+                })
+
+        # Add to results
+        if page_changed:
+            change_info = {
+                'doc_id': doc.doc_id,
+                'title': doc.title,
+                'url': url,
+                'reason': 'content_modified'
+            }
+            if anomaly_score is not None:
+                change_info['anomaly_score'] = anomaly_score
+            results['changed'].append(change_info)
+        else:
+            unchanged_info = {
                 'doc_id': doc.doc_id,
                 'title': doc.title,
                 'url': url
-            })
+            }
+            if anomaly_score is not None:
+                unchanged_info['anomaly_score'] = anomaly_score
+            results['unchanged'].append(unchanged_info)
 
     # Group by scrape session for statistics
     scrape_sessions = {}
@@ -428,6 +505,8 @@ def main():
     print(f"[OK] Unchanged:     {len(results['unchanged']):3d} documents")
     print(f"[!]  Changed:       {len(results['changed']):3d} documents")
     print(f"[X]  Failed:        {len(results['failed']):3d} checks")
+    if 'anomalies' in results:
+        print(f"[!]  Anomalies:     {len(results['anomalies']):3d} detected")
 
     # Show changed documents
     if results['changed']:
@@ -465,6 +544,24 @@ def main():
             print(f"    Total docs:  {session['docs_count']:3d}")
             print(f"    Unchanged:   {session['unchanged']:3d}")
             print(f"    Changed:     {session['changed']:3d}")
+
+    # Show anomalies
+    if results.get('anomalies'):
+        print("\n" + "-" * 60)
+        print("ANOMALIES DETECTED:")
+        print("-" * 60)
+        for anomaly in results['anomalies']:
+            severity_icons = {
+                'minor': '[~]',
+                'moderate': '[!]',
+                'critical': '[!!]'
+            }
+            icon = severity_icons.get(anomaly.get('severity', 'minor'), '[!]')
+            print(f"\n{icon} {anomaly['title']}")
+            print(f"    URL: {anomaly['url']}")
+            print(f"    Severity: {anomaly.get('severity', 'unknown').upper()}")
+            print(f"    Score: {anomaly.get('anomaly_score', 0):.1f}/100")
+            print(f"    Status: {anomaly.get('status', 'unknown')}")
 
     # Save results
     if args.output:

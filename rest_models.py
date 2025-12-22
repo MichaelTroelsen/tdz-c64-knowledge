@@ -2,595 +2,339 @@
 """
 TDZ C64 Knowledge Base - REST API Models
 
-Pydantic models for request/response validation and OpenAPI documentation.
-Uses Pydantic v2 syntax.
+Pydantic v2 models for request/response validation in the REST API.
 """
 
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
+from datetime import datetime
 
 
-# ========== Common Response Models ==========
+# ============================================================================
+# Common Response Models
+# ============================================================================
 
 class ErrorResponse(BaseModel):
-    """Error response model."""
-    success: bool = False
-    error: str = Field(..., description="Error message")
-    details: Optional[Any] = Field(None, description="Additional error details")
-    status_code: int = Field(..., description="HTTP status code")
+    """Standard error response."""
+    success: bool = Field(default=False, description="Always false for errors")
+    error: str = Field(description="Error message")
+    error_type: Optional[str] = Field(default=None, description="Error type/category")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": False,
-                "error": "Document not found",
-                "details": None,
-                "status_code": 404
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "success": False,
+            "error": "Document not found",
+            "error_type": "not_found"
         }
-    )
+    })
 
 
 class SuccessResponse(BaseModel):
-    """Generic success response wrapper."""
-    success: bool = True
-    data: Any = Field(..., description="Response data")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
+    """Standard success response."""
+    success: bool = Field(default=True, description="Always true for success")
+    message: str = Field(description="Success message")
+    data: Optional[Dict[str, Any]] = Field(default=None, description="Optional response data")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": {"message": "Operation successful"},
-                "metadata": {"timestamp": 1234567890}
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "success": True,
+            "message": "Operation completed successfully",
+            "data": {"doc_id": "abc123"}
         }
-    )
+    })
 
 
-# ========== Search Models ==========
+# ============================================================================
+# Search Models
+# ============================================================================
 
 class SearchRequest(BaseModel):
-    """Search request model."""
-    query: str = Field(..., description="Search query", max_length=500)
-    max_results: int = Field(10, description="Maximum number of results", ge=1, le=100)
-    tags: Optional[List[str]] = Field(None, description="Filter by tags")
+    """Request model for basic search."""
+    query: str = Field(description="Search query string", min_length=1)
+    max_results: int = Field(default=10, description="Maximum results", ge=1, le=100)
+    tags: Optional[List[str]] = Field(default=None, description="Filter by tags")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "query": "sprite graphics VIC-II",
-                "max_results": 10,
-                "tags": ["graphics", "hardware"]
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "query": "VIC-II sprites",
+            "max_results": 10,
+            "tags": ["c64", "hardware"]
         }
-    )
+    })
 
 
 class SemanticSearchRequest(SearchRequest):
-    """Semantic search request model."""
-    top_k: int = Field(100, description="Number of candidates for semantic search", ge=1, le=1000)
+    """Request model for semantic search."""
+    top_k: int = Field(default=5, description="Number of semantic matches", ge=1, le=50)
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "query": "How do sprites work on the VIC-II?",
-                "max_results": 5,
-                "top_k": 50
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "query": "How do sprites work?",
+            "max_results": 10,
+            "top_k": 5
         }
-    )
+    })
 
 
 class HybridSearchRequest(SearchRequest):
-    """Hybrid search request model."""
-    semantic_weight: float = Field(0.5, description="Weight for semantic results (0.0-1.0)", ge=0.0, le=1.0)
-    top_k: int = Field(100, description="Number of candidates for semantic search", ge=1, le=1000)
+    """Request model for hybrid search."""
+    semantic_weight: float = Field(default=0.5, description="Weight for semantic search (0.0-1.0)", ge=0.0, le=1.0)
+    top_k: int = Field(default=5, description="Number of semantic matches", ge=1, le=50)
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "query": "SID chip sound programming",
-                "max_results": 10,
-                "semantic_weight": 0.7,
-                "top_k": 100
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "query": "sprite collision detection",
+            "max_results": 10,
+            "semantic_weight": 0.5,
+            "top_k": 5
         }
-    )
+    })
 
 
 class FacetedSearchRequest(SearchRequest):
-    """Faceted search request model."""
-    facet_filters: Dict[str, List[str]] = Field(
-        ...,
+    """Request model for faceted search."""
+    facet_filters: Optional[Dict[str, List[str]]] = Field(
+        default=None,
         description="Facet filters (e.g., {'hardware': ['VIC-II', 'SID']})"
     )
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "query": "programming",
-                "max_results": 10,
-                "facet_filters": {
-                    "hardware": ["VIC-II", "SID"],
-                    "concept": ["sprite", "sound"]
-                }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "query": "sound programming",
+            "max_results": 10,
+            "facet_filters": {
+                "hardware": ["SID"],
+                "instructions": ["LDA", "STA"]
             }
         }
-    )
+    })
 
 
 class SearchResult(BaseModel):
-    """Individual search result."""
-    doc_id: str = Field(..., description="Document ID")
-    chunk_id: int = Field(..., description="Chunk ID")
-    title: str = Field(..., description="Document title")
-    filename: str = Field(..., description="Document filename")
-    snippet: str = Field(..., description="Matching text snippet")
-    score: float = Field(..., description="Relevance score")
-    page: Optional[int] = Field(None, description="Page number (if available)")
+    """Single search result."""
+    doc_id: str = Field(description="Document ID")
+    title: str = Field(description="Document title")
+    score: float = Field(description="Relevance score")
+    snippet: str = Field(description="Text snippet/preview")
     tags: List[str] = Field(default_factory=list, description="Document tags")
+    filename: Optional[str] = Field(default=None, description="Source filename")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "doc_id": "89d0943d6009",
-                "chunk_id": 42,
-                "title": "Commodore 64 Programmer's Reference Guide",
-                "filename": "c64-programmers-reference.pdf",
-                "snippet": "The VIC-II chip controls sprite graphics...",
-                "score": 0.92,
-                "page": 127,
-                "tags": ["reference", "graphics", "hardware"]
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "doc_id": "abc123",
+            "title": "VIC-II Programming Guide",
+            "score": 0.85,
+            "snippet": "The VIC-II chip controls sprites...",
+            "tags": ["c64", "hardware", "vic-ii"],
+            "filename": "vic-ii-guide.pdf"
         }
-    )
+    })
 
 
 class SearchResponse(BaseModel):
-    """Search response model."""
-    success: bool = True
-    data: Dict[str, Any] = Field(..., description="Search results container")
-    metadata: Dict[str, Any] = Field(
-        ...,
-        description="Search metadata (total results, query time, etc.)"
-    )
+    """Response model for search operations."""
+    success: bool = Field(default=True, description="Operation success")
+    query: str = Field(description="Original search query")
+    results: List[SearchResult] = Field(description="Search results")
+    total_results: int = Field(description="Total number of results")
+    search_time_ms: float = Field(description="Search time in milliseconds")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": [
-                    {
-                        "doc_id": "89d0943d6009",
-                        "chunk_id": 42,
-                        "title": "C64 Programmer's Reference",
-                        "filename": "c64-ref.pdf",
-                        "snippet": "VIC-II sprite graphics...",
-                        "score": 0.92,
-                        "page": 127,
-                        "tags": ["reference"]
-                    }
-                ],
-                "metadata": {
-                    "total_results": 1,
-                    "query_time_ms": 45.2,
-                    "search_mode": "hybrid"
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "success": True,
+            "query": "VIC-II sprites",
+            "results": [
+                {
+                    "doc_id": "abc123",
+                    "title": "VIC-II Programming",
+                    "score": 0.92,
+                    "snippet": "Sprite programming...",
+                    "tags": ["c64", "vic-ii"],
+                    "filename": "vic-guide.pdf"
                 }
-            }
+            ],
+            "total_results": 1,
+            "search_time_ms": 15.3
         }
-    )
+    })
 
 
-# ========== Document Models ==========
+# ============================================================================
+# Document Models
+# ============================================================================
 
 class DocumentMetadata(BaseModel):
-    """Document metadata model."""
-    doc_id: str = Field(..., description="Document ID")
-    title: str = Field(..., description="Document title")
-    filename: str = Field(..., description="Original filename")
-    file_type: str = Field(..., description="File type (pdf, txt, md, etc.)")
-    total_chunks: int = Field(..., description="Number of chunks")
-    total_pages: Optional[int] = Field(None, description="Number of pages (if applicable)")
-    indexed_at: str = Field(..., description="Index timestamp (ISO format)")
+    """Document metadata."""
+    doc_id: str = Field(description="Document ID")
+    title: str = Field(description="Document title")
+    filename: Optional[str] = Field(default=None, description="Source filename")
     tags: List[str] = Field(default_factory=list, description="Document tags")
-    source_url: Optional[str] = Field(None, description="Source URL (if scraped)")
+    created_at: str = Field(description="Creation timestamp")
+    num_chunks: int = Field(description="Number of chunks")
+    num_tables: int = Field(description="Number of tables extracted")
+    num_code_blocks: int = Field(description="Number of code blocks")
+    source_url: Optional[str] = Field(default=None, description="Source URL if scraped")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "doc_id": "89d0943d6009",
-                "title": "Commodore 64 Programmer's Reference Guide",
-                "filename": "c64-programmers-reference.pdf",
-                "file_type": "pdf",
-                "total_chunks": 93,
-                "total_pages": 504,
-                "indexed_at": "2025-12-21T10:30:00Z",
-                "tags": ["reference", "c64", "programming"],
-                "source_url": None
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "doc_id": "abc123",
+            "title": "C64 Programmer's Reference",
+            "filename": "c64-ref.pdf",
+            "tags": ["c64", "reference"],
+            "created_at": "2025-12-22T08:00:00",
+            "num_chunks": 150,
+            "num_tables": 5,
+            "num_code_blocks": 23,
+            "source_url": None
         }
-    )
-
-
-class DocumentResponse(BaseModel):
-    """Document response model."""
-    success: bool = True
-    data: DocumentMetadata = Field(..., description="Document metadata")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": {
-                    "doc_id": "89d0943d6009",
-                    "title": "C64 Programmer's Reference",
-                    "filename": "c64-ref.pdf",
-                    "file_type": "pdf",
-                    "total_chunks": 93,
-                    "total_pages": 504,
-                    "indexed_at": "2025-12-21T10:30:00Z",
-                    "tags": ["reference"]
-                }
-            }
-        }
-    )
+    })
 
 
 class DocumentListResponse(BaseModel):
-    """Document list response model."""
-    success: bool = True
-    data: Dict[str, Any] = Field(..., description="Documents container")
-    metadata: Dict[str, Any] = Field(
-        ...,
-        description="List metadata (total count, filters applied, etc.)"
-    )
+    """Response model for document list."""
+    success: bool = Field(default=True)
+    documents: List[DocumentMetadata] = Field(description="List of documents")
+    total: int = Field(description="Total number of documents")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": [
-                    {
-                        "doc_id": "89d0943d6009",
-                        "title": "C64 Programmer's Reference",
-                        "filename": "c64-ref.pdf",
-                        "file_type": "pdf",
-                        "total_chunks": 93,
-                        "total_pages": 504,
-                        "indexed_at": "2025-12-21T10:30:00Z",
-                        "tags": ["reference"]
-                    }
-                ],
-                "metadata": {
-                    "total_documents": 1,
-                    "filters": {}
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "success": True,
+            "documents": [
+                {
+                    "doc_id": "abc123",
+                    "title": "C64 Reference",
+                    "filename": "c64-ref.pdf",
+                    "tags": ["c64"],
+                    "created_at": "2025-12-22T08:00:00",
+                    "num_chunks": 100,
+                    "num_tables": 3,
+                    "num_code_blocks": 10,
+                    "source_url": None
                 }
-            }
+            ],
+            "total": 1
         }
-    )
+    })
 
 
-# ========== Document CRUD Models (Sprint 7) ==========
+class DocumentCreateRequest(BaseModel):
+    """Request model for creating a document."""
+    title: Optional[str] = Field(default=None, description="Document title (auto-generated if not provided)")
+    tags: Optional[List[str]] = Field(default=None, description="Document tags")
+
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "title": "My C64 Document",
+            "tags": ["c64", "custom"]
+        }
+    })
+
 
 class DocumentUpdateRequest(BaseModel):
-    """Document update request model."""
-    title: Optional[str] = Field(None, description="New title")
-    tags: Optional[List[str]] = Field(None, description="New tags (replaces existing)")
-    add_tags: Optional[List[str]] = Field(None, description="Tags to add")
-    remove_tags: Optional[List[str]] = Field(None, description="Tags to remove")
+    """Request model for updating document metadata."""
+    title: Optional[str] = Field(default=None, description="New title")
+    tags: Optional[List[str]] = Field(default=None, description="New tags (replaces existing)")
+    add_tags: Optional[List[str]] = Field(default=None, description="Tags to add")
+    remove_tags: Optional[List[str]] = Field(default=None, description="Tags to remove")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "title": "Updated C64 Reference Guide",
-                "add_tags": ["updated", "v2"],
-                "remove_tags": ["draft"]
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "title": "Updated Title",
+            "add_tags": ["important"],
+            "remove_tags": ["draft"]
         }
-    )
+    })
 
 
-class BulkDeleteRequest(BaseModel):
-    """Bulk delete request model."""
-    doc_ids: List[str] = Field(..., description="List of document IDs to delete", min_length=1)
-    confirm: bool = Field(False, description="Confirmation flag (must be true)")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "doc_ids": ["89d0943d6009", "a1b2c3d4e5f6"],
-                "confirm": True
-            }
-        }
-    )
-
-
-class BulkOperationResponse(BaseModel):
-    """Bulk operation response model."""
-    success: bool = True
-    data: Dict[str, Any] = Field(..., description="Operation results")
-    metadata: Dict[str, Any] = Field(..., description="Operation metadata")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": {
-                    "successful": ["89d0943d6009"],
-                    "failed": [],
-                    "errors": {}
-                },
-                "metadata": {
-                    "total_requested": 1,
-                    "successful_count": 1,
-                    "failed_count": 0
-                }
-            }
-        }
-    )
-
-
-# ========== URL Scraping Models (Sprint 7) ==========
+# ============================================================================
+# URL Scraping Models
+# ============================================================================
 
 class ScrapeRequest(BaseModel):
-    """URL scraping request model."""
-    url: str = Field(..., description="URL to scrape", min_length=1)
-    max_depth: int = Field(1, description="Maximum crawl depth", ge=1, le=5)
-    max_pages: int = Field(10, description="Maximum pages to scrape", ge=1, le=100)
-    tags: Optional[List[str]] = Field(None, description="Tags to apply to scraped documents")
-    allowed_domains: Optional[List[str]] = Field(None, description="Restrict scraping to these domains")
-    max_workers: int = Field(3, description="Number of concurrent workers", ge=1, le=10)
+    """Request model for URL scraping."""
+    url: str = Field(description="URL to scrape", pattern=r'^https?://')
+    title: Optional[str] = Field(default=None, description="Document title")
+    tags: Optional[List[str]] = Field(default=None, description="Document tags")
+    follow_links: bool = Field(default=True, description="Follow links to sub-pages")
+    same_domain_only: bool = Field(default=True, description="Only follow links on same domain")
+    max_pages: int = Field(default=50, description="Maximum pages to scrape", ge=1, le=500)
+    depth: int = Field(default=3, description="Maximum link depth", ge=1, le=10)
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "url": "https://www.c64-wiki.com/wiki/VIC",
-                "max_depth": 2,
-                "max_pages": 20,
-                "tags": ["c64-wiki", "reference"],
-                "allowed_domains": ["c64-wiki.com"],
-                "max_workers": 5
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "url": "http://example.com/c64-docs",
+            "title": "C64 Documentation",
+            "tags": ["c64", "web"],
+            "follow_links": True,
+            "same_domain_only": True,
+            "max_pages": 50,
+            "depth": 3
         }
-    )
-
-
-class RescrapeRequest(BaseModel):
-    """Re-scrape request model."""
-    force: bool = Field(False, description="Force re-scrape even if no changes detected")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "force": False
-            }
-        }
-    )
+    })
 
 
 class ScrapeResponse(BaseModel):
-    """Scrape response model."""
-    success: bool = True
-    data: Dict[str, Any] = Field(..., description="Scrape results")
-    metadata: Dict[str, Any] = Field(..., description="Scrape metadata")
+    """Response model for scraping operations."""
+    success: bool = Field(default=True)
+    url: str = Field(description="Scraped URL")
+    files_scraped: int = Field(description="Number of files scraped")
+    docs_added: int = Field(description="Documents added")
+    docs_updated: int = Field(description="Documents updated")
+    doc_ids: List[str] = Field(description="Document IDs")
+    frames_detected: Optional[int] = Field(default=None, description="Number of frames detected (if frameset)")
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": {
-                    "documents_added": 5,
-                    "pages_scraped": 5,
-                    "doc_ids": ["abc123", "def456"]
-                },
-                "metadata": {
-                    "start_url": "https://example.com",
-                    "duration_seconds": 12.5,
-                    "errors": []
-                }
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "success": True,
+            "url": "http://example.com/docs",
+            "files_scraped": 18,
+            "docs_added": 18,
+            "docs_updated": 0,
+            "doc_ids": ["abc123", "def456"],
+            "frames_detected": 2
         }
-    )
+    })
 
 
-class UpdateCheckResponse(BaseModel):
-    """URL update check response model."""
-    success: bool = True
-    data: Dict[str, Any] = Field(..., description="Update check results")
-    metadata: Dict[str, Any] = Field(..., description="Check metadata")
+# ============================================================================
+# Analytics Models
+# ============================================================================
 
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": {
-                    "total_checked": 10,
-                    "updates_available": 2,
-                    "updated_docs": ["abc123", "def456"]
-                },
-                "metadata": {
-                    "check_time": "2025-12-21T10:30:00Z"
-                }
-            }
+class StatsResponse(BaseModel):
+    """Response model for knowledge base statistics."""
+    success: bool = Field(default=True)
+    total_documents: int = Field(description="Total number of documents")
+    total_chunks: int = Field(description="Total number of chunks")
+    total_entities: int = Field(description="Total unique entities")
+    total_relationships: int = Field(description="Total entity relationships")
+    database_size_mb: float = Field(description="Database size in MB")
+    semantic_search_enabled: bool = Field(description="Semantic search available")
+
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "success": True,
+            "total_documents": 159,
+            "total_chunks": 2612,
+            "total_entities": 989,
+            "total_relationships": 128,
+            "database_size_mb": 45.2,
+            "semantic_search_enabled": True
         }
-    )
+    })
 
 
-# ========== AI Feature Models (Sprint 7) ==========
+class HealthResponse(BaseModel):
+    """Response model for health check."""
+    status: str = Field(description="Service status", pattern="^(healthy|degraded|unhealthy)$")
+    version: str = Field(description="API version")
+    database_ok: bool = Field(description="Database accessible")
+    semantic_search_ok: bool = Field(description="Semantic search available")
 
-class SummarizeRequest(BaseModel):
-    """Document summarization request model."""
-    max_length: int = Field(500, description="Maximum summary length in words", ge=50, le=2000)
-    style: str = Field("technical", description="Summary style", pattern="^(technical|simple|detailed)$")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "max_length": 300,
-                "style": "technical"
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "status": "healthy",
+            "version": "2.17.1",
+            "database_ok": True,
+            "semantic_search_ok": True
         }
-    )
-
-
-class SummarizeResponse(BaseModel):
-    """Summarization response model."""
-    success: bool = True
-    data: Dict[str, Any] = Field(..., description="Summarization results")
-    metadata: Dict[str, Any] = Field(..., description="Summarization metadata")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": {
-                    "summary": "This document covers VIC-II sprite graphics...",
-                    "doc_id": "89d0943d6009",
-                    "title": "C64 Programmer's Reference"
-                },
-                "metadata": {
-                    "word_count": 287,
-                    "generation_time_ms": 1250.5
-                }
-            }
-        }
-    )
-
-
-class EntityExtractionRequest(BaseModel):
-    """Entity extraction request model."""
-    confidence_threshold: float = Field(0.7, description="Minimum confidence for entities", ge=0.0, le=1.0)
-    entity_types: Optional[List[str]] = Field(None, description="Limit to specific entity types")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "confidence_threshold": 0.8,
-                "entity_types": ["hardware", "instruction"]
-            }
-        }
-    )
-
-
-class EntitySearchRequest(BaseModel):
-    """Entity search request model."""
-    entity_text: str = Field(..., description="Entity text to search for", min_length=1)
-    entity_type: Optional[str] = Field(None, description="Filter by entity type")
-    min_confidence: float = Field(0.0, description="Minimum confidence", ge=0.0, le=1.0)
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "entity_text": "VIC-II",
-                "entity_type": "hardware",
-                "min_confidence": 0.7
-            }
-        }
-    )
-
-
-class EntityResponse(BaseModel):
-    """Entity response model."""
-    success: bool = True
-    data: List[Dict[str, Any]] = Field(..., description="Entity data")
-    metadata: Dict[str, Any] = Field(..., description="Entity metadata")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": [
-                    {
-                        "entity_text": "VIC-II",
-                        "entity_type": "hardware",
-                        "confidence": 0.95,
-                        "occurrences": 42
-                    }
-                ],
-                "metadata": {
-                    "total_entities": 1,
-                    "doc_id": "89d0943d6009"
-                }
-            }
-        }
-    )
-
-
-class RelationshipResponse(BaseModel):
-    """Relationship response model."""
-    success: bool = True
-    data: List[Dict[str, Any]] = Field(..., description="Relationship data")
-    metadata: Dict[str, Any] = Field(..., description="Relationship metadata")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": [
-                    {
-                        "entity1": "VIC-II",
-                        "entity1_type": "hardware",
-                        "entity2": "sprite",
-                        "entity2_type": "concept",
-                        "relationship_strength": 0.89,
-                        "co_occurrences": 15
-                    }
-                ],
-                "metadata": {
-                    "total_relationships": 1,
-                    "entity": "VIC-II"
-                }
-            }
-        }
-    )
-
-
-# ========== Analytics Models (Sprint 8) ==========
-
-class SearchAnalyticsResponse(BaseModel):
-    """Search analytics response model."""
-    success: bool = True
-    data: Dict[str, Any] = Field(..., description="Analytics data")
-    metadata: Dict[str, Any] = Field(..., description="Analytics metadata")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "success": True,
-                "data": {
-                    "total_searches": 1250,
-                    "unique_queries": 487,
-                    "avg_results_per_search": 8.3,
-                    "top_queries": [
-                        {"query": "sprite", "count": 45},
-                        {"query": "VIC-II", "count": 38}
-                    ],
-                    "search_mode_distribution": {
-                        "keyword": 650,
-                        "semantic": 350,
-                        "hybrid": 250
-                    }
-                },
-                "metadata": {
-                    "time_range_days": 30,
-                    "generated_at": "2025-12-21T10:30:00Z"
-                }
-            }
-        }
-    )
-
-
-# ========== Export Models (Sprint 8) ==========
-
-class ExportFormat(BaseModel):
-    """Export format selection."""
-    format: str = Field("csv", description="Export format", pattern="^(csv|json)$")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "format": "csv"
-            }
-        }
-    )
+    })

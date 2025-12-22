@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.17.0"
-__version_info__ = (2, 17, 0)
+__version__ = "2.17.1"
+__version_info__ = (2, 17, 1)
 
 # Build information
-__build_date__ = "2025-12-21"
+__build_date__ = "2025-12-22"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"
@@ -48,10 +48,42 @@ FEATURES = {
     "document_comparison": "2.17.0",
     "entity_export": "2.17.0",
     "relationship_export": "2.17.0",
+    "frame_detection": "2.17.1",
+    "automatic_frame_scraping": "2.17.1",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.17.1 (2025-12-22)
+  🌐 ENHANCEMENT: Automatic HTML Frame Detection and Scraping
+
+  Frame Detection & Handling:
+  - Automatic detection of <frameset>, <frame>, and <iframe> pages
+  - Extract frame source URLs and convert relative paths to absolute
+  - Scrape each frame individually with recursive link following
+  - Combine results from all frames into single unified response
+  - No user configuration required - fully automatic
+
+  Implementation:
+  - New method: _detect_and_extract_frames() using requests + regex
+  - Modified scrape_url() to detect frames before calling mdscrape
+  - Frame scraping uses parent directory as URL limit for proper link following
+  - Duplicate content detection working across frames
+
+  Testing & Validation:
+  - Successfully tested on sidmusic.org/sid/ (frame-based site)
+  - Scraped 2 frames + 18 sub-pages (technical docs, composers, SID player, etc.)
+  - Proper handling of duplicate content across frames
+  - Response includes 'frames_detected' field for transparency
+
+  Documentation:
+  - Updated WEB_SCRAPING_GUIDE.md with frame handling section
+  - Added troubleshooting entry for frameset pages
+  - Updated example results to reflect frame detection
+
+  This resolves scraping limitations on legacy documentation sites that use
+  HTML frames (common in 1990s-era C64 documentation archives).
+
 v2.17.0 (2025-12-21)
   🚀 MAJOR RELEASE: Quick Wins Complete - AI-Powered Intelligence Features
 

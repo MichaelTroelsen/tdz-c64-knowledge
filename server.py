@@ -9445,7 +9445,11 @@ Return ONLY valid JSON, no additional text.
             health['features']['fts5_enabled'] = os.environ.get('USE_FTS5', '0') == '1'
             health['features']['fts5_available'] = self._fts5_available()
             health['features']['semantic_search_enabled'] = self.use_semantic
-            health['features']['semantic_search_available'] = self.embeddings_index is not None
+            # Check if embeddings are loaded OR if embeddings files exist (lazy loading)
+            health['features']['semantic_search_available'] = (
+                self.embeddings_index is not None or
+                (self.embeddings_file.exists() and self.embeddings_map_file.exists())
+            )
             health['features']['bm25_enabled'] = os.environ.get('USE_BM25', '1') == '1'
             health['features']['query_preprocessing'] = os.environ.get('USE_QUERY_PREPROCESSING', '1') == '1'
 
@@ -9461,11 +9465,21 @@ Return ONLY valid JSON, no additional text.
                     health['issues'].append("Semantic search enabled but embeddings not built")
                     health['status'] = 'warning'
                 else:
-                    # Check embeddings file size
+                    # Check embeddings file size (works for both loaded and lazy-loaded)
                     if self.embeddings_file.exists():
                         emb_size_mb = self.embeddings_file.stat().st_size / (1024 * 1024)
                         health['features']['embeddings_size_mb'] = round(emb_size_mb, 2)
-                        health['features']['embeddings_count'] = len(self.embeddings_doc_map)
+
+                        # Get count from loaded index or from map file
+                        if self.embeddings_index is not None:
+                            health['features']['embeddings_count'] = len(self.embeddings_doc_map)
+                        elif self.embeddings_map_file.exists():
+                            try:
+                                with open(self.embeddings_map_file, 'r') as f:
+                                    embeddings_map = json.load(f)
+                                    health['features']['embeddings_count'] = len(embeddings_map)
+                            except Exception:
+                                pass
 
             # Performance metrics
             health['performance']['cache_enabled'] = self._search_cache is not None

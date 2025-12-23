@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Health Check False Positive** - Fixed health_check() incorrectly reporting "Semantic search enabled but embeddings not built" when using lazy-loaded embeddings
+  - Health check now properly detects embeddings files on disk (not just in-memory)
+  - Shows correct embeddings count and size even when not yet loaded
+  - Fixes false warning for systems using lazy loading (default behavior)
+
 ## [2.18.0] - 2025-12-21
 
 ### Added

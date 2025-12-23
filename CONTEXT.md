@@ -56,6 +56,9 @@ TDZ C64 Knowledge is an MCP (Model Context Protocol) server that provides Claude
 - `search_tables` - Search extracted tables
 - `search_code` - Search code blocks
 - `find_similar` - Find similar documents
+- `fuzzy_search` - Typo-tolerant search (Phase 2)
+- `search_within_results` - Progressive search refinement (Phase 2)
+- `answer_question` - RAG-based question answering (Phase 2)
 
 ### Document Management
 - `add_document` - Index a file
@@ -82,6 +85,9 @@ TDZ C64 Knowledge is an MCP (Model Context Protocol) server that provides Claude
 - `compare_documents` - Side-by-side document comparison
 - `export_entities` - Export entities to CSV/JSON
 - `export_relationships` - Export relationships to CSV/JSON
+- `suggest_tags` - AI-powered tag suggestions (Phase 2)
+- `add_tags_to_document` - Apply tags to documents (Phase 2)
+- `get_tags_by_category` - Browse tags by category (Phase 2)
 
 ### System
 - `kb_stats` - Knowledge base statistics
@@ -139,7 +145,26 @@ python -m streamlit run admin_gui.py
 
 ## Version History Highlights
 
-### v2.21.0 (Current) - Anomaly Detection
+### v2.23.0 (Current) - RAG Question Answering & Advanced Search
+**Phase 2 Complete - Advanced Search & Discovery**
+- RAG-based question answering with citations (answer_question MCP tool)
+- Intelligent source retrieval with smart search mode selection
+- Fuzzy search with typo tolerance (rapidfuzz)
+- Progressive search refinement (search_within_results)
+- Smart document tagging system (suggest_tags, get_tags_by_category, add_tags_to_document)
+- Token-budget aware context building for LLM integration
+- Citation extraction and validation from generated answers
+- Graceful fallback when LLM unavailable
+
+### v2.22.0 - Search Improvements & Phase 1 Optimization
+**Phase 1 Complete - AI-Powered Intelligence**
+- Enhanced entity analytics and relationship tracking (Phase 3)
+- Performance optimization for health_check (93% faster)
+- Performance optimization for get_stats (12% faster)
+- Anomaly detection for URL-sourced content
+- Document version tracking and update detection
+
+### v2.21.0 - Anomaly Detection
 - Intelligent anomaly detection with ML-based baseline learning
 - 1500x performance improvement (3400+ docs/second)
 - Automated content change detection for URL-sourced documents
@@ -182,5 +207,17 @@ python -m streamlit run admin_gui.py
 - Lazy loading architecture for scalability (100k+ documents)
 - Content-based duplicate detection via MD5 hashing
 
+## Development Status
+
+**Phase Progress:**
+- ✅ Phase 1: AI-Powered Intelligence (v2.13.0-v2.22.0) - Complete
+- ✅ Phase 2: Advanced Search & Discovery (v2.23.0) - Complete
+- ✅ Phase 3: Content Intelligence (v2.15-v2.22.0) - Complete
+  - Entity extraction, relationship mapping, version tracking, anomaly detection
+- 🔄 Phase 4: C64-Specific Features (Upcoming)
+  - VICE Emulator Integration, PRG File Analysis, SID Music Metadata
+- 🎯 Phase 5: Collaboration & Integration (2026)
+  - REST API (already in v2.18.0), Plugin System
+
 ## Version
-Current: v2.21.0 (Anomaly Detection, Performance Optimizations, REST API, Entity Analytics)
+Current: v2.23.0 (RAG Question Answering, Fuzzy Search, Smart Tagging, Phase 2 Complete)

@@ -6804,38 +6804,67 @@ Important:
         # Build entity -> type mapping from the entities list
         entity_map = {e['entity_text']: e['entity_type'] for e in entity_result['entities']}
 
-        # Find co-occurrences
+        # Find co-occurrences with enhanced distance-based strength calculation
         relationships = {}  # (entity1, entity2) -> strength
         relationship_contexts = {}  # (entity1, entity2) -> context
+        total_chunks = len(chunks)
 
         for chunk in chunks:
             content = chunk.content
-            # Find which entities appear in this chunk
-            entities_in_chunk = [e for e in entity_map.keys() if e in content]
+            # Find which entities appear in this chunk and their positions
+            entity_positions = {}
+            for entity in entity_map.keys():
+                pos = content.find(entity)
+                if pos != -1:
+                    entity_positions[entity] = pos
 
-            # Create pairs of co-occurring entities
+            entities_in_chunk = list(entity_positions.keys())
+
+            # Create pairs of co-occurring entities with distance-based scoring
             for i, e1 in enumerate(entities_in_chunk):
                 for e2 in entities_in_chunk[i+1:]:
                     # Sort entities alphabetically to avoid duplicates (A,B) vs (B,A)
                     pair = tuple(sorted([e1, e2]))
 
-                    # Increment strength
-                    relationships[pair] = relationships.get(pair, 0) + 1
+                    # Calculate distance-based strength
+                    pos1 = entity_positions[e1]
+                    pos2 = entity_positions[e2]
+                    distance = abs(pos2 - pos1)
+
+                    # Distance-based weight: closer = stronger
+                    # Uses exponential decay: weight = e^(-distance/decay_factor)
+                    import math
+                    decay_factor = 500  # Characters - tune this for sensitivity
+                    distance_weight = math.exp(-distance / decay_factor)
+
+                    # Base strength from co-occurrence + distance weight
+                    # This gives 1.0 for same position, ~0.61 for 500 chars apart, ~0.37 for 1000 chars
+                    strength_increment = 1.0 * distance_weight
+
+                    # Add to cumulative strength
+                    relationships[pair] = relationships.get(pair, 0) + strength_increment
 
                     # Store context (first occurrence)
                     if pair not in relationship_contexts:
                         # Extract context around both entities
-                        start_idx = max(0, content.find(e1) - 50)
-                        end_idx = min(len(content), content.find(e2) + len(e2) + 50)
+                        start_idx = max(0, min(pos1, pos2) - 50)
+                        end_idx = min(len(content), max(pos1, pos2) + max(len(e1), len(e2)) + 50)
                         context = content[start_idx:end_idx].strip()
                         relationship_contexts[pair] = context
 
-        # Normalize strength scores (0.0-1.0)
-        max_strength = max(relationships.values()) if relationships else 1
-        normalized_relationships = {
-            pair: strength / max_strength
-            for pair, strength in relationships.items()
-        }
+        # Enhanced normalization with logarithmic scaling
+        # This prevents a few very high counts from dominating
+        if relationships:
+            max_strength = max(relationships.values())
+            # Use log scaling for better distribution
+            normalized_relationships = {}
+            for pair, strength in relationships.items():
+                # Log-scale normalization: more even distribution of scores
+                # Formula: log(1 + strength) / log(1 + max_strength)
+                import math
+                normalized_relationships[pair] = math.log(1 + strength) / math.log(1 + max_strength)
+        else:
+            normalized_relationships = {}
 
         # Store relationships in database
         cursor = self.db_conn.cursor()

@@ -42,6 +42,7 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
 - **Search term highlighting** - Matching terms highlighted in search results
 - **Tag-based filtering** - Organize docs by topic (memory-map, sid, vic-ii, basic, assembly, etc.)
 - **Smart tag suggestions** - AI-powered tag recommendations organized by category (hardware, programming, document-type, difficulty)
+- **Question answering with RAG** - Answer natural language questions by synthesizing documentation with citations
 
 ### Document Management
 - **Multiple file formats** - Ingest PDFs, text files (.txt), Markdown (.md), HTML (.html, .htm), and Excel files (.xlsx, .xls)
@@ -57,6 +58,13 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
 - **ACID transactions** - SQLite ensures data integrity
 
 ### AI-Powered Features
+- **Retrieval-Augmented Generation (RAG)** - Answer questions by synthesizing documentation with citations
+  - **Intelligent source retrieval** - Automatically selects best search mode (keyword/semantic/hybrid)
+  - **Context awareness** - Builds coherent documentation context with token budget management
+  - **Citation extraction** - Tracks which sources support each claim
+  - **Confidence scoring** - 0.0-1.0 confidence based on source agreement and LLM certainty
+  - **Graceful degradation** - Falls back to structured summary when LLM unavailable
+  - **Works with multiple LLMs** - Supports Anthropic, OpenAI, and other providers
 - **Natural Language Query Translation** - Convert natural language queries to structured search parameters
   - **AI-powered parsing** - Understands "find sprite info on VIC-II" and translates to structured query
   - **Entity extraction** - Identifies hardware, concepts, and technical terms in user queries
@@ -953,6 +961,61 @@ compare_documents(
 - Chunk count comparison
 
 Useful for finding duplicate or related documents, tracking document changes, and analyzing content overlap.
+
+#### answer_question
+
+Answer questions about C64 documentation using Retrieval-Augmented Generation (RAG). The system automatically retrieves relevant documentation and synthesizes answers with citations.
+
+```
+answer_question(
+  question="How do I program sprites on the VIC-II?",
+  max_sources=5,           # Max documentation sources to use (1-20)
+  search_mode="auto"       # Auto, keyword, semantic, or hybrid search
+)
+```
+
+**Returns:**
+- Generated answer synthesized from documentation
+- List of source documents with page numbers and relevance scores
+- Confidence score (0.0-1.0)
+- Search mode used and LLM model
+- Graceful fallback to search summary if LLM unavailable
+
+**Features:**
+- Smart query translation to select best search mode
+- Token-budget aware context building
+- Citation extraction and validation
+- Confidence scoring based on source agreement
+- Fallback summaries when LLM unavailable
+- Works with or without LLM configured
+
+**Examples:**
+
+Get a detailed answer with multiple sources:
+```
+answer_question(
+  question="What memory addresses are important for graphics programming?",
+  max_sources=5,
+  search_mode="auto"
+)
+```
+
+Use specific search strategy:
+```
+answer_question(
+  question="VIC-II sprite programming",
+  max_sources=3,
+  search_mode="semantic"
+)
+```
+
+**Use Cases:**
+- Learning C64 programming concepts
+- Quick reference lookups with citations
+- Understanding hardware specifications
+- Exploring relationships between topics
+
+This is the highest-impact feature - transforms the knowledge base from a search tool into an intelligent assistant.
 
 #### health_check
 Perform health check on the knowledge base system.

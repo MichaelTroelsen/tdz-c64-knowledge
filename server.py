@@ -9225,6 +9225,331 @@ Return ONLY the JSON object, no other text."""
 
         return refined_results
 
+    def answer_question(self, question: str, max_context_chunks: int = 5,
+                       force_search_mode: Optional[str] = None) -> dict:
+        """
+        Answer a question using RAG (Retrieval-Augmented Generation).
+
+        Retrieves relevant documentation and uses LLM to synthesize an answer
+        with citations to source material.
+
+        Args:
+            question: The question to answer about C64 documentation
+            max_context_chunks: Maximum number of documentation chunks to use for context
+            force_search_mode: Override search mode ('keyword', 'semantic', 'hybrid', or None for auto)
+
+        Returns:
+            Dictionary with answer, sources, confidence, and metadata:
+            {
+                'answer': str,              # Generated answer text
+                'sources': list[dict],      # Citations with metadata
+                'confidence': float,        # 0.0-1.0 confidence score
+                'search_results': list,     # Top-N search results used
+                'reasoning': str,           # Explanation of how answer was derived
+                'model': str,               # LLM model used
+                'error': str or None        # Error message if applicable
+            }
+        """
+        start_time = time.time()
+
+        if not question or len(question.strip()) < 3:
+            return {
+                'answer': None,
+                'sources': [],
+                'confidence': 0.0,
+                'search_results': [],
+                'reasoning': 'Invalid question: too short',
+                'model': 'N/A',
+                'error': 'Question must be at least 3 characters long'
+            }
+
+        self.logger.info(f"Answering question: '{question}'")
+
+        try:
+            # Step 1: Translate natural language query to understand intent
+            translation = self.translate_nl_query(question, confidence_threshold=0.7)
+            query_confidence = translation.get('confidence', 0.5)
+
+            # Step 2: Choose search strategy
+            if force_search_mode:
+                search_mode = force_search_mode
+            else:
+                search_mode = translation.get('search_mode', 'hybrid')
+
+            # Step 3: Retrieve relevant context
+            if search_mode == 'semantic' and self.use_semantic:
+                results = self.semantic_search(question, max_context_chunks * 2)
+            elif search_mode == 'hybrid' and self.use_semantic:
+                results = self.hybrid_search(question, max_context_chunks * 2)
+            else:
+                results = self.search(question, max_context_chunks * 2)
+
+            if not results:
+                self.logger.warning(f"No search results found for question: {question}")
+                return {
+                    'answer': f"I could not find relevant documentation to answer: {question}",
+                    'sources': [],
+                    'confidence': 0.1,
+                    'search_results': [],
+                    'reasoning': f"Search found no results. Try searching directly with search_docs.",
+                    'model': 'N/A',
+                    'error': 'No relevant documents found'
+                }
+
+            # Step 4: Build context from top results
+            context = self._build_rag_context(results[:max_context_chunks])
+
+            # Step 5: Try to generate answer with LLM
+            from llm_integration import get_llm_client
+
+            llm_client = get_llm_client()
+
+            if llm_client:
+                # Generate answer using LLM with context
+                answer_result = self._generate_answer_with_llm(
+                    question=question,
+                    context=context,
+                    search_results=results[:max_context_chunks],
+                    llm_client=llm_client
+                )
+
+                elapsed_ms = (time.time() - start_time) * 1000
+                self.logger.info(f"Question answering completed in {elapsed_ms:.2f}ms")
+
+                return {
+                    'answer': answer_result['text'],
+                    'sources': answer_result['citations'],
+                    'confidence': answer_result.get('confidence', query_confidence),
+                    'search_results': results[:max_context_chunks],
+                    'reasoning': f"Question mode: {search_mode}. Retrieved {len(results[:max_context_chunks])} sources.",
+                    'model': llm_client.provider.model,
+                    'error': None
+                }
+            else:
+                # Fallback: Return structured search summary without LLM
+                self.logger.warning("LLM not configured, returning search-based fallback")
+                return self._generate_summary_fallback(
+                    question=question,
+                    results=results[:max_context_chunks],
+                    query_confidence=query_confidence,
+                    search_mode=search_mode
+                )
+
+        except Exception as e:
+            self.logger.error(f"Error answering question: {e}", exc_info=True)
+            return {
+                'answer': None,
+                'sources': [],
+                'confidence': 0.0,
+                'search_results': [],
+                'reasoning': 'An error occurred during answer generation',
+                'model': 'N/A',
+                'error': str(e)
+            }
+
+    def _build_rag_context(self, search_results: list[dict], max_tokens: int = 4000) -> str:
+        """
+        Build documentation context from search results for LLM prompt.
+
+        Args:
+            search_results: Search results with snippets and metadata
+            max_tokens: Maximum tokens for context (~4 chars per token)
+
+        Returns:
+            Formatted documentation context string with source citations
+        """
+        context = ""
+        token_count = 0
+        CHARS_PER_TOKEN = 4
+        SECTION_OVERHEAD = 200
+
+        for i, result in enumerate(search_results, 1):
+            # Build section header
+            header = f"## Source {i}: {result['title']}\n"
+            header += f"Document: {result['filename']} (ID: {result['doc_id']})\n"
+            header += f"Chunk {result['chunk_id']}"
+
+            if result.get('page'):
+                header += f", Page {result['page']}"
+
+            header += f" - Relevance: {result['score']:.2f}\n\n"
+
+            # Get snippet (already highlighted by _extract_snippet)
+            snippet = result.get('snippet', '') + "\n\n"
+
+            # Build full section
+            section = header + snippet
+            section_tokens = len(section) // CHARS_PER_TOKEN
+
+            # Check token budget
+            if token_count + section_tokens + SECTION_OVERHEAD > max_tokens:
+                remaining = len(search_results) - i
+                if remaining > 0:
+                    context += f"\n... ({remaining} more sources available, truncated for token limit)\n"
+                break
+
+            context += section
+            token_count += section_tokens
+
+        return context
+
+    def _generate_answer_with_llm(self, question: str, context: str,
+                                 search_results: list[dict],
+                                 llm_client) -> dict:
+        """
+        Generate answer using LLM with retrieved context.
+
+        Args:
+            question: The user's question
+            context: Formatted documentation context
+            search_results: Original search results for citation tracking
+            llm_client: LLMClient instance
+
+        Returns:
+            Dictionary with answer text and extracted citations
+        """
+        # Build prompt
+        prompt = f"""You are a Commodore 64 documentation expert assistant.
+
+Answer the following question based on the provided documentation excerpts. Be accurate and specific about technical details.
+
+QUESTION: {question}
+
+DOCUMENTATION:
+{context}
+
+INSTRUCTIONS:
+1. Provide a clear, accurate answer based on the documentation
+2. If the answer requires multiple sources, synthesize information from them
+3. Be specific about memory addresses (like $D000), register names, and technical specifications
+4. Reference which documentation sections you're using (e.g., "Source 1", "Source 2")
+5. If the documentation is incomplete or you're unsure, state that explicitly
+6. Use correct technical terminology for C64 concepts
+
+Please provide your answer now:"""
+
+        try:
+            # Call LLM with low temperature for accuracy
+            answer_text = llm_client.call(
+                prompt,
+                temperature=0.3,        # Deterministic, fact-based responses
+                max_tokens=2048         # Enough for detailed answers
+            )
+
+            # Extract citations from answer
+            citations = self._extract_citations(answer_text, search_results)
+
+            # Calculate confidence based on citations
+            if citations:
+                confidence = 0.85  # Higher confidence if LLM cited sources
+            else:
+                confidence = 0.70  # Lower if no explicit citations found
+
+            return {
+                'text': answer_text,
+                'citations': citations,
+                'confidence': confidence
+            }
+
+        except Exception as e:
+            self.logger.error(f"LLM answer generation failed: {e}")
+            raise
+
+    def _extract_citations(self, answer_text: str, search_results: list[dict]) -> list[dict]:
+        """
+        Extract citations from LLM-generated answer.
+
+        Looks for "Source N" references and maps them to search results.
+
+        Args:
+            answer_text: The LLM-generated answer text
+            search_results: List of search results to cite
+
+        Returns:
+            List of citation dictionaries with full metadata
+        """
+        citations = []
+        seen = set()
+
+        # Find all "Source X" references (case-insensitive)
+        source_refs = re.findall(r'[Ss]ource\s+(\d+)', answer_text)
+
+        for ref_str in source_refs:
+            try:
+                idx = int(ref_str) - 1  # Convert to 0-based index
+
+                if 0 <= idx < len(search_results):
+                    result = search_results[idx]
+                    key = (result['doc_id'], result['chunk_id'])
+
+                    # Avoid duplicates
+                    if key not in seen:
+                        citations.append({
+                            'doc_id': result['doc_id'],
+                            'filename': result['filename'],
+                            'title': result['title'],
+                            'chunk_id': result['chunk_id'],
+                            'page': result.get('page'),
+                            'score': result.get('score', 0.0)
+                        })
+                        seen.add(key)
+            except (ValueError, IndexError, KeyError):
+                # Skip invalid references
+                pass
+
+        return citations
+
+    def _generate_summary_fallback(self, question: str, results: list[dict],
+                                   query_confidence: float, search_mode: str) -> dict:
+        """
+        Fallback response when LLM is unavailable.
+
+        Returns structured summary of search results without LLM-generated answer.
+
+        Args:
+            question: The user's question
+            results: Search results found
+            query_confidence: Confidence from query translation
+            search_mode: The search mode that was used
+
+        Returns:
+            Response dictionary with search-based answer fallback
+        """
+        # Build summary from search results
+        summary = f"# Search Results for: {question}\n\n"
+        summary += f"Found {len(results)} relevant documentation section(s):\n\n"
+
+        sources = []
+        for i, result in enumerate(results, 1):
+            summary += f"## {i}. {result['title']}\n"
+            summary += f"**File**: {result['filename']} | **Chunk**: {result['chunk_id']}"
+            if result.get('page'):
+                summary += f" | **Page**: {result['page']}"
+            summary += f" | **Relevance**: {result['score']:.2f}\n\n"
+            summary += f"{result.get('snippet', '')}\n\n"
+
+            sources.append({
+                'doc_id': result['doc_id'],
+                'filename': result['filename'],
+                'title': result['title'],
+                'chunk_id': result['chunk_id'],
+                'page': result.get('page'),
+                'score': result.get('score', 0.0)
+            })
+
+        summary += "\n*Note: LLM not configured. Showing search results instead of synthesized answer.*"
+        summary += f"\n*To enable LLM-based answers, set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variables.*"
+
+        return {
+            'answer': summary,
+            'sources': sources,
+            'confidence': query_confidence * 0.7,  # Reduce confidence for fallback
+            'search_results': results,
+            'reasoning': f"LLM unavailable. Returned {search_mode} search results.",
+            'model': 'fallback-search',
+            'error': 'LLM not configured'
+        }
+
     def translate_nl_query(self, query: str, confidence_threshold: float = 0.7) -> dict:
         """
         Translate natural language query to structured search parameters using LLM.
@@ -11209,6 +11534,33 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="answer_question",
+            description="Answer questions about C64 documentation using RAG (Retrieval-Augmented Generation). Synthesizes information from multiple sources with citations. Returns answer text with source references and confidence score.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The question to answer about C64 documentation"
+                    },
+                    "max_sources": {
+                        "type": "integer",
+                        "description": "Maximum number of documentation sources to use for context (default: 5)",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20
+                    },
+                    "search_mode": {
+                        "type": "string",
+                        "enum": ["auto", "keyword", "semantic", "hybrid"],
+                        "description": "Search strategy to use (default: auto for intelligent selection)",
+                        "default": "auto"
+                    }
+                },
+                "required": ["question"]
+            }
+        ),
+        Tool(
             name="kb_stats",
             description="Get statistics about the knowledge base.",
             inputSchema={
@@ -12656,6 +13008,54 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += f"Doc ID: {r['doc_id']}, Similarity: {r['similarity']:.4f}\n"
             output += f"Tags: {', '.join(r['tags']) if r['tags'] else 'none'}\n"
             output += f"Snippet:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "answer_question":
+        question = arguments.get("question", "")
+        max_sources = arguments.get("max_sources", 5)
+        search_mode = arguments.get("search_mode", "auto")
+
+        # Validate input
+        if not question or len(question.strip()) < 3:
+            return [TextContent(type="text", text="Error: Question must be at least 3 characters long")]
+
+        # Call RAG implementation
+        try:
+            result = kb.answer_question(
+                question,
+                max_context_chunks=max_sources,
+                force_search_mode=None if search_mode == "auto" else search_mode
+            )
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error answering question: {str(e)}")]
+
+        # Format response
+        output = f"# Answer\n\n{result['answer']}\n\n"
+
+        # Add sources section if available
+        if result['sources']:
+            output += "## Sources\n\n"
+            for i, source in enumerate(result['sources'], 1):
+                doc = kb.documents.get(source['doc_id'])
+                if doc:
+                    output += f"**{i}. {doc.title}** ({doc.filename})\n"
+                    output += f"   - Chunk ID: {source['chunk_id']}\n"
+                    output += f"   - Relevance: {source['score']:.2%}\n"
+                    if 'page' in source and source['page']:
+                        output += f"   - Page: {source['page']}\n"
+                    output += "\n"
+
+        # Add metadata section
+        output += f"## Answer Metadata\n\n"
+        output += f"- **Confidence**: {result['confidence']:.1%}\n"
+        output += f"- **Search Mode**: {result.get('reasoning', 'Unknown')}\n"
+        output += f"- **LLM Model**: {result.get('model', 'Fallback')}\n"
+        output += f"- **Sources Used**: {len(result['sources'])} documents\n"
+
+        # Add error note if applicable
+        if result.get('error'):
+            output += f"\n⚠️ **Note**: {result['error']}\n"
 
         return [TextContent(type="text", text=output)]
 

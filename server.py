@@ -5055,6 +5055,214 @@ Return ONLY the summary text, no preamble."""
         result = cursor.fetchone()
         return result[0] if result else None
 
+    def _normalize_entity_text(self, text: str, entity_type: str) -> str:
+        """
+        Normalize entity text for consistent matching and deduplication.
+
+        Args:
+            text: Raw entity text
+            entity_type: Entity type (hardware, memory_address, etc.)
+
+        Returns:
+            Normalized entity text
+        """
+        normalized = text.strip()
+
+        if entity_type == 'hardware':
+            # Normalize hardware names
+            # VIC II, VIC 2, VIC-II → VIC-II
+            normalized = re.sub(r'VIC\s*-?\s*II|VIC\s+2', 'VIC-II', normalized, flags=re.IGNORECASE)
+            # CIA 1, CIA-1 → CIA1
+            normalized = re.sub(r'CIA\s*-?\s*([12])', r'CIA\1', normalized, flags=re.IGNORECASE)
+            # Preserve standard forms
+            if normalized.lower() == 'sid': normalized = 'SID'
+            if normalized.lower() == 'cia': normalized = 'CIA'
+            if normalized.lower() == 'pla': normalized = 'PLA'
+            if normalized.lower() == 'c64': normalized = 'C64'
+            if normalized.lower() == 'c128': normalized = 'C128'
+            if 'vic-ii' in normalized.lower(): normalized = 'VIC-II'
+
+        elif entity_type == 'memory_address':
+            # Normalize memory addresses to uppercase $ format
+            if normalized.startswith('$'):
+                normalized = normalized.upper()
+            elif normalized.startswith('0x') or normalized.startswith('&H'):
+                # Convert 0xD000 → $D000
+                hex_part = normalized[2:] if normalized.startswith('0x') else normalized[2:]
+                normalized = f'${hex_part.upper()}'
+            elif normalized.isdigit():
+                # Keep decimal as-is for now
+                pass
+
+        elif entity_type == 'instruction':
+            # Instructions are always uppercase
+            normalized = normalized.upper().split()[0]  # Take just the mnemonic
+
+        elif entity_type == 'concept':
+            # Normalize concept capitalization
+            concept_map = {
+                'sprite': 'sprite',
+                'sprites': 'sprite',  # Singular form
+                'raster interrupt': 'raster interrupt',
+                'raster interrupts': 'raster interrupt',
+                'irq': 'IRQ',
+                'nmi': 'NMI',
+                'dma': 'DMA',
+                'bitmap mode': 'bitmap mode',
+                'character mode': 'character mode',
+                'multicolor mode': 'multicolor mode',
+                'hires mode': 'hires mode',
+            }
+            lower = normalized.lower()
+            normalized = concept_map.get(lower, normalized)
+
+        return normalized
+
+    def _extract_entities_regex(self, text: str) -> list[dict]:
+        """
+        Extract C64-specific entities using regex patterns (fast, no LLM needed).
+
+        This supplements LLM-based extraction with high-confidence pattern matching
+        for well-known C64 entities.
+
+        Returns:
+            List of entities with text, type, and confidence
+        """
+        entities = []
+
+        # Hardware patterns (high confidence)
+        hardware_patterns = [
+            (r'\bVIC-?II\b', 'VIC-II', 0.98),
+            (r'\bVIC\s*2\b', 'VIC-II', 0.95),
+            (r'\b6569\b', '6569', 0.98),
+            (r'\b6567\b', '6567', 0.98),
+            (r'\bSID\b', 'SID', 0.98),
+            (r'\b6581\b', '6581', 0.98),
+            (r'\b8580\b', '8580', 0.98),
+            (r'\bCIA(?:\s*[12])?\b', None, 0.98),  # CIA, CIA1, CIA2
+            (r'\b6526\b', '6526', 0.98),
+            (r'\b6502\b', '6502', 0.98),
+            (r'\b6510\b', '6510', 0.98),
+            (r'\bPLA\b', 'PLA', 0.95),
+            (r'\b(?:C-?)?64(?:\s*C)?\b', 'C64', 0.90),
+            (r'\bC-?128\b', 'C128', 0.95),
+            (r'\bVIC-?20\b', 'VIC-20', 0.95),
+            (r'\b1541\b', '1541', 0.95),
+            (r'\b1571\b', '1571', 0.95),
+            (r'\b1581\b', '1581', 0.95),
+        ]
+
+        for pattern, entity_name, confidence in hardware_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                matched_text = match.group(0)
+                # Get context (50 chars before and after)
+                start = max(0, match.start() - 50)
+                end = min(len(text), match.end() + 50)
+                context = text[start:end].replace('\n', ' ')
+
+                entities.append({
+                    'entity_text': entity_name if entity_name else matched_text,
+                    'entity_type': 'hardware',
+                    'confidence': confidence,
+                    'context': context,
+                    'source': 'regex'
+                })
+
+        # Memory addresses (very high confidence)
+        # Matches $D000, $d020, 53280 (decimal), 0xD000
+        addr_patterns = [
+            (r'\$[0-9A-Fa-f]{4}\b', 0.99),  # $D000
+            (r'\b(?:0x|&H)[0-9A-Fa-f]{4}\b', 0.98),  # 0xD000 or &HD000
+            (r'\b(?:53|54|55|56|57|58|59)\d{3}\b', 0.85),  # Decimal (53280-59999 range)
+        ]
+
+        for pattern, confidence in addr_patterns:
+            for match in re.finditer(pattern, text):
+                matched_text = match.group(0)
+                start = max(0, match.start() - 50)
+                end = min(len(text), match.end() + 50)
+                context = text[start:end].replace('\n', ' ')
+
+                entities.append({
+                    'entity_text': matched_text.upper() if matched_text.startswith('$') else matched_text,
+                    'entity_type': 'memory_address',
+                    'confidence': confidence,
+                    'context': context,
+                    'source': 'regex'
+                })
+
+        # 6502 instructions (high confidence)
+        instructions = [
+            'LDA', 'STA', 'LDX', 'STX', 'LDY', 'STY',
+            'TAX', 'TAY', 'TXA', 'TYA', 'TSX', 'TXS',
+            'PHA', 'PLA', 'PHP', 'PLP',
+            'AND', 'ORA', 'EOR',
+            'ADC', 'SBC', 'CMP', 'CPX', 'CPY',
+            'INC', 'INX', 'INY', 'DEC', 'DEX', 'DEY',
+            'ASL', 'LSR', 'ROL', 'ROR',
+            'JMP', 'JSR', 'RTS', 'RTI',
+            'BCC', 'BCS', 'BEQ', 'BNE', 'BMI', 'BPL', 'BVC', 'BVS',
+            'CLC', 'CLD', 'CLI', 'CLV', 'SEC', 'SED', 'SEI',
+            'BRK', 'NOP', 'BIT'
+        ]
+
+        for instruction in instructions:
+            # Match instruction at word boundary or with addressing mode
+            pattern = r'\b' + instruction + r'\b(?:\s+[#$%@]?[\w,()]+)?'
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                matched_text = match.group(0).strip()
+                start = max(0, match.start() - 40)
+                end = min(len(text), match.end() + 40)
+                context = text[start:end].replace('\n', ' ')
+
+                # Higher confidence if followed by addressing mode
+                has_operand = len(matched_text) > len(instruction)
+                conf = 0.95 if has_operand else 0.85
+
+                entities.append({
+                    'entity_text': instruction.upper(),
+                    'entity_type': 'instruction',
+                    'confidence': conf,
+                    'context': context,
+                    'source': 'regex'
+                })
+
+        # Common C64 concepts (medium-high confidence)
+        concept_patterns = [
+            (r'\bsprite[s]?\b', 'sprite', 0.90),
+            (r'\braster\s+interrupt[s]?\b', 'raster interrupt', 0.95),
+            (r'\b(?:IRQ|NMI)\b', None, 0.92),
+            (r'\bDMA\b', 'DMA', 0.90),
+            (r'\bbitmap\s+mode\b', 'bitmap mode', 0.92),
+            (r'\bcharacter\s+mode\b', 'character mode', 0.92),
+            (r'\bmulti-?color\s+mode\b', 'multicolor mode', 0.92),
+            (r'\bhi-?res\s+mode\b', 'hires mode', 0.90),
+            (r'\bborder\s+color\b', 'border color', 0.88),
+            (r'\bbackground\s+color\b', 'background color', 0.88),
+            (r'\bcolor\s+RAM\b', 'color RAM', 0.90),
+            (r'\bscreen\s+memory\b', 'screen memory', 0.90),
+            (r'\bcharacter\s+set\b', 'character set', 0.88),
+            (r'\bkernel\s+ROM\b', 'kernel ROM', 0.92),
+            (r'\bBASIC\s+ROM\b', 'BASIC ROM', 0.92),
+        ]
+
+        for pattern, entity_name, confidence in concept_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                matched_text = match.group(0)
+                start = max(0, match.start() - 50)
+                end = min(len(text), match.end() + 50)
+                context = text[start:end].replace('\n', ' ')
+
+                entities.append({
+                    'entity_text': entity_name if entity_name else matched_text,
+                    'entity_type': 'concept',
+                    'confidence': confidence,
+                    'context': context,
+                    'source': 'regex'
+                })
+
+        return entities
+
     def extract_entities(self, doc_id: str,
                         confidence_threshold: float = 0.6,
                         force_regenerate: bool = False) -> dict:
@@ -5193,17 +5401,24 @@ Important:
 - Return ONLY JSON, no other text
 """
 
-        # Call LLM
+        # Extract entities using regex patterns first (fast, high-confidence)
+        self.logger.info("Extracting entities using regex patterns")
+        regex_entities = self._extract_entities_regex(sample_text)
+        self.logger.info(f"Regex extraction found {len(regex_entities)} entities")
+
+        # Call LLM for additional entity extraction
         self.logger.info(f"Calling LLM for entity extraction ({len(sample_text)} chars)")
+        llm_entities = []
         try:
             response = llm_client.call_json(prompt, max_tokens=2048, temperature=0.3)
+            llm_entities = response.get('entities', [])
+            self.logger.info(f"LLM returned {len(llm_entities)} entities")
         except Exception as e:
-            self.logger.error(f"LLM call failed for entity extraction: {e}")
-            raise ValueError(f"Failed to extract entities: {e}")
+            self.logger.warning(f"LLM call failed, using regex-only extraction: {e}")
+            # Continue with regex entities only
 
-        # Parse response
-        all_entities = response.get('entities', [])
-        self.logger.info(f"LLM returned {len(all_entities)} entities")
+        # Combine regex and LLM entities
+        all_entities = regex_entities + llm_entities
 
         # Filter by confidence threshold
         filtered_entities = [
@@ -5211,23 +5426,41 @@ Important:
             if e.get('confidence', 0) >= confidence_threshold
         ]
 
-        # Deduplicate entities (case-insensitive, count occurrences)
+        # Enhanced deduplication with entity normalization
         entity_map = {}
         for entity in filtered_entities:
-            key = (entity['entity_text'].lower(), entity['entity_type'])
+            # Normalize entity text for better matching
+            normalized_text = self._normalize_entity_text(entity['entity_text'], entity['entity_type'])
+            key = (normalized_text.lower(), entity['entity_type'])
+
             if key in entity_map:
                 entity_map[key]['occurrence_count'] += 1
-                # Keep highest confidence
-                if entity['confidence'] > entity_map[key]['confidence']:
+
+                # Combine confidences: prefer regex (higher quality), boost if both sources agree
+                current_source = entity.get('source', 'llm')
+                existing_source = entity_map[key].get('source', 'llm')
+
+                if current_source == 'regex' and existing_source == 'llm':
+                    # Regex trumps LLM (higher precision)
                     entity_map[key]['confidence'] = entity['confidence']
-                    entity_map[key]['context'] = entity.get('context', '')
+                    entity_map[key]['source'] = 'regex'
+                elif current_source == 'llm' and existing_source == 'regex':
+                    # Both sources agree - boost confidence slightly
+                    entity_map[key]['confidence'] = min(0.99, entity_map[key]['confidence'] * 1.05)
+                    entity_map[key]['source'] = 'both'
+                else:
+                    # Keep highest confidence
+                    if entity['confidence'] > entity_map[key]['confidence']:
+                        entity_map[key]['confidence'] = entity['confidence']
+                        entity_map[key]['context'] = entity.get('context', '')
             else:
                 entity_map[key] = {
-                    'entity_text': entity['entity_text'],  # Preserve original casing
+                    'entity_text': normalized_text,  # Use normalized form
                     'entity_type': entity['entity_type'],
                     'confidence': entity['confidence'],
                     'context': entity.get('context', ''),
-                    'occurrence_count': 1
+                    'occurrence_count': 1,
+                    'source': entity.get('source', 'llm')
                 }
 
         unique_entities = list(entity_map.values())

@@ -1154,9 +1154,9 @@ def test_hybrid_search(tmpdir):
     kb = KnowledgeBase(str(tmpdir))
 
     # Skip if semantic search not available
-    if not kb.use_semantic:
+    if not kb.use_semantic or kb.embeddings_index is None:
         kb.close()
-        pytest.skip("Semantic search not enabled (USE_SEMANTIC_SEARCH=1 required)")
+        pytest.skip("Semantic search not enabled or not available (requires USE_SEMANTIC_SEARCH=1 and dependencies)")
 
     # Create sample document
     test_file = Path(tmpdir) / "test.txt"
@@ -1655,9 +1655,9 @@ def test_incremental_embeddings(tmpdir):
     kb = KnowledgeBase(str(tmpdir))
 
     # Skip if semantic search not available
-    if not kb.use_semantic:
+    if not kb.use_semantic or kb.embeddings_index is None:
         kb.close()
-        pytest.skip("Semantic search not enabled (USE_SEMANTIC_SEARCH=1 required)")
+        pytest.skip("Semantic search not enabled or not available (requires USE_SEMANTIC_SEARCH=1 and dependencies)")
 
     # Create first document
     test_file1 = Path(str(tmpdir)) / "test_doc1.txt"

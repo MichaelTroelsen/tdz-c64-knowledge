@@ -17,7 +17,7 @@ import queue
 from pathlib import Path
 from typing import Optional, Callable
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Load environment variables from .env file
@@ -5315,7 +5315,7 @@ Important:
                     UPDATE extraction_jobs
                     SET status = 'running', started_at = ?
                     WHERE job_id = ?
-                """, (datetime.utcnow().isoformat(), job_id))
+                """, (datetime.now(timezone.utc).isoformat(), job_id))
                 self.db_conn.commit()
 
                 try:
@@ -5334,7 +5334,7 @@ Important:
                             entities_extracted = ?
                         WHERE job_id = ?
                     """, (
-                        datetime.utcnow().isoformat(),
+                        datetime.now(timezone.utc).isoformat(),
                         result.get('entity_count', 0),
                         job_id
                     ))
@@ -5353,7 +5353,7 @@ Important:
                             completed_at = ?,
                             error_message = ?
                         WHERE job_id = ?
-                    """, (datetime.utcnow().isoformat(), error_msg, job_id))
+                    """, (datetime.now(timezone.utc).isoformat(), error_msg, job_id))
                     self.db_conn.commit()
 
                 # Mark job as done in the queue
@@ -5419,7 +5419,7 @@ Important:
         cursor.execute("""
             INSERT INTO extraction_jobs (doc_id, status, confidence_threshold, queued_at)
             VALUES (?, 'queued', ?, ?)
-        """, (doc_id, confidence_threshold, datetime.utcnow().isoformat()))
+        """, (doc_id, confidence_threshold, datetime.now(timezone.utc).isoformat()))
         self.db_conn.commit()
 
         job_id = cursor.lastrowid
@@ -10039,7 +10039,21 @@ Return ONLY valid JSON, no additional text.
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
     def close(self):
-        """Close the database connection."""
+        """Close the database connection and shutdown background workers."""
+        # Signal worker threads to shutdown
+        if hasattr(self, '_extraction_shutdown'):
+            self._extraction_shutdown.set()
+            self.logger.info("Signaled entity extraction worker to shutdown")
+
+            # Wait for worker thread to finish (with timeout)
+            if hasattr(self, '_extraction_worker') and self._extraction_worker.is_alive():
+                self._extraction_worker.join(timeout=10.0)
+                if self._extraction_worker.is_alive():
+                    self.logger.warning("Entity extraction worker did not shutdown cleanly")
+                else:
+                    self.logger.info("Entity extraction worker shutdown complete")
+
+        # Close database connection
         if self.db_conn:
             self.db_conn.close()
             self.logger.info("Database connection closed")

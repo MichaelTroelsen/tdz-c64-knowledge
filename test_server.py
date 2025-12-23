@@ -15,6 +15,29 @@ import pytest
 from server import KnowledgeBase, DocumentMeta, DocumentChunk
 
 
+@pytest.fixture(autouse=True)
+def setup_test_environment(request, tmpdir):
+    """Automatically add tmpdir to ALLOWED_DOCS_DIRS for all tests."""
+    # Only apply to tests that use tmpdir
+    if 'tmpdir' in request.fixturenames or 'temp_data_dir' in request.fixturenames:
+        original_allowed = os.environ.get('ALLOWED_DOCS_DIRS', '')
+
+        # Set allowed dirs to include the test temp directory
+        test_dir = str(tmpdir) if 'tmpdir' in request.fixturenames else None
+        if test_dir:
+            os.environ['ALLOWED_DOCS_DIRS'] = test_dir
+
+        yield
+
+        # Restore original environment
+        if original_allowed:
+            os.environ['ALLOWED_DOCS_DIRS'] = original_allowed
+        else:
+            os.environ.pop('ALLOWED_DOCS_DIRS', None)
+    else:
+        yield
+
+
 class TestKnowledgeBase:
     """Test suite for KnowledgeBase class."""
 
@@ -28,10 +51,21 @@ class TestKnowledgeBase:
     @pytest.fixture
     def kb(self, temp_data_dir):
         """Create a KnowledgeBase instance with temp directory."""
+        # Add temp directory to allowed paths for testing
+        original_allowed = os.environ.get('ALLOWED_DOCS_DIRS', '')
+        os.environ['ALLOWED_DOCS_DIRS'] = temp_data_dir
+
         kb = KnowledgeBase(temp_data_dir)
         yield kb
+
         # Clean up: close database connection
         kb.close()
+
+        # Restore original environment
+        if original_allowed:
+            os.environ['ALLOWED_DOCS_DIRS'] = original_allowed
+        else:
+            os.environ.pop('ALLOWED_DOCS_DIRS', None)
 
     @pytest.fixture
     def sample_text_file(self, temp_data_dir):
@@ -131,12 +165,22 @@ STA $D015  ; Enable sprite 0
 
     def test_initialization(self, temp_data_dir):
         """Test KnowledgeBase initialization."""
+        # Add temp directory to allowed paths for testing
+        original_allowed = os.environ.get('ALLOWED_DOCS_DIRS', '')
+        os.environ['ALLOWED_DOCS_DIRS'] = temp_data_dir
+
         kb = KnowledgeBase(temp_data_dir)
         assert kb.data_dir == Path(temp_data_dir)
         assert (kb.data_dir / "knowledge_base.db").exists()
         assert kb.db_conn is not None
         assert len(kb.documents) == 0
         kb.close()
+
+        # Restore original environment
+        if original_allowed:
+            os.environ['ALLOWED_DOCS_DIRS'] = original_allowed
+        else:
+            os.environ.pop('ALLOWED_DOCS_DIRS', None)
 
     def test_add_text_document(self, kb, sample_text_file):
         """Test adding a text file."""
@@ -272,6 +316,10 @@ STA $D015  ; Enable sprite 0
 
     def test_persistence(self, temp_data_dir, sample_text_file):
         """Test that data persists between instances."""
+        # Add temp directory to allowed paths for testing
+        original_allowed = os.environ.get('ALLOWED_DOCS_DIRS', '')
+        os.environ['ALLOWED_DOCS_DIRS'] = temp_data_dir
+
         # Add document with first instance
         kb1 = KnowledgeBase(temp_data_dir)
         doc = kb1.add_document(sample_text_file, "Test Doc", ["test"])
@@ -284,6 +332,12 @@ STA $D015  ; Enable sprite 0
         assert len(docs) == 1
         assert docs[0].doc_id == doc_id
         kb2.close()
+
+        # Restore original environment
+        if original_allowed:
+            os.environ['ALLOWED_DOCS_DIRS'] = original_allowed
+        else:
+            os.environ.pop('ALLOWED_DOCS_DIRS', None)
 
     def test_chunking(self, kb, temp_data_dir):
         """Test document chunking with larger text."""

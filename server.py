@@ -3405,16 +3405,25 @@ class KnowledgeBase:
                 timeout=3600  # 1 hour timeout
             )
 
+            # Check for errors but don't fail if files were scraped
             if result.returncode != 0:
                 error_msg = result.stderr or result.stdout or "Unknown error"
-                self.logger.error(f"Scraping failed: {error_msg}")
-                return {
-                    'status': 'failed',
-                    'url': url,
-                    'error': f"mdscrape failed: {error_msg}"
-                }
 
-            self.logger.info("Scraping completed successfully")
+                # Count image-related errors (not critical failures)
+                image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.ico']
+                error_lines = error_msg.split('\n')
+                image_errors = sum(1 for line in error_lines
+                                 if any(ext in line.lower() for ext in image_extensions))
+                total_errors = len([line for line in error_lines if 'Error:' in line])
+
+                # If all errors are image-related, treat as warning not failure
+                if image_errors > 0 and image_errors == total_errors:
+                    self.logger.warning(f"Scraping completed with {image_errors} image-related errors (expected)")
+                else:
+                    # Log full error but continue - we'll check if any files were scraped
+                    self.logger.warning(f"Scraping completed with errors: {error_msg[:500]}...")
+            else:
+                self.logger.info("Scraping completed successfully")
 
         except subprocess.TimeoutExpired:
             self.logger.error("Scraping timeout (>1 hour)")

@@ -266,9 +266,18 @@ class KnowledgeBase:
             entity_cache_ttl = int(os.getenv('ENTITY_CACHE_TTL', '86400'))  # 24 hours
             self._entity_cache = TTLCache(maxsize=50, ttl=entity_cache_ttl)
 
+            # Health check cache (5 minute TTL for system metrics)
+            health_cache_ttl = int(os.getenv('HEALTH_CACHE_TTL', '300'))  # 5 minutes
+            self._health_cache = TTLCache(maxsize=1, ttl=health_cache_ttl)
+
+            # Stats cache (1 minute TTL for statistics)
+            stats_cache_ttl = int(os.getenv('STATS_CACHE_TTL', '60'))  # 1 minute
+            self._stats_cache = TTLCache(maxsize=1, ttl=stats_cache_ttl)
+
             self.logger.info(f"Search result caching enabled (size={cache_size}, ttl={cache_ttl}s)")
             self.logger.info(f"Embedding caching enabled (size={cache_size}, ttl={embedding_cache_ttl}s)")
             self.logger.info(f"Entity caching enabled (size=50, ttl={entity_cache_ttl}s)")
+            self.logger.info(f"Health/stats caching enabled (health={health_cache_ttl}s, stats={stats_cache_ttl}s)")
         else:
             self._search_cache = None
             self._similar_cache = None
@@ -277,6 +286,8 @@ class KnowledgeBase:
             self._faceted_cache = None
             self._embedding_cache = None
             self._entity_cache = None
+            self._health_cache = None
+            self._stats_cache = None
 
         # Initialize query preprocessing
         self.use_preprocessing = NLTK_SUPPORT and os.getenv('USE_QUERY_PREPROCESSING', '1') == '1'
@@ -9631,8 +9642,22 @@ Return ONLY valid JSON, no additional text.
         """List all indexed documents."""
         return list(self.documents.values())
     
-    def get_stats(self) -> dict:
-        """Get knowledge base statistics from database."""
+    def get_stats(self, use_cache: bool = True) -> dict:
+        """
+        Get knowledge base statistics from database.
+
+        Args:
+            use_cache: If True, use cached results if available (1 minute TTL)
+
+        Returns:
+            Dictionary with statistics
+        """
+        # Check cache first
+        if use_cache and self._stats_cache is not None:
+            cached_result = self._stats_cache.get('stats')
+            if cached_result is not None:
+                return cached_result
+
         cursor = self.db_conn.cursor()
 
         # Count total chunks and words
@@ -9641,21 +9666,46 @@ Return ONLY valid JSON, no additional text.
         total_chunks = total_chunks or 0
         total_words = total_words or 0
 
-        return {
+        # OPTIMIZED: Use sets comprehension more efficiently
+        # Collect file_types and tags in a single pass
+        file_types_set = set()
+        all_tags_set = set()
+        for doc in self.documents.values():
+            file_types_set.add(doc.file_type)
+            all_tags_set.update(doc.tags)
+
+        stats = {
             'total_documents': len(self.documents),
             'total_chunks': total_chunks,
             'total_words': total_words,
-            'file_types': list(set(d.file_type for d in self.documents.values())),
-            'all_tags': list(set(t for d in self.documents.values() for t in d.tags))
+            'file_types': sorted(list(file_types_set)),  # Sorted for consistent output
+            'all_tags': sorted(list(all_tags_set))  # Sorted for consistent output
         }
 
-    def health_check(self) -> dict:
+        # Cache the result
+        if use_cache and self._stats_cache is not None:
+            self._stats_cache['stats'] = stats
+
+        return stats
+
+    def health_check(self, quick_check: bool = True, use_cache: bool = True) -> dict:
         """
         Perform health check on the knowledge base system.
+
+        Args:
+            quick_check: If True, skip expensive operations (integrity check, orphaned chunks)
+            use_cache: If True, use cached results if available (5 minute TTL)
 
         Returns:
             Dictionary with health metrics and status information
         """
+        # Check cache first
+        cache_key = f"health_quick_{quick_check}"
+        if use_cache and self._health_cache is not None:
+            cached_result = self._health_cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+
         health = {
             'status': 'healthy',
             'issues': [],
@@ -9679,38 +9729,40 @@ Return ONLY valid JSON, no additional text.
                 if db_size_mb > 1000:  # 1GB
                     health['issues'].append(f"Database size is large: {db_size_mb:.2f} MB")
 
-            # Check table integrity
-            cursor.execute("PRAGMA integrity_check")
-            integrity = cursor.fetchone()[0]
-            health['database']['integrity'] = integrity
-            if integrity != 'ok':
-                health['status'] = 'warning'
-                health['issues'].append(f"Database integrity check failed: {integrity}")
+            # Check table integrity (EXPENSIVE - only on full check)
+            if not quick_check:
+                cursor.execute("PRAGMA integrity_check")
+                integrity = cursor.fetchone()[0]
+                health['database']['integrity'] = integrity
+                if integrity != 'ok':
+                    health['status'] = 'warning'
+                    health['issues'].append(f"Database integrity check failed: {integrity}")
 
-            # Document and chunk counts
-            cursor.execute("SELECT COUNT(*) FROM documents")
-            doc_count = cursor.fetchone()[0]
-            health['metrics']['documents'] = doc_count
-
-            cursor.execute("SELECT COUNT(*) FROM chunks")
-            chunk_count = cursor.fetchone()[0]
-            health['metrics']['chunks'] = chunk_count
-
-            cursor.execute("SELECT SUM(word_count) FROM chunks")
-            total_words = cursor.fetchone()[0] or 0
-            health['metrics']['total_words'] = total_words
-
-            # Check for orphaned chunks (shouldn't happen with foreign keys)
+            # Document and chunk counts - OPTIMIZED: Single query instead of 3
             cursor.execute("""
-                SELECT COUNT(*) FROM chunks c
-                LEFT JOIN documents d ON c.doc_id = d.doc_id
-                WHERE d.doc_id IS NULL
+                SELECT
+                    (SELECT COUNT(*) FROM documents) as doc_count,
+                    COUNT(*) as chunk_count,
+                    SUM(word_count) as total_words
+                FROM chunks
             """)
-            orphaned = cursor.fetchone()[0]
-            if orphaned > 0:
-                health['status'] = 'warning'
-                health['issues'].append(f"Found {orphaned} orphaned chunks")
-                health['database']['orphaned_chunks'] = orphaned
+            doc_count, chunk_count, total_words = cursor.fetchone()
+            health['metrics']['documents'] = doc_count or 0
+            health['metrics']['chunks'] = chunk_count or 0
+            health['metrics']['total_words'] = total_words or 0
+
+            # Check for orphaned chunks (EXPENSIVE - only on full check)
+            if not quick_check:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM chunks c
+                    LEFT JOIN documents d ON c.doc_id = d.doc_id
+                    WHERE d.doc_id IS NULL
+                """)
+                orphaned = cursor.fetchone()[0]
+                if orphaned > 0:
+                    health['status'] = 'warning'
+                    health['issues'].append(f"Found {orphaned} orphaned chunks")
+                    health['database']['orphaned_chunks'] = orphaned
 
             # Feature availability
             health['features']['fts5_enabled'] = os.environ.get('USE_FTS5', '0') == '1'
@@ -9780,6 +9832,10 @@ Return ONLY valid JSON, no additional text.
                 health['message'] = 'All systems operational'
             else:
                 health['message'] = f"System functional with {len(health['issues'])} issue(s)"
+
+            # Cache the result
+            if use_cache and self._health_cache is not None:
+                self._health_cache[cache_key] = health
 
         except Exception as e:
             health['status'] = 'error'

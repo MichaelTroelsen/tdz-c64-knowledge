@@ -1,6 +1,6 @@
-# Usage Examples - TDZ C64 Knowledge Base v2.0.0
+# Usage Examples - TDZ C64 Knowledge Base v2.21.0
 
-Practical examples for using the new features in v2.0.0.
+Practical examples for using features in v2.21.0 and earlier versions.
 
 ## Hybrid Search Examples
 
@@ -338,6 +338,110 @@ if not health['features']['fts5_available']:
 # Monitor embeddings
 if health['features']['embeddings_count'] != expected_count:
     print("Embeddings may need rebuilding")
+```
+
+## v2.21.0 Features (New!)
+
+### Health Check with Lazy-Loaded Embeddings
+
+The health check now correctly detects embeddings files on disk, even when using lazy loading (default behavior).
+
+```python
+import os
+from server import KnowledgeBase
+
+# Enable semantic search
+os.environ['USE_SEMANTIC_SEARCH'] = '1'
+
+kb = KnowledgeBase(os.path.expanduser('~/.tdz-c64-knowledge'))
+
+# Run health check
+health = kb.health_check()
+
+print(f"Status: {health['status']}")
+print(f"Semantic Available: {health['features']['semantic_search_available']}")
+
+# Check embeddings info (works even if not loaded yet)
+if health['features'].get('embeddings_size_mb'):
+    print(f"Embeddings: {health['features']['embeddings_count']} vectors")
+    print(f"Size: {health['features']['embeddings_size_mb']} MB")
+
+kb.close()
+```
+
+**Output (with lazy-loaded embeddings):**
+```
+Status: healthy
+Semantic Available: True
+Embeddings: 2612 vectors
+Size: 3.83 MB
+```
+
+### URL Scraping with WordPress Gallery Sites
+
+Improved error handling for sites with image galleries (v2.21.1).
+
+```python
+from server import KnowledgeBase
+
+kb = KnowledgeBase()
+
+# Scrape WordPress site with galleries
+result = kb.scrape_url(
+    url="https://www.nightfallcrew.com/",
+    follow_links=True,
+    depth=2,
+    max_pages=50
+)
+
+# Image errors are now warnings, not failures
+if result['status'] == 'success':
+    print(f"✓ Scraped {result['docs_added']} documents")
+    print(f"  (Image gallery errors handled gracefully)")
+elif result['status'] == 'partial':
+    print(f"⚠ Partial success: {result['docs_added']} of {result['files_scraped']}")
+
+kb.close()
+```
+
+### Admin GUI URL Monitoring
+
+View and monitor scraped URL-sourced documents without errors (fixed in v2.21.1).
+
+```python
+# Launch the admin GUI
+# Command: streamlit run admin_gui.py
+
+# Navigate to "URL Monitoring" tab
+# - View all scraped sites grouped by base URL
+# - See document counts per site
+# - Check for updates automatically
+# - No more AttributeError crashes!
+```
+
+### Monitoring and Anomaly Detection
+
+The v2.21.0 anomaly detection system provides intelligent change detection:
+
+```python
+from server import KnowledgeBase
+
+kb = KnowledgeBase()
+
+# Check for URL updates (with anomaly detection)
+result = kb.check_url_updates()
+
+print(f"Checked: {result['checked']} documents")
+print(f"Updated: {result['updated']} documents")
+print(f"Failed: {result['failed']} documents")
+
+# Anomaly detection runs automatically
+# - ML-based baseline learning
+# - 1500x faster than previous implementation
+# - Detects significant content changes
+# - Reduces false positives
+
+kb.close()
 ```
 
 ## See Also

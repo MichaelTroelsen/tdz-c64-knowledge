@@ -7,11 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.21.1] - 2025-12-23
+
 ### Fixed
 - **Health Check False Positive** - Fixed health_check() incorrectly reporting "Semantic search enabled but embeddings not built" when using lazy-loaded embeddings
   - Health check now properly detects embeddings files on disk (not just in-memory)
   - Shows correct embeddings count and size even when not yet loaded
   - Fixes false warning for systems using lazy loading (default behavior)
+- **Admin GUI AttributeError** - Fixed crash when viewing URL monitoring page
+  - Fixed scrape_config parsing (was string, needed JSON parsing)
+  - Added error handling for malformed JSON configs
+  - Affected lines: admin_gui.py:1506, 1772
+- **URL Scraping Image Errors** - Improved error handling for WordPress gallery sites
+  - Image scraping errors (JPG, PNG, etc.) now logged as warnings instead of errors
+  - Scraping continues despite image URL failures (partial success)
+  - Cleaner logs for sites with image galleries
+- **Test Suite Environment** - Improved test isolation and security
+  - Added automatic ALLOWED_DOCS_DIRS configuration for test fixtures
+  - Fixed SecurityError failures during testing
+  - Better cleanup between tests
+
+### Changed
+- **Documentation Updates**
+  - Updated CONTEXT.md from v2.14.0 to v2.21.0
+  - Added version history highlights (v2.15-v2.21)
+  - Organized MCP tools into logical categories
+  - Added new environment variables documentation
+  - Updated README.md version badge to v2.21.0
+
+### Removed
+- **Cleanup** - Removed obsolete performance testing files
+  - benchmark_results.json (old benchmark data)
+  - profile_performance.py (deprecated profiling script)
 
 ## [2.18.0] - 2025-12-21
 

@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.22.0"
-__version_info__ = (2, 22, 0)
+__version__ = "2.23.0"
+__version_info__ = (2, 23, 0)
 
 # Build information
 __build_date__ = "2025-12-23"
@@ -67,10 +67,62 @@ FEATURES = {
     "distance_based_relationship_strength": "2.22.0",
     "comprehensive_performance_benchmarking": "2.22.0",
     "load_testing_infrastructure": "2.22.0",
+    "rag_question_answering": "2.23.0",
+    "fuzzy_search": "2.23.0",
+    "progressive_search_refinement": "2.23.0",
+    "smart_document_tagging": "2.23.0",
 }
 
 # Version history
 VERSION_HISTORY = """
+v2.23.0 (2025-12-23)
+  🚀 MAJOR RELEASE: Phase 2 Complete - RAG Question Answering & Advanced Search
+
+  RAG-Based Question Answering (Phase 2.0):
+  - answer_question() method for natural language Q&A using Retrieval-Augmented Generation
+  - Intelligent search mode selection (keyword/semantic/hybrid) based on query analysis
+  - Token-budget aware context building (4000 tokens) for LLM integration
+  - Citation extraction and validation from generated answers
+  - Confidence scoring (0.0-1.0) based on source agreement
+  - Graceful fallback to search summary when LLM unavailable
+  - Works with Anthropic, OpenAI, and other LLM providers
+  - MCP tool: answer_question with parameters (question, max_sources, search_mode)
+
+  Advanced Search Features (Phase 2):
+  - Fuzzy search with typo tolerance using rapidfuzz library
+    - Handles misspellings: "VIC2" → "VIC-II", "asembly" → "assembly"
+    - Configurable similarity threshold (default 80%)
+    - Vocabulary building from indexed content
+  - Progressive search refinement (search_within_results)
+    - Refine results with follow-up queries
+    - "Drill down" workflow for exploring large result sets
+    - Better progressive discovery of information
+
+  Smart Document Tagging System (Phase 2):
+  - suggest_tags() for AI-powered tag recommendations
+  - get_tags_by_category() for browsing tags by category
+  - add_tags_to_document() for applying tags
+  - Organized by hardware, programming, document-type, difficulty
+  - Multi-level categorization for better organization
+
+  Documentation Updates:
+  - README.md: Added RAG features and tool documentation with examples
+  - CONTEXT.md: Updated MCP tools list, version history, development status
+  - FUTURE_IMPROVEMENTS_2025.md: Marked Phase 1-3 complete, Phase 4 upcoming
+
+  Phase Completion:
+  - ✅ Phase 1: AI-Powered Intelligence (RAG, Auto-summarization, Auto-tagging, NL translation)
+  - ✅ Phase 2: Advanced Search & Discovery (Fuzzy search, Progressive refinement, Smart tagging)
+  - ✅ Phase 3: Content Intelligence (Version tracking, Entity extraction, Anomaly detection)
+
+  Testing:
+  - Verified RAG QA end-to-end with multiple sample questions
+  - Confidence scores 70-85% range on test queries
+  - Citation extraction working correctly
+  - Graceful fallback when no sources found
+
+  Next: Phase 4 - C64-Specific Features (VICE Integration, PRG Analysis, SID Metadata)
+
 v2.22.0 (2025-12-23)
   🚀 MAJOR RELEASE: Enhanced Entity Intelligence & Performance Validation
 

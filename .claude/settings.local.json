@@ -182,7 +182,11 @@
       "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py --co -q)",
       "Bash(\".venv/Scripts/python.exe\" -m pytest test_server.py -v --tb=no)",
       "Bash(\".venv/Scripts/python.exe\" -c:*)",
-      "Bash(\".venv/Scripts/python.exe\" benchmark_comprehensive.py --output benchmark_results.json)"
+      "Bash(\".venv/Scripts/python.exe\" benchmark_comprehensive.py --output benchmark_results.json)",
+      "Bash(\".venv/Scripts/python.exe\" cli.py remove --tag load-test)",
+      "Bash(\".venv/Scripts/python.exe\" cli.py remove --help)",
+      "Bash(\".venv/Scripts/python.exe\" cli.py remove-bulk --help)",
+      "Bash(\".venv/Scripts/python.exe\" cli.py remove-bulk --tags load-test)"
     ]
   }
 }

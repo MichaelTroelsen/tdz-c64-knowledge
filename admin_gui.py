@@ -1503,8 +1503,13 @@ elif page == "🌐 URL Monitoring":
             # Count unique base URLs
             base_urls = set()
             for doc in url_docs:
-                if doc.scrape_config and 'base_url' in doc.scrape_config:
-                    base_urls.add(doc.scrape_config['base_url'])
+                if doc.scrape_config:
+                    try:
+                        config = json.loads(doc.scrape_config) if isinstance(doc.scrape_config, str) else doc.scrape_config
+                        if 'base_url' in config:
+                            base_urls.add(config['base_url'])
+                    except (json.JSONDecodeError, AttributeError, TypeError):
+                        pass
             st.metric("🔗 Unique Sources", len(base_urls))
         with col3:
             # Show last check time if available
@@ -1769,7 +1774,16 @@ elif page == "🌐 URL Monitoring":
         # Group documents by base URL
         by_base_url = {}
         for doc in url_docs:
-            base_url = doc.scrape_config.get('base_url', doc.source_url) if doc.scrape_config else doc.source_url
+            # Parse scrape_config from JSON string if it exists
+            if doc.scrape_config:
+                try:
+                    config = json.loads(doc.scrape_config) if isinstance(doc.scrape_config, str) else doc.scrape_config
+                    base_url = config.get('base_url', doc.source_url)
+                except (json.JSONDecodeError, AttributeError):
+                    base_url = doc.source_url
+            else:
+                base_url = doc.source_url
+
             if base_url not in by_base_url:
                 by_base_url[base_url] = []
             by_base_url[base_url].append(doc)

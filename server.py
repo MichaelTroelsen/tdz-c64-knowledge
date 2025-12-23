@@ -4113,6 +4113,233 @@ class KnowledgeBase:
 
         self.logger.info(f"Updated tags for document {doc_id[:12]}: {tags}")
 
+    def suggest_tags(self, doc_id: str, confidence_threshold: float = 0.6) -> list[dict]:
+        """
+        Suggest tags for a document based on content analysis.
+
+        Uses heuristic-based tag suggestion (no LLM required):
+        - Detects hardware components (SID, VIC-II, CIA, 6502)
+        - Identifies programming topics (assembly, BASIC, machine code)
+        - Recognizes document types (reference, tutorial, guide)
+        - Extracts memory addresses and registers
+
+        Args:
+            doc_id: Document ID to analyze
+            confidence_threshold: Minimum confidence for suggestions (0.0-1.0)
+
+        Returns:
+            List of suggested tags with confidence scores:
+            [
+                {'tag': 'sid-programming', 'confidence': 0.95, 'category': 'hardware'},
+                {'tag': 'assembly', 'confidence': 0.85, 'category': 'programming'},
+                ...
+            ]
+
+        Raises:
+            ValueError: If document not found
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        doc = self.documents[doc_id]
+        suggested_tags = []
+
+        # Get sample of document content (first 3 chunks to avoid overhead)
+        try:
+            chunks = self._get_chunks_db(doc_id)
+            sample_text = '\n'.join([c['content'] for c in chunks[:3]]) if chunks else ''
+        except Exception as e:
+            self.logger.warning(f"Failed to get chunks for {doc_id}: {e}")
+            sample_text = ''
+
+        if not sample_text:
+            return suggested_tags
+
+        text_lower = sample_text.lower()
+
+        # Hardware detection
+        hardware_patterns = {
+            'sid-chip': (r'\bsid\b|\b6581\b', 0.9),
+            'vic-ii': (r'\bvic-?ii\b|\bvic\s*2\b|\b6569\b|\b6567\b', 0.9),
+            'cia': (r'\bcia\b|\b6526\b', 0.85),
+            '6502-processor': (r'\b6502\b|\b6510\b', 0.9),
+            'joystick': (r'\bjoystick\b|\bcontroller\b', 0.7),
+            'disk-drive': (r'\bdisk\s*drive\b|\b1541\b|\b1571\b', 0.8),
+        }
+
+        for tag, (pattern, confidence) in hardware_patterns.items():
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                if confidence >= confidence_threshold:
+                    suggested_tags.append({
+                        'tag': tag,
+                        'confidence': confidence,
+                        'category': 'hardware'
+                    })
+
+        # Programming topic detection
+        programming_patterns = {
+            'assembly': (r'\bassembly\b|\bmachine\s*code\b|\basync\b', 0.85),
+            'basic': (r'\bbasic\b|\bprogram\s*line\b|\bline\s*numbers\b', 0.8),
+            'graphics': (r'\bgraphics\b|\bsprite\b|\bbitmap\b|\bcharacter\s*set\b', 0.85),
+            'sound-music': (r'\bsound\b|\bmusic\b|\baudio\b|\benvelop\b|\bsynthesis\b', 0.8),
+            'interrupts': (r'\binterrupt\b|\birq\b|\bnmi\b', 0.9),
+            'memory-management': (r'\bmemory\s*map\b|\bmemory\s*address\b|\b\$[0-9a-f]{4}\b', 0.75),
+        }
+
+        for tag, (pattern, confidence) in programming_patterns.items():
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                if confidence >= confidence_threshold:
+                    suggested_tags.append({
+                        'tag': tag,
+                        'confidence': confidence,
+                        'category': 'programming'
+                    })
+
+        # Document type detection
+        doc_type_patterns = {
+            'reference': (r'\breference\b|\bopcode\s*table\b|\binstruction\s*set\b', 0.85),
+            'tutorial': (r'\btutorial\b|\bhow\s*to\b|\bguide\b|\blearn\b', 0.75),
+            'specification': (r'\bspecification\b|\bspec\b|\bdatasheet\b|\bmanual\b', 0.9),
+            'code-example': (r'\bexample\b|\bcode\s*sample\b|\broutine\b', 0.7),
+        }
+
+        for tag, (pattern, confidence) in doc_type_patterns.items():
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                if confidence >= confidence_threshold:
+                    suggested_tags.append({
+                        'tag': tag,
+                        'confidence': confidence,
+                        'category': 'document-type'
+                    })
+
+        # Difficulty level detection
+        difficulty_patterns = {
+            'beginner': (r'\bbeginning\b|\bstarter\b|\bintroduction\b|\bfundamentals?\b', 0.75),
+            'intermediate': (r'\bintermediate\b|\badvanced-beginner\b', 0.7),
+            'advanced': (r'\badvanced\b|\bexpert\b|\bdeep-dive\b', 0.75),
+        }
+
+        for tag, (pattern, confidence) in difficulty_patterns.items():
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                if confidence >= confidence_threshold:
+                    suggested_tags.append({
+                        'tag': tag,
+                        'confidence': confidence,
+                        'category': 'difficulty'
+                    })
+
+        # Sort by confidence (descending)
+        suggested_tags.sort(key=lambda x: x['confidence'], reverse=True)
+
+        self.logger.info(f"Suggested {len(suggested_tags)} tags for document {doc_id[:12]}")
+
+        return suggested_tags
+
+    def add_tags_to_document(self, doc_id: str, new_tags: list[str],
+                            merge: bool = True) -> list[str]:
+        """
+        Add tags to a document, optionally merging with existing tags.
+
+        Args:
+            doc_id: Document ID
+            new_tags: Tags to add
+            merge: If True, merge with existing tags. If False, replace tags.
+
+        Returns:
+            Updated list of all tags for the document
+
+        Raises:
+            ValueError: If document not found
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        # Normalize and deduplicate tags
+        new_tags = list(set([t.lower().replace(' ', '-') for t in new_tags if t]))
+
+        if merge:
+            # Merge with existing tags
+            existing_tags = set(self.documents[doc_id].tags or [])
+            all_tags = list(existing_tags | set(new_tags))
+        else:
+            all_tags = new_tags
+
+        # Update document
+        self.update_document_tags(doc_id, all_tags)
+
+        return all_tags
+
+    def get_tags_by_category(self) -> dict[str, list[dict]]:
+        """
+        Get all tags organized by category for easier browsing.
+
+        Returns:
+            Dictionary with categories as keys and tag lists as values:
+            {
+                'hardware': [
+                    {'tag': 'sid-chip', 'count': 15, 'documents': ['doc1', 'doc2', ...]},
+                    ...
+                ],
+                'programming': [...],
+                ...
+            }
+        """
+        # Categorize known tags
+        tag_categories = {
+            'hardware': ['sid-chip', 'vic-ii', 'cia', '6502-processor', 'joystick', 'disk-drive'],
+            'programming': ['assembly', 'basic', 'graphics', 'sound-music', 'interrupts', 'memory-management'],
+            'document-type': ['reference', 'tutorial', 'specification', 'code-example'],
+            'difficulty': ['beginner', 'intermediate', 'advanced'],
+        }
+
+        result = {}
+
+        # For each category, count tag usage
+        for category, known_tags in tag_categories.items():
+            result[category] = []
+
+            for tag in known_tags:
+                # Count documents with this tag
+                doc_ids = [doc_id for doc_id, doc in self.documents.items()
+                          if tag in (doc.tags or [])]
+
+                if doc_ids:  # Only include tags that are actually used
+                    result[category].append({
+                        'tag': tag,
+                        'count': len(doc_ids),
+                        'documents': doc_ids[:10]  # Show first 10 docs
+                    })
+
+            # Sort by count (descending)
+            result[category].sort(key=lambda x: x['count'], reverse=True)
+
+        # Add custom/user-defined tags that don't fit in categories
+        all_known_tags = set()
+        for tags_list in tag_categories.values():
+            all_known_tags.update(tags_list)
+
+        custom_tags = {}
+        for doc in self.documents.values():
+            for tag in (doc.tags or []):
+                if tag not in all_known_tags:
+                    if tag not in custom_tags:
+                        custom_tags[tag] = []
+                    custom_tags[tag].append(doc.doc_id)
+
+        if custom_tags:
+            result['custom'] = [
+                {
+                    'tag': tag,
+                    'count': len(doc_ids),
+                    'documents': doc_ids[:10]
+                }
+                for tag, doc_ids in sorted(custom_tags.items(),
+                                         key=lambda x: len(x[1]),
+                                         reverse=True)
+            ]
+
+        return result
+
     def summarize_document(self, doc_id: str,
                           max_length: int = 500,
                           style: str = "technical") -> str:
@@ -8789,6 +9016,215 @@ Return ONLY the JSON object, no other text."""
 
         return results
 
+    def fuzzy_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
+                     similarity_threshold: int = 80) -> list[dict]:
+        """
+        Search with typo tolerance using fuzzy string matching.
+
+        Handles misspellings and variations:
+        - "VIC2" → finds "VIC-II"
+        - "asembly" → finds "assembly"
+        - "6052" → finds "6502"
+
+        Args:
+            query: Search query (may contain typos)
+            max_results: Maximum number of results to return
+            tags: Optional list of tags to filter by
+            similarity_threshold: Minimum similarity score (0-100, default: 80)
+
+        Returns:
+            List of search results, potentially with corrected query terms
+        """
+        start_time = time.time()
+
+        # Try exact search first (fast path)
+        exact_results = self.search(query, max_results, tags)
+        if len(exact_results) >= max_results:
+            elapsed_ms = (time.time() - start_time) * 1000
+            self.logger.info(f"Fuzzy search (exact match): '{query}' ({len(exact_results)} results, {elapsed_ms:.2f}ms)")
+            return exact_results
+
+        # Build vocabulary from indexed terms if not already built
+        if not hasattr(self, '_search_vocabulary') or self._search_vocabulary is None:
+            self._build_search_vocabulary()
+
+        # If vocabulary is still empty, fall back to exact search
+        if not self._search_vocabulary:
+            return exact_results
+
+        # Attempt fuzzy matching on query terms
+        if not FUZZY_SUPPORT:
+            self.logger.warning("rapidfuzz not available, falling back to exact search")
+            return exact_results
+
+        from rapidfuzz import process
+
+        # Split query into terms and correct each one
+        query_terms = query.split()
+        corrected_terms = []
+        corrections_made = []
+
+        for term in query_terms:
+            # Find best match in vocabulary using fuzzy string matching
+            best_match = process.extractOne(
+                term,
+                self._search_vocabulary,
+                score_cutoff=similarity_threshold
+            )
+
+            if best_match:
+                corrected_term = best_match[0]
+                score = best_match[1]
+                corrected_terms.append(corrected_term)
+
+                if corrected_term.lower() != term.lower():
+                    corrections_made.append({
+                        'original': term,
+                        'corrected': corrected_term,
+                        'similarity': score
+                    })
+            else:
+                # No match found, keep original term
+                corrected_terms.append(term)
+
+        # Build corrected query
+        corrected_query = ' '.join(corrected_terms)
+
+        # Log corrections if any were made
+        if corrections_made:
+            self.logger.info(f"Fuzzy search corrections: {corrections_made}")
+
+        # Search with corrected query
+        results = self.search(corrected_query, max_results, tags)
+
+        # Add correction metadata to results
+        if corrections_made and results:
+            for result in results:
+                result['fuzzy_corrections'] = corrections_made
+                result['corrected_query'] = corrected_query
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        self.logger.info(f"Fuzzy search: '{query}' → '{corrected_query}' ({len(results)} results, {elapsed_ms:.2f}ms)")
+
+        return results
+
+    def _build_search_vocabulary(self):
+        """Extract all unique terms from indexed content for fuzzy matching."""
+        vocabulary = set()
+
+        # Add known C64 technical terms
+        known_terms = [
+            'VIC-II', 'VIC2', 'VIC', 'SID', 'CIA', '6502', '6581', '6567', '6569', '6526',
+            'sprite', 'raster', 'screen', 'memory', 'register', 'address',
+            'assembly', 'BASIC', 'machine', 'code', 'opcode', 'instruction',
+            'bit', 'byte', 'word', 'pointer', 'variable', 'string', 'loop',
+            'interrupt', 'timer', 'trigger', 'control', 'port', 'peripheral',
+            'sound', 'music', 'voice', 'envelope', 'frequency', 'amplitude',
+            'color', 'palette', 'graphics', 'pixel', 'bitmap', 'character',
+            'kernel', 'ROM', 'RAM', 'disk', 'tape', 'storage',
+            'program', 'subroutine', 'jump', 'branch', 'call', 'return',
+            'accumulator', 'index', 'stack', 'status', 'flag', 'carry'
+        ]
+        vocabulary.update(known_terms)
+
+        # Extract terms from chunks (limited to avoid overhead)
+        try:
+            chunks_sample = self.chunks[:min(1000, len(self.chunks))]  # Sample first 1000 chunks
+
+            for chunk in chunks_sample:
+                # Extract words (lowercase, alphanumeric + hyphen)
+                words = re.findall(r'\b[a-z0-9-]{3,}\b', chunk.content.lower())
+                vocabulary.update(words)
+        except Exception as e:
+            self.logger.warning(f"Failed to build search vocabulary: {e}")
+
+        self._search_vocabulary = sorted(list(vocabulary))
+        self.logger.debug(f"Built search vocabulary with {len(self._search_vocabulary)} terms")
+
+    def search_within_results(self, previous_results: list[dict], refinement_query: str,
+                             max_results: int = 5) -> list[dict]:
+        """
+        Search within a previous result set to refine results.
+
+        Useful for progressive search refinement:
+        1. results = search("VIC-II")  # 50 results
+        2. refined = search_within_results(results, "sprite collision")  # 8 results
+
+        Args:
+            previous_results: Results from a previous search
+            refinement_query: Query to refine within the previous results
+            max_results: Maximum number of refined results
+
+        Returns:
+            Filtered and re-ranked results from the previous search set
+        """
+        start_time = time.time()
+
+        if not previous_results:
+            self.logger.warning("search_within_results called with empty previous results")
+            return []
+
+        # Extract unique doc_ids from previous results
+        doc_ids = list(set([r['doc_id'] for r in previous_results]))
+        self.logger.info(f"Searching within {len(doc_ids)} documents ({len(previous_results)} chunks) for: '{refinement_query}'")
+
+        # Build refinement terms
+        refinement_terms = self._preprocess_text(refinement_query)
+        if not refinement_terms:
+            self.logger.warning(f"No valid terms in refinement query: '{refinement_query}'")
+            return previous_results[:max_results]
+
+        # Score each previous result against refinement query
+        scored_results = []
+
+        for result in previous_results:
+            # Get the full chunk content for better matching
+            try:
+                chunk = next((c for c in self.chunks
+                            if c.doc_id == result['doc_id'] and c.chunk_id == result['chunk_id']),
+                           None)
+
+                if not chunk:
+                    # Use snippet from search result if chunk not found
+                    content = result.get('snippet', '')
+                else:
+                    content = chunk.content
+            except Exception as e:
+                self.logger.debug(f"Failed to get chunk content: {e}")
+                content = result.get('snippet', '')
+
+            # Calculate relevance score for refinement terms
+            relevance_score = 0
+            content_lower = content.lower()
+
+            for term in refinement_terms:
+                # Count occurrences and weight by position
+                occurrences = content_lower.count(term)
+                relevance_score += occurrences
+
+                # Boost score if term appears near beginning (30% of content)
+                if content_lower[:int(len(content) * 0.3)].count(term) > 0:
+                    relevance_score += 2
+
+            # Only include results with at least some match
+            if relevance_score > 0:
+                scored_results.append({
+                    **result,
+                    'refinement_score': relevance_score,
+                    'original_score': result.get('score', 0)
+                })
+
+        # Sort by refinement score (descending), then by original score
+        scored_results.sort(key=lambda x: (x['refinement_score'], x['original_score']), reverse=True)
+
+        # Limit results
+        refined_results = scored_results[:max_results]
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        self.logger.info(f"Search within results: '{refinement_query}' ({len(refined_results)}/{len(previous_results)} results, {elapsed_ms:.2f}ms)")
+
+        return refined_results
+
     def translate_nl_query(self, query: str, confidence_threshold: float = 0.7) -> dict:
         """
         Translate natural language query to structured search parameters using LLM.
@@ -10689,6 +11125,90 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="fuzzy_search",
+            description="Search with typo tolerance using fuzzy string matching. Handles misspellings and variations like 'VIC2' → 'VIC-II', 'asembly' → 'assembly', '6052' → '6502'. Returns exact matches first, then fuzzy matches if needed.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (may contain typos)"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 5)",
+                        "default": 5
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by document tags (optional)"
+                    },
+                    "similarity_threshold": {
+                        "type": "integer",
+                        "description": "Minimum similarity score 0-100 (default: 80). Lower values are more forgiving of typos.",
+                        "default": 80,
+                        "minimum": 0,
+                        "maximum": 100
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="search_within_results",
+            description="Refine previous search results with an additional query. Useful for progressive search refinement: first search broadly (e.g., 'VIC-II'), then refine (e.g., 'sprite collision'). Returns filtered and re-ranked results from previous search set.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "previous_results": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "Results from a previous search (pass the full result objects)"
+                    },
+                    "refinement_query": {
+                        "type": "string",
+                        "description": "Query to refine the previous results"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of refined results (default: 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["previous_results", "refinement_query"]
+            }
+        ),
+        Tool(
+            name="suggest_tags",
+            description="Get tag suggestions for a document based on content analysis. Detects hardware components (SID, VIC-II, CIA), programming topics (assembly, BASIC, graphics), document types (reference, tutorial), and difficulty levels. Useful for organizing documents.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to analyze"
+                    },
+                    "confidence_threshold": {
+                        "type": "number",
+                        "description": "Minimum confidence for suggestions 0.0-1.0 (default: 0.6)",
+                        "default": 0.6,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="get_tags_by_category",
+            description="Browse all tags organized by category (hardware, programming, document-type, difficulty, custom). Shows tag usage count and sample documents. Useful for discovering and organizing content.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
             name="kb_stats",
             description="Get statistics about the knowledge base.",
             inputSchema={
@@ -11737,6 +12257,129 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += f"Doc ID: {r['doc_id']}, Chunk: {r['chunk_id']}\n"
             output += f"Hybrid Score: {r['score']:.4f} (FTS: {r['fts_score']:.4f}, Semantic: {r['semantic_score']:.4f})\n"
             output += f"Snippet:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "fuzzy_search":
+        query = arguments.get("query", "")
+        max_results = arguments.get("max_results", 5)
+        tags = arguments.get("tags")
+        similarity_threshold = arguments.get("similarity_threshold", 80)
+
+        try:
+            results = kb.fuzzy_search(query, max_results, tags, similarity_threshold)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Fuzzy search error: {str(e)}")]
+
+        if not results:
+            return [TextContent(type="text", text=f"No results found for: {query}")]
+
+        output = f"Found {len(results)} fuzzy search results for '{query}':\n\n"
+
+        # Show corrections if any
+        if results and 'fuzzy_corrections' in results[0]:
+            corrections = results[0]['fuzzy_corrections']
+            output += f"Corrections applied:\n"
+            for corr in corrections:
+                output += f"  '{corr['original']}' → '{corr['corrected']}' (similarity: {corr['similarity']}%)\n"
+            output += f"Corrected query: '{results[0]['corrected_query']}'\n\n"
+
+        for i, r in enumerate(results, 1):
+            output += f"--- Result {i} ---\n"
+            output += f"Document: {r['title']} ({r['filename']})\n"
+            output += f"Doc ID: {r['doc_id']}, Chunk: {r['chunk_id']}\n"
+            output += f"Score: {r['score']}\n"
+            output += f"Snippet:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "search_within_results":
+        previous_results = arguments.get("previous_results", [])
+        refinement_query = arguments.get("refinement_query", "")
+        max_results = arguments.get("max_results", 5)
+
+        try:
+            results = kb.search_within_results(previous_results, refinement_query, max_results)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Search within results error: {str(e)}")]
+
+        if not results:
+            return [TextContent(type="text", text=f"No matching results in previous set for refinement query: {refinement_query}")]
+
+        output = f"Refined search: found {len(results)} results for '{refinement_query}' within previous results:\n\n"
+
+        for i, r in enumerate(results, 1):
+            output += f"--- Result {i} ---\n"
+            output += f"Document: {r['title']} ({r['filename']})\n"
+            output += f"Doc ID: {r['doc_id']}, Chunk: {r['chunk_id']}\n"
+            output += f"Original Score: {r.get('score', 'N/A')}\n"
+            output += f"Refinement Score: {r.get('refinement_score', 'N/A')}\n"
+            output += f"Snippet:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "suggest_tags":
+        doc_id = arguments.get("doc_id", "")
+        confidence_threshold = arguments.get("confidence_threshold", 0.6)
+
+        try:
+            suggestions = kb.suggest_tags(doc_id, confidence_threshold)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Tag suggestion error: {str(e)}")]
+
+        if not suggestions:
+            return [TextContent(type="text", text=f"No tag suggestions found for document {doc_id}. Content may not match known categories.")]
+
+        # Organize by category
+        by_category = {}
+        for suggestion in suggestions:
+            category = suggestion['category']
+            if category not in by_category:
+                by_category[category] = []
+            by_category[category].append(suggestion)
+
+        output = f"Tag suggestions for document {doc_id}:\n\n"
+
+        for category in sorted(by_category.keys()):
+            tags_in_cat = by_category[category]
+            output += f"**{category.replace('-', ' ').title()}:**\n"
+            for tag in tags_in_cat:
+                output += f"  - {tag['tag']} (confidence: {tag['confidence']:.0%})\n"
+            output += "\n"
+
+        output += f"\n**To apply these tags:**\n"
+        output += f"Use the 'add_document' tool to update the document with tags.\n"
+        output += f"Or use update_document_tags tool to modify tags directly.\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "get_tags_by_category":
+        try:
+            tag_categories = kb.get_tags_by_category()
+        except Exception as e:
+            return [TextContent(type="text", text=f"Tag browsing error: {str(e)}")]
+
+        output = "Knowledge Base Tags by Category\n"
+        output += "=" * 60 + "\n\n"
+
+        total_tags = 0
+
+        for category in sorted(tag_categories.keys()):
+            tags = tag_categories[category]
+            if not tags:
+                continue
+
+            output += f"**{category.replace('-', ' ').title()}** ({len(tags)} tags):\n"
+
+            for tag_info in tags:
+                tag = tag_info['tag']
+                count = tag_info['count']
+                output += f"  - {tag}: {count} document{'s' if count != 1 else ''}\n"
+                total_tags += 1
+
+            output += "\n"
+
+        output += f"\nTotal: {total_tags} tags across {len(tag_categories)} categories\n"
 
         return [TextContent(type="text", text=output)]
 

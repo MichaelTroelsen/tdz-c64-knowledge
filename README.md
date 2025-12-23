@@ -33,12 +33,15 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
 ### Search & Retrieval
 - **SQLite FTS5 full-text search** - Native database search with 480x faster queries (50ms vs 24s)
 - **Semantic search with embeddings** - Find documents by meaning, not just keywords (e.g., "movable objects" finds "sprites")
+- **Fuzzy search with typo tolerance** - Handles misspellings and variations ("VIC2" → "VIC-II", "asembly" → "assembly")
+- **Progressive search refinement** - Search within previous results to narrow down progressively
 - **Find similar documents** - Discover related documentation automatically using semantic or TF-IDF similarity
 - **BM25 search algorithm** - Industry-standard ranking for accurate results (fallback)
 - **Query preprocessing** - Intelligent stemming and stopword removal with NLTK
 - **Phrase search** - Use quotes for exact phrase matching (e.g., `"VIC-II chip"`)
 - **Search term highlighting** - Matching terms highlighted in search results
 - **Tag-based filtering** - Organize docs by topic (memory-map, sid, vic-ii, basic, assembly, etc.)
+- **Smart tag suggestions** - AI-powered tag recommendations organized by category (hardware, programming, document-type, difficulty)
 
 ### Document Management
 - **Multiple file formats** - Ingest PDFs, text files (.txt), Markdown (.md), HTML (.html, .htm), and Excel files (.xlsx, .xls)
@@ -604,6 +607,80 @@ hybrid_search(
 ```
 
 Best of both worlds - finds exact keyword matches AND conceptually related content. Results ranked by weighted combination of both scores.
+
+### fuzzy_search
+Search with typo tolerance using fuzzy string matching.
+
+```
+fuzzy_search(
+  query="VIC2 asembly",  # Typos in query
+  max_results=5,
+  similarity_threshold=80  # 0-100, lower = more forgiving
+)
+```
+
+Handles misspellings and variations:
+- "VIC2" → "VIC-II"
+- "asembly" → "assembly"
+- "6052" → "6502"
+
+Returns exact matches first for speed, then fuzzy matches if needed. Useful for queries where users might mistype or use variant spellings of technical terms.
+
+### search_within_results
+Refine previous search results with an additional query for progressive search refinement.
+
+```
+# First search broadly
+results = search_docs(query="VIC-II", max_results=50)
+
+# Then refine within those results
+refined = search_within_results(
+  previous_results=results,
+  refinement_query="sprite collision",
+  max_results=5
+)
+```
+
+Useful workflow:
+1. `search_docs("VIC-II")` → 50 results
+2. `search_within_results(results, "sprite collision")` → 8 refined results
+3. `search_within_results(refined, "timing")` → 2 specific results
+
+Each refinement filters and re-ranks within the previous result set, progressively narrowing down to exactly what you need.
+
+### suggest_tags
+Get tag suggestions for a document based on content analysis.
+
+```
+suggest_tags(
+  doc_id="abc123def456",
+  confidence_threshold=0.6  # 0.0-1.0, higher = more selective
+)
+```
+
+Detects and suggests tags automatically:
+- **Hardware**: sid-chip, vic-ii, cia, 6502-processor, joystick, disk-drive
+- **Programming**: assembly, basic, graphics, sound-music, interrupts, memory-management
+- **Document Type**: reference, tutorial, specification, code-example
+- **Difficulty**: beginner, intermediate, advanced
+
+Each suggestion includes a confidence score. Use these to organize and categorize documents consistently. Results can be applied to the document using `add_document` with tags or `update_document_tags`.
+
+### get_tags_by_category
+Browse all tags in the knowledge base organized by category.
+
+```
+get_tags_by_category()
+```
+
+Returns tags grouped by category with usage counts:
+- **Hardware** - VIC-II (15 docs), SID (12 docs), ...
+- **Programming** - assembly (20 docs), graphics (15 docs), ...
+- **Document Type** - reference (25 docs), tutorial (8 docs), ...
+- **Difficulty** - advanced (18 docs), beginner (12 docs), ...
+- **Custom** - user-defined tags with usage counts
+
+Useful for discovering how documents are organized and finding related content by tag.
 
 ### faceted_search
 Search with entity-based facet filtering.

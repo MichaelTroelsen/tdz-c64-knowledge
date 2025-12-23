@@ -444,8 +444,133 @@ print(f"Failed: {result['failed']} documents")
 kb.close()
 ```
 
+## Performance Benchmarks
+
+Performance baselines measured on v2.21.1 with 185 documents (145 MB database):
+
+### System Information
+```
+Database Size: 145.46 MB
+Documents: 185 docs
+Chunks: ~2,600 chunks
+Embeddings: 2,612 vectors (3.83 MB)
+Initialization: 69.28 ms
+
+Features Enabled:
+- FTS5: ✓
+- Semantic Search: ✓
+- BM25: ✓
+- Query Preprocessing: ✓
+```
+
+### Search Performance
+
+#### FTS5 Full-Text Search
+```
+Queries: 8 test queries
+Average: 85.20 ms
+Median:  84.58 ms
+Min:     79.87 ms
+Max:     94.32 ms
+
+Example queries:
+- "VIC-II sprite" - 94ms
+- "SID music" - 88ms
+- "raster interrupt" - 80ms
+- "memory map" - 82ms
+```
+
+**Recommendation:** Best for keyword-based searches, technical terms, register addresses.
+
+#### Semantic Search
+```
+First Query (with model loading): 5,594 ms (~5.6 seconds)
+Subsequent Queries:
+  Average: 16.48 ms
+  Median:  14.05 ms
+  Min:     14.01 ms
+  Max:     21.39 ms
+
+Example queries:
+- "how to program sprites" - 5,595ms (first query)
+- "sound synthesis techniques" - 21ms
+- "graphics display modes" - 14ms
+- "memory organization" - 14ms
+```
+
+**Note:** First query includes model loading time (~5.5s). Subsequent queries are very fast (<20ms).
+
+**Recommendation:** Best for conceptual searches, "how to" questions, understanding relationships.
+
+#### Hybrid Search (FTS5 + Semantic)
+```
+Queries: 4 test queries
+Average: 142.21 ms
+Median:  142.19 ms
+Min:     126.15 ms
+Max:     158.30 ms
+
+Example queries with semantic weights:
+- "VIC-II programming" (w=0.3) - 126ms
+- "sprite techniques" (w=0.5) - 158ms
+- "SID register" (w=0.1) - 136ms
+- "display concepts" (w=0.7) - 149ms
+```
+
+**Recommendation:** Best overall search quality, combines precision of keywords with semantic understanding.
+
+### Document Operations
+```
+get_document():    1.95 ms avg (retrieve full document)
+list_documents():  0.01 ms (list all 185 docs)
+get_stats():       49.62 ms (comprehensive statistics)
+health_check():    1,088.63 ms avg (full system diagnostics)
+```
+
+### Entity Extraction (Regex)
+```
+_extract_entities_regex(): 1.03 ms avg
+Entities found: ~3 entities per text sample
+Min: 0.11 ms
+Max: 3.71 ms
+```
+
+**Note:** Regex extraction is ~5,000x faster than LLM-based extraction and covers common C64 entities (hardware, memory addresses, opcodes).
+
+### Performance Summary
+
+| Operation | Time | Notes |
+|-----------|------|-------|
+| FTS5 Search | 85ms | Fast keyword search |
+| Semantic Search | 16ms | After model loading |
+| Hybrid Search | 142ms | Best quality |
+| Get Document | 2ms | Very fast retrieval |
+| List Documents | <1ms | Instant listing |
+| Entity Regex | 1ms | Lightning fast |
+| Health Check | 1,089ms | Comprehensive diagnostics |
+
+### Benchmarking Your System
+
+Run the comprehensive benchmark on your system:
+
+```bash
+python benchmark_comprehensive.py --output my_benchmark.json
+```
+
+This will test all search modes, document operations, and entity extraction, saving detailed results to JSON.
+
+### Performance Tips
+
+1. **First semantic query is slow** - Model loading takes ~5.5 seconds, but subsequent queries are <20ms
+2. **FTS5 is faster than hybrid** - Use FTS5 for simple keyword searches when speed is critical
+3. **Semantic search is fast after loading** - Average 16ms for conceptual searches
+4. **Hybrid search offers best quality** - Worth the 142ms average for important queries
+5. **Document retrieval is very fast** - 2ms average, optimized for quick access
+6. **Entity regex extraction is instant** - Use for common C64 patterns before calling LLM
+
 ## See Also
 
 - **CHANGELOG.md** - Detailed feature documentation
 - **USER_GUIDE.md** - Complete user guide
 - **CLAUDE.md** - Developer documentation
+- **benchmark_comprehensive.py** - Run your own benchmarks

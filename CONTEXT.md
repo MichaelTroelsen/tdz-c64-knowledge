@@ -1,220 +1,145 @@
 # TDZ C64 Knowledge Server - Development Context
 
 ## Quick Reference
+
 **Before asking questions, check:**
-1. This CONTEXT.md file
-2. README.md for architecture and setup
-3. ARCHITECTURE.md for deep technical details
-4. CLAUDE.md for quick reference
-5. Python source files (server.py, cli.py, admin_gui.py)
-6. /docs/ folder for API documentation (if exists)
-7. Test files for usage examples
+1. CONTEXT.md (this file) - Current status, quick stats
+2. CLAUDE.md - Dev commands, code patterns
+3. README.md - Features, installation, tools
+4. ARCHITECTURE.md - Technical deep dive
+5. Source files (server.py, cli.py, admin_gui.py, rest_server.py)
 
 ## Project Overview
-TDZ C64 Knowledge is an MCP (Model Context Protocol) server that provides Claude with access to a searchable knowledge base of Commodore 64 documentation, including:
-- Memory maps
-- Hardware specifications (SID, VIC-II, CIA)
-- BASIC and assembly programming references
-- Technical manuals and programmer's guides
 
-## Architecture
-- **MCP Server**: Python-based server implementing Model Context Protocol (stdio transport)
-- **REST API Server**: FastAPI-based HTTP/REST interface (27 endpoints, optional)
-- **Knowledge Base**: SQLite database with FTS5 full-text search
-- **Document Processing**: PDF, text, Markdown, HTML, and Excel file indexing
-- **Search Capabilities**:
-  - Keyword search (FTS5 - 480x faster than BM25)
-  - Semantic search (embeddings + FAISS, optional, 43% faster with caching)
-  - Hybrid search (combines keyword + semantic, 22% faster with parallelization)
-  - Natural language query translation (AI-powered)
-  - Table extraction (PDF tables → markdown)
-  - Code block detection (BASIC/Assembly/Hex)
-  - BM25 ranking (fallback)
-  - Similarity search (find related docs)
-- **AI Features**:
-  - Entity extraction (LLM-powered, background processing)
-  - Entity analytics and relationship mapping
-  - Document summarization
-  - Anomaly detection (ML-based baseline learning)
+MCP server providing Claude with searchable Commodore 64 documentation (memory maps, hardware specs, programming references, technical manuals).
 
-## Key Components
-- **server.py** - MCP server, KnowledgeBase class, tool handlers, AI features
-- **rest_server.py** - FastAPI REST API server (27 endpoints, optional)
-- **rest_models.py** - Pydantic v2 request/response models
-- **cli.py** - Command-line interface for batch operations
-- **admin_gui.py** - Streamlit web interface with analytics dashboard
+**Architecture:**
+- MCP Server (Python, stdio transport) + optional REST API (FastAPI, 27 endpoints)
+- SQLite database (12+ tables, FTS5 full-text search)
+- Multi-format ingestion: PDF, text, Markdown, HTML, Excel, web scraping
+- Search: FTS5 (480x faster), semantic (FAISS), hybrid, fuzzy, RAG
+- AI: Entity extraction, relationship mapping, anomaly detection, question answering
+
+## Current Status - v2.23.0
+
+**Development Phase:**
+- ✅ Phase 1: AI-Powered Intelligence (v2.13-v2.22.0) - Complete
+- ✅ Phase 2: Advanced Search & Discovery (v2.23.0) - Complete
+  - RAG question answering with citations
+  - Fuzzy search with typo tolerance
+  - Progressive search refinement
+  - Smart document tagging
+- ✅ Phase 3: Content Intelligence (v2.15-v2.22.0) - Complete
+  - Entity extraction, relationship mapping
+  - Version tracking, anomaly detection
+- 🎯 **Current Focus:** Production stability, maintenance, feature refinement
+
+## Key Stats & Performance
+
+- **Scalability:** Tested to 5,000+ documents with excellent performance
+- **Search Performance:** FTS5 85ms avg, Semantic 16ms avg, Hybrid 142ms avg
+- **Throughput:** 5,712 concurrent queries/sec (10 workers), 3,400+ docs/sec anomaly detection
+- **Entity Extraction:** 5000x faster with C64-specific regex (1ms vs 5s LLM-only)
+- **Database:** 12+ tables, ACID transactions, lazy loading, content-based deduplication
+
+## Core Components
+
+- **server.py** - MCP server, KnowledgeBase class, 50+ tools, AI features
+- **rest_server.py** - FastAPI REST API (27 endpoints, optional)
+- **rest_models.py** - Pydantic v2 models
+- **cli.py** - Command-line interface
+- **admin_gui.py** - Streamlit dashboard
 - **test_server.py** - Pytest test suite
-- **knowledge_base.db** - SQLite database (12+ tables including entities, relationships, extraction_jobs)
+- **knowledge_base.db** - SQLite database (in TDZ_DATA_DIR)
 
-## MCP Tools
+## MCP Tools Summary
 
-### Search Tools
-- `search_docs` - Full-text search
-- `semantic_search` - Meaning-based search
-- `hybrid_search` - Combined search
-- `translate_query` - Natural language query translation
-- `search_tables` - Search extracted tables
-- `search_code` - Search code blocks
-- `find_similar` - Find similar documents
-- `fuzzy_search` - Typo-tolerant search (Phase 2)
-- `search_within_results` - Progressive search refinement (Phase 2)
-- `answer_question` - RAG-based question answering (Phase 2)
+**50+ tools organized by category:**
+- Search (11): search_docs, semantic_search, hybrid_search, fuzzy_search, search_within_results, answer_question, translate_query, search_tables, search_code, find_similar, faceted_search
+- Documents (6): add_document, add_documents_bulk, remove_document, remove_documents_bulk, list_docs, get_document, get_chunk, check_updates
+- URL Scraping (3): scrape_url, rescrape_document, check_url_updates
+- AI & Analytics (14): extract_entities, get_entities, search_entities, entity_stats, extract_entities_bulk, extract_entity_relationships, get_entity_relationships, find_related_entities, search_entity_pair, extract_relationships_bulk, get_entity_analytics, compare_documents, suggest_tags, add_tags_to_document, get_tags_by_category
+- Export (3): export_entities, export_relationships, export_documents_bulk
+- System (2): kb_stats, health_check
 
-### Document Management
-- `add_document` - Index a file
-- `add_documents_bulk` - Bulk import
-- `remove_document` - Remove a document
-- `remove_documents_bulk` - Bulk remove
-- `list_docs` - List all documents
-- `get_chunk` - Retrieve specific chunk
-- `get_document` - Retrieve full document
-- `check_updates` - Check for file updates
-
-### URL Scraping
-- `scrape_url` - Scrape documentation website
-- `rescrape_document` - Re-scrape existing URL doc
-- `check_url_updates` - Check scraped docs for updates
-
-### AI & Analytics
-- `extract_entities` - Extract entities from document (LLM)
-- `get_entities` - Search extracted entities
-- `get_entity_analytics` - Comprehensive entity statistics
-- `queue_entity_extraction` - Background entity extraction
-- `get_extraction_status` - Check extraction job status
-- `get_extraction_jobs` - Monitor extraction queue
-- `compare_documents` - Side-by-side document comparison
-- `export_entities` - Export entities to CSV/JSON
-- `export_relationships` - Export relationships to CSV/JSON
-- `suggest_tags` - AI-powered tag suggestions (Phase 2)
-- `add_tags_to_document` - Apply tags to documents (Phase 2)
-- `get_tags_by_category` - Browse tags by category (Phase 2)
-
-### System
-- `kb_stats` - Knowledge base statistics
-- `health_check` - System diagnostics
+See README.md for complete tool documentation.
 
 ## Integration Points
-- Used by Claude Desktop via MCP configuration
-- Used by Claude Code for C64 development projects
-- Can be used by any MCP-compatible client
 
-## Common Development Tasks
-- Adding new document types (see ARCHITECTURE.md "Extending File Type Support")
-- Improving search algorithms (see ARCHITECTURE.md "Search Implementation")
-- Adding new MCP tools (see ARCHITECTURE.md "Adding New MCP Tools")
-- Optimizing chunking strategies (default: 1500 words, 200 word overlap)
-- Enhancing metadata extraction
-- Extending URL scraping capabilities
-
-## Testing
-```cmd
-# Run all tests
-pytest test_server.py -v
-
-# Test CLI
-python cli.py stats
-python cli.py search "VIC-II sprite" --max 5
-
-# Test GUI
-python -m streamlit run admin_gui.py
-```
-
-- Test with real C64 documentation PDFs
-- Verify search quality and relevance
-- Check MCP protocol compliance
-- Test from Claude Desktop/Code
+- **Claude Desktop** - Via MCP configuration (%APPDATA%\Claude\claude_desktop_config.json)
+- **Claude Code** - Via `.claude/settings.json` or `claude mcp add`
+- **REST API** - FastAPI server on port 8000 (optional)
+- **CLI** - Direct command-line usage
+- **GUI** - Streamlit web interface
 
 ## Environment Variables
 
-### Core Settings
+**Essential:**
 - `TDZ_DATA_DIR` - Database directory (default: ~/.tdz-c64-knowledge)
-- `USE_FTS5` - Enable FTS5 search (recommended: `1`)
-- `USE_SEMANTIC_SEARCH` - Enable semantic search
-- `USE_BM25` - Enable BM25 fallback (default: `1`)
-- `USE_QUERY_PREPROCESSING` - Enable NLTK preprocessing (default: `1`)
+- `USE_FTS5=1` - Enable FTS5 search (recommended)
+- `USE_SEMANTIC_SEARCH=1` - Enable semantic search (optional)
 
-### Performance & Caching
-- `EMBEDDING_CACHE_TTL` - Embedding cache duration (default: 3600s)
-- `ENTITY_CACHE_TTL` - Entity cache duration (default: 86400s)
+**Security:**
+- `ALLOWED_DOCS_DIRS` - Whitelist document directories
+- `REST_API_KEY` - API authentication
 
-### Security & Integration
-- `ALLOWED_DOCS_DIRS` - Security whitelist for document directories
-- `MDSCRAPE_PATH` - Path to mdscrape executable
-- `AUTO_EXTRACT_ENTITIES` - Auto-queue entity extraction (default: `1`)
-- `REST_API_KEY` - API key for REST server authentication
+**Performance:**
+- `EMBEDDING_CACHE_TTL=3600` - Cache duration (seconds)
+- `ENTITY_CACHE_TTL=86400` - Entity cache duration
 
-## Version History Highlights
+See README.md for complete list.
 
-### v2.23.0 (Current) - RAG Question Answering & Advanced Search
-**Phase 2 Complete - Advanced Search & Discovery**
-- RAG-based question answering with citations (answer_question MCP tool)
-- Intelligent source retrieval with smart search mode selection
-- Fuzzy search with typo tolerance (rapidfuzz)
+## Recent Version Highlights
+
+**v2.23.0** - RAG Question Answering & Advanced Search (Phase 2 Complete)
+- RAG-based answer_question with citations, confidence scoring
+- Fuzzy search (rapidfuzz) with typo tolerance
 - Progressive search refinement (search_within_results)
-- Smart document tagging system (suggest_tags, get_tags_by_category, add_tags_to_document)
-- Token-budget aware context building for LLM integration
-- Citation extraction and validation from generated answers
-- Graceful fallback when LLM unavailable
+- Smart tagging (suggest_tags, get_tags_by_category, add_tags_to_document)
 
-### v2.22.0 - Search Improvements & Phase 1 Optimization
-**Phase 1 Complete - AI-Powered Intelligence**
-- Enhanced entity analytics and relationship tracking (Phase 3)
-- Performance optimization for health_check (93% faster)
-- Performance optimization for get_stats (12% faster)
-- Anomaly detection for URL-sourced content
-- Document version tracking and update detection
+**v2.22.0** - Phase 1 Complete & Search Optimizations
+- Enhanced entity analytics with relationship tracking
+- C64-specific regex patterns (5000x faster entity extraction)
+- Distance-based relationship strength scoring
+- Health check optimization (93% faster)
 
-### v2.21.0 - Anomaly Detection
-- Intelligent anomaly detection with ML-based baseline learning
+**v2.21.0** - Anomaly Detection
+- ML-based baseline learning (30-day rolling window)
 - 1500x performance improvement (3400+ docs/second)
-- Automated content change detection for URL-sourced documents
+- Multi-dimensional anomaly scoring
 
-### v2.20.x - Performance & Reliability
-- Enhanced URL update checking with concurrent processing
-- Performance optimizations and security fixes
-- Improved monitoring dashboards
+## Development Tasks
 
-### v2.19.0 - Speed Optimizations
-- Semantic search 43% faster with embedding cache
-- Hybrid search 22% faster with parallel execution
-- Entity extraction caching (4x faster)
+**Common operations:**
+- Adding new file types → ARCHITECTURE.md "Extending File Type Support"
+- Improving search algorithms → ARCHITECTURE.md "Search Implementation"
+- Adding MCP tools → ARCHITECTURE.md "Adding New MCP Tools"
+- Optimizing chunking → Default: 1500 words, 200 word overlap
+- Extending URL scraping → Uses mdscrape integration
 
-### v2.18.0 - REST API & Analytics
-- Complete FastAPI REST server (27 endpoints)
-- Background entity extraction (zero-delay processing)
-- Interactive entity analytics dashboard with network graphs
+## Testing
 
-### v2.17.0 - AI-Powered Intelligence
-- Natural language query translation
-- AI-powered query parsing and entity detection
-- Automatic search mode recommendation
+```cmd
+pytest test_server.py -v                    # All tests
+python cli.py stats                         # Test CLI
+python -m streamlit run admin_gui.py       # Test GUI
+```
 
-### v2.15-v2.16 - Entity Intelligence
-- Entity relationship mapping
-- Document comparison features
-- Export capabilities (CSV/JSON)
-
-## Related Projects
-- **SIDM2**: C64 project that USES this server
-- **mcp-c64**: Another C64-related MCP server (development tools)
+**Test with real C64 PDFs to verify:**
+- Search quality and relevance
+- MCP protocol compliance
+- Claude Desktop/Code integration
 
 ## Important Notes
-- This is SERVER code - it provides tools TO Claude
-- Don't confuse with client-side usage (SIDM2 is a CLIENT)
-- Changes here affect all projects using the server
+
+- **This is SERVER code** - Provides tools TO Claude (not client code)
+- Changes affect ALL projects using this server
 - Restart Claude Desktop/Code after server changes
 - Database uses ACID transactions for integrity
-- Lazy loading architecture for scalability (100k+ documents)
+- Lazy loading enables 100k+ document scalability
 - Content-based duplicate detection via MD5 hashing
 
-## Development Status
+## Related Projects
 
-**Phase Progress:**
-- ✅ Phase 1: AI-Powered Intelligence (v2.13.0-v2.22.0) - Complete
-- ✅ Phase 2: Advanced Search & Discovery (v2.23.0) - Complete
-- ✅ Phase 3: Content Intelligence (v2.15-v2.22.0) - Complete
-  - Entity extraction, relationship mapping, version tracking, anomaly detection
-- 🎯 Production Focus: Stability, maintenance, and feature refinement
-
-## Version
-Current: v2.23.0 (RAG Question Answering, Fuzzy Search, Smart Tagging, Phase 2 Complete)
+- **SIDM2** - C64 project that USES this server (client)
+- **mcp-c64** - Another C64 MCP server (development tools)

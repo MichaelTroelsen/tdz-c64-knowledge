@@ -1071,8 +1071,15 @@ def test_health_check(tmpdir):
     doc = kb.add_document(str(test_file), "Test Doc", ["test"])
     assert doc is not None
 
-    # Run health check
-    health = kb.health_check()
+    # Run quick health check first
+    health_quick = kb.health_check(quick_check=True)
+    assert 'status' in health_quick
+    assert 'database' in health_quick
+    assert 'size_mb' in health_quick['database']
+    assert 'disk_free_gb' in health_quick['database']
+
+    # Run full health check (includes integrity check)
+    health = kb.health_check(quick_check=False, use_cache=False)
 
     # Verify structure
     assert 'status' in health
@@ -1091,9 +1098,11 @@ def test_health_check(tmpdir):
     assert health['metrics']['chunks'] >= 1
     assert health['metrics']['total_words'] > 0
 
-    # Check database info
+    # Check database info (only present in full check)
     assert 'integrity' in health['database']
     assert health['database']['integrity'] == 'ok'
+    assert 'size_mb' in health['database']
+    assert 'disk_free_gb' in health['database']
 
     # Check features
     assert 'fts5_enabled' in health['features']

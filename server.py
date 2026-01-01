@@ -108,7 +108,6 @@ except ImportError:
 try:
     import pytesseract
     from pdf2image import convert_from_path
-    from PIL import Image
     OCR_SUPPORT = True
 except ImportError:
     OCR_SUPPORT = False
@@ -1858,14 +1857,11 @@ class KnowledgeBase:
             self.logger.info(f"PDF appears to be scanned ({total_text_length} chars extracted), falling back to OCR")
             try:
                 ocr_text, page_count = self._extract_pdf_with_ocr(filepath)
-                # Use OCR text instead
-                full_text = ocr_text
+                # Use OCR text instead of extracted pages
+                pages = [ocr_text]
                 # Still extract metadata from PDF
             except Exception as e:
                 self.logger.warning(f"OCR fallback failed: {e}, using extracted text anyway")
-                full_text = "\n\n--- PAGE BREAK ---\n\n".join(pages)
-        else:
-            full_text = "\n\n--- PAGE BREAK ---\n\n".join(pages)
 
         # Extract metadata
         metadata = {}
@@ -4141,7 +4137,6 @@ class KnowledgeBase:
         if doc_id not in self.documents:
             raise ValueError(f"Document not found: {doc_id}")
 
-        doc = self.documents[doc_id]
         suggested_tags = []
 
         # Get sample of document content (first 3 chunks to avoid overhead)
@@ -5313,12 +5308,18 @@ Return ONLY the summary text, no preamble."""
             # CIA 1, CIA-1 → CIA1
             normalized = re.sub(r'CIA\s*-?\s*([12])', r'CIA\1', normalized, flags=re.IGNORECASE)
             # Preserve standard forms
-            if normalized.lower() == 'sid': normalized = 'SID'
-            if normalized.lower() == 'cia': normalized = 'CIA'
-            if normalized.lower() == 'pla': normalized = 'PLA'
-            if normalized.lower() == 'c64': normalized = 'C64'
-            if normalized.lower() == 'c128': normalized = 'C128'
-            if 'vic-ii' in normalized.lower(): normalized = 'VIC-II'
+            if normalized.lower() == 'sid':
+                normalized = 'SID'
+            if normalized.lower() == 'cia':
+                normalized = 'CIA'
+            if normalized.lower() == 'pla':
+                normalized = 'PLA'
+            if normalized.lower() == 'c64':
+                normalized = 'C64'
+            if normalized.lower() == 'c128':
+                normalized = 'C128'
+            if 'vic-ii' in normalized.lower():
+                normalized = 'VIC-II'
 
         elif entity_type == 'memory_address':
             # Normalize memory addresses to uppercase $ format
@@ -6848,7 +6849,6 @@ Important:
         # Find co-occurrences with enhanced distance-based strength calculation
         relationships = {}  # (entity1, entity2) -> strength
         relationship_contexts = {}  # (entity1, entity2) -> context
-        total_chunks = len(chunks)
 
         for chunk in chunks:
             content = chunk.content
@@ -8394,7 +8394,6 @@ Important:
 
         # Build results
         results = []
-        seen_docs = set()
 
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0 or idx >= len(self.embeddings_doc_map):

@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Python 3.14 Compatibility** - Added workaround for SQLite commit() SystemError
+  - Python 3.14.0 has a bug where sqlite3.Connection.commit() can return NULL without setting exception
+  - Added SystemError handling in _remove_document_db() method
+  - Verifies deletion succeeded by checking document existence
+  - Prevents test failures on Python 3.14+
+
+- **translate-query CLI Command** - Fixed KeyError exceptions
+  - Added missing 'suggested_query' field to all return paths in translate_nl_query()
+  - Made entity field access safe with .get() for 'source' and 'confidence'
+  - Command now works correctly with LLM-returned entities
+
+- **Python 3.10 Compatibility** - Fixed f-string nested quotes syntax error
+  - Line 6144 used f-string syntax only supported in Python 3.12+
+  - Extracted string manipulation outside f-string for Python 3.10/3.11 compatibility
+  - Maintains "Python 3.10+" compatibility as documented
+
+- **Bare Except Blocks** - Replaced 6 instances with specific exception types
+  - admin_gui.py (2): ValueError, TypeError, AttributeError for datetime/entity access
+  - rest_server.py (2): Exception for SQL query errors
+  - server.py (2): JSON/date parsing errors with specific types
+  - Improves error handling and debuggability
+
+### Refactored
+- **Code Quality Improvements** - Major cleanup reducing Ruff errors 91% (69→6)
+  - Removed 435 lines of duplicate method definitions (get_entity_analytics, translate_nl_query)
+  - Auto-fixed 43 Ruff linting errors (imports, formatting, whitespace)
+  - Removed unused imports (PIL.Image)
+  - Fixed unused variables (full_text OCR logic, doc, total_chunks, seen_docs)
+  - Split 6 multi-statement lines for better readability
+  - Remaining 6 errors are intentional (E402: imports after sys.path.insert)
+
+- **OCR Text Extraction** - Fixed logic to properly use OCR results
+  - Corrected full_text variable usage in _extract_pdf_file()
+  - Now properly replaces pages list with OCR text when scanned PDF detected
+  - Prevents unused variable warnings
+
+### Testing
+- **Test Suite Status** - All 59 tests passing (100% pass rate)
+  - 2 skipped tests (semantic search - feature not enabled)
+  - Python 3.14 compatibility verified
+  - No regressions from maintenance changes
+
 ## [2.23.0] - 2025-12-23
 
 ### Added

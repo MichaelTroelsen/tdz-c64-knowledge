@@ -1465,10 +1465,28 @@ class KnowledgeBase:
 
         try:
             cursor.execute("DELETE FROM documents WHERE doc_id = ?", (doc_id,))
-            self.db_conn.commit()
-            return cursor.rowcount > 0
+            rowcount = cursor.rowcount
+            try:
+                self.db_conn.commit()
+            except SystemError as se:
+                # Python 3.14 SQLite bug workaround - commit may return NULL
+                # Check if deletion actually happened by verifying doc doesn't exist
+                check_cursor = self.db_conn.cursor()
+                result = check_cursor.execute("SELECT 1 FROM documents WHERE doc_id = ?", (doc_id,)).fetchone()
+                if result is None:
+                    # Document was deleted, commit succeeded despite SystemError
+                    self.logger.warning(f"SystemError during commit (Python 3.14 bug), but deletion succeeded: {se}")
+                    return rowcount > 0
+                else:
+                    # Deletion failed, re-raise
+                    raise
+            return rowcount > 0
         except Exception as e:
-            self.db_conn.rollback()
+            try:
+                self.db_conn.rollback()
+            except SystemError:
+                # Rollback may also fail with same bug, ignore
+                pass
             self.logger.error(f"Error removing document from database: {e}")
             raise KnowledgeBaseError(f"Failed to remove document from database: {e}")
 

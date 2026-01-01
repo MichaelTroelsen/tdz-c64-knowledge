@@ -9606,14 +9606,16 @@ Please provide your answer now:"""
             # Fallback: Basic keyword extraction without LLM
             self.logger.warning("LLM not configured, using basic keyword extraction")
             words = query.lower().split()
+            search_terms = [w for w in words if len(w) > 3]
             return {
                 'original_query': query,
-                'search_terms': [w for w in words if len(w) > 3],
+                'search_terms': search_terms,
                 'facet_filters': {},
                 'search_mode': 'keyword',
                 'confidence': 0.5,
                 'entities_found': [],
-                'reasoning': 'LLM not available - basic keyword extraction used'
+                'reasoning': 'LLM not available - basic keyword extraction used',
+                'suggested_query': ' '.join(search_terms) or query
             }
 
         # Build structured prompt for LLM
@@ -9705,7 +9707,8 @@ Return ONLY valid JSON, no additional text.
                 'search_mode': parsed.get('search_mode', 'hybrid'),
                 'confidence': parsed.get('confidence', 0.7),
                 'entities_found': entities_found,
-                'reasoning': parsed.get('reasoning', '')
+                'reasoning': parsed.get('reasoning', ''),
+                'suggested_query': ' '.join(parsed.get('search_terms', [])) or query  # Reformulated query for searching
             }
 
             elapsed = (time.time() - start_time) * 1000
@@ -9720,14 +9723,16 @@ Return ONLY valid JSON, no additional text.
 
             # Fallback to basic keyword extraction
             words = query.lower().split()
+            search_terms = [w for w in words if len(w) > 3]
             return {
                 'original_query': query,
-                'search_terms': [w for w in words if len(w) > 3],
+                'search_terms': search_terms,
                 'facet_filters': {},
                 'search_mode': 'keyword',
                 'confidence': 0.5,
                 'entities_found': [],
-                'reasoning': f'LLM response parsing failed: {str(e)}'
+                'reasoning': f'LLM response parsing failed: {str(e)}',
+                'suggested_query': ' '.join(search_terms) or query
             }
 
         except Exception as e:
@@ -9735,14 +9740,16 @@ Return ONLY valid JSON, no additional text.
 
             # Fallback to basic keyword extraction
             words = query.lower().split()
+            search_terms = [w for w in words if len(w) > 3]
             return {
                 'original_query': query,
-                'search_terms': [w for w in words if len(w) > 3],
+                'search_terms': search_terms,
                 'facet_filters': {},
                 'search_mode': 'keyword',
                 'confidence': 0.5,
                 'entities_found': [],
-                'reasoning': f'Translation error: {str(e)}'
+                'reasoning': f'Translation error: {str(e)}',
+                'suggested_query': ' '.join(search_terms) or query
             }
 
     def faceted_search(self, query: str, facet_filters: Optional[dict[str, list[str]]] = None,

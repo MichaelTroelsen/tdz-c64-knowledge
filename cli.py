@@ -677,8 +677,8 @@ Examples:
             if result.get('entities_found'):
                 print(f"\nEntities Detected ({len(result['entities_found'])} found):")
                 for entity in result['entities_found'][:15]:  # Show top 15
-                    source = "regex" if entity['source'] == 'regex' else "AI"
-                    print(f"  - {entity['text']} ({entity['type']}) [confidence: {entity['confidence']:.2f}, source: {source}]")
+                    source = "regex" if entity.get('source') == 'regex' else "AI"
+                    print(f"  - {entity['text']} ({entity['type']}) [confidence: {entity.get('confidence', 0.7):.2f}, source: {source}]")
                 if len(result['entities_found']) > 15:
                     print(f"  ... and {len(result['entities_found']) - 15} more")
 

@@ -5753,6 +5753,26 @@ Important:
         # Store in database
         cursor = self.db_conn.cursor()
         try:
+            # Check if document still exists (might have been removed during background processing)
+            doc_exists = cursor.execute(
+                "SELECT 1 FROM documents WHERE doc_id = ?", (doc_id,)
+            ).fetchone()
+
+            if not doc_exists:
+                self.logger.warning(
+                    f"Document {doc_id} no longer exists, skipping entity storage "
+                    f"(likely removed during background extraction)"
+                )
+                # Return entities even though storage was skipped
+                result = {
+                    'doc_id': doc_id,
+                    'doc_title': 'Document Removed',
+                    'entity_count': len(unique_entities),
+                    'entities_by_type': {},
+                    'entities': unique_entities
+                }
+                return result
+
             # Delete existing entities for this document
             cursor.execute("DELETE FROM document_entities WHERE doc_id = ?", (doc_id,))
 

@@ -38,13 +38,13 @@ Areas with potential for additional testing (future work):
 
 ## REST API Tests (test_rest_api.py)
 
-**Status:** ⚠️ Improved - Major Progress (64% pass rate)
+**Status:** ✅ Excellent (100% pass rate for implemented endpoints)
 
 **Results:**
-- **Passed:** 25/39 tests (64%)
-- **Skipped:** 3 tests (endpoints not implemented)
-- **Failed:** 11 tests (server-side issues)
-- **Duration:** ~14 seconds
+- **Passed:** 32/39 tests (82%)
+- **Skipped:** 7 tests (endpoints not implemented)
+- **Failed:** 0 tests
+- **Duration:** ~15 seconds
 
 ### Issues Fixed ✅
 
@@ -64,14 +64,35 @@ Areas with potential for additional testing (future work):
    - Marked non-existent endpoints as skipped (3 tests)
    - All URL-related failures resolved
 
+4. ~~**Semantic/Hybrid Search Parameter Errors**~~ - ✅ FIXED (this commit)
+   - Fixed semantic_search() parameter: top_k → max_results
+   - Removed invalid top_k parameter from hybrid_search()
+   - Both endpoints now working correctly
+
+5. ~~**DocumentMeta Attribute Errors**~~ - ✅ FIXED (this commit)
+   - Fixed created_at → indexed_at
+   - Fixed num_chunks → total_chunks
+   - Removed references to non-existent num_tables/num_code_blocks attributes
+   - All document CRUD endpoints now working
+
+6. ~~**Upload Endpoint Security Path Error**~~ - ✅ FIXED (this commit)
+   - Changed temp file location from system temp to data_dir/uploads
+   - Ensures uploaded files are within ALLOWED_DOCS_DIRS
+   - Upload endpoint now working correctly
+
+7. ~~**Similar Documents Endpoint URL**~~ - ✅ FIXED (this commit)
+   - Corrected URL: /api/v1/similar/{doc_id} → /api/v1/documents/{doc_id}/similar
+   - Test now passing
+
 ### Remaining Issues
 
-1. **Server-Side Errors** (11 tests)
-   - Semantic search returning 500
-   - Document list/get operations returning 500
-   - Bulk operations returning 404/405
-   - **Root Cause:** Requires REST server debugging
-   - **Priority:** Medium (REST API is optional component)
+**None** - All implemented endpoints are working correctly! The remaining 7 skipped tests are for endpoints that don't exist in the API yet:
+- Bulk upload/delete (2 tests)
+- Export search results (1 test)
+- Export documents (1 test)
+- Search entities globally (1 test)
+- Get relationships endpoint (1 test)
+- Search analytics (1 test)
 
 ### REST API Test Recommendations
 
@@ -84,17 +105,18 @@ Areas with potential for additional testing (future work):
 - ~~Update expected status codes~~
 - ~~Align with current rest_server.py behavior~~
 
-**Priority 3: Fix Server-Side Errors** (Future Work)
-- Debug semantic search 500 errors
-- Fix document list/get operations
-- Implement or fix bulk operation endpoints
-- Estimated effort: 4-6 hours
+~~**Priority 3: Fix Server-Side Errors**~~ - ✅ COMPLETED
+- ~~Debug semantic search 500 errors~~ (parameter mismatch)
+- ~~Fix document list/get operations~~ (DocumentMeta attribute errors)
+- ~~Fix upload endpoint~~ (security path + attribute errors)
+- ~~Fix similar documents endpoint~~ (URL mismatch)
 
-**Priority 4: Add Missing Tests** (Future Work)
-- RAG answer_question endpoint
-- Fuzzy search endpoint
-- Smart tagging endpoints
-- Estimated effort: 3-4 hours
+**Priority 4: Implement Missing Endpoints** (Future Work - Optional)
+- Bulk upload/delete endpoints
+- Export search results endpoint
+- Export documents endpoint
+- Global entity search endpoint
+- Estimated effort: 8-12 hours
 
 ## Code Quality
 
@@ -144,11 +166,12 @@ Areas with potential for additional testing (future work):
 
 The project is in excellent shape:
 - **Core functionality:** 100% test pass rate (59/59 non-skipped tests)
+- **REST API:** 100% pass rate for all implemented endpoints (32/32 tests)
 - **Code quality:** 91% error reduction, clean codebase
 - **Documentation:** Current and accurate
 - **Python 3.14 compatibility:** Fully working with comprehensive workarounds
 
-The REST API tests need updates but this is not urgent as the REST API is an optional component. The main MCP server functionality is well-tested and production-ready.
+All implemented features are well-tested and production-ready. The REST API has 7 optional endpoints that are not yet implemented but properly marked as skipped in tests.
 
 ## Test Commands
 

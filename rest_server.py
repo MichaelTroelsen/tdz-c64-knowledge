@@ -291,7 +291,7 @@ async def semantic_search(
 
         results = kb.semantic_search(
             query=request.query,
-            top_k=request.top_k,
+            max_results=request.top_k,
             tags=request.tags
         )
 
@@ -343,7 +343,6 @@ async def hybrid_search(
             query=request.query,
             max_results=request.max_results,
             semantic_weight=request.semantic_weight,
-            top_k=request.top_k,
             tags=request.tags
         )
 
@@ -498,10 +497,10 @@ async def list_documents(
                 title=doc_meta.title,
                 filename=doc_meta.filename,
                 tags=doc_meta.tags,
-                created_at=doc_meta.created_at,
-                num_chunks=doc_meta.num_chunks,
-                num_tables=doc_meta.num_tables,
-                num_code_blocks=doc_meta.num_code_blocks,
+                created_at=doc_meta.indexed_at,
+                num_chunks=doc_meta.total_chunks,
+                num_tables=0,  # Not stored in DocumentMeta
+                num_code_blocks=0,  # Not stored in DocumentMeta
                 source_url=doc_meta.source_url
             ))
 
@@ -537,10 +536,10 @@ async def get_document(
                 title=doc_meta.title,
                 filename=doc_meta.filename,
                 tags=doc_meta.tags,
-                created_at=doc_meta.created_at,
-                num_chunks=doc_meta.num_chunks,
-                num_tables=doc_meta.num_tables,
-                num_code_blocks=doc_meta.num_code_blocks,
+                created_at=doc_meta.indexed_at,
+                num_chunks=doc_meta.total_chunks,
+                num_tables=0,  # Not stored in DocumentMeta
+                num_code_blocks=0,  # Not stored in DocumentMeta
                 source_url=doc_meta.source_url
             )
         }
@@ -644,10 +643,20 @@ async def upload_document(
         # Parse tags
         tag_list = [t.strip() for t in tags.split(',')] if tags else None
 
-        # Save uploaded file to temporary location
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp_file:
+        # Save uploaded file to temporary location within data_dir (allowed by security check)
+        # Create uploads directory if it doesn't exist
+        uploads_dir = Path(kb.data_dir) / "uploads"
+        uploads_dir.mkdir(exist_ok=True)
+
+        # Generate unique filename
+        import uuid
+        unique_suffix = str(uuid.uuid4())[:8]
+        tmp_filename = f"{Path(file.filename).stem}_{unique_suffix}{Path(file.filename).suffix}"
+        tmp_path = str(uploads_dir / tmp_filename)
+
+        # Write uploaded file
+        with open(tmp_path, 'wb') as tmp_file:
             shutil.copyfileobj(file.file, tmp_file)
-            tmp_path = tmp_file.name
 
         try:
             # Add document to knowledge base
@@ -664,7 +673,7 @@ async def upload_document(
                     "doc_id": doc.doc_id,
                     "title": doc.title,
                     "filename": doc.filename,
-                    "num_chunks": doc.num_chunks
+                    "num_chunks": doc.total_chunks
                 }
             }
         finally:

@@ -1451,13 +1451,41 @@ class KnowledgeBase:
                     """, (ref['doc_id'], ref['chunk_id'], ref['ref_type'], ref['ref_value'], ref['context']))
 
             # Commit transaction
-            self.db_conn.commit()
+            try:
+                self.db_conn.commit()
+            except (SystemError, Exception) as commit_error:
+                # Python 3.14 SQLite bug workaround - commit may fail with various errors
+                # Check if "not an error" message (Python 3.14 bug) or SystemError
+                error_msg = str(commit_error).lower()
+                if isinstance(commit_error, SystemError) or "not an error" in error_msg:
+                    # Verify document was actually added by checking it exists
+                    check_cursor = self.db_conn.cursor()
+                    result = check_cursor.execute(
+                        "SELECT 1 FROM documents WHERE doc_id = ?", (doc_meta.doc_id,)
+                    ).fetchone()
+                    if result is not None:
+                        # Document was added, commit succeeded despite error
+                        self.logger.warning(
+                            f"Commit error (Python 3.14 bug), but document {doc_meta.doc_id} was added successfully: {commit_error}"
+                        )
+                        return  # Success despite error
+                # Re-raise if not the Python 3.14 bug or if verification failed
+                raise
 
         except Exception as e:
-            # Rollback on error
-            self.db_conn.rollback()
-            self.logger.error(f"Error adding document to database: {e}")
-            raise KnowledgeBaseError(f"Failed to add document to database: {e}")
+            # Rollback on error (but skip if it's the Python 3.14 "not an error" bug that we already handled)
+            error_msg = str(e).lower()
+            if not (isinstance(e, SystemError) or "not an error" in error_msg):
+                try:
+                    self.db_conn.rollback()
+                except SystemError:
+                    # Rollback may also fail with same bug, ignore
+                    pass
+                self.logger.error(f"Error adding document to database: {e}")
+                raise KnowledgeBaseError(f"Failed to add document to database: {e}")
+            # If it's the "not an error" bug, we already verified and returned above, so this shouldn't be reached
+            # But if it is, don't wrap it again
+            raise
 
     def _remove_document_db(self, doc_id: str) -> bool:
         """Remove a document from the database (chunks cascade automatically)."""

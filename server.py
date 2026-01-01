@@ -6141,7 +6141,8 @@ Important:
 
         # Build FTS5 query
         # Escape special FTS5 characters and wrap in quotes for literal search
-        fts_query = f'"{query.strip().replace('"', '""')}"'
+        escaped_query = query.strip().replace('"', '""')
+        fts_query = f'"{escaped_query}"'
 
         # Build WHERE clause for filtering
         where_clauses = []

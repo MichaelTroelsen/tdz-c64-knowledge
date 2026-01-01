@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.1] - 2026-01-01
+
 ### Fixed
 - **Python 3.14 Compatibility** - Added workaround for SQLite commit() SystemError
   - Python 3.14.0 has a bug where sqlite3.Connection.commit() can return NULL without setting exception

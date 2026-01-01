@@ -193,7 +193,7 @@ async def get_stats(authenticated: bool = Depends(verify_api_key)):
             total_entities = cursor.execute(
                 "SELECT COUNT(DISTINCT entity_text) FROM document_entities"
             ).fetchone()[0]
-        except:
+        except Exception:
             total_entities = 0
 
         # Get relationship count
@@ -201,7 +201,7 @@ async def get_stats(authenticated: bool = Depends(verify_api_key)):
             total_relationships = cursor.execute(
                 "SELECT COUNT(*) FROM entity_relationships"
             ).fetchone()[0]
-        except:
+        except Exception:
             total_relationships = 0
 
         # Get database size

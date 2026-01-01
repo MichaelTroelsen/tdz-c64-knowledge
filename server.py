@@ -1890,7 +1890,7 @@ class KnowledgeBase:
                         metadata['creation_date'] = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
                     else:
                         metadata['creation_date'] = creation_date_str
-                except:
+                except (ValueError, TypeError, AttributeError, IndexError):
                     metadata['creation_date'] = str(creation_date)
 
         return "\n\n--- PAGE BREAK ---\n\n".join(pages), len(reader.pages), metadata
@@ -3783,7 +3783,7 @@ class KnowledgeBase:
                 try:
                     config = json.loads(doc.scrape_config)
                     base_url = config.get('url', doc.source_url)
-                except:
+                except (json.JSONDecodeError, KeyError, AttributeError, TypeError):
                     base_url = doc.source_url
             else:
                 base_url = doc.source_url

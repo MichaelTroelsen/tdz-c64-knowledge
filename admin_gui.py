@@ -260,7 +260,7 @@ def format_timestamp(timestamp_str):
     try:
         dt = datetime.fromisoformat(timestamp_str)
         return dt.strftime('%Y-%m-%d %H:%M:%S')
-    except:
+    except (ValueError, TypeError, AttributeError):
         return timestamp_str
 
 # ========== DASHBOARD PAGE ==========
@@ -2313,7 +2313,7 @@ elif page == "🧠 Entity Extraction":
                         docs_with_entities.append(doc_id)
                     else:
                         docs_without_entities.append(doc_id)
-                except:
+                except (KeyError, AttributeError, TypeError):
                     docs_without_entities.append(doc_id)
 
             st.info(f"📊 {len(docs_with_entities)} documents have entities | {len(docs_without_entities)} documents need extraction")

@@ -33,7 +33,7 @@ logging.getLogger('streamlit.runtime.scriptrunner_utils.script_run_context').set
 sys.path.insert(0, str(Path(__file__).parent))
 
 from server import KnowledgeBase
-from version import __version__, __project_name__, __build_date__, get_full_version_string
+from version import __build_date__, get_full_version_string
 
 # Page configuration
 st.set_page_config(
@@ -626,17 +626,17 @@ elif page == "📚 Documents":
                             st.write(f"**Scrape Status:** {status_emoji} {doc.scrape_status}")
 
                 with col2:
-                    if st.button(f"👁️ Preview", key=f"preview_{doc.doc_id}"):
+                    if st.button("👁️ Preview", key=f"preview_{doc.doc_id}"):
                         st.session_state[f"show_preview_{doc.doc_id}"] = not st.session_state.get(f"show_preview_{doc.doc_id}", False)
                         st.rerun()
 
-                    if st.button(f"🔗 Relationships", key=f"rels_{doc.doc_id}"):
+                    if st.button("🔗 Relationships", key=f"rels_{doc.doc_id}"):
                         st.session_state[f"show_relationships_{doc.doc_id}"] = not st.session_state.get(f"show_relationships_{doc.doc_id}", False)
                         st.rerun()
 
                     # Show re-scrape button for URL-sourced documents
                     if doc.source_url:
-                        if st.button(f"🔄 Re-scrape", key=f"rescrape_{doc.doc_id}"):
+                        if st.button("🔄 Re-scrape", key=f"rescrape_{doc.doc_id}"):
                             with st.spinner(f"Re-scraping {doc.source_url}..."):
                                 try:
                                     result = kb.rescrape_document(doc.doc_id)
@@ -649,7 +649,7 @@ elif page == "📚 Documents":
                                 except Exception as e:
                                     st.error(f"❌ Error: {str(e)}")
 
-                    if st.button(f"🗑️ Delete", key=f"del_{doc.doc_id}"):
+                    if st.button("🗑️ Delete", key=f"del_{doc.doc_id}"):
                         if kb.remove_document(doc.doc_id):
                             # Trigger background reindexing
                             trigger_background_reindex()
@@ -1367,7 +1367,7 @@ elif page == "🌐 Web Scraping":
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
-                    if st.button(f"🔄 Re-scrape All", key=f"rescrape_all_{domain}"):
+                    if st.button("🔄 Re-scrape All", key=f"rescrape_all_{domain}"):
                         with st.spinner(f"Re-scraping all pages from {domain}..."):
                             rescrape_count = 0
                             for doc in docs:
@@ -1384,12 +1384,12 @@ elif page == "🌐 Web Scraping":
                                 st.rerun()
 
                 with col2:
-                    if st.button(f"📋 View All Pages", key=f"view_pages_{domain}"):
+                    if st.button("📋 View All Pages", key=f"view_pages_{domain}"):
                         st.session_state[f"show_pages_{domain}"] = not st.session_state.get(f"show_pages_{domain}", False)
                         st.rerun()
 
                 with col3:
-                    if st.button(f"🗑️ Delete All", key=f"delete_all_{domain}"):
+                    if st.button("🗑️ Delete All", key=f"delete_all_{domain}"):
                         st.session_state[f"confirm_delete_{domain}"] = True
                         st.rerun()
 
@@ -1398,7 +1398,7 @@ elif page == "🌐 Web Scraping":
                     st.warning(f"⚠️ This will delete all {len(docs)} pages from {domain}")
                     confirm_col1, confirm_col2 = st.columns(2)
                     with confirm_col1:
-                        if st.button(f"✅ Confirm Delete", key=f"confirm_del_{domain}"):
+                        if st.button("✅ Confirm Delete", key=f"confirm_del_{domain}"):
                             for doc in docs:
                                 kb.remove_document(doc.doc_id)
                             trigger_background_reindex()
@@ -1406,7 +1406,7 @@ elif page == "🌐 Web Scraping":
                             st.success(f"Deleted all pages from {domain}")
                             st.rerun()
                     with confirm_col2:
-                        if st.button(f"❌ Cancel", key=f"cancel_del_{domain}"):
+                        if st.button("❌ Cancel", key=f"cancel_del_{domain}"):
                             st.session_state[f"confirm_delete_{domain}"] = False
                             st.rerun()
 
@@ -1433,7 +1433,7 @@ elif page == "🌐 Web Scraping":
 
                         with page_col4:
                             if st.button("🔄", key=f"rescrape_{doc.doc_id}", help="Re-scrape this page"):
-                                with st.spinner(f"Re-scraping..."):
+                                with st.spinner("Re-scraping..."):
                                     try:
                                         result = kb.rescrape_document(doc.doc_id)
                                         if result['status'] == 'success':
@@ -1556,7 +1556,7 @@ elif page == "🌐 URL Monitoring":
 
                         st.session_state['last_url_check'] = datetime.now()
                         st.session_state['last_check_results'] = results
-                        st.success(f"✅ Check complete!")
+                        st.success("✅ Check complete!")
                         st.rerun()
 
                     except Exception as e:
@@ -1615,7 +1615,7 @@ elif page == "🌐 URL Monitoring":
 
                             col1, col2 = st.columns(2)
                             with col1:
-                                if st.button(f"🔄 Re-scrape", key=f"rescrape_{doc_info['doc_id']}"):
+                                if st.button("🔄 Re-scrape", key=f"rescrape_{doc_info['doc_id']}"):
                                     with st.spinner(f"Re-scraping {doc_info['title']}..."):
                                         try:
                                             new_doc_id = kb.rescrape_document(doc_info['doc_id'])
@@ -1623,7 +1623,7 @@ elif page == "🌐 URL Monitoring":
                                         except Exception as e:
                                             st.error(f"❌ Error: {str(e)}")
                             with col2:
-                                if st.button(f"🌐 Open URL", key=f"open_{doc_info['doc_id']}"):
+                                if st.button("🌐 Open URL", key=f"open_{doc_info['doc_id']}"):
                                     st.markdown(f"[Open in browser]({doc_info['url']})")
                 else:
                     st.info("✅ No changed documents")
@@ -1686,8 +1686,8 @@ elif page == "🌐 URL Monitoring":
 
                             col1, col2 = st.columns(2)
                             with col1:
-                                if st.button(f"🗑️ Remove from DB", key=f"remove_{doc_info['doc_id']}"):
-                                    if st.button(f"⚠️ Confirm Delete", key=f"confirm_remove_{doc_info['doc_id']}"):
+                                if st.button("🗑️ Remove from DB", key=f"remove_{doc_info['doc_id']}"):
+                                    if st.button("⚠️ Confirm Delete", key=f"confirm_remove_{doc_info['doc_id']}"):
                                         try:
                                             kb.remove_document(doc_info['doc_id'])
                                             st.success(f"✅ Removed {doc_info['title']}")
@@ -1698,7 +1698,7 @@ elif page == "🌐 URL Monitoring":
                                         except Exception as e:
                                             st.error(f"❌ Error: {str(e)}")
                             with col2:
-                                if st.button(f"🌐 Check URL", key=f"check_{doc_info['doc_id']}"):
+                                if st.button("🌐 Check URL", key=f"check_{doc_info['doc_id']}"):
                                     st.markdown(f"[Open in browser]({doc_info['url']})")
                 else:
                     st.info("✅ No missing pages")
@@ -1804,7 +1804,7 @@ elif page == "🌐 URL Monitoring":
                 # Quick actions
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    if st.button(f"🔄 Re-scrape All", key=f"rescrape_all_{hash(base_url)}"):
+                    if st.button("🔄 Re-scrape All", key=f"rescrape_all_{hash(base_url)}"):
                         with st.spinner(f"Re-scraping {len(docs)} documents..."):
                             try:
                                 rescraped = 0
@@ -1820,8 +1820,8 @@ elif page == "🌐 URL Monitoring":
                             except Exception as e:
                                 st.error(f"❌ Error: {str(e)}")
                 with col2:
-                    if st.button(f"🗑️ Remove All", key=f"remove_all_{hash(base_url)}"):
-                        if st.button(f"⚠️ Confirm Delete All", key=f"confirm_remove_all_{hash(base_url)}"):
+                    if st.button("🗑️ Remove All", key=f"remove_all_{hash(base_url)}"):
+                        if st.button("⚠️ Confirm Delete All", key=f"confirm_remove_all_{hash(base_url)}"):
                             try:
                                 for doc in docs:
                                     kb.remove_document(doc.doc_id)
@@ -1830,7 +1830,7 @@ elif page == "🌐 URL Monitoring":
                             except Exception as e:
                                 st.error(f"❌ Error: {str(e)}")
                 with col3:
-                    if st.button(f"📊 View Stats", key=f"stats_{hash(base_url)}"):
+                    if st.button("📊 View Stats", key=f"stats_{hash(base_url)}"):
                         # Show detailed stats
                         total_chunks = sum(len(kb._get_chunks_db(doc.doc_id)) for doc in docs)
                         total_size = sum(len(doc.content or '') for doc in docs)
@@ -2020,11 +2020,10 @@ elif page == "🧠 Entity Extraction":
 
     # Check if LLM is configured
     try:
-        from llm_integration import LLMClient
         llm_available = True
-    except Exception as e:
+    except Exception:
         llm_available = False
-        st.error(f"⚠️ LLM not configured. Entity extraction requires LLM_PROVIDER and API key.")
+        st.error("⚠️ LLM not configured. Entity extraction requires LLM_PROVIDER and API key.")
         st.info("Set environment variables: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY")
 
     if llm_available:
@@ -2084,7 +2083,7 @@ elif page == "🧠 Entity Extraction":
                 df = pd.DataFrame(entity_data)
                 st.dataframe(df, use_container_width=True, hide_index=True)
 
-        except Exception as e:
+        except Exception:
             st.info("No entities extracted yet. Use the tabs below to start extracting.")
 
         st.markdown("---")
@@ -2692,7 +2691,7 @@ elif page == "🔗 Relationship Graph":
                     progress_bar.progress(1.0)
                     status_text.empty()
 
-                    st.success(f"✅ Bulk extraction complete!")
+                    st.success("✅ Bulk extraction complete!")
 
                     # Display summary
                     col1, col2, col3 = st.columns(3)

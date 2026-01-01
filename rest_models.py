@@ -7,7 +7,6 @@ Pydantic v2 models for request/response validation in the REST API.
 
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
-from datetime import datetime
 
 
 # ============================================================================

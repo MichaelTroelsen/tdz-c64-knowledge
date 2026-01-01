@@ -13,7 +13,7 @@ import time
 import io
 import tempfile
 import shutil
-from typing import Optional, List
+from typing import Optional
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Depends, Header, status, UploadFile, Form
@@ -161,7 +161,7 @@ async def health_check():
             database_ok=database_ok,
             semantic_search_ok=semantic_ok
         )
-    except Exception as e:
+    except Exception:
         return models.HealthResponse(
             status="unhealthy",
             version=__version__,

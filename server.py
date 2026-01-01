@@ -3639,7 +3639,7 @@ class KnowledgeBase:
         # If follow_links is False, just check the single URL
         if not follow_links:
             depth = 1
-            self.logger.info(f"follow_links=False, checking single URL only")
+            self.logger.info("follow_links=False, checking single URL only")
 
         base_parsed = urlparse(base_url)
         base_domain = base_parsed.netloc
@@ -9291,7 +9291,7 @@ Return ONLY the JSON object, no other text."""
                     'sources': [],
                     'confidence': 0.1,
                     'search_results': [],
-                    'reasoning': f"Search found no results. Try searching directly with search_docs.",
+                    'reasoning': "Search found no results. Try searching directly with search_docs.",
                     'model': 'N/A',
                     'error': 'No relevant documents found'
                 }
@@ -9538,7 +9538,7 @@ Please provide your answer now:"""
             })
 
         summary += "\n*Note: LLM not configured. Showing search results instead of synthesized answer.*"
-        summary += f"\n*To enable LLM-based answers, set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variables.*"
+        summary += "\n*To enable LLM-based answers, set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variables.*"
 
         return {
             'answer': summary,
@@ -12521,7 +12521,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Query translation error: {str(e)}")]
 
         # Format the translation result
-        output = f"Natural Language Query Translation\n"
+        output = "Natural Language Query Translation\n"
         output += f"{'='*60}\n\n"
         output += f"Original Query: \"{result['original_query']}\"\n\n"
 
@@ -12529,13 +12529,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         output += f"Reasoning: {result['reasoning']}\n\n"
 
         if result['search_terms']:
-            output += f"Search Terms:\n"
+            output += "Search Terms:\n"
             for term in result['search_terms']:
                 output += f"  - {term}\n"
             output += "\n"
 
         if result['facet_filters']:
-            output += f"Facet Filters:\n"
+            output += "Facet Filters:\n"
             for facet_type, values in result['facet_filters'].items():
                 output += f"  {facet_type}: {', '.join(values)}\n"
             output += "\n"
@@ -12547,13 +12547,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             output += "\n"
 
         # Add suggested next steps
-        output += f"Suggested Action:\n"
+        output += "Suggested Action:\n"
         if result['search_mode'] == 'keyword':
             output += f"  Use search_docs with terms: {', '.join(result['search_terms'][:3])}\n"
         elif result['search_mode'] == 'semantic':
             output += f"  Use semantic_search with query: \"{result['original_query']}\"\n"
         else:  # hybrid
-            output += f"  Use hybrid_search for best results\n"
+            output += "  Use hybrid_search for best results\n"
 
         if result['facet_filters']:
             output += f"  Apply facet filters: {result['facet_filters']}\n"
@@ -12638,7 +12638,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Show corrections if any
         if results and 'fuzzy_corrections' in results[0]:
             corrections = results[0]['fuzzy_corrections']
-            output += f"Corrections applied:\n"
+            output += "Corrections applied:\n"
             for corr in corrections:
                 output += f"  '{corr['original']}' → '{corr['corrected']}' (similarity: {corr['similarity']}%)\n"
             output += f"Corrected query: '{results[0]['corrected_query']}'\n\n"
@@ -12706,9 +12706,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output += f"  - {tag['tag']} (confidence: {tag['confidence']:.0%})\n"
             output += "\n"
 
-        output += f"\n**To apply these tags:**\n"
-        output += f"Use the 'add_document' tool to update the document with tags.\n"
-        output += f"Or use update_document_tags tool to modify tags directly.\n"
+        output += "\n**To apply these tags:**\n"
+        output += "Use the 'add_document' tool to update the document with tags.\n"
+        output += "Or use update_document_tags tool to modify tags directly.\n"
 
         return [TextContent(type="text", text=output)]
 
@@ -13054,7 +13054,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     output += "\n"
 
         # Add metadata section
-        output += f"## Answer Metadata\n\n"
+        output += "## Answer Metadata\n\n"
         output += f"- **Confidence**: {result['confidence']:.1%}\n"
         output += f"- **Search Mode**: {result.get('reasoning', 'Unknown')}\n"
         output += f"- **LLM Model**: {result.get('model', 'Fallback')}\n"

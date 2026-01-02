@@ -133,6 +133,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.12] - 2026-01-02
+
+### Fixed
+- **AI Suggestions JSON Parsing** - Enhanced error handling and prompt clarity
+  - Added detailed JSON parsing error messages with line/column information
+  - Shows actual AI response in expander for debugging when parsing fails
+  - Improved prompt to be more explicit about JSON format requirements
+  - Root Cause: Haiku sometimes returns JSON with syntax errors or extra text
+  - Enhancements:
+    - Better error reporting: shows exact location of JSON syntax errors
+    - Stricter prompt: "Respond ONLY with valid JSON. No markdown, no explanations"
+    - Added JSON formatting rules to prompt
+    - Debug view: expandable section showing raw AI response
+  - Locations: admin_gui.py lines 4203-4212 (error handling), 4160-4183 (improved prompt)
+  - Impact: Users can now see and report exact JSON issues if they occur
+
+### Changed
+- **Version Bump** - Updated version from 2.23.11 to 2.23.12
+
 ## [2.23.11] - 2026-01-02
 
 ### Fixed

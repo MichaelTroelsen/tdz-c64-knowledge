@@ -4157,7 +4157,9 @@ Focus on:
 - Completeness and quality
 - File format suitability (prefer PDF, TXT for text documents)
 
-Respond in JSON format with this structure:
+IMPORTANT: Respond ONLY with valid JSON. No markdown, no explanations, just the JSON object.
+
+Required JSON structure:
 {{
   "recommendations": [
     {{
@@ -4173,7 +4175,12 @@ Respond in JSON format with this structure:
   "summary": "Overall analysis of the search results..."
 }}
 
-Provide exactly 5 recommendations, ordered by score (highest first)."""
+Rules:
+- Provide exactly 5 recommendations
+- Order by score (highest first)
+- Use valid JSON syntax (proper quotes, commas, no trailing commas)
+- Escape special characters in strings
+- Return ONLY the JSON object, nothing else"""
 
                                 # Call Claude API
                                 # Use configurable model (fallback to most widely available model)
@@ -4200,7 +4207,16 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                     json_end = response_text.find("```", json_start)
                                     response_text = response_text[json_start:json_end].strip()
 
-                                suggestions = json.loads(response_text)
+                                # Try to parse JSON with better error handling
+                                try:
+                                    suggestions = json.loads(response_text)
+                                except json.JSONDecodeError as je:
+                                    # Show the problematic JSON for debugging
+                                    st.error(f"❌ Failed to parse AI response as JSON")
+                                    st.error(f"Error at line {je.lineno}, column {je.colno}: {je.msg}")
+                                    with st.expander("Show AI Response (for debugging)"):
+                                        st.code(response_text, language="json")
+                                    raise
 
                                 # Store in session state
                                 st.session_state.ai_suggestions = suggestions

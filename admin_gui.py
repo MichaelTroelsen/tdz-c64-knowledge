@@ -3738,8 +3738,8 @@ elif page == "🔍 Archive Search":
         st.code(".venv\\Scripts\\pip install internetarchive", language="bash")
         st.info("After installing, restart the Streamlit server to use this feature.")
     else:
-        # Create tabs for search and downloads
-        tab1, tab2 = st.tabs(["🔍 Search Archive", "📥 Downloaded Files"])
+        # Create tabs for search, suggestions, and downloads
+        tab1, tab2, tab3 = st.tabs(["🔍 Search Archive", "🤖 AI Suggestions", "📥 Downloaded Files"])
 
         # ========== SEARCH TAB ==========
         with tab1:
@@ -4004,8 +4004,232 @@ elif page == "🔍 Archive Search":
                         if len(result['files']) > 10:
                             st.caption(f"... and {len(result['files']) - 10} more files")
 
-        # ========== DOWNLOADS TAB ==========
+        # ========== AI SUGGESTIONS TAB ==========
         with tab2:
+            st.subheader("🤖 AI-Powered Suggestions")
+            st.markdown("Get AI recommendations for the most relevant files to download based on your search.")
+
+            # Check if we have search results
+            if 'archive_results' not in st.session_state or not st.session_state.archive_results:
+                st.info("👆 Perform a search first to get AI-powered suggestions on which files to download.")
+            else:
+                # Display search context
+                st.markdown(f"**Search Query:** `{st.session_state.get('archive_query', 'N/A')}`")
+                st.markdown(f"**Results:** {len(st.session_state.archive_results)} items found")
+
+                # Button to generate AI suggestions
+                if st.button("🤖 Generate AI Suggestions", type="primary"):
+                    # Check if Anthropic API key is available
+                    api_key = os.environ.get('ANTHROPIC_API_KEY')
+                    if not api_key:
+                        st.error("❌ ANTHROPIC_API_KEY not found in environment variables.")
+                        st.info("Set the ANTHROPIC_API_KEY environment variable to use AI suggestions.")
+                    else:
+                        with st.spinner("🤖 AI is analyzing search results..."):
+                            try:
+                                import anthropic
+
+                                # Prepare data for AI analysis
+                                results_summary = []
+                                for idx, result in enumerate(st.session_state.archive_results[:10]):  # Limit to first 10
+                                    files_info = []
+                                    for file in result['files'][:5]:  # Limit files per item
+                                        files_info.append({
+                                            'name': file['name'],
+                                            'format': file['format'],
+                                            'size_mb': round(int(file['size']) / (1024 * 1024), 2) if file['size'] else 0
+                                        })
+
+                                    results_summary.append({
+                                        'index': idx,
+                                        'title': result['title'],
+                                        'creator': result['creator'],
+                                        'date': result['date'],
+                                        'description': result['description'][:300] if result['description'] else "No description",
+                                        'subject': result['subject'][:5] if isinstance(result['subject'], list) else result['subject'],
+                                        'downloads': result['downloads'],
+                                        'files': files_info
+                                    })
+
+                                # Create AI prompt
+                                prompt = f"""You are an expert in Commodore 64 documentation and retro computing. Analyze these search results from archive.org and recommend the TOP 5 most valuable files to download for building a C64 knowledge base.
+
+Search Query: {st.session_state.get('archive_query', 'N/A')}
+
+Search Results:
+{json.dumps(results_summary, indent=2)}
+
+For each recommendation, provide:
+1. Item title and specific file name
+2. Why it's valuable (relevance, completeness, historical significance)
+3. What knowledge it adds to a C64 documentation collection
+4. Priority level (High/Medium/Low)
+
+Focus on:
+- Technical accuracy and depth
+- Historical documentation (manuals, specifications)
+- Unique or rare content
+- Completeness and quality
+- File format suitability (prefer PDF, TXT for text documents)
+
+Respond in JSON format with this structure:
+{{
+  "recommendations": [
+    {{
+      "item_index": 0,
+      "item_title": "...",
+      "file_name": "...",
+      "priority": "High|Medium|Low",
+      "rationale": "Why this file is valuable...",
+      "knowledge_value": "What specific knowledge it provides...",
+      "score": 95
+    }}
+  ],
+  "summary": "Overall analysis of the search results..."
+}}
+
+Provide exactly 5 recommendations, ordered by score (highest first)."""
+
+                                # Call Claude API
+                                client = anthropic.Anthropic(api_key=api_key)
+                                message = client.messages.create(
+                                    model="claude-3-5-sonnet-20241022",
+                                    max_tokens=4096,
+                                    messages=[
+                                        {"role": "user", "content": prompt}
+                                    ]
+                                )
+
+                                # Parse AI response
+                                response_text = message.content[0].text
+
+                                # Extract JSON from response (handle markdown code blocks)
+                                if "```json" in response_text:
+                                    json_start = response_text.find("```json") + 7
+                                    json_end = response_text.find("```", json_start)
+                                    response_text = response_text[json_start:json_end].strip()
+                                elif "```" in response_text:
+                                    json_start = response_text.find("```") + 3
+                                    json_end = response_text.find("```", json_start)
+                                    response_text = response_text[json_start:json_end].strip()
+
+                                suggestions = json.loads(response_text)
+
+                                # Store in session state
+                                st.session_state.ai_suggestions = suggestions
+
+                                st.success(f"✅ AI generated {len(suggestions['recommendations'])} recommendations!")
+
+                            except ImportError:
+                                st.error("❌ The `anthropic` library is not installed.")
+                                st.code("pip install anthropic", language="bash")
+                            except Exception as e:
+                                st.error(f"❌ Error generating AI suggestions: {str(e)}")
+                                st.exception(e)
+
+                # Display AI suggestions if available
+                if 'ai_suggestions' in st.session_state and st.session_state.ai_suggestions:
+                    suggestions = st.session_state.ai_suggestions
+
+                    # Display summary
+                    if 'summary' in suggestions:
+                        st.markdown("---")
+                        st.markdown("### 📊 AI Analysis Summary")
+                        st.info(suggestions['summary'])
+
+                    # Display recommendations
+                    st.markdown("---")
+                    st.markdown("### 🎯 Top Recommendations")
+
+                    for rec in suggestions['recommendations']:
+                        priority_emoji = {
+                            'High': '🔴',
+                            'Medium': '🟡',
+                            'Low': '🟢'
+                        }
+
+                        with st.expander(
+                            f"{priority_emoji.get(rec.get('priority', 'Medium'), '⚪')} "
+                            f"**{rec.get('item_title', 'Unknown')}** - {rec.get('file_name', 'Unknown')} "
+                            f"(Score: {rec.get('score', 0)}/100)",
+                            expanded=True
+                        ):
+                            col1, col2 = st.columns([2, 1])
+
+                            with col1:
+                                st.markdown(f"**Priority:** {rec.get('priority', 'N/A')}")
+                                st.markdown(f"**File:** `{rec.get('file_name', 'N/A')}`")
+
+                                st.markdown("**Why It's Valuable:**")
+                                st.write(rec.get('rationale', 'No rationale provided'))
+
+                                st.markdown("**Knowledge Value:**")
+                                st.write(rec.get('knowledge_value', 'No knowledge value provided'))
+
+                            with col2:
+                                st.metric("Score", f"{rec.get('score', 0)}/100")
+
+                                # Quick action buttons
+                                item_idx = rec.get('item_index', -1)
+                                if item_idx >= 0 and item_idx < len(st.session_state.archive_results):
+                                    result = st.session_state.archive_results[item_idx]
+
+                                    # Find the matching file
+                                    matching_file = None
+                                    for file in result['files']:
+                                        if file['name'] == rec.get('file_name'):
+                                            matching_file = file
+                                            break
+
+                                    if matching_file:
+                                        if st.button("⚡ Quick Add", key=f"ai_add_{item_idx}_{rec.get('file_name')}"):
+                                            try:
+                                                with st.spinner(f"Downloading and adding {matching_file['name']}..."):
+                                                    import urllib.request
+                                                    import tempfile
+
+                                                    # Download to temp file
+                                                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(matching_file['name']).suffix) as tmp:
+                                                        urllib.request.urlretrieve(matching_file['url'], tmp.name)
+                                                        tmp_path = tmp.name
+
+                                                    # Add to knowledge base
+                                                    title = f"{result['title']} - {matching_file['name']}"
+                                                    tags = result['subject'] if isinstance(result['subject'], list) else [result['subject']]
+                                                    if isinstance(tags, str):
+                                                        tags = [tags]
+
+                                                    doc_id = kb.add_document(
+                                                        tmp_path,
+                                                        title=title,
+                                                        tags=tags,
+                                                        source_url=result['url']
+                                                    )
+
+                                                    # Clean up temp file
+                                                    os.unlink(tmp_path)
+
+                                                    st.success(f"✅ Added to knowledge base!\nDoc ID: {doc_id[:12]}...")
+                                                    st.rerun()
+
+                                            except Exception as e:
+                                                st.error(f"Quick add failed: {str(e)}")
+
+                                        if st.button("💾 Download", key=f"ai_dl_{item_idx}_{rec.get('file_name')}"):
+                                            try:
+                                                with st.spinner(f"Downloading {matching_file['name']}..."):
+                                                    import urllib.request
+                                                    downloads_dir = Path(st.session_state.data_dir) / "downloads"
+                                                    downloads_dir.mkdir(exist_ok=True)
+                                                    filepath = downloads_dir / matching_file['name']
+                                                    urllib.request.urlretrieve(matching_file['url'], filepath)
+                                                    st.success(f"✅ Downloaded to {filepath}")
+
+                                            except Exception as e:
+                                                st.error(f"Download failed: {str(e)}")
+
+        # ========== DOWNLOADS TAB ==========
+        with tab3:
             st.subheader("📥 Downloaded Files")
 
             downloads_dir = Path(st.session_state.data_dir) / "downloads"

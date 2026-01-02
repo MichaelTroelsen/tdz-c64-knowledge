@@ -129,6 +129,7 @@ if 'kb' not in st.session_state:
     st.session_state.data_dir = data_dir
     st.session_state.index_status = "not_started"
     st.session_state.index_thread = None
+    st.session_state.quick_added_files = []  # Track quick-added files from Archive Search
 
     # Start background indexing if BM25 is enabled and index not built
     use_bm25 = os.environ.get("USE_BM25", "1") != "0"
@@ -3738,8 +3739,8 @@ elif page == "🔍 Archive Search":
         st.code(".venv\\Scripts\\pip install internetarchive", language="bash")
         st.info("After installing, restart the Streamlit server to use this feature.")
     else:
-        # Create tabs for search, suggestions, and downloads
-        tab1, tab2, tab3 = st.tabs(["🔍 Search Archive", "🤖 AI Suggestions", "📥 Downloaded Files"])
+        # Create tabs for search, suggestions, quick-added, and downloads
+        tab1, tab2, tab3, tab4 = st.tabs(["🔍 Search Archive", "🤖 AI Suggestions", "⚡ Quick Added", "📥 Downloaded Files"])
 
         # ========== SEARCH TAB ==========
         with tab1:
@@ -3973,10 +3974,14 @@ elif page == "🔍 Archive Search":
                                                 import urllib.request
                                                 import tempfile
 
-                                                # Download to temp file
-                                                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file['name']).suffix) as tmp:
-                                                    urllib.request.urlretrieve(file['url'], tmp.name)
-                                                    tmp_path = tmp.name
+                                                # Create temp directory in data_dir (within allowed paths)
+                                                temp_dir = Path(st.session_state.data_dir) / "temp"
+                                                temp_dir.mkdir(exist_ok=True)
+
+                                                # Download to temp file in allowed directory
+                                                temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file['name']}"
+                                                tmp_path = temp_dir / temp_filename
+                                                urllib.request.urlretrieve(file['url'], str(tmp_path))
 
                                                 # Add to knowledge base
                                                 title = f"{result['title']} - {file['name']}"
@@ -3986,7 +3991,7 @@ elif page == "🔍 Archive Search":
 
                                                 # Add document first
                                                 doc = kb.add_document(
-                                                    tmp_path,
+                                                    str(tmp_path),
                                                     title=title,
                                                     tags=tags
                                                 )
@@ -4007,13 +4012,37 @@ elif page == "🔍 Archive Search":
                                                 doc.source_url = result['url']
                                                 kb.documents[doc.doc_id] = doc
 
+                                                # Record in quick-added history
+                                                st.session_state.quick_added_files.append({
+                                                    'title': title,
+                                                    'file_name': file['name'],
+                                                    'source_url': result['url'],
+                                                    'doc_id': doc.doc_id,
+                                                    'status': 'success',
+                                                    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                                                })
+
                                                 # Clean up temp file
-                                                os.unlink(tmp_path)
+                                                tmp_path.unlink()
 
                                                 st.success(f"✅ Added to knowledge base!\nDoc ID: {doc.doc_id[:12]}...")
                                                 st.rerun()
 
                                         except Exception as e:
+                                            # Clean up temp file if it exists
+                                            if 'tmp_path' in locals() and tmp_path.exists():
+                                                tmp_path.unlink()
+
+                                            # Record failed attempt
+                                            st.session_state.quick_added_files.append({
+                                                'title': f"{result['title']} - {file['name']}",
+                                                'file_name': file['name'],
+                                                'source_url': result['url'],
+                                                'doc_id': None,
+                                                'status': 'failed',
+                                                'error': str(e),
+                                                'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                                            })
                                             st.error(f"Quick add failed: {str(e)}")
                                             st.exception(e)
 
@@ -4204,10 +4233,14 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                     import urllib.request
                                                     import tempfile
 
-                                                    # Download to temp file
-                                                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(matching_file['name']).suffix) as tmp:
-                                                        urllib.request.urlretrieve(matching_file['url'], tmp.name)
-                                                        tmp_path = tmp.name
+                                                    # Create temp directory in data_dir (within allowed paths)
+                                                    temp_dir = Path(st.session_state.data_dir) / "temp"
+                                                    temp_dir.mkdir(exist_ok=True)
+
+                                                    # Download to temp file in allowed directory
+                                                    temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{matching_file['name']}"
+                                                    tmp_path = temp_dir / temp_filename
+                                                    urllib.request.urlretrieve(matching_file['url'], str(tmp_path))
 
                                                     # Add to knowledge base
                                                     title = f"{result['title']} - {matching_file['name']}"
@@ -4217,7 +4250,7 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
 
                                                     # Add document first
                                                     doc = kb.add_document(
-                                                        tmp_path,
+                                                        str(tmp_path),
                                                         title=title,
                                                         tags=tags
                                                     )
@@ -4238,13 +4271,37 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                     doc.source_url = result['url']
                                                     kb.documents[doc.doc_id] = doc
 
+                                                    # Record in quick-added history
+                                                    st.session_state.quick_added_files.append({
+                                                        'title': title,
+                                                        'file_name': matching_file['name'],
+                                                        'source_url': result['url'],
+                                                        'doc_id': doc.doc_id,
+                                                        'status': 'success',
+                                                        'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                                                    })
+
                                                     # Clean up temp file
-                                                    os.unlink(tmp_path)
+                                                    tmp_path.unlink()
 
                                                     st.success(f"✅ Added to knowledge base!\nDoc ID: {doc.doc_id[:12]}...")
                                                     st.rerun()
 
                                             except Exception as e:
+                                                # Clean up temp file if it exists
+                                                if 'tmp_path' in locals() and tmp_path.exists():
+                                                    tmp_path.unlink()
+
+                                                # Record failed attempt
+                                                st.session_state.quick_added_files.append({
+                                                    'title': f"{result['title']} - {matching_file['name']}",
+                                                    'file_name': matching_file['name'],
+                                                    'source_url': result['url'],
+                                                    'doc_id': None,
+                                                    'status': 'failed',
+                                                    'error': str(e),
+                                                    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                                                })
                                                 st.error(f"Quick add failed: {str(e)}")
 
                                         if st.button("💾 Download", key=f"ai_dl_{item_idx}_{rec.get('file_name')}"):
@@ -4260,8 +4317,52 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                             except Exception as e:
                                                 st.error(f"Download failed: {str(e)}")
 
-        # ========== DOWNLOADS TAB ==========
+        # ========== QUICK ADDED TAB ==========
         with tab3:
+            st.subheader("⚡ Quick Added Files")
+            st.markdown("Files added directly to the knowledge base using Quick Add.")
+
+            if st.session_state.quick_added_files:
+                st.write(f"**Total quick-added:** {len(st.session_state.quick_added_files)}")
+
+                # Add clear all button
+                if st.button("🗑️ Clear History"):
+                    st.session_state.quick_added_files = []
+                    st.success("✅ History cleared")
+                    st.rerun()
+
+                st.markdown("---")
+
+                # Display quick-added files in reverse order (newest first)
+                for idx, entry in enumerate(reversed(st.session_state.quick_added_files)):
+                    with st.container():
+                        col1, col2, col3 = st.columns([3, 2, 2])
+
+                        with col1:
+                            st.text(f"📄 {entry['title']}")
+                            st.caption(f"Source: {entry['source_url'][:60]}..." if len(entry['source_url']) > 60 else f"Source: {entry['source_url']}")
+
+                        with col2:
+                            # Status indicator
+                            if entry['status'] == 'success':
+                                st.success(f"✅ {entry['status'].upper()}")
+                                st.caption(f"Doc ID: {entry['doc_id'][:12]}...")
+                            else:
+                                st.error(f"❌ {entry['status'].upper()}")
+                                if 'error' in entry:
+                                    st.caption(f"Error: {entry['error'][:50]}...")
+
+                        with col3:
+                            st.caption(f"Added: {entry['timestamp']}")
+                            if entry['file_name']:
+                                st.caption(f"File: {entry['file_name']}")
+
+                        st.markdown("---")
+            else:
+                st.info("👆 No files have been quick-added yet. Use the Quick Add button in the Search Archive or AI Suggestions tabs.")
+
+        # ========== DOWNLOADS TAB ==========
+        with tab4:
             st.subheader("📥 Downloaded Files")
 
             downloads_dir = Path(st.session_state.data_dir) / "downloads"

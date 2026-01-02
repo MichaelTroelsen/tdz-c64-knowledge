@@ -21,7 +21,7 @@ import sys
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 import threading
 import time
@@ -3997,7 +3997,6 @@ elif page == "🔍 Archive Search":
                                                 )
 
                                                 # Update with source URL metadata
-                                                from datetime import datetime, timezone
                                                 cursor = kb.db_conn.cursor()
                                                 cursor.execute("""
                                                     UPDATE documents
@@ -4256,7 +4255,6 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                     )
 
                                                     # Update with source URL metadata
-                                                    from datetime import datetime, timezone
                                                     cursor = kb.db_conn.cursor()
                                                     cursor.execute("""
                                                         UPDATE documents

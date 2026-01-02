@@ -133,6 +133,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.2] - 2026-01-02
+
+### Fixed
+- **Archive Search Security Fix** - Added downloads and temp directories to allowed paths (commit 9f095cf)
+  - Fixed "Path outside allowed directories" error when using Add to KB button
+  - Added `{data_dir}/downloads` to default allowed directories for Downloaded Files tab
+  - Added `{data_dir}/temp` to default allowed directories for Quick Add functionality
+  - Root Cause: Only scraped_docs and current working directory were in allowed paths by default
+  - Impact: All Archive Search features now fully functional (Add to KB, Quick Add, downloads)
+  - Security: Maintains path traversal protection while enabling proper workflows
+  - Updated allowed directories list in server.py (lines 309-314)
+
+- **DocumentMeta Subscript Error** - Fixed object access in Downloaded Files Add to KB (commit 7cbf211)
+  - Fixed `'DocumentMeta' object is not subscriptable` error
+  - Root Cause: add_document() returns DocumentMeta object, code treated it as string
+  - Changed `doc_id[:12]` to `doc.doc_id[:12]` for proper attribute access
+  - Location: admin_gui.py line 4397 in Downloaded Files tab
+  - Impact: Add to KB button now works correctly with proper doc ID display
+
+- **Timezone Import Error** - Fixed NameError in Quick Add error handlers (commit 803f72d)
+  - Fixed `NameError: name 'timezone' is not defined` in Quick Add functionality
+  - Added timezone to module-level imports (from datetime import datetime, timezone)
+  - Removed redundant local imports in Quick Add code blocks
+  - Impact: Quick Add error tracking now functions properly in all code paths
+
+### Testing
+- **Quick Added Tab Test Suite** - Comprehensive unit tests (commit 77b7b7f)
+  - Created test_quick_added.py with 23 tests, 100% pass rate
+  - TestQuickAddedTab (8 tests): Session state, entry tracking, clear history, display order
+  - TestDownloadFunctionality (6 tests): Temp directory, file naming, cleanup, security
+  - TestAddToKBFunctionality (7 tests): Parameters, metadata, title/tags, error handling
+  - TestIntegration (2 tests): Complete workflow, failure tracking
+  - Total Archive Search test coverage: 49 tests across 3 test suites
+
+### Changed
+- **Version Bump** - Updated version from 2.23.1 to 2.23.2
+- **Build Date** - Updated from 2026-01-01 to 2026-01-02
+
+### Impact
+- Archive Search now fully operational with all security issues resolved
+- Complete test coverage ensures reliability of Quick Add workflows
+- Proper error handling and cleanup in all code paths
+- Enhanced user experience with working Add to KB and Quick Add features
+
 ## [2.23.1] - 2026-01-01
 
 ### Fixed

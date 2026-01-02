@@ -3998,15 +3998,15 @@ elif page == "🔍 Archive Search":
                                                 )
 
                                                 # Update with source URL metadata
-                                                cursor = kb.db_conn.cursor()
-                                                cursor.execute("""
-                                                    UPDATE documents
-                                                    SET source_url = ?,
-                                                        scrape_date = ?,
-                                                        scrape_status = 'success'
-                                                    WHERE doc_id = ?
-                                                """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
-                                                kb.db_conn.commit()
+                                                with kb.db_conn:
+                                                    cursor = kb.db_conn.cursor()
+                                                    cursor.execute("""
+                                                        UPDATE documents
+                                                        SET source_url = ?,
+                                                            scrape_date = ?,
+                                                            scrape_status = 'success'
+                                                        WHERE doc_id = ?
+                                                    """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
 
                                                 # Update in-memory object
                                                 doc.source_url = result['url']
@@ -4256,15 +4256,15 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                     )
 
                                                     # Update with source URL metadata
-                                                    cursor = kb.db_conn.cursor()
-                                                    cursor.execute("""
-                                                        UPDATE documents
-                                                        SET source_url = ?,
-                                                            scrape_date = ?,
-                                                            scrape_status = 'success'
-                                                        WHERE doc_id = ?
-                                                    """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
-                                                    kb.db_conn.commit()
+                                                    with kb.db_conn:
+                                                        cursor = kb.db_conn.cursor()
+                                                        cursor.execute("""
+                                                            UPDATE documents
+                                                            SET source_url = ?,
+                                                                scrape_date = ?,
+                                                                scrape_status = 'success'
+                                                            WHERE doc_id = ?
+                                                        """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
 
                                                     # Update in-memory object
                                                     doc.source_url = result['url']
@@ -4334,8 +4334,11 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
 
                 # Display quick-added files in reverse order (newest first)
                 for idx, entry in enumerate(reversed(st.session_state.quick_added_files)):
+                    # Get actual index in the list (since we're iterating reversed)
+                    actual_idx = len(st.session_state.quick_added_files) - 1 - idx
+
                     with st.container():
-                        col1, col2, col3 = st.columns([3, 2, 2])
+                        col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
 
                         with col1:
                             st.text(f"📄 {entry['title']}")
@@ -4355,6 +4358,13 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                             st.caption(f"Added: {entry['timestamp']}")
                             if entry['file_name']:
                                 st.caption(f"File: {entry['file_name']}")
+
+                        with col4:
+                            # Add remove button for individual entries
+                            if st.button("🗑️", key=f"remove_quick_{actual_idx}", help="Remove this entry"):
+                                st.session_state.quick_added_files.pop(actual_idx)
+                                st.success("✅ Entry removed")
+                                st.rerun()
 
                         st.markdown("---")
             else:
@@ -4386,7 +4396,7 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
 
                         with col3:
                             # Check if file has been added to KB
-                            file_key = str(file)
+                            file_key = file.name
                             if file_key in st.session_state.downloaded_files_added:
                                 # File has been added - show status
                                 doc_id = st.session_state.downloaded_files_added[file_key]
@@ -4434,7 +4444,7 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                             status_text = st.empty()
 
                             for i, file in enumerate(files):
-                                file_key = str(file)
+                                file_key = file.name
                                 # Skip if already added
                                 if file_key in st.session_state.downloaded_files_added:
                                     continue

@@ -133,6 +133,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.3] - 2026-01-02
+
+### Fixed
+- **Downloaded Files Tracking** - Fixed file tracking to use filename instead of full path
+  - Changed tracking key from `str(file)` (full path) to `file.name` (filename only)
+  - Affects status tracking in Downloaded Files tab (line 4389)
+  - Affects bulk add operations (line 4437)
+  - Root Cause: Full paths created inconsistent tracking keys across sessions
+  - Impact: Downloaded files status now properly persists ("Added to KB" indicator)
+  - Files tracked consistently by name regardless of directory structure
+
+- **Database Transaction Error** - Fixed "no transaction is active" error in Quick Add
+  - Wrapped database UPDATE statements in proper transaction context (`with kb.db_conn:`)
+  - Fixed in both Quick Add implementations (lines 4001, 4259)
+  - Root Cause: Direct cursor.execute() + commit() without transaction context
+  - Impact: Quick Add now reliably updates source_url metadata without transaction errors
+  - Transaction auto-commits when exiting context manager
+
+- **Quick Added Tab UX** - Added individual remove buttons for failed entries
+  - Added 4th column with delete button (🗑️) for each entry
+  - Users can now remove individual entries instead of clearing entire history
+  - Proper index calculation for reversed display order
+  - Impact: Better control over Quick Added history management
+  - Especially useful for removing failed entries while keeping successful ones
+
+### Changed
+- **Version Bump** - Updated version from 2.23.2 to 2.23.3
+
+### Impact
+- Improved reliability of Archive Search Quick Add workflow
+- Better user experience with working status tracking and entry management
+- Eliminated transaction errors during metadata updates
+- Enhanced Quick Added tab usability
+
 ## [2.23.2] - 2026-01-02
 
 ### Fixed

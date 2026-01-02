@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **AI Suggestions Regenerate with Exclusions** (v2.23.14) - Smart recommendation regeneration
+  - Implemented "Regenerate" button that excludes files already in knowledge base
+  - **Two Regenerate Scenarios**:
+    - When ALL recommendations are in KB: Primary button with prominent warning
+    - When SOME recommendations are in KB: Secondary button with status message
+  - **Smart Exclusion Logic**:
+    - Automatically identifies which recommended files are already in KB using dual URL matching
+    - Builds exclusion list with item titles and filenames
+    - Stores exclusions in session state for use in next AI request
+  - **Enhanced AI Prompt**:
+    - Adds exclusion section to prompt when regenerating
+    - Explicitly instructs AI to avoid recommending files already in KB
+    - Provides full list of excluded files in JSON format
+  - **Visual Feedback**:
+    - Info banner shows number of files being excluded before regeneration
+    - Spinner message updates to show exclusion count during AI analysis
+    - Clear status messages: "All X recommendations are new!", "X/Y already in KB, Z new files available"
+  - **User Experience**:
+    - Seamless workflow: Click regenerate → See exclusions → Get fresh recommendations
+    - No manual tracking needed - system automatically remembers what's in KB
+    - Prevents duplicate recommendations after files are added
+  - **Technical Implementation**:
+    - Session state management for ai_exclusions
+    - Automatic cleanup after exclusions are used
+    - Rerun triggers for immediate UI update
+  - Enables efficient exploration of archive.org search results by continuously suggesting new, relevant files
+  - Location: admin_gui.py lines 4105-4120 (exclusion UI), 4139-4149 (prompt integration), 4453-4549 (regenerate buttons)
+
+### Added
 - **Archive Search Page in Admin GUI** - Internet Archive integration for content discovery (commits d0cb922, ac67a36, 5bfaa6d, 01acb5a)
   - Added new "🔍 Archive Search" page to Streamlit admin GUI with 4-tab interface
   - **Search Archive Tab**: Full-featured search interface

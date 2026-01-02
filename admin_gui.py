@@ -4102,6 +4102,10 @@ elif page == "🔍 Archive Search":
                 st.markdown(f"**Search Query:** `{st.session_state.get('archive_query', 'N/A')}`")
                 st.markdown(f"**Results:** {len(st.session_state.archive_results)} items found")
 
+                # Show exclusion info if present
+                if 'ai_exclusions' in st.session_state and st.session_state.ai_exclusions:
+                    st.info(f"ℹ️ Regenerating with {len(st.session_state.ai_exclusions)} file(s) excluded (already in KB)")
+
                 # Button to generate AI suggestions
                 if st.button("🤖 Generate AI Suggestions", type="primary"):
                     # Check if Anthropic API key is available
@@ -4110,7 +4114,10 @@ elif page == "🔍 Archive Search":
                         st.error("❌ ANTHROPIC_API_KEY not found in environment variables.")
                         st.info("Set the ANTHROPIC_API_KEY environment variable to use AI suggestions.")
                     else:
-                        with st.spinner("🤖 AI is analyzing search results..."):
+                        spinner_text = "🤖 AI is analyzing search results..."
+                        if 'ai_exclusions' in st.session_state and st.session_state.ai_exclusions:
+                            spinner_text = f"🤖 AI is analyzing search results (excluding {len(st.session_state.ai_exclusions)} files already in KB)..."
+                        with st.spinner(spinner_text):
                             try:
                                 import anthropic
 
@@ -4136,6 +4143,18 @@ elif page == "🔍 Archive Search":
                                         'files': files_info
                                     })
 
+                                # Check if there are exclusions from previous recommendations
+                                exclusion_text = ""
+                                if 'ai_exclusions' in st.session_state and st.session_state.ai_exclusions:
+                                    exclusion_text = f"""
+IMPORTANT: DO NOT recommend the following files (they are already in the knowledge base):
+{json.dumps(st.session_state.ai_exclusions, indent=2)}
+
+You must exclude these files and recommend different files instead.
+"""
+                                    # Clear exclusions after using them
+                                    del st.session_state.ai_exclusions
+
                                 # Create AI prompt
                                 prompt = f"""You are an expert in Commodore 64 documentation and retro computing. Analyze these search results from archive.org and recommend the TOP 5 most valuable files to download for building a C64 knowledge base.
 
@@ -4143,7 +4162,7 @@ Search Query: {st.session_state.get('archive_query', 'N/A')}
 
 Search Results:
 {json.dumps(results_summary, indent=2)}
-
+{exclusion_text}
 For each recommendation, provide:
 1. Item title and specific file name
 2. Why it's valuable (relevance, completeness, historical significance)
@@ -4454,12 +4473,99 @@ Rules:
                     if in_kb_count == total_recs and total_recs > 0:
                         st.warning(f"⚠️ All {total_recs} recommendations are already in your knowledge base!")
                         if st.button("🔄 Generate New Recommendations (excluding files already in KB)", type="primary"):
-                            # Add exclusion instruction and regenerate
+                            # Build exclusion list from files already in KB
+                            excluded_files = []
+                            for rec in suggestions['recommendations']:
+                                item_idx = rec.get('item_index', -1)
+                                if item_idx >= 0 and item_idx < len(st.session_state.archive_results):
+                                    result = st.session_state.archive_results[item_idx]
+
+                                    # Find matching file
+                                    matching_file = None
+                                    for file in result['files']:
+                                        if file['name'] == rec.get('file_name'):
+                                            matching_file = file
+                                            break
+
+                                    if matching_file:
+                                        # Check if in KB
+                                        existing_doc = None
+                                        item_id = result['identifier']
+
+                                        for doc in kb.documents.values():
+                                            if not hasattr(doc, 'source_url') or not doc.source_url:
+                                                continue
+
+                                            if doc.source_url == matching_file['url']:
+                                                existing_doc = doc
+                                                break
+
+                                            if item_id in doc.source_url:
+                                                safe_filename = Path(matching_file['name']).stem
+                                                doc_stem = Path(doc.filename).stem
+                                                if safe_filename.lower() in doc_stem.lower() or doc_stem.lower() in safe_filename.lower():
+                                                    existing_doc = doc
+                                                    break
+
+                                        if existing_doc:
+                                            excluded_files.append({
+                                                'item_title': result['title'],
+                                                'file_name': matching_file['name']
+                                            })
+
+                            # Store exclusions in session state for regeneration
+                            st.session_state.ai_exclusions = excluded_files
                             st.session_state.ai_suggestions = None  # Clear current suggestions
-                            st.info("Feature coming soon: Will regenerate with files already in KB excluded")
-                            # TODO: Implement regeneration with exclusions
-                    else:
+                            st.rerun()
+                    elif in_kb_count > 0:
                         st.info(f"📊 Status: {in_kb_count}/{total_recs} recommendations already in KB, {total_recs - in_kb_count} new files available")
+                        if st.button("🔄 Regenerate (excluding files already in KB)", type="secondary"):
+                            # Build exclusion list from files already in KB
+                            excluded_files = []
+                            for rec in suggestions['recommendations']:
+                                item_idx = rec.get('item_index', -1)
+                                if item_idx >= 0 and item_idx < len(st.session_state.archive_results):
+                                    result = st.session_state.archive_results[item_idx]
+
+                                    # Find matching file
+                                    matching_file = None
+                                    for file in result['files']:
+                                        if file['name'] == rec.get('file_name'):
+                                            matching_file = file
+                                            break
+
+                                    if matching_file:
+                                        # Check if in KB
+                                        existing_doc = None
+                                        item_id = result['identifier']
+
+                                        for doc in kb.documents.values():
+                                            if not hasattr(doc, 'source_url') or not doc.source_url:
+                                                continue
+
+                                            if doc.source_url == matching_file['url']:
+                                                existing_doc = doc
+                                                break
+
+                                            if item_id in doc.source_url:
+                                                safe_filename = Path(matching_file['name']).stem
+                                                doc_stem = Path(doc.filename).stem
+                                                if safe_filename.lower() in doc_stem.lower() or doc_stem.lower() in safe_filename.lower():
+                                                    existing_doc = doc
+                                                    break
+
+                                        if existing_doc:
+                                            excluded_files.append({
+                                                'item_title': result['title'],
+                                                'file_name': matching_file['name']
+                                            })
+
+                            # Store exclusions in session state for regeneration
+                            st.session_state.ai_exclusions = excluded_files
+                            st.session_state.ai_suggestions = None  # Clear current suggestions
+                            st.rerun()
+                    else:
+                        st.info(f"📊 Status: All {total_recs} recommendations are new files!")
 
         # ========== QUICK ADDED TAB ==========
         with tab3:

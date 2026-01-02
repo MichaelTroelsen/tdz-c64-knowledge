@@ -4176,8 +4176,8 @@ Respond in JSON format with this structure:
 Provide exactly 5 recommendations, ordered by score (highest first)."""
 
                                 # Call Claude API
-                                # Use configurable model (fallback to stable version)
-                                model = os.environ.get("AI_SUGGESTIONS_MODEL", "claude-3-5-sonnet-20240620")
+                                # Use configurable model (fallback to most widely available model)
+                                model = os.environ.get("AI_SUGGESTIONS_MODEL", "claude-3-haiku-20240307")
                                 client = anthropic.Anthropic(api_key=api_key)
                                 message = client.messages.create(
                                     model=model,

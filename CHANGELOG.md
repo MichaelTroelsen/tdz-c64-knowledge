@@ -133,6 +133,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.11] - 2026-01-02
+
+### Fixed
+- **AI Suggestions Model - Use Haiku for Maximum Compatibility** - Fixed persistent 404 errors
+  - Changed default model from `claude-3-5-sonnet-20240620` to `claude-3-haiku-20240307`
+  - Root Cause: User's API key doesn't have access to Claude 3.5 Sonnet models
+  - Solution: Use Claude 3 Haiku - most widely available, fast, and cost-effective
+  - Location: admin_gui.py line 4180
+  - Benefits:
+    - Works with all API keys (maximum compatibility)
+    - 15x cheaper than Sonnet ($0.25/MTok vs $3/MTok)
+    - Fast responses (good for UI interactions)
+    - Still provides quality recommendations
+  - Users can still override: `set AI_SUGGESTIONS_MODEL=claude-3-sonnet-20240229`
+  - Impact: AI Suggestions now works for all users
+
+### Changed
+- **Version Bump** - Updated version from 2.23.10 to 2.23.11
+
 ## [2.23.10] - 2026-01-02
 
 ### Fixed

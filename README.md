@@ -60,7 +60,7 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup.
 - **27 endpoints** - Full CRUD, search, analytics, export
 - **OpenAPI/Swagger docs** - Interactive API at `/api/docs`
 - **API authentication** - Secure via X-API-Key header
-- See [README_REST_API.md](README_REST_API.md) for details
+- See [docs/REST_API.md](docs/REST_API.md) for details
 
 ### Performance
 - **Scalability** - Tested to 5,000+ documents
@@ -420,14 +420,45 @@ GitHub Actions workflow tests on Python 3.10/3.11/3.12 across Windows/Linux/macO
 
 ## Documentation
 
-- **README.md** (this file) - Installation, features, tools
-- **ARCHITECTURE.md** - Technical details, database schema, algorithms
-- **CONTEXT.md** - Project status, quick stats, version history
-- **CLAUDE.md** - Quick reference for Claude Code
-- **QUICKSTART.md** - Fast setup guide
-- **README_REST_API.md** - REST API documentation
-- **ANOMALY_DETECTION.md** - Anomaly detection guide
-- **EXAMPLES.md** - Performance analysis
+### Core Documentation
+
+- **[README.md](README.md)** (this file) - Installation, features, tools, usage
+- **[QUICKSTART.md](QUICKSTART.md)** - Fast setup guide (5 minutes)
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technical deep dive, database schema, algorithms
+- **[CONTEXT.md](CONTEXT.md)** - Project status, quick stats, version history
+- **[CLAUDE.md](CLAUDE.md)** - Quick reference for Claude Code integration
+- **[CHANGELOG.md](CHANGELOG.md)** - Complete version history
+
+### Feature Documentation
+
+Browse [docs/](docs/) for detailed guides on specific features:
+
+**API & Integration:**
+- [REST API](docs/REST_API.md) - FastAPI REST server (27 endpoints)
+
+**AI-Powered Features:**
+- [Entity Extraction](docs/ENTITY_EXTRACTION.md) - Extract hardware, memory addresses, instructions
+- [Anomaly Detection](docs/ANOMALY_DETECTION.md) - ML-based URL content monitoring
+- [Summarization](docs/SUMMARIZATION.md) - AI-powered document summarization
+
+**Data Sources:**
+- [Web Scraping](docs/WEB_SCRAPING.md) - Scrape documentation websites
+- [Web Monitoring](docs/WEB_MONITORING.md) - Track URL-sourced content changes
+
+**Setup & Deployment:**
+- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment
+- [Docker Setup](docs/DOCKER.md) - Docker configuration
+- [Environment Setup](docs/ENVIRONMENT_SETUP.md) - Environment variables
+- [Poppler Setup](docs/POPPLER_SETUP.md) - Poppler installation for PDFs
+
+**User Interfaces:**
+- [GUI Guide](docs/GUI.md) - Streamlit web interface
+
+**Development:**
+- [Testing Guide](docs/TESTING.md) - Test suite and CI/CD
+- [Examples](docs/EXAMPLES.md) - Usage examples and performance analysis
+- [Monitoring Setup](docs/MONITORING.md) - Scheduled monitoring configuration
+- [Roadmap](docs/ROADMAP.md) - Future improvements and features
 
 ## Version History
 

@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.1"
-__version_info__ = (2, 23, 1)
+__version__ = "2.23.2"
+__version_info__ = (2, 23, 2)
 
 # Build information
-__build_date__ = "2026-01-01"
+__build_date__ = "2026-01-02"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"

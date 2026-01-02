@@ -305,9 +305,11 @@ class KnowledgeBase:
         # Always include: scraped_docs directory and current working directory
         allowed_dirs_env = os.getenv('ALLOWED_DOCS_DIRS', '')
 
-        # Start with scraped_docs and current working directory
+        # Start with scraped_docs, downloads, temp, and current working directory
         default_allowed_dirs = [
             self.data_dir / "scraped_docs",  # Always allow scraped documents
+            self.data_dir / "downloads",     # Always allow downloaded files (Archive Search)
+            self.data_dir / "temp",          # Always allow temp files (Quick Add)
             Path.cwd()  # Always allow current working directory
         ]
 

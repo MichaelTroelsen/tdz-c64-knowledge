@@ -130,6 +130,7 @@ if 'kb' not in st.session_state:
     st.session_state.index_status = "not_started"
     st.session_state.index_thread = None
     st.session_state.quick_added_files = []  # Track quick-added files from Archive Search
+    st.session_state.downloaded_files_added = {}  # Track which downloaded files have been added to KB
 
     # Start background indexing if BM25 is enabled and index not built
     use_bm25 = os.environ.get("USE_BM25", "1") != "0"
@@ -4374,7 +4375,7 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
 
                     # File list
                     for file in files:
-                        col1, col2, col3 = st.columns([3, 1, 2])
+                        col1, col2, col3, col4 = st.columns([3, 1, 1.5, 1])
 
                         with col1:
                             st.text(f"📄 {file.name}")
@@ -4384,9 +4385,15 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                             st.caption(f"{size_mb:.2f} MB")
 
                         with col3:
-                            add_col, delete_col = st.columns(2)
-
-                            with add_col:
+                            # Check if file has been added to KB
+                            file_key = str(file)
+                            if file_key in st.session_state.downloaded_files_added:
+                                # File has been added - show status
+                                doc_id = st.session_state.downloaded_files_added[file_key]
+                                st.success(f"✅ Added to KB")
+                                st.caption(f"Doc: {doc_id[:12]}...")
+                            else:
+                                # File not added yet - show Add button
                                 if st.button("➕ Add to KB", key=f"add_{file.name}"):
                                     try:
                                         with st.spinner(f"Adding {file.name}..."):
@@ -4394,19 +4401,24 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                 str(file),
                                                 title=file.stem
                                             )
+                                            # Track that this file has been added
+                                            st.session_state.downloaded_files_added[file_key] = doc.doc_id
                                             st.success(f"✅ Added!\nDoc ID: {doc.doc_id[:12]}...")
                                             st.rerun()
                                     except Exception as e:
                                         st.error(f"Error: {str(e)}")
 
-                            with delete_col:
-                                if st.button("🗑️ Delete", key=f"delete_{file.name}"):
-                                    try:
-                                        file.unlink()
-                                        st.success(f"✅ Deleted {file.name}")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error: {str(e)}")
+                        with col4:
+                            if st.button("🗑️ Delete", key=f"delete_{file.name}"):
+                                try:
+                                    file.unlink()
+                                    # Remove from tracking if it was added
+                                    if file_key in st.session_state.downloaded_files_added:
+                                        del st.session_state.downloaded_files_added[file_key]
+                                    st.success(f"✅ Deleted {file.name}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {str(e)}")
 
                     # Bulk actions
                     st.markdown("---")
@@ -4422,9 +4434,16 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                             status_text = st.empty()
 
                             for i, file in enumerate(files):
+                                file_key = str(file)
+                                # Skip if already added
+                                if file_key in st.session_state.downloaded_files_added:
+                                    continue
+
                                 try:
                                     status_text.text(f"Adding {file.name}...")
-                                    kb.add_document(str(file), title=file.stem)
+                                    doc = kb.add_document(str(file), title=file.stem)
+                                    # Track that this file has been added
+                                    st.session_state.downloaded_files_added[file_key] = doc.doc_id
                                     success_count += 1
                                 except Exception as e:
                                     st.warning(f"Failed to add {file.name}: {str(e)}")
@@ -4447,6 +4466,10 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                 try:
                                     for file in files:
                                         file.unlink()
+                                        # Remove from tracking
+                                        file_key = str(file)
+                                        if file_key in st.session_state.downloaded_files_added:
+                                            del st.session_state.downloaded_files_added[file_key]
                                     st.success(f"✅ Deleted {len(files)} files")
                                     st.rerun()
                                 except Exception as e:

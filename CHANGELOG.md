@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Archive Search Page in Admin GUI** - Internet Archive integration for content discovery (commit d0cb922)
+  - Added new "🔍 Archive Search" page to Streamlit admin GUI with 2-tab interface
+  - **Search Archive Tab**: Full-featured search interface
+    - Full-text search across Internet Archive collections with advanced query construction
+    - **Advanced Filters**: File type (PDF/TXT/HTML/DJVU/EPUB/MOBI), collection (texts/software/data), date range (1900-2026), subject tags
+    - Configurable result limits (5-100 items)
+    - Real-time search results with item metadata: title, creator, date, description, tags, download count
+    - File listings with size information and format filtering
+    - Direct archive.org links to source items
+    - **Two download options per file**:
+      - 💾 Download: Save to {data_dir}/downloads for manual review
+      - ⚡ Quick Add: Download and immediately add to knowledge base with metadata
+    - Automatic title and tag extraction from archive.org metadata
+    - Source URL preservation for provenance tracking
+  - **Downloaded Files Tab**: Manage downloaded content
+    - View all downloaded files with size information
+    - Individual actions: Add to KB or Delete
+    - Bulk operations: Add All or Clear All with progress tracking
+    - File location display and status monitoring
+  - **Technical Implementation**:
+    - Uses official internetarchive Python library v5.7.1
+    - Iterator-based result limiting for API efficiency
+    - Metadata extraction and file enumeration
+    - Full integration with existing KnowledgeBase.add_document() method
+    - Comprehensive error handling and user feedback
+  - **Testing**: Unit test suite (test_archive_search.py) with 8 tests covering search, filtering, metadata extraction, file listing, and URL construction (100% pass rate)
+  - Enables discovery and acquisition of C64 documentation from archive.org's vast collection directly within admin interface
+
 - **Settings Page in Admin GUI** - Comprehensive configuration viewer (commit dc7c51b)
   - Added new "⚙️ Settings" page to Streamlit admin GUI with 4-tab interface
   - **File Paths Tab**: Displays data directory, database path with size, embeddings path, MCP config file locations

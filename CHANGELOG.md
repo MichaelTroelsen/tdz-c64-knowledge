@@ -133,6 +133,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.13] - 2026-01-02
+
+### Added
+- **AI Suggestions Enhancements** - 10 recommendations + smart KB status tracking
+  - Increased from 5 to 10 recommendations per AI analysis
+  - Added intelligent "already in KB" detection across all recommendations
+  - Shows comprehensive status: "X/10 recommendations already in KB, Y new files available"
+  - Smart warning when all recommendations are already in KB
+  - Features:
+    - **10 Recommendations**: More options to choose from
+    - **KB Status Counter**: See at a glance how many are new vs already added
+    - **"All in KB" Detection**: Warns when all recommendations exist
+    - **Regenerate Button**: Placeholder for auto-regeneration feature (coming soon)
+  - Locations:
+    - Prompt: admin_gui.py line 4179 (10 instead of 5)
+    - Status tracking: admin_gui.py lines 4413-4462
+  - Impact: Better recommendations and visibility into what's new
+
+### Changed
+- **Version Bump** - Updated version from 2.23.12 to 2.23.13
+
 ## [2.23.12] - 2026-01-02
 
 ### Fixed

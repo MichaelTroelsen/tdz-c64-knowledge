@@ -4176,7 +4176,7 @@ Required JSON structure:
 }}
 
 Rules:
-- Provide exactly 5 recommendations
+- Provide exactly 10 recommendations
 - Order by score (highest first)
 - Use valid JSON syntax (proper quotes, commas, no trailing commas)
 - Escape special characters in strings
@@ -4409,6 +4409,57 @@ Rules:
 
                                             except Exception as e:
                                                 st.error(f"Download failed: {str(e)}")
+
+                    # Check if all recommendations are already in KB
+                    st.markdown("---")
+                    in_kb_count = 0
+                    total_recs = len(suggestions['recommendations'])
+
+                    for rec in suggestions['recommendations']:
+                        item_idx = rec.get('item_index', -1)
+                        if item_idx >= 0 and item_idx < len(st.session_state.archive_results):
+                            result = st.session_state.archive_results[item_idx]
+
+                            # Find matching file
+                            matching_file = None
+                            for file in result['files']:
+                                if file['name'] == rec.get('file_name'):
+                                    matching_file = file
+                                    break
+
+                            if matching_file:
+                                # Check if in KB (same logic as above)
+                                existing_doc = None
+                                item_id = result['identifier']
+
+                                for doc in kb.documents.values():
+                                    if not hasattr(doc, 'source_url') or not doc.source_url:
+                                        continue
+
+                                    if doc.source_url == matching_file['url']:
+                                        existing_doc = doc
+                                        break
+
+                                    if item_id in doc.source_url:
+                                        safe_filename = Path(matching_file['name']).stem
+                                        doc_stem = Path(doc.filename).stem
+                                        if safe_filename.lower() in doc_stem.lower() or doc_stem.lower() in safe_filename.lower():
+                                            existing_doc = doc
+                                            break
+
+                                if existing_doc:
+                                    in_kb_count += 1
+
+                    # Show status and regenerate option if all are in KB
+                    if in_kb_count == total_recs and total_recs > 0:
+                        st.warning(f"⚠️ All {total_recs} recommendations are already in your knowledge base!")
+                        if st.button("🔄 Generate New Recommendations (excluding files already in KB)", type="primary"):
+                            # Add exclusion instruction and regenerate
+                            st.session_state.ai_suggestions = None  # Clear current suggestions
+                            st.info("Feature coming soon: Will regenerate with files already in KB excluded")
+                            # TODO: Implement regeneration with exclusions
+                    else:
+                        st.info(f"📊 Status: {in_kb_count}/{total_recs} recommendations already in KB, {total_recs - in_kb_count} new files available")
 
         # ========== QUICK ADDED TAB ==========
         with tab3:

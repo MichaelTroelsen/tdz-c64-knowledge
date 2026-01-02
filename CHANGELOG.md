@@ -133,6 +133,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.8] - 2026-01-02
+
+### Fixed
+- **Archive Search Duplicate Detection** - Fixed "In KB" status not showing for existing files
+  - "In KB" status now correctly shows for files already in knowledge base
+  - Root Cause: source_url was saving item URL (`result['url']`) but checking file URL (`file['url']`) - these don't match!
+  - Solution: Changed source_url to consistently use file URL (`file['url']`) for accurate duplicate detection
+  - Locations Fixed:
+    - Search Archive Quick Add (admin_gui.py line 4030, 4033)
+    - AI Suggestions Quick Add (admin_gui.py line 4303, 4306)
+  - Impact: Download/Quick Add buttons now correctly hidden when file already exists in KB
+  - Duplicate detection now works properly across Search Archive and AI Suggestions tabs
+
+### Changed
+- **Version Bump** - Updated version from 2.23.7 to 2.23.8
+
 ## [2.23.7] - 2026-01-02
 
 ### Fixed

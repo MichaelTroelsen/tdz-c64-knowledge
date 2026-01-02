@@ -4018,7 +4018,7 @@ elif page == "🔍 Archive Search":
                                                         tags=tags
                                                     )
 
-                                                    # Update with source URL metadata
+                                                    # Update with source URL metadata (use file URL for matching)
                                                     with kb.db_conn:
                                                         cursor = kb.db_conn.cursor()
                                                         cursor.execute("""
@@ -4027,10 +4027,10 @@ elif page == "🔍 Archive Search":
                                                                 scrape_date = ?,
                                                                 scrape_status = 'success'
                                                             WHERE doc_id = ?
-                                                        """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
+                                                        """, (file['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
 
                                                     # Update in-memory object
-                                                    doc.source_url = result['url']
+                                                    doc.source_url = file['url']
                                                     kb.documents[doc.doc_id] = doc
 
                                                     # Record in quick-added history
@@ -4291,7 +4291,7 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                             tags=tags
                                                         )
 
-                                                        # Update with source URL metadata
+                                                        # Update with source URL metadata (use file URL for matching)
                                                         with kb.db_conn:
                                                             cursor = kb.db_conn.cursor()
                                                             cursor.execute("""
@@ -4300,10 +4300,10 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                                     scrape_date = ?,
                                                                     scrape_status = 'success'
                                                                 WHERE doc_id = ?
-                                                            """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
+                                                            """, (matching_file['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
 
                                                         # Update in-memory object
-                                                        doc.source_url = result['url']
+                                                        doc.source_url = matching_file['url']
                                                         kb.documents[doc.doc_id] = doc
 
                                                         # Record in quick-added history

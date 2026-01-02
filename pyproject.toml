@@ -41,6 +41,7 @@ gui = [
     "pandas>=2.0.0",
     "pyvis>=0.3.2",
     "networkx>=3.0",
+    "internetarchive>=5.7.0",
 ]
 rest = [
     "fastapi>=0.104.0",

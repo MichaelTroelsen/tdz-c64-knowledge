@@ -133,6 +133,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.10] - 2026-01-02
+
+### Fixed
+- **AI Suggestions Model Compatibility** - Fixed 404 error with unavailable model
+  - Changed from hardcoded `claude-3-5-sonnet-20241022` to stable `claude-3-5-sonnet-20240620`
+  - Model is now configurable via `AI_SUGGESTIONS_MODEL` environment variable
+  - Root Cause: Model `claude-3-5-sonnet-20241022` not available to all API keys/regions
+  - Location: admin_gui.py line 4180
+  - Users can override: `set AI_SUGGESTIONS_MODEL=claude-3-haiku-20240307` (cheaper option)
+  - Impact: AI Suggestions now works without 404 errors
+
+### Changed
+- **Version Bump** - Updated version from 2.23.9 to 2.23.10
+
 ## [2.23.9] - 2026-01-02
 
 ### Fixed

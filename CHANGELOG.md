@@ -133,6 +133,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.4] - 2026-01-02
+
+### Fixed
+- **Archive.org URL Encoding** - Fixed InvalidURL error for filenames with spaces and special characters
+  - Added URL encoding using `urllib.parse.quote()` for archive.org download URLs
+  - Fixes `InvalidURL: URL can't contain control characters` error when downloading files
+  - Root Cause: Filenames with spaces, slashes, and special characters not URL-encoded
+  - Example: `Back in Time 1/Extras/BIT 1 - DD Booklet.pdf` → `Back%20in%20Time%201%2FExtras%2FBIT%201%20-%20DD%20Booklet.pdf`
+  - Impact: All archive.org files now downloadable via Quick Add and Download buttons
+  - Location: admin_gui.py line 3868 (URL construction in Archive Search)
+  - Import: Added `from urllib.parse import quote` to module imports
+
+### Testing
+- **URL Encoding Test Suite** - Comprehensive unit tests for URL encoding (test_url_encoding.py)
+  - Created test_url_encoding.py with 16 tests, 100% pass rate
+  - TestURLEncoding (14 tests): Spaces, directories, special chars, unicode, edge cases
+  - TestArchiveSearchURLs (2 tests): File dict structure, multiple files
+  - **Test Coverage**:
+    - Simple filenames without special characters
+    - Filenames with spaces (encoded as %20)
+    - Directory paths with slashes (encoded as %2F)
+    - Special characters: & ( ) : $ % # ! @ = + ?
+    - Unicode characters (Cyrillic, etc.)
+    - Empty filenames and edge cases
+    - Integration with urllib.request.urlretrieve()
+  - Validates proper encoding with `safe=''` parameter
+  - Ensures no control characters in final URLs
+  - Total Archive Search test coverage: 65 tests across 4 test suites
+
+### Changed
+- **Version Bump** - Updated version from 2.23.3 to 2.23.4
+
+### Impact
+- Archive Search now handles all archive.org filenames correctly
+- No more InvalidURL errors for files with spaces or special characters
+- Improved reliability for international/unicode filenames
+- Better compatibility with archive.org's diverse file naming conventions
+
 ## [2.23.3] - 2026-01-02
 
 ### Fixed

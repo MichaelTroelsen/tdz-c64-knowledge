@@ -22,6 +22,7 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.parse import quote
 import pandas as pd
 import threading
 import time
@@ -3862,11 +3863,14 @@ elif page == "🔍 Archive Search":
                                         # Filter by selected file types
                                         file_format = file.get('format', '').upper()
                                         if not file_types or any(ft.upper() in file_format for ft in file_types):
+                                            # URL-encode the filename to handle spaces and special characters
+                                            filename = file.get('name', '')
+                                            encoded_filename = quote(filename, safe='')
                                             files.append({
-                                                'name': file.get('name', 'Unknown'),
+                                                'name': filename,
                                                 'size': file.get('size', 0),
                                                 'format': file_format,
-                                                'url': f"https://archive.org/download/{item['identifier']}/{file.get('name', '')}"
+                                                'url': f"https://archive.org/download/{item['identifier']}/{encoded_filename}"
                                             })
 
                                     if files:  # Only include items with matching files

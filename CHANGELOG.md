@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Settings Page in Admin GUI** - Comprehensive configuration viewer (commit dc7c51b)
+  - Added new "⚙️ Settings" page to Streamlit admin GUI with 4-tab interface
+  - **File Paths Tab**: Displays data directory, database path with size, embeddings path, MCP config file locations
+  - **MCP Configuration Tab**: Auto-detects and displays Claude Desktop/Code configurations
+    - Searches multiple locations: Claude Desktop (%APPDATA%\Claude\claude_desktop_config.json), Claude Code project (.claude/settings.json), Claude Code global (~/.claude/settings.json)
+    - Shows command, arguments, environment variables in organized layout
+    - Provides example configuration if no config found
+  - **Environment Variables Tab**: Lists important env vars with status indicators
+    - Security masking for sensitive values (API keys, passwords, tokens)
+    - Expandable section to view all environment variables
+  - **Features & Capabilities Tab**: System health and feature status
+    - Health status indicator (🟢 Healthy / 🟡 Degraded / 🔴 Unhealthy)
+    - Feature flags: Search (FTS5, Semantic, BM25), Document Processing (PDF, OCR), AI (Entity Extraction, Relationships, RAG), Web (Scraping, Monitoring)
+    - Database statistics: documents, chunks, entities, relationships, embeddings
+    - Full health check JSON in expandable view
+  - Provides complete visibility into server configuration and runtime environment
+
 ### Documentation
 - **Comprehensive Documentation Reorganization** - Major cleanup and restructuring (commits e3e298e, 9c6051e)
   - Created `docs/` directory with 15 feature-specific guides organized by category

@@ -133,6 +133,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.9] - 2026-01-02
+
+### Fixed
+- **Enhanced Duplicate Detection for Legacy Documents** - "In KB" status now detects OLD and NEW format source URLs
+  - Enhanced duplicate detection to handle both URL formats:
+    - **New format** (file URL): `https://archive.org/download/item-id/filename.pdf` - Exact URL match
+    - **Old format** (item URL): `https://archive.org/details/item-id` - Item ID + filename match
+  - Root Cause: Documents added before v2.23.8 have item URLs, not file URLs
+  - Solution: Two-phase matching logic:
+    1. Try exact file URL match (for documents added after v2.23.8)
+    2. Try item ID + filename match (for documents added before v2.23.8)
+  - Filename matching ignores file extension for flexibility (.PDF vs .txt)
+  - Filename matching uses stem comparison: `Path(filename).stem`
+  - Locations Fixed:
+    - Search Archive Tab (admin_gui.py lines 3972-3980)
+    - AI Suggestions Tab (admin_gui.py lines 4286-4294)
+  - Impact: **All archive.org documents now show "✅ In KB" status correctly**
+  - Works for documents added before AND after the fix
+
+### Added
+- **Comprehensive "In KB" Status Tests** - 9 unit tests validating entire duplicate detection workflow
+  - test_in_kb_status.py with 100% pass rate (9/9 tests)
+  - Tests cover:
+    - File URL construction and encoding
+    - source_url save/load cycle
+    - Duplicate detection logic (new format)
+    - Duplicate detection logic (old format) ← **Critical test**
+    - Multiple files detection
+    - Extension-independent matching
+    - KB reloading after Quick Add
+  - Validates "In KB" status shows correctly for all scenarios
+
+### Changed
+- **Version Bump** - Updated version from 2.23.8 to 2.23.9
+
 ## [2.23.8] - 2026-01-02
 
 ### Fixed

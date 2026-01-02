@@ -3954,11 +3954,30 @@ elif page == "🔍 Archive Search":
 
                             with file_col3:
                                 # Check if file already exists in KB by source URL
+                                # Support both formats:
+                                # - New format (file URL): https://archive.org/download/item-id/filename.pdf
+                                # - Old format (item URL): https://archive.org/details/item-id
                                 existing_doc = None
+                                item_id = result['identifier']
+
                                 for doc in kb.documents.values():
-                                    if hasattr(doc, 'source_url') and doc.source_url == file['url']:
+                                    if not hasattr(doc, 'source_url') or not doc.source_url:
+                                        continue
+
+                                    # Try exact file URL match (new format)
+                                    if doc.source_url == file['url']:
                                         existing_doc = doc
                                         break
+
+                                    # Try item identifier match (old format)
+                                    # Check if source_url contains the item identifier
+                                    if item_id in doc.source_url:
+                                        # Also check if filename matches (ignore extension for flexibility)
+                                        safe_filename = Path(file['name']).stem  # Get filename without extension
+                                        doc_stem = Path(doc.filename).stem  # Get doc filename without extension
+                                        if safe_filename.lower() in doc_stem.lower() or doc_stem.lower() in safe_filename.lower():
+                                            existing_doc = doc
+                                            break
 
                                 if existing_doc:
                                     # File already in KB - show status
@@ -4249,11 +4268,30 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
 
                                     if matching_file:
                                         # Check if file already exists in KB by source URL
+                                        # Support both formats:
+                                        # - New format (file URL): https://archive.org/download/item-id/filename.pdf
+                                        # - Old format (item URL): https://archive.org/details/item-id
                                         existing_doc = None
+                                        item_id = result['identifier']
+
                                         for doc in kb.documents.values():
-                                            if hasattr(doc, 'source_url') and doc.source_url == matching_file['url']:
+                                            if not hasattr(doc, 'source_url') or not doc.source_url:
+                                                continue
+
+                                            # Try exact file URL match (new format)
+                                            if doc.source_url == matching_file['url']:
                                                 existing_doc = doc
                                                 break
+
+                                            # Try item identifier match (old format)
+                                            # Check if source_url contains the item identifier
+                                            if item_id in doc.source_url:
+                                                # Also check if filename matches (ignore extension for flexibility)
+                                                safe_filename = Path(matching_file['name']).stem  # Get filename without extension
+                                                doc_stem = Path(doc.filename).stem  # Get doc filename without extension
+                                                if safe_filename.lower() in doc_stem.lower() or doc_stem.lower() in safe_filename.lower():
+                                                    existing_doc = doc
+                                                    break
 
                                         if existing_doc:
                                             # File already in KB - show status

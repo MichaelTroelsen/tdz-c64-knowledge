@@ -133,6 +133,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.6] - 2026-01-02
+
+### Added
+- **Duplicate Detection in Archive Search** - Show KB status instead of Download/Quick Add buttons
+  - Check if files already exist in KB by source URL before showing action buttons
+  - Display "✅ In KB" status with document ID for existing files
+  - Prevents duplicate downloads and additions
+  - Applied to both Search Archive tab and AI Suggestions tab
+  - Locations:
+    - admin_gui.py line 3956: Search Archive file list
+    - admin_gui.py line 4251: AI Suggestions recommendations
+  - Impact: Users can see at a glance which files are already in the knowledge base
+
+### Changed
+- **Version Bump** - Updated version from 2.23.5 to 2.23.6
+
+### Impact
+- Clearer visibility into which archive.org files are already in the KB
+- Prevents accidental duplicate downloads
+- Prevents duplicate Quick Add operations
+- Better user experience with immediate status feedback
+- More efficient workflow when browsing archive.org results
+
 ## [2.23.5] - 2026-01-02
 
 ### Fixed

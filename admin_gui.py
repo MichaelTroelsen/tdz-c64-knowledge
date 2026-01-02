@@ -3953,105 +3953,118 @@ elif page == "🔍 Archive Search":
                                 st.caption(f"{size_mb:.2f} MB")
 
                             with file_col3:
-                                download_col1, download_col2 = st.columns(2)
+                                # Check if file already exists in KB by source URL
+                                existing_doc = None
+                                for doc in kb.documents.values():
+                                    if hasattr(doc, 'source_url') and doc.source_url == file['url']:
+                                        existing_doc = doc
+                                        break
 
-                                with download_col1:
-                                    if st.button("💾 Download", key=f"download_{idx}_{file_idx}"):
-                                        # Download to downloads folder
-                                        downloads_dir = Path(st.session_state.data_dir) / "downloads"
-                                        downloads_dir.mkdir(exist_ok=True)
+                                if existing_doc:
+                                    # File already in KB - show status
+                                    st.success(f"✅ In KB")
+                                    st.caption(f"Doc: {existing_doc.doc_id[:12]}...")
+                                else:
+                                    # File not in KB - show download and quick add buttons
+                                    download_col1, download_col2 = st.columns(2)
 
-                                        try:
-                                            with st.spinner(f"Downloading {file['name']}..."):
-                                                import urllib.request
-                                                # Extract just the filename (no directory path) to avoid path issues
-                                                safe_filename = Path(file['name']).name
-                                                filepath = downloads_dir / safe_filename
-                                                urllib.request.urlretrieve(file['url'], filepath)
-                                                st.success(f"✅ Downloaded to {filepath}")
+                                    with download_col1:
+                                        if st.button("💾 Download", key=f"download_{idx}_{file_idx}"):
+                                            # Download to downloads folder
+                                            downloads_dir = Path(st.session_state.data_dir) / "downloads"
+                                            downloads_dir.mkdir(exist_ok=True)
 
-                                        except Exception as e:
-                                            st.error(f"Download failed: {str(e)}")
+                                            try:
+                                                with st.spinner(f"Downloading {file['name']}..."):
+                                                    import urllib.request
+                                                    # Extract just the filename (no directory path) to avoid path issues
+                                                    safe_filename = Path(file['name']).name
+                                                    filepath = downloads_dir / safe_filename
+                                                    urllib.request.urlretrieve(file['url'], filepath)
+                                                    st.success(f"✅ Downloaded to {filepath}")
 
-                                with download_col2:
-                                    if st.button("⚡ Quick Add", key=f"quickadd_{idx}_{file_idx}"):
-                                        # Download and add to knowledge base
-                                        try:
-                                            with st.spinner(f"Downloading and adding {file['name']}..."):
-                                                import urllib.request
-                                                import tempfile
+                                            except Exception as e:
+                                                st.error(f"Download failed: {str(e)}")
 
-                                                # Create temp directory in data_dir (within allowed paths)
-                                                temp_dir = Path(st.session_state.data_dir) / "temp"
-                                                temp_dir.mkdir(exist_ok=True)
+                                    with download_col2:
+                                        if st.button("⚡ Quick Add", key=f"quickadd_{idx}_{file_idx}"):
+                                            # Download and add to knowledge base
+                                            try:
+                                                with st.spinner(f"Downloading and adding {file['name']}..."):
+                                                    import urllib.request
+                                                    import tempfile
 
-                                                # Download to temp file in allowed directory
-                                                # Extract just the filename (no directory path) to avoid path issues
-                                                safe_filename = Path(file['name']).name
-                                                temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_filename}"
-                                                tmp_path = temp_dir / temp_filename
-                                                urllib.request.urlretrieve(file['url'], str(tmp_path))
+                                                    # Create temp directory in data_dir (within allowed paths)
+                                                    temp_dir = Path(st.session_state.data_dir) / "temp"
+                                                    temp_dir.mkdir(exist_ok=True)
 
-                                                # Add to knowledge base
-                                                title = f"{result['title']} - {file['name']}"
-                                                tags = result['subject'] if isinstance(result['subject'], list) else [result['subject']]
-                                                if isinstance(tags, str):
-                                                    tags = [tags]
+                                                    # Download to temp file in allowed directory
+                                                    # Extract just the filename (no directory path) to avoid path issues
+                                                    safe_filename = Path(file['name']).name
+                                                    temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_filename}"
+                                                    tmp_path = temp_dir / temp_filename
+                                                    urllib.request.urlretrieve(file['url'], str(tmp_path))
 
-                                                # Add document first
-                                                doc = kb.add_document(
-                                                    str(tmp_path),
-                                                    title=title,
-                                                    tags=tags
-                                                )
+                                                    # Add to knowledge base
+                                                    title = f"{result['title']} - {file['name']}"
+                                                    tags = result['subject'] if isinstance(result['subject'], list) else [result['subject']]
+                                                    if isinstance(tags, str):
+                                                        tags = [tags]
 
-                                                # Update with source URL metadata
-                                                with kb.db_conn:
-                                                    cursor = kb.db_conn.cursor()
-                                                    cursor.execute("""
-                                                        UPDATE documents
-                                                        SET source_url = ?,
-                                                            scrape_date = ?,
-                                                            scrape_status = 'success'
-                                                        WHERE doc_id = ?
-                                                    """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
+                                                    # Add document first
+                                                    doc = kb.add_document(
+                                                        str(tmp_path),
+                                                        title=title,
+                                                        tags=tags
+                                                    )
 
-                                                # Update in-memory object
-                                                doc.source_url = result['url']
-                                                kb.documents[doc.doc_id] = doc
+                                                    # Update with source URL metadata
+                                                    with kb.db_conn:
+                                                        cursor = kb.db_conn.cursor()
+                                                        cursor.execute("""
+                                                            UPDATE documents
+                                                            SET source_url = ?,
+                                                                scrape_date = ?,
+                                                                scrape_status = 'success'
+                                                            WHERE doc_id = ?
+                                                        """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
 
-                                                # Record in quick-added history
+                                                    # Update in-memory object
+                                                    doc.source_url = result['url']
+                                                    kb.documents[doc.doc_id] = doc
+
+                                                    # Record in quick-added history
+                                                    st.session_state.quick_added_files.append({
+                                                        'title': title,
+                                                        'file_name': file['name'],
+                                                        'source_url': result['url'],
+                                                        'doc_id': doc.doc_id,
+                                                        'status': 'success',
+                                                        'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                                                    })
+
+                                                    # Clean up temp file
+                                                    tmp_path.unlink()
+
+                                                    st.success(f"✅ Added to knowledge base!\nDoc ID: {doc.doc_id[:12]}...")
+                                                    st.rerun()
+
+                                            except Exception as e:
+                                                # Clean up temp file if it exists
+                                                if 'tmp_path' in locals() and tmp_path.exists():
+                                                    tmp_path.unlink()
+
+                                                # Record failed attempt
                                                 st.session_state.quick_added_files.append({
-                                                    'title': title,
+                                                    'title': f"{result['title']} - {file['name']}",
                                                     'file_name': file['name'],
                                                     'source_url': result['url'],
-                                                    'doc_id': doc.doc_id,
-                                                    'status': 'success',
+                                                    'doc_id': None,
+                                                    'status': 'failed',
+                                                    'error': str(e),
                                                     'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                                                 })
-
-                                                # Clean up temp file
-                                                tmp_path.unlink()
-
-                                                st.success(f"✅ Added to knowledge base!\nDoc ID: {doc.doc_id[:12]}...")
-                                                st.rerun()
-
-                                        except Exception as e:
-                                            # Clean up temp file if it exists
-                                            if 'tmp_path' in locals() and tmp_path.exists():
-                                                tmp_path.unlink()
-
-                                            # Record failed attempt
-                                            st.session_state.quick_added_files.append({
-                                                'title': f"{result['title']} - {file['name']}",
-                                                'file_name': file['name'],
-                                                'source_url': result['url'],
-                                                'doc_id': None,
-                                                'status': 'failed',
-                                                'error': str(e),
-                                                'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-                                            })
-                                            st.error(f"Quick add failed: {str(e)}")
+                                                st.error(f"Quick add failed: {str(e)}")
                                             st.exception(e)
 
                         if len(result['files']) > 10:
@@ -4235,83 +4248,96 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                             break
 
                                     if matching_file:
-                                        if st.button("⚡ Quick Add", key=f"ai_add_{item_idx}_{rec.get('file_name')}"):
-                                            try:
-                                                with st.spinner(f"Downloading and adding {matching_file['name']}..."):
-                                                    import urllib.request
-                                                    import tempfile
+                                        # Check if file already exists in KB by source URL
+                                        existing_doc = None
+                                        for doc in kb.documents.values():
+                                            if hasattr(doc, 'source_url') and doc.source_url == matching_file['url']:
+                                                existing_doc = doc
+                                                break
 
-                                                    # Create temp directory in data_dir (within allowed paths)
-                                                    temp_dir = Path(st.session_state.data_dir) / "temp"
-                                                    temp_dir.mkdir(exist_ok=True)
+                                        if existing_doc:
+                                            # File already in KB - show status
+                                            st.success(f"✅ In KB")
+                                            st.caption(f"Doc: {existing_doc.doc_id[:12]}...")
+                                        else:
+                                            # File not in KB - show Quick Add and Download buttons
+                                            if st.button("⚡ Quick Add", key=f"ai_add_{item_idx}_{rec.get('file_name')}"):
+                                                try:
+                                                    with st.spinner(f"Downloading and adding {matching_file['name']}..."):
+                                                        import urllib.request
+                                                        import tempfile
 
-                                                    # Download to temp file in allowed directory
-                                                    # Extract just the filename (no directory path) to avoid path issues
-                                                    safe_filename = Path(matching_file['name']).name
-                                                    temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_filename}"
-                                                    tmp_path = temp_dir / temp_filename
-                                                    urllib.request.urlretrieve(matching_file['url'], str(tmp_path))
+                                                        # Create temp directory in data_dir (within allowed paths)
+                                                        temp_dir = Path(st.session_state.data_dir) / "temp"
+                                                        temp_dir.mkdir(exist_ok=True)
 
-                                                    # Add to knowledge base
-                                                    title = f"{result['title']} - {matching_file['name']}"
-                                                    tags = result['subject'] if isinstance(result['subject'], list) else [result['subject']]
-                                                    if isinstance(tags, str):
-                                                        tags = [tags]
+                                                        # Download to temp file in allowed directory
+                                                        # Extract just the filename (no directory path) to avoid path issues
+                                                        safe_filename = Path(matching_file['name']).name
+                                                        temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_filename}"
+                                                        tmp_path = temp_dir / temp_filename
+                                                        urllib.request.urlretrieve(matching_file['url'], str(tmp_path))
 
-                                                    # Add document first
-                                                    doc = kb.add_document(
-                                                        str(tmp_path),
-                                                        title=title,
-                                                        tags=tags
-                                                    )
+                                                        # Add to knowledge base
+                                                        title = f"{result['title']} - {matching_file['name']}"
+                                                        tags = result['subject'] if isinstance(result['subject'], list) else [result['subject']]
+                                                        if isinstance(tags, str):
+                                                            tags = [tags]
 
-                                                    # Update with source URL metadata
-                                                    with kb.db_conn:
-                                                        cursor = kb.db_conn.cursor()
-                                                        cursor.execute("""
-                                                            UPDATE documents
-                                                            SET source_url = ?,
-                                                                scrape_date = ?,
-                                                                scrape_status = 'success'
-                                                            WHERE doc_id = ?
-                                                        """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
+                                                        # Add document first
+                                                        doc = kb.add_document(
+                                                            str(tmp_path),
+                                                            title=title,
+                                                            tags=tags
+                                                        )
 
-                                                    # Update in-memory object
-                                                    doc.source_url = result['url']
-                                                    kb.documents[doc.doc_id] = doc
+                                                        # Update with source URL metadata
+                                                        with kb.db_conn:
+                                                            cursor = kb.db_conn.cursor()
+                                                            cursor.execute("""
+                                                                UPDATE documents
+                                                                SET source_url = ?,
+                                                                    scrape_date = ?,
+                                                                    scrape_status = 'success'
+                                                                WHERE doc_id = ?
+                                                            """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
 
-                                                    # Record in quick-added history
+                                                        # Update in-memory object
+                                                        doc.source_url = result['url']
+                                                        kb.documents[doc.doc_id] = doc
+
+                                                        # Record in quick-added history
+                                                        st.session_state.quick_added_files.append({
+                                                            'title': title,
+                                                            'file_name': matching_file['name'],
+                                                            'source_url': result['url'],
+                                                            'doc_id': doc.doc_id,
+                                                            'status': 'success',
+                                                            'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                                                        })
+
+                                                        # Clean up temp file
+                                                        tmp_path.unlink()
+
+                                                        st.success(f"✅ Added to knowledge base!\nDoc ID: {doc.doc_id[:12]}...")
+                                                        st.rerun()
+
+                                                except Exception as e:
+                                                    # Clean up temp file if it exists
+                                                    if 'tmp_path' in locals() and tmp_path.exists():
+                                                        tmp_path.unlink()
+
+                                                    # Record failed attempt
                                                     st.session_state.quick_added_files.append({
-                                                        'title': title,
+                                                        'title': f"{result['title']} - {matching_file['name']}",
                                                         'file_name': matching_file['name'],
                                                         'source_url': result['url'],
-                                                        'doc_id': doc.doc_id,
-                                                        'status': 'success',
+                                                        'doc_id': None,
+                                                        'status': 'failed',
+                                                        'error': str(e),
                                                         'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                                                     })
-
-                                                    # Clean up temp file
-                                                    tmp_path.unlink()
-
-                                                    st.success(f"✅ Added to knowledge base!\nDoc ID: {doc.doc_id[:12]}...")
-                                                    st.rerun()
-
-                                            except Exception as e:
-                                                # Clean up temp file if it exists
-                                                if 'tmp_path' in locals() and tmp_path.exists():
-                                                    tmp_path.unlink()
-
-                                                # Record failed attempt
-                                                st.session_state.quick_added_files.append({
-                                                    'title': f"{result['title']} - {matching_file['name']}",
-                                                    'file_name': matching_file['name'],
-                                                    'source_url': result['url'],
-                                                    'doc_id': None,
-                                                    'status': 'failed',
-                                                    'error': str(e),
-                                                    'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-                                                })
-                                                st.error(f"Quick add failed: {str(e)}")
+                                                    st.error(f"Quick add failed: {str(e)}")
 
                                         if st.button("💾 Download", key=f"ai_dl_{item_idx}_{rec.get('file_name')}"):
                                             try:

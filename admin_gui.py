@@ -149,7 +149,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["📊 Dashboard", "📚 Documents", "🌐 Web Scraping", "🌐 URL Monitoring", "🏷️ Tag Management", "🧠 Entity Extraction", "🔗 Relationship Graph", "📈 Entity Analytics", "📄 Document Comparison", "🔍 Search", "💾 Backup & Restore", "📉 System Analytics", "⚙️ Settings"]
+    ["📊 Dashboard", "📚 Documents", "🌐 Web Scraping", "🌐 URL Monitoring", "🏷️ Tag Management", "🧠 Entity Extraction", "🔗 Relationship Graph", "📈 Entity Analytics", "📄 Document Comparison", "🔍 Search", "💾 Backup & Restore", "📉 System Analytics", "🔍 Archive Search", "⚙️ Settings"]
 )
 
 st.sidebar.markdown("---")
@@ -3719,6 +3719,388 @@ elif page == "📉 System Analytics":
 
         except Exception as e:
             st.error(f"Error generating analytics: {str(e)}")
+
+# ========== ARCHIVE SEARCH PAGE ==========
+elif page == "🔍 Archive Search":
+    st.title("🔍 Archive.org Search")
+    st.markdown("Search and download C64-related documents from the Internet Archive.")
+
+    # Check if internetarchive library is available
+    try:
+        import internetarchive as ia
+        ia_available = True
+    except ImportError:
+        ia_available = False
+
+    if not ia_available:
+        st.error("📦 The `internetarchive` library is not installed.")
+        st.markdown("**To install:**")
+        st.code(".venv\\Scripts\\pip install internetarchive", language="bash")
+        st.info("After installing, restart the Streamlit server to use this feature.")
+    else:
+        # Create tabs for search and downloads
+        tab1, tab2 = st.tabs(["🔍 Search Archive", "📥 Downloaded Files"])
+
+        # ========== SEARCH TAB ==========
+        with tab1:
+            st.subheader("Search Internet Archive")
+
+            # Search form
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                search_query = st.text_input(
+                    "Search Query",
+                    placeholder="e.g., commodore 64 programming, VIC-II, SID chip",
+                    help="Enter keywords to search for C64-related documents"
+                )
+
+            with col2:
+                max_results = st.number_input("Max Results", min_value=5, max_value=100, value=20, step=5)
+
+            # Advanced filters
+            with st.expander("🔧 Advanced Filters", expanded=False):
+                filter_col1, filter_col2 = st.columns(2)
+
+                with filter_col1:
+                    # File type filter
+                    file_types = st.multiselect(
+                        "File Types",
+                        options=["PDF", "TXT", "HTML", "DJVU", "EPUB", "MOBI"],
+                        default=["PDF", "TXT"],
+                        help="Select document formats to search for"
+                    )
+
+                    # Collection filter
+                    collection = st.selectbox(
+                        "Collection",
+                        options=[
+                            "All Collections",
+                            "texts",
+                            "software",
+                            "data",
+                            "movies",
+                            "audio",
+                            "image"
+                        ],
+                        help="Filter by Internet Archive collection"
+                    )
+
+                with filter_col2:
+                    # Subject/tag filter
+                    subject_tags = st.text_input(
+                        "Subject Tags (comma-separated)",
+                        placeholder="e.g., commodore-64, programming, hardware",
+                        help="Filter by subject tags"
+                    )
+
+                    # Date range
+                    date_filter = st.checkbox("Filter by Date Range")
+                    if date_filter:
+                        date_col1, date_col2 = st.columns(2)
+                        with date_col1:
+                            start_year = st.number_input("From Year", min_value=1900, max_value=2026, value=1980)
+                        with date_col2:
+                            end_year = st.number_input("To Year", min_value=1900, max_value=2026, value=2026)
+
+            # Search button
+            if st.button("🔍 Search Archive.org", type="primary"):
+                if not search_query:
+                    st.warning("Please enter a search query")
+                else:
+                    with st.spinner("Searching Internet Archive..."):
+                        try:
+                            # Build search query
+                            query_parts = [search_query]
+
+                            # Add collection filter
+                            if collection != "All Collections":
+                                query_parts.append(f"collection:{collection}")
+
+                            # Add file type filter
+                            if file_types:
+                                format_query = " OR ".join([f"format:{ft}" for ft in file_types])
+                                query_parts.append(f"({format_query})")
+
+                            # Add subject filter
+                            if subject_tags:
+                                tags = [tag.strip() for tag in subject_tags.split(",")]
+                                for tag in tags:
+                                    query_parts.append(f"subject:{tag}")
+
+                            # Add date filter
+                            if date_filter:
+                                query_parts.append(f"year:[{start_year} TO {end_year}]")
+
+                            # Combine query
+                            full_query = " AND ".join(query_parts)
+
+                            # Perform search (search_items returns an iterator)
+                            search = ia.search_items(full_query)
+
+                            # Store results in session state
+                            results = []
+                            items_processed = 0
+
+                            for item in search:
+                                # Stop if we've reached max_results
+                                if items_processed >= max_results:
+                                    break
+
+                                items_processed += 1
+
+                                try:
+                                    # Get item metadata
+                                    item_obj = ia.get_item(item['identifier'])
+                                    metadata = item_obj.metadata
+
+                                    # Get file information
+                                    files = []
+                                    for file in item_obj.files:
+                                        # Filter by selected file types
+                                        file_format = file.get('format', '').upper()
+                                        if not file_types or any(ft.upper() in file_format for ft in file_types):
+                                            files.append({
+                                                'name': file.get('name', 'Unknown'),
+                                                'size': file.get('size', 0),
+                                                'format': file_format,
+                                                'url': f"https://archive.org/download/{item['identifier']}/{file.get('name', '')}"
+                                            })
+
+                                    if files:  # Only include items with matching files
+                                        results.append({
+                                            'identifier': item['identifier'],
+                                            'title': metadata.get('title', 'Untitled'),
+                                            'description': metadata.get('description', 'No description'),
+                                            'creator': metadata.get('creator', 'Unknown'),
+                                            'date': metadata.get('date', 'Unknown'),
+                                            'subject': metadata.get('subject', []),
+                                            'downloads': metadata.get('downloads', 0),
+                                            'url': f"https://archive.org/details/{item['identifier']}",
+                                            'files': files
+                                        })
+
+                                except Exception as e:
+                                    st.warning(f"Error processing item {item.get('identifier', 'unknown')}: {str(e)}")
+                                    continue
+
+                            st.session_state.archive_results = results
+                            st.session_state.archive_query = full_query
+
+                            if results:
+                                st.success(f"✅ Found {len(results)} items with matching files")
+                            else:
+                                st.warning("No results found. Try adjusting your search query or filters.")
+
+                        except Exception as e:
+                            st.error(f"Search error: {str(e)}")
+                            st.exception(e)
+
+            # Display results
+            if 'archive_results' in st.session_state and st.session_state.archive_results:
+                st.markdown("---")
+                st.subheader(f"📚 Search Results ({len(st.session_state.archive_results)} items)")
+
+                # Display query
+                with st.expander("🔍 Query Details"):
+                    st.code(st.session_state.archive_query, language="text")
+
+                # Results display
+                for idx, result in enumerate(st.session_state.archive_results):
+                    with st.expander(f"📄 {result['title']}", expanded=False):
+                        col1, col2 = st.columns([3, 1])
+
+                        with col1:
+                            st.markdown(f"**Identifier:** `{result['identifier']}`")
+                            st.markdown(f"**Creator:** {result['creator']}")
+                            st.markdown(f"**Date:** {result['date']}")
+
+                            if result['description']:
+                                desc = result['description']
+                                if isinstance(desc, list):
+                                    desc = desc[0] if desc else "No description"
+                                # Truncate long descriptions
+                                if len(desc) > 300:
+                                    desc = desc[:300] + "..."
+                                st.markdown(f"**Description:** {desc}")
+
+                            if result['subject']:
+                                subjects = result['subject'] if isinstance(result['subject'], list) else [result['subject']]
+                                st.markdown(f"**Tags:** {', '.join(subjects[:5])}")
+
+                            st.markdown(f"**Downloads:** {result['downloads']:,}")
+                            st.markdown(f"**Archive URL:** [{result['url']}]({result['url']})")
+
+                        with col2:
+                            st.metric("Files", len(result['files']))
+
+                        # Files section
+                        st.markdown("**Available Files:**")
+                        for file_idx, file in enumerate(result['files'][:10]):  # Limit to 10 files
+                            file_col1, file_col2, file_col3 = st.columns([3, 1, 2])
+
+                            with file_col1:
+                                st.text(f"📄 {file['name']}")
+
+                            with file_col2:
+                                size_mb = int(file['size']) / (1024 * 1024) if file['size'] else 0
+                                st.caption(f"{size_mb:.2f} MB")
+
+                            with file_col3:
+                                download_col1, download_col2 = st.columns(2)
+
+                                with download_col1:
+                                    if st.button("💾 Download", key=f"download_{idx}_{file_idx}"):
+                                        # Download to downloads folder
+                                        downloads_dir = Path(st.session_state.data_dir) / "downloads"
+                                        downloads_dir.mkdir(exist_ok=True)
+
+                                        try:
+                                            with st.spinner(f"Downloading {file['name']}..."):
+                                                import urllib.request
+                                                filepath = downloads_dir / file['name']
+                                                urllib.request.urlretrieve(file['url'], filepath)
+                                                st.success(f"✅ Downloaded to {filepath}")
+
+                                        except Exception as e:
+                                            st.error(f"Download failed: {str(e)}")
+
+                                with download_col2:
+                                    if st.button("⚡ Quick Add", key=f"quickadd_{idx}_{file_idx}"):
+                                        # Download and add to knowledge base
+                                        try:
+                                            with st.spinner(f"Downloading and adding {file['name']}..."):
+                                                import urllib.request
+                                                import tempfile
+
+                                                # Download to temp file
+                                                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file['name']).suffix) as tmp:
+                                                    urllib.request.urlretrieve(file['url'], tmp.name)
+                                                    tmp_path = tmp.name
+
+                                                # Add to knowledge base
+                                                title = f"{result['title']} - {file['name']}"
+                                                tags = result['subject'] if isinstance(result['subject'], list) else [result['subject']]
+                                                if isinstance(tags, str):
+                                                    tags = [tags]
+
+                                                doc_id = kb.add_document(
+                                                    tmp_path,
+                                                    title=title,
+                                                    tags=tags,
+                                                    source_url=result['url']
+                                                )
+
+                                                # Clean up temp file
+                                                os.unlink(tmp_path)
+
+                                                st.success(f"✅ Added to knowledge base!\nDoc ID: {doc_id[:12]}...")
+                                                st.rerun()
+
+                                        except Exception as e:
+                                            st.error(f"Quick add failed: {str(e)}")
+                                            st.exception(e)
+
+                        if len(result['files']) > 10:
+                            st.caption(f"... and {len(result['files']) - 10} more files")
+
+        # ========== DOWNLOADS TAB ==========
+        with tab2:
+            st.subheader("📥 Downloaded Files")
+
+            downloads_dir = Path(st.session_state.data_dir) / "downloads"
+
+            if downloads_dir.exists():
+                files = list(downloads_dir.glob("*"))
+
+                if files:
+                    st.write(f"**Location:** `{downloads_dir}`")
+                    st.write(f"**Total files:** {len(files)}")
+
+                    # File list
+                    for file in files:
+                        col1, col2, col3 = st.columns([3, 1, 2])
+
+                        with col1:
+                            st.text(f"📄 {file.name}")
+
+                        with col2:
+                            size_mb = file.stat().st_size / (1024 * 1024)
+                            st.caption(f"{size_mb:.2f} MB")
+
+                        with col3:
+                            add_col, delete_col = st.columns(2)
+
+                            with add_col:
+                                if st.button("➕ Add to KB", key=f"add_{file.name}"):
+                                    try:
+                                        with st.spinner(f"Adding {file.name}..."):
+                                            doc_id = kb.add_document(
+                                                str(file),
+                                                title=file.stem
+                                            )
+                                            st.success(f"✅ Added!\nDoc ID: {doc_id[:12]}...")
+                                            st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {str(e)}")
+
+                            with delete_col:
+                                if st.button("🗑️ Delete", key=f"delete_{file.name}"):
+                                    try:
+                                        file.unlink()
+                                        st.success(f"✅ Deleted {file.name}")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Error: {str(e)}")
+
+                    # Bulk actions
+                    st.markdown("---")
+                    st.subheader("Bulk Actions")
+                    bulk_col1, bulk_col2 = st.columns(2)
+
+                    with bulk_col1:
+                        if st.button("➕ Add All to Knowledge Base"):
+                            success_count = 0
+                            error_count = 0
+
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+
+                            for i, file in enumerate(files):
+                                try:
+                                    status_text.text(f"Adding {file.name}...")
+                                    kb.add_document(str(file), title=file.stem)
+                                    success_count += 1
+                                except Exception as e:
+                                    st.warning(f"Failed to add {file.name}: {str(e)}")
+                                    error_count += 1
+
+                                progress_bar.progress((i + 1) / len(files))
+
+                            status_text.text("")
+                            progress_bar.empty()
+
+                            st.success(f"✅ Added {success_count} files")
+                            if error_count > 0:
+                                st.warning(f"⚠️ {error_count} files failed")
+
+                            st.rerun()
+
+                    with bulk_col2:
+                        if st.button("🗑️ Clear All Downloads"):
+                            if st.checkbox("Confirm deletion of all downloaded files"):
+                                try:
+                                    for file in files:
+                                        file.unlink()
+                                    st.success(f"✅ Deleted {len(files)} files")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {str(e)}")
+
+                else:
+                    st.info("No downloaded files yet. Use the Search tab to find and download documents.")
+            else:
+                st.info("Downloads directory will be created when you download your first file.")
 
 # ========== SETTINGS PAGE ==========
 elif page == "⚙️ Settings":

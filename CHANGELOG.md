@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Archive Search Page in Admin GUI** - Internet Archive integration for content discovery (commits d0cb922, ac67a36)
-  - Added new "🔍 Archive Search" page to Streamlit admin GUI with 3-tab interface
+- **Archive Search Page in Admin GUI** - Internet Archive integration for content discovery (commits d0cb922, ac67a36, 5bfaa6d, 01acb5a)
+  - Added new "🔍 Archive Search" page to Streamlit admin GUI with 4-tab interface
   - **Search Archive Tab**: Full-featured search interface
     - Full-text search across Internet Archive collections with advanced query construction
     - **Advanced Filters**: File type (PDF/TXT/HTML/DJVU/EPUB/MOBI), collection (texts/software/data), date range (1900-2026), subject tags
@@ -35,6 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Requires ANTHROPIC_API_KEY environment variable
     - Session state management for persistent suggestions across page interactions
     - Leverages C64-specific expertise in prompts for domain-accurate recommendations
+  - **Quick Added Tab** (commits 5bfaa6d, 01acb5a): Track and audit Quick Add operations
+    - Complete history of all Quick Add operations from Search Archive and AI Suggestions tabs
+    - **Status Tracking**: Success (✅) or Failed (❌) indicators with color coding
+    - **Detailed Information**: Document title, filename, source URL, doc ID, timestamp (UTC)
+    - **Error Logging**: Failed attempts show error messages for debugging
+    - **Chronological Display**: Newest entries shown first (reverse chronological order)
+    - **Clear History**: One-click button to reset tracking
+    - **Session Persistence**: History maintained during Streamlit session
+    - **Audit Trail**: Full visibility into what was added, when, and from where
+    - **Security Fix**: Resolves "Path outside allowed directories" error
+      - Temp files now created in {data_dir}/temp/ instead of system temp directory
+      - Ensures all file operations stay within allowed directories
+      - Automatic cleanup of temp files on both success and failure
+      - Changed from tempfile.NamedTemporaryFile() to Path-based temp files
+    - Provides complete transparency and debugging support for quick-add workflows
   - **Downloaded Files Tab**: Manage downloaded content
     - View all downloaded files with size information
     - Individual actions: Add to KB or Delete
@@ -81,6 +96,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed broken documentation links (README_REST_API.md → docs/REST_API.md)
   - Created inventory and analysis reports: FILE_INVENTORY.md, COMPARISON_REPORT.md, CLEANUP_SUMMARY.md, FINAL_CLEANUP_REPORT.md
   - All historical files preserved in `archive/` for reference
+
+### Fixed
+- **Archive Search Quick Add Security** - Fixed path security violation (commits 5bfaa6d, 01acb5a)
+  - Fixed "Path outside allowed directories" SecurityError in Quick Add functionality
+  - Root Cause: Temporary files were created in system temp directory (e.g., C:\Users\...\AppData\Local\Temp\) which was outside allowed security boundaries
+  - Solution: Temp files now created in {data_dir}/temp/ directory which is within allowed paths
+  - Impact: Quick Add now works correctly without triggering security violations
+  - Technical Details:
+    - Changed from tempfile.NamedTemporaryFile() to Path-based temp file creation
+    - Temp file naming: quick_add_{timestamp}_{filename}
+    - Automatic cleanup on both success and failure paths
+    - Proper error handling with temp file cleanup in exception handlers
+  - Security: Maintains path traversal protection while enabling Quick Add workflow
 
 ### Refactored
 - **Utility Scripts Organization** - Reorganized Python utility scripts for better maintainability

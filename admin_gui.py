@@ -4390,11 +4390,11 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                 if st.button("➕ Add to KB", key=f"add_{file.name}"):
                                     try:
                                         with st.spinner(f"Adding {file.name}..."):
-                                            doc_id = kb.add_document(
+                                            doc = kb.add_document(
                                                 str(file),
                                                 title=file.stem
                                             )
-                                            st.success(f"✅ Added!\nDoc ID: {doc_id[:12]}...")
+                                            st.success(f"✅ Added!\nDoc ID: {doc.doc_id[:12]}...")
                                             st.rerun()
                                     except Exception as e:
                                         st.error(f"Error: {str(e)}")

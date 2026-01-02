@@ -3984,17 +3984,33 @@ elif page == "🔍 Archive Search":
                                                 if isinstance(tags, str):
                                                     tags = [tags]
 
-                                                doc_id = kb.add_document(
+                                                # Add document first
+                                                doc = kb.add_document(
                                                     tmp_path,
                                                     title=title,
-                                                    tags=tags,
-                                                    source_url=result['url']
+                                                    tags=tags
                                                 )
+
+                                                # Update with source URL metadata
+                                                from datetime import datetime, timezone
+                                                cursor = kb.db_conn.cursor()
+                                                cursor.execute("""
+                                                    UPDATE documents
+                                                    SET source_url = ?,
+                                                        scrape_date = ?,
+                                                        scrape_status = 'success'
+                                                    WHERE doc_id = ?
+                                                """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
+                                                kb.db_conn.commit()
+
+                                                # Update in-memory object
+                                                doc.source_url = result['url']
+                                                kb.documents[doc.doc_id] = doc
 
                                                 # Clean up temp file
                                                 os.unlink(tmp_path)
 
-                                                st.success(f"✅ Added to knowledge base!\nDoc ID: {doc_id[:12]}...")
+                                                st.success(f"✅ Added to knowledge base!\nDoc ID: {doc.doc_id[:12]}...")
                                                 st.rerun()
 
                                         except Exception as e:
@@ -4199,17 +4215,33 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                     if isinstance(tags, str):
                                                         tags = [tags]
 
-                                                    doc_id = kb.add_document(
+                                                    # Add document first
+                                                    doc = kb.add_document(
                                                         tmp_path,
                                                         title=title,
-                                                        tags=tags,
-                                                        source_url=result['url']
+                                                        tags=tags
                                                     )
+
+                                                    # Update with source URL metadata
+                                                    from datetime import datetime, timezone
+                                                    cursor = kb.db_conn.cursor()
+                                                    cursor.execute("""
+                                                        UPDATE documents
+                                                        SET source_url = ?,
+                                                            scrape_date = ?,
+                                                            scrape_status = 'success'
+                                                        WHERE doc_id = ?
+                                                    """, (result['url'], datetime.now(timezone.utc).isoformat(), doc.doc_id))
+                                                    kb.db_conn.commit()
+
+                                                    # Update in-memory object
+                                                    doc.source_url = result['url']
+                                                    kb.documents[doc.doc_id] = doc
 
                                                     # Clean up temp file
                                                     os.unlink(tmp_path)
 
-                                                    st.success(f"✅ Added to knowledge base!\nDoc ID: {doc_id[:12]}...")
+                                                    st.success(f"✅ Added to knowledge base!\nDoc ID: {doc.doc_id[:12]}...")
                                                     st.rerun()
 
                                             except Exception as e:

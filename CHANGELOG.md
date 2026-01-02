@@ -133,6 +133,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.7] - 2026-01-02
+
+### Fixed
+- **Downloaded Files KB Status Detection** - Now checks actual KB database, not just session state
+  - Downloads tab now searches KB database to verify if files are already added
+  - Checks both session state (fast) and KB database (comprehensive)
+  - Searches by filename in document file_path field
+  - Shows "✅ In KB" status for files added in previous sessions
+  - Root Cause: Only checked session state, missed files added in previous sessions or other tabs
+  - Location: admin_gui.py line 4436 (Downloaded Files tab)
+  - Impact: Downloaded files now correctly show KB status across all sessions
+
+### Changed
+- **Version Bump** - Updated version from 2.23.6 to 2.23.7
+
+### Impact
+- Downloaded files status persists across sessions
+- Prevents re-adding files that are already in KB
+- More accurate KB status indicators
+- Better user experience with persistent status tracking
+
 ## [2.23.6] - 2026-01-02
 
 ### Added

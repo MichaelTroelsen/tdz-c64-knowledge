@@ -4433,15 +4433,31 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                             st.caption(f"{size_mb:.2f} MB")
 
                         with col3:
-                            # Check if file has been added to KB
+                            # Check if file exists in KB (check both session state and actual database)
                             file_key = file.name
+                            existing_doc = None
+
+                            # First check session state
                             if file_key in st.session_state.downloaded_files_added:
-                                # File has been added - show status
                                 doc_id = st.session_state.downloaded_files_added[file_key]
-                                st.success(f"✅ Added to KB")
-                                st.caption(f"Doc: {doc_id[:12]}...")
+                                # Verify it still exists in KB
+                                if doc_id in kb.documents:
+                                    existing_doc = kb.documents[doc_id]
+
+                            # If not in session state, search KB by filename
+                            if not existing_doc:
+                                for doc in kb.documents.values():
+                                    # Check if document's file_path ends with this filename
+                                    if hasattr(doc, 'file_path') and doc.file_path and file.name in str(doc.file_path):
+                                        existing_doc = doc
+                                        break
+
+                            if existing_doc:
+                                # File exists in KB - show status
+                                st.success(f"✅ In KB")
+                                st.caption(f"Doc: {existing_doc.doc_id[:12]}...")
                             else:
-                                # File not added yet - show Add button
+                                # File not in KB - show Add button
                                 if st.button("➕ Add to KB", key=f"add_{file.name}"):
                                     try:
                                         with st.spinner(f"Adding {file.name}..."):

@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.4"
-__version_info__ = (2, 23, 4)
+__version__ = "2.23.5"
+__version_info__ = (2, 23, 5)
 
 # Build information
 __build_date__ = "2026-01-02"

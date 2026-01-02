@@ -3964,7 +3964,9 @@ elif page == "🔍 Archive Search":
                                         try:
                                             with st.spinner(f"Downloading {file['name']}..."):
                                                 import urllib.request
-                                                filepath = downloads_dir / file['name']
+                                                # Extract just the filename (no directory path) to avoid path issues
+                                                safe_filename = Path(file['name']).name
+                                                filepath = downloads_dir / safe_filename
                                                 urllib.request.urlretrieve(file['url'], filepath)
                                                 st.success(f"✅ Downloaded to {filepath}")
 
@@ -3984,7 +3986,9 @@ elif page == "🔍 Archive Search":
                                                 temp_dir.mkdir(exist_ok=True)
 
                                                 # Download to temp file in allowed directory
-                                                temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file['name']}"
+                                                # Extract just the filename (no directory path) to avoid path issues
+                                                safe_filename = Path(file['name']).name
+                                                temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_filename}"
                                                 tmp_path = temp_dir / temp_filename
                                                 urllib.request.urlretrieve(file['url'], str(tmp_path))
 
@@ -4242,7 +4246,9 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                     temp_dir.mkdir(exist_ok=True)
 
                                                     # Download to temp file in allowed directory
-                                                    temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{matching_file['name']}"
+                                                    # Extract just the filename (no directory path) to avoid path issues
+                                                    safe_filename = Path(matching_file['name']).name
+                                                    temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_filename}"
                                                     tmp_path = temp_dir / temp_filename
                                                     urllib.request.urlretrieve(matching_file['url'], str(tmp_path))
 
@@ -4313,7 +4319,9 @@ Provide exactly 5 recommendations, ordered by score (highest first)."""
                                                     import urllib.request
                                                     downloads_dir = Path(st.session_state.data_dir) / "downloads"
                                                     downloads_dir.mkdir(exist_ok=True)
-                                                    filepath = downloads_dir / matching_file['name']
+                                                    # Extract just the filename (no directory path) to avoid path issues
+                                                    safe_filename = Path(matching_file['name']).name
+                                                    filepath = downloads_dir / safe_filename
                                                     urllib.request.urlretrieve(matching_file['url'], filepath)
                                                     st.success(f"✅ Downloaded to {filepath}")
 

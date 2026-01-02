@@ -218,6 +218,145 @@ class TestURLEncoding(unittest.TestCase):
         print("✅ urlretrieve with encoded URL test passed")
 
 
+class TestFilenameExtraction(unittest.TestCase):
+    """Test extraction of safe filenames from paths."""
+
+    def test_extract_filename_from_simple_path(self):
+        """Test extracting filename from simple filename."""
+        from pathlib import Path
+
+        filename = "document.pdf"
+        safe_filename = Path(filename).name
+
+        self.assertEqual(safe_filename, "document.pdf")
+        print("✅ Simple filename extraction test passed")
+
+    def test_extract_filename_from_directory_path(self):
+        """Test extracting filename from path with directories."""
+        from pathlib import Path
+
+        filename = "Back in Time 3/Extras/Back in Time 3 Booklet.PDF"
+        safe_filename = Path(filename).name
+
+        # Should extract only the last component
+        self.assertEqual(safe_filename, "Back in Time 3 Booklet.PDF")
+        self.assertNotIn("/", safe_filename)
+        self.assertNotIn("\\", safe_filename)
+        print("✅ Directory path extraction test passed")
+
+    def test_extract_filename_with_multiple_slashes(self):
+        """Test extracting filename from deep directory structure."""
+        from pathlib import Path
+
+        test_cases = [
+            ("a/b/c/file.pdf", "file.pdf"),
+            ("dir1/dir2/dir3/dir4/document.txt", "document.txt"),
+            ("Folder 1/Subfolder 2/File Name.pdf", "File Name.pdf"),
+        ]
+
+        for original, expected in test_cases:
+            with self.subTest(filename=original):
+                safe_filename = Path(original).name
+                self.assertEqual(safe_filename, expected)
+                self.assertNotIn("/", safe_filename)
+
+        print("✅ Multiple slashes extraction test passed")
+
+    def test_temp_filename_construction(self):
+        """Test construction of temp filename without directory components."""
+        from pathlib import Path
+        from datetime import datetime
+
+        # Simulate the problematic case
+        filename = "Back in Time 3/Extras/Back in Time 3 Booklet.PDF"
+        safe_filename = Path(filename).name
+
+        # Construct temp filename
+        temp_filename = f"quick_add_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_filename}"
+
+        # Verify no directory separators in temp filename
+        self.assertNotIn("/", temp_filename)
+        self.assertNotIn("\\", temp_filename)
+        self.assertTrue(temp_filename.endswith("Back in Time 3 Booklet.PDF"))
+        self.assertTrue(temp_filename.startswith("quick_add_"))
+
+        print("✅ Temp filename construction test passed")
+
+    def test_path_join_with_safe_filename(self):
+        """Test that Path join works correctly with extracted filename."""
+        from pathlib import Path
+
+        temp_dir = Path("/tmp/test")
+        filename = "Folder/Subfolder/File.pdf"
+        safe_filename = Path(filename).name
+
+        # This should create a valid single-level path
+        result_path = temp_dir / safe_filename
+
+        # Should only have one component after temp_dir
+        self.assertEqual(result_path.name, "File.pdf")
+        # Check path ends correctly (OS-agnostic)
+        self.assertTrue(str(result_path).endswith("File.pdf"))
+        self.assertEqual(result_path.parent, temp_dir)
+
+        print("✅ Path join test passed")
+
+    def test_specific_back_in_time_3_filename(self):
+        """Test the specific problematic filename from user report."""
+        from pathlib import Path
+
+        # Exact filename from error report
+        filename = "Back in Time 3/Extras/Back in Time 3 Booklet.PDF"
+        safe_filename = Path(filename).name
+
+        # Should extract only the last component
+        self.assertEqual(safe_filename, "Back in Time 3 Booklet.PDF")
+        self.assertNotIn("/", safe_filename)
+        self.assertNotIn("\\", safe_filename)
+        self.assertNotIn("Extras", safe_filename)
+
+        # Test with downloads directory
+        downloads_dir = Path("C:\\Users\\mit\\.tdz-c64-knowledge\\downloads")
+        filepath = downloads_dir / safe_filename
+
+        # Should create a single-level path
+        expected_path = "C:\\Users\\mit\\.tdz-c64-knowledge\\downloads\\Back in Time 3 Booklet.PDF"
+        self.assertEqual(str(filepath), expected_path)
+
+        # Verify no subdirectories are created
+        self.assertEqual(filepath.parent, downloads_dir)
+
+        print("✅ Specific Back in Time 3 filename test passed")
+
+    def test_download_filepath_construction(self):
+        """Test download filepath construction with directory-containing filenames."""
+        from pathlib import Path
+
+        downloads_dir = Path("C:\\Users\\test\\.tdz-c64-knowledge\\downloads")
+
+        test_cases = [
+            ("simple.pdf", "simple.pdf"),
+            ("Dir/file.pdf", "file.pdf"),
+            ("Back in Time 3/Extras/Back in Time 3 Booklet.PDF", "Back in Time 3 Booklet.PDF"),
+            ("a/b/c/d/e/file.txt", "file.txt"),
+        ]
+
+        for original, expected_filename in test_cases:
+            with self.subTest(filename=original):
+                safe_filename = Path(original).name
+                filepath = downloads_dir / safe_filename
+
+                # Check filename is correct
+                self.assertEqual(filepath.name, expected_filename)
+                # Check no extra directories are created
+                self.assertEqual(filepath.parent, downloads_dir)
+                # Check path only has one level under downloads_dir
+                relative_parts = filepath.relative_to(downloads_dir).parts
+                self.assertEqual(len(relative_parts), 1)
+
+        print("✅ Download filepath construction test passed")
+
+
 class TestArchiveSearchURLs(unittest.TestCase):
     """Test Archive Search URL construction logic."""
 
@@ -266,13 +405,14 @@ class TestArchiveSearchURLs(unittest.TestCase):
 def run_tests():
     """Run all tests and display results."""
     print("\n" + "=" * 60)
-    print("URL ENCODING TESTS")
+    print("URL ENCODING AND FILENAME EXTRACTION TESTS")
     print("=" * 60 + "\n")
 
     # Create test suite
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
     suite.addTests(loader.loadTestsFromTestCase(TestURLEncoding))
+    suite.addTests(loader.loadTestsFromTestCase(TestFilenameExtraction))
     suite.addTests(loader.loadTestsFromTestCase(TestArchiveSearchURLs))
 
     # Run tests with verbose output

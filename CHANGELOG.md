@@ -133,6 +133,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Faster git operations with organized structure
   - Improved maintainability and onboarding experience
 
+## [2.23.5] - 2026-01-02
+
+### Fixed
+- **Archive.org Filename Path Extraction** - Fixed FileNotFoundError for downloads and Quick Add
+  - Extract only filename (not directory path) when saving files locally
+  - Root Cause: Filenames like "Back in Time 3/Extras/Booklet.PDF" created non-existent subdirectories
+  - Solution: Use `Path(filename).name` to extract only the last component
+  - Fixed in 4 locations:
+    - admin_gui.py line 3968: Search Archive Download button
+    - admin_gui.py line 3988: Search Archive Quick Add temp file
+    - admin_gui.py line 4248: AI Suggestions Quick Add temp file
+    - admin_gui.py line 4323: AI Suggestions Download button
+  - Example: "Back in Time 3/Extras/Booklet.PDF" → saved as "Booklet.PDF"
+  - Impact: Downloads and Quick Add now work for all archive.org files with directory separators
+
+### Testing
+- **Filename Extraction Tests** - Added 7 new tests to test_url_encoding.py (23 total tests, 100% pass)
+  - TestFilenameExtraction (7 tests): Simple paths, directory paths, multiple slashes, temp filename construction
+  - **Specific test for user-reported error**: "Back in Time 3/Extras/Back in Time 3 Booklet.PDF"
+  - Validates:
+    - Path.name extracts only last component
+    - No directory separators in extracted filenames
+    - Downloads directory receives single-level filenames
+    - Temp filenames don't create subdirectories
+  - All tests pass on Windows (path separator agnostic)
+
+### Changed
+- **Version Bump** - Updated version from 2.23.4 to 2.23.5
+
+### Impact
+- Downloads work correctly for all archive.org file paths
+- Quick Add temp file creation no longer fails with FileNotFoundError
+- Filenames with directory components now saved properly
+- No phantom subdirectories created in downloads or temp directories
+
 ## [2.23.4] - 2026-01-02
 
 ### Fixed

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- **Comprehensive Documentation Reorganization** - Major cleanup and restructuring (commits e3e298e, 9c6051e)
+  - Created `docs/` directory with 15 feature-specific guides organized by category
+  - Moved feature documentation from root to `docs/`: REST API, Entity Extraction, Anomaly Detection, Summarization, Web Scraping, Web Monitoring, Testing, Examples, Deployment, Docker, Environment Setup, Poppler Setup, GUI, Monitoring, Roadmap
+  - Reduced root directory MD files by 76% (42 → 10 files)
+  - Archived 20 historical/obsolete documentation files to `archive/historical-docs/`
+  - Archived 3 old release notes (v2.20-22) to `archive/release-notes/`
+  - Updated README.md with comprehensive documentation index organized by category
+  - Fixed broken documentation links (README_REST_API.md → docs/REST_API.md)
+  - Created inventory and analysis reports: FILE_INVENTORY.md, COMPARISON_REPORT.md, CLEANUP_SUMMARY.md, FINAL_CLEANUP_REPORT.md
+  - All historical files preserved in `archive/` for reference
+
+### Refactored
+- **Utility Scripts Organization** - Reorganized Python utility scripts for better maintainability
+  - Created `utilities/` directory for active monitoring and load testing scripts (6 files)
+  - Moved active scripts to `utilities/`: benchmark_comprehensive.py, load_test.py, load_test_500.py, monitor_daily.py, monitor_weekly.py, monitor_fast.py
+  - Archived 12 obsolete utility scripts to `archive/utilities/`: debug_bm25.py, enable_fts5.py, enable_semantic_search.py, setup_claude_desktop.py, old benchmark scripts, URL check utilities, monitor config validator
+  - Reduced root directory Python files by 50% (36 → 18 files)
+  - All scripts preserved for rollback if needed
+
+### Benefits
+- **Cleaner Project Structure** - 64% reduction in root directory files (78 → 28 files)
+  - Easier navigation and file discovery
+  - Better IDE performance with fewer root-level files
+  - Clearer separation: core vs feature vs utilities vs historical
+  - Professional documentation hierarchy
+  - Faster git operations with organized structure
+  - Improved maintainability and onboarding experience
+
 ## [2.23.1] - 2026-01-01
 
 ### Fixed

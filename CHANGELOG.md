@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Archive Search Page in Admin GUI** - Internet Archive integration for content discovery (commit d0cb922)
-  - Added new "🔍 Archive Search" page to Streamlit admin GUI with 2-tab interface
+- **Archive Search Page in Admin GUI** - Internet Archive integration for content discovery (commits d0cb922, ac67a36)
+  - Added new "🔍 Archive Search" page to Streamlit admin GUI with 3-tab interface
   - **Search Archive Tab**: Full-featured search interface
     - Full-text search across Internet Archive collections with advanced query construction
     - **Advanced Filters**: File type (PDF/TXT/HTML/DJVU/EPUB/MOBI), collection (texts/software/data), date range (1900-2026), subject tags
@@ -22,6 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       - ⚡ Quick Add: Download and immediately add to knowledge base with metadata
     - Automatic title and tag extraction from archive.org metadata
     - Source URL preservation for provenance tracking
+  - **AI Suggestions Tab** (commit ac67a36): Intelligent file recommendation using Claude AI
+    - AI-powered analysis of search results using Claude 3.5 Sonnet
+    - Recommends top 5 most valuable files based on search query and C64 expertise
+    - **Evaluation Criteria**: Technical accuracy, historical significance, uniqueness, completeness, format suitability
+    - **Smart Recommendations**: Each includes priority level (High/Medium/Low), score (0-100), detailed rationale, and knowledge value description
+    - **Priority Color Coding**: 🔴 High, 🟡 Medium, 🟢 Low for visual prioritization
+    - **Quick Actions**: Download or Quick Add buttons directly from recommendations
+    - **AI Analysis Summary**: Overall evaluation of search results with context-aware insights
+    - Analyzes up to 10 search results with 5 files each for efficiency
+    - Robust JSON parsing handles markdown code blocks and direct responses
+    - Requires ANTHROPIC_API_KEY environment variable
+    - Session state management for persistent suggestions across page interactions
+    - Leverages C64-specific expertise in prompts for domain-accurate recommendations
   - **Downloaded Files Tab**: Manage downloaded content
     - View all downloaded files with size information
     - Individual actions: Add to KB or Delete
@@ -29,12 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - File location display and status monitoring
   - **Technical Implementation**:
     - Uses official internetarchive Python library v5.7.1
+    - Uses anthropic Python library v0.75.0 for AI recommendations
     - Iterator-based result limiting for API efficiency
     - Metadata extraction and file enumeration
     - Full integration with existing KnowledgeBase.add_document() method
     - Comprehensive error handling and user feedback
-  - **Testing**: Unit test suite (test_archive_search.py) with 8 tests covering search, filtering, metadata extraction, file listing, and URL construction (100% pass rate)
-  - Enables discovery and acquisition of C64 documentation from archive.org's vast collection directly within admin interface
+  - **Testing**:
+    - Unit test suite (test_archive_search.py) with 8 tests covering search, filtering, metadata extraction, file listing, and URL construction (100% pass rate)
+    - Unit test suite (test_ai_suggestions.py) with 18 tests covering prompt construction, JSON parsing, recommendation validation, error handling, API integration (100% pass rate)
+    - Total: 26 tests, all passing
+  - Enables AI-assisted discovery and curation of C64 documentation from archive.org's vast collection directly within admin interface
 
 - **Settings Page in Admin GUI** - Comprehensive configuration viewer (commit dc7c51b)
   - Added new "⚙️ Settings" page to Streamlit admin GUI with 4-tab interface

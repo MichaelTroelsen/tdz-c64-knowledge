@@ -99,6 +99,11 @@ class WikiExporter:
         self._save_json('chunks.json', chunks_data)
         self._save_json('stats.json', self.stats)
 
+        # Calculate document similarities
+        print("\nCalculating document similarities...")
+        similarities = self._calculate_document_similarities(documents_data, entities_data)
+        self._save_json('similarities.json', similarities)
+
         # Generate HTML pages
         print("\nGenerating HTML pages...")
         self._generate_html_pages(documents_data)
@@ -418,6 +423,95 @@ class WikiExporter:
             'all_types': sorted(by_type.keys())
         }
 
+    def _calculate_document_similarities(self, documents: List[Dict], entities_data: Dict) -> Dict:
+        """Calculate document similarities based on entity overlap and tags."""
+        print("  Computing similarities...")
+
+        # Build entity-to-documents mapping
+        entity_docs = {}
+        cursor = self.kb.db_conn.cursor()
+
+        # Get all entity-document associations
+        entity_mappings = cursor.execute("""
+            SELECT entity_text, doc_id
+            FROM document_entities
+            WHERE confidence > 0.7
+        """).fetchall()
+
+        for entity_text, doc_id in entity_mappings:
+            if entity_text not in entity_docs:
+                entity_docs[entity_text] = set()
+            entity_docs[entity_text].add(doc_id)
+
+        # Calculate similarities for each document
+        similarities = {}
+
+        for doc in documents:
+            doc_id = doc['id']
+
+            # Get entities for this document
+            doc_entities = cursor.execute("""
+                SELECT DISTINCT entity_text
+                FROM document_entities
+                WHERE doc_id = ? AND confidence > 0.7
+            """, (doc_id,)).fetchall()
+
+            doc_entity_set = set(e[0] for e in doc_entities)
+            doc_tags = set(doc['tags'])
+
+            # Calculate similarity to all other documents
+            similar_docs = []
+
+            for other_doc in documents:
+                if other_doc['id'] == doc_id:
+                    continue  # Skip self
+
+                # Get entities for other document
+                other_entities = cursor.execute("""
+                    SELECT DISTINCT entity_text
+                    FROM document_entities
+                    WHERE doc_id = ? AND confidence > 0.7
+                """, (other_doc['id'],)).fetchall()
+
+                other_entity_set = set(e[0] for e in other_entities)
+                other_tags = set(other_doc['tags'])
+
+                # Calculate entity overlap (Jaccard similarity)
+                if len(doc_entity_set) > 0 or len(other_entity_set) > 0:
+                    entity_intersection = len(doc_entity_set & other_entity_set)
+                    entity_union = len(doc_entity_set | other_entity_set)
+                    entity_similarity = entity_intersection / entity_union if entity_union > 0 else 0
+                else:
+                    entity_similarity = 0
+
+                # Calculate tag overlap
+                if len(doc_tags) > 0 or len(other_tags) > 0:
+                    tag_intersection = len(doc_tags & other_tags)
+                    tag_union = len(doc_tags | other_tags)
+                    tag_similarity = tag_intersection / tag_union if tag_union > 0 else 0
+                else:
+                    tag_similarity = 0
+
+                # Combined similarity score (weighted)
+                combined_score = (entity_similarity * 0.7) + (tag_similarity * 0.3)
+
+                if combined_score > 0.1:  # Only include if somewhat similar
+                    similar_docs.append({
+                        'id': other_doc['id'],
+                        'title': other_doc['title'],
+                        'filename': re.sub(r'[^\w\-]', '_', other_doc['id']) + '.html',
+                        'score': round(combined_score, 3),
+                        'common_entities': len(doc_entity_set & other_entity_set),
+                        'common_tags': len(doc_tags & other_tags)
+                    })
+
+            # Sort by similarity score and take top 10
+            similar_docs.sort(key=lambda x: x['score'], reverse=True)
+            similarities[doc_id] = similar_docs[:10]
+
+        print(f"  Computed similarities for {len(similarities)} documents")
+        return similarities
+
     def _save_json(self, filename: str, data: Any):
         """Save data as JSON file."""
         filepath = self.data_dir / filename
@@ -610,8 +704,8 @@ class WikiExporter:
             <span class="current">{title_escaped}</span>
         </nav>
 
-        <main>
-            <article class="document">
+        <main class="doc-with-sidebar">
+            <article class="document doc-main-content">
                 <div class="doc-header">
                     <h1>{title_escaped}</h1>
                     <div class="doc-meta">
@@ -627,6 +721,11 @@ class WikiExporter:
                     {''.join(chunks_html)}
                 </div>
             </article>
+
+            <aside class="related-docs-sidebar" id="related-docs-sidebar" data-doc-id="{doc_id}">
+                <h3>Related Documents</h3>
+                <div class="loading-related">Loading related documents...</div>
+            </aside>
         </main>
 
         <footer>
@@ -3339,6 +3438,143 @@ html {
 }
 
 /* ===============================================
+   RELATED DOCUMENTS SIDEBAR
+   =============================================== */
+
+.related-docs-sidebar {
+    background: var(--card-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 30px 0;
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+}
+
+.related-docs-sidebar h3 {
+    margin: 0 0 15px 0;
+    color: var(--secondary-color);
+    font-size: 1.2em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.related-docs-sidebar h3::before {
+    content: "🔗";
+    font-size: 1.2em;
+}
+
+.related-doc-item {
+    padding: 12px;
+    margin: 8px 0;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    transition: all 0.3s;
+    position: relative;
+}
+
+.related-doc-item:hover {
+    border-color: var(--accent-color);
+    transform: translateX(4px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.related-doc-item a {
+    color: var(--text-color);
+    text-decoration: none;
+    font-weight: 500;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.related-doc-item a:hover {
+    color: var(--accent-color);
+}
+
+.related-doc-score {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85em;
+    color: var(--primary-color);
+    margin-top: 6px;
+}
+
+.similarity-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--border-color);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.similarity-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-color), #68d391);
+    border-radius: 2px;
+    transition: width 0.5s ease-out;
+}
+
+.related-doc-meta {
+    display: flex;
+    gap: 10px;
+    font-size: 0.75em;
+    color: var(--primary-color);
+    margin-top: 4px;
+}
+
+.related-doc-meta span {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.no-related-docs {
+    text-align: center;
+    padding: 20px;
+    color: var(--primary-color);
+    font-style: italic;
+}
+
+.loading-related {
+    text-align: center;
+    padding: 20px;
+    color: var(--primary-color);
+}
+
+.loading-related::after {
+    content: "";
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-left: 10px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Two-column layout for docs with sidebar */
+.doc-with-sidebar {
+    display: grid;
+    grid-template-columns: 1fr 350px;
+    gap: 30px;
+    align-items: start;
+}
+
+.doc-main-content {
+    min-width: 0; /* Prevent grid blowout */
+}
+
+/* ===============================================
    MOBILE RESPONSIVENESS
    =============================================== */
 
@@ -3513,6 +3749,18 @@ html {
 
     .result-card {
         padding: 12px;
+    }
+
+    /* Related docs sidebar - stack on mobile */
+    .doc-with-sidebar {
+        grid-template-columns: 1fr;
+    }
+
+    .related-docs-sidebar {
+        position: relative;
+        top: 0;
+        max-height: none;
+        margin: 20px 0;
     }
 }
 
@@ -5331,6 +5579,82 @@ window.lazyLoadingUtils = {
     loadImage
 };
 
+// ===== RELATED DOCUMENTS SIDEBAR =====
+async function loadRelatedDocuments() {
+    const sidebar = document.getElementById('related-docs-sidebar');
+    if (!sidebar) return;
+
+    // Get current document ID from page
+    const currentDocId = sidebar.getAttribute('data-doc-id');
+    if (!currentDocId) {
+        sidebar.innerHTML = '<div class="no-related-docs">No document ID found</div>';
+        return;
+    }
+
+    try {
+        // Load similarities data
+        const response = await fetch('../assets/data/similarities.json');
+        const similarities = await response.json();
+
+        // Get related docs for current document
+        const relatedDocs = similarities[currentDocId] || [];
+
+        if (relatedDocs.length === 0) {
+            sidebar.innerHTML = '<div class="no-related-docs">No related documents found</div>';
+            return;
+        }
+
+        // Build HTML for related docs
+        const html = relatedDocs.slice(0, 5).map((doc, index) => {
+            const scorePercent = Math.round(doc.score * 100);
+
+            return `
+                <div class="related-doc-item" style="animation: fadeIn 0.3s ease-out ${index * 0.1}s both">
+                    <a href="${doc.filename}">${escapeHtml(doc.title)}</a>
+                    <div class="related-doc-score">
+                        <span>${scorePercent}%</span>
+                        <div class="similarity-bar">
+                            <div class="similarity-fill" style="width: ${scorePercent}%"></div>
+                        </div>
+                    </div>
+                    <div class="related-doc-meta">
+                        ${doc.common_entities > 0 ? `<span>🏷️ ${doc.common_entities} shared topics</span>` : ''}
+                        ${doc.common_tags > 0 ? `<span>📁 ${doc.common_tags} shared tags</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        sidebar.innerHTML = html;
+
+    } catch (error) {
+        console.error('Failed to load related documents:', error);
+        sidebar.innerHTML = '<div class="no-related-docs">Unable to load related documents</div>';
+    }
+}
+
+// Fade-in animation for related docs
+const fadeInStyle = document.createElement('style');
+fadeInStyle.textContent = `
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+`;
+document.head.appendChild(fadeInStyle);
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // ===== BOOKMARKS SYSTEM =====
 class BookmarkManager {
     constructor() {
@@ -5887,6 +6211,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bookmarkManager = new BookmarkManager();  // Bookmarks system
     chatbot = new AIChatbot();  // AI chatbot
     setupLazyLoading();  // Lazy load images for performance
+    loadRelatedDocuments();  // Load related documents sidebar
 
     console.log('✅ Wiki enhancements loaded');
     console.log('💡 Keyboard shortcuts:');

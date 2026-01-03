@@ -615,6 +615,19 @@ class WikiExporter:
                 <!-- Will be populated by JavaScript from articles.json -->
             </section>
 
+            <section class="tag-cloud-section">
+                <h2>🏷️ Explore by Topic</h2>
+                <div class="tag-cloud-controls">
+                    <button class="tag-cloud-control-btn active" data-sort="count">Most Popular</button>
+                    <button class="tag-cloud-control-btn" data-sort="alpha">Alphabetical</button>
+                    <button class="tag-cloud-control-btn" data-sort="random">Shuffle</button>
+                </div>
+                <div class="tag-cloud" id="tag-cloud">
+                    <div class="tag-cloud-loading">Loading tags...</div>
+                </div>
+                <div class="tag-cloud-stats" id="tag-cloud-stats"></div>
+            </section>
+
             <section class="recent-docs">
                 <h2>Browse Documents</h2>
                 <div class="doc-grid" id="doc-list">
@@ -3575,6 +3588,187 @@ html {
 }
 
 /* ===============================================
+   TAG CLOUD
+   =============================================== */
+
+.tag-cloud-section {
+    background: var(--card-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    padding: 30px;
+    margin: 40px 0;
+}
+
+.tag-cloud-section h2 {
+    margin: 0 0 20px 0;
+    color: var(--secondary-color);
+    text-align: center;
+    font-size: 1.8em;
+}
+
+.tag-cloud-controls {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.tag-cloud-control-btn {
+    padding: 8px 16px;
+    background: var(--bg-color);
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-color);
+    cursor: pointer;
+    font-size: 0.9em;
+    transition: all 0.3s;
+}
+
+.tag-cloud-control-btn:hover {
+    border-color: var(--accent-color);
+    background: var(--accent-color);
+    color: white;
+}
+
+.tag-cloud-control-btn.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+}
+
+.tag-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    padding: 20px;
+    min-height: 200px;
+}
+
+.tag-cloud-item {
+    display: inline-block;
+    padding: 6px 14px;
+    background: var(--bg-color);
+    border: 2px solid var(--border-color);
+    border-radius: 20px;
+    color: var(--text-color);
+    text-decoration: none;
+    transition: all 0.3s;
+    cursor: pointer;
+    font-weight: 500;
+    position: relative;
+    overflow: hidden;
+}
+
+.tag-cloud-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, var(--accent-color), transparent);
+    opacity: 0.3;
+    transition: left 0.5s;
+}
+
+.tag-cloud-item:hover::before {
+    left: 100%;
+}
+
+.tag-cloud-item:hover {
+    border-color: var(--accent-color);
+    transform: scale(1.05) translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    background: var(--accent-color);
+    color: white;
+}
+
+/* Size variations based on frequency */
+.tag-cloud-item.size-xs {
+    font-size: 0.75em;
+    padding: 4px 10px;
+}
+
+.tag-cloud-item.size-sm {
+    font-size: 0.85em;
+    padding: 5px 12px;
+}
+
+.tag-cloud-item.size-md {
+    font-size: 1em;
+    padding: 6px 14px;
+}
+
+.tag-cloud-item.size-lg {
+    font-size: 1.2em;
+    padding: 8px 16px;
+}
+
+.tag-cloud-item.size-xl {
+    font-size: 1.4em;
+    padding: 10px 20px;
+    font-weight: 600;
+}
+
+.tag-cloud-item.size-xxl {
+    font-size: 1.8em;
+    padding: 12px 24px;
+    font-weight: 700;
+}
+
+/* Tag count badge */
+.tag-count {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 6px;
+    background: var(--accent-color);
+    color: white;
+    border-radius: 10px;
+    font-size: 0.75em;
+    font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.tag-cloud-item:hover .tag-count {
+    opacity: 1;
+}
+
+.tag-cloud-loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--primary-color);
+    font-size: 1.1em;
+}
+
+.tag-cloud-empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--primary-color);
+    font-style: italic;
+}
+
+.tag-cloud-stats {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 2px solid var(--border-color);
+    font-size: 0.9em;
+    color: var(--primary-color);
+}
+
+.tag-cloud-stats span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ===============================================
    MOBILE RESPONSIVENESS
    =============================================== */
 
@@ -4119,10 +4313,14 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         loadNavigation();
         loadDocuments();
+        generateTagCloud();
+        setupTagCloudControls();
     });
 } else {
     loadNavigation();
     loadDocuments();
+    generateTagCloud();
+    setupTagCloudControls();
 }
 """
 
@@ -4225,6 +4423,162 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// ===== TAG CLOUD =====
+async function generateTagCloud() {
+    const tagCloudElement = document.getElementById('tag-cloud');
+    if (!tagCloudElement) return;
+
+    try {
+        // Load navigation data (contains tags)
+        const response = await fetch('assets/data/navigation.json');
+        const nav = await response.json();
+
+        // Get tags with document counts
+        const tagData = Object.keys(nav.by_tags).map(tag => ({
+            tag: tag,
+            count: nav.by_tags[tag].length
+        }));
+
+        // Sort by count descending
+        tagData.sort((a, b) => b.count - a.count);
+
+        // Calculate size classes
+        const maxCount = Math.max(...tagData.map(t => t.count));
+        const minCount = Math.min(...tagData.map(t => t.count));
+
+        // Function to determine size class
+        function getSizeClass(count) {
+            const ratio = (count - minCount) / (maxCount - minCount);
+            if (ratio > 0.8) return 'size-xxl';
+            if (ratio > 0.6) return 'size-xl';
+            if (ratio > 0.4) return 'size-lg';
+            if (ratio > 0.2) return 'size-md';
+            if (ratio > 0.1) return 'size-sm';
+            return 'size-xs';
+        }
+
+        // Generate HTML
+        const html = tagData.map((item, index) => {
+            const sizeClass = getSizeClass(item.count);
+            return `
+                <span class="tag-cloud-item ${sizeClass}"
+                      data-tag="${escapeHtml(item.tag)}"
+                      data-count="${item.count}"
+                      style="animation: fadeIn 0.3s ease-out ${index * 0.02}s both">
+                    ${escapeHtml(item.tag)}
+                    <span class="tag-count">${item.count}</span>
+                </span>
+            `;
+        }).join('');
+
+        tagCloudElement.innerHTML = html;
+
+        // Add click handlers
+        document.querySelectorAll('.tag-cloud-item').forEach(item => {
+            item.onclick = () => {
+                const tag = item.getAttribute('data-tag');
+                // Navigate to documents page with tag filter
+                window.location.href = `documents.html#tag-${tag}`;
+            };
+        });
+
+        // Add stats
+        const statsContainer = document.getElementById('tag-cloud-stats');
+        if (statsContainer) {
+            const totalTags = tagData.length;
+            const totalDocs = tagData.reduce((sum, t) => sum + t.count, 0);
+            const avgDocs = Math.round(totalDocs / totalTags);
+
+            statsContainer.innerHTML = `
+                <span>📊 ${totalTags} tags</span>
+                <span>📚 ${totalDocs} total document-tag mappings</span>
+                <span>📈 ${avgDocs} avg docs per tag</span>
+            `;
+        }
+
+    } catch (error) {
+        console.error('Failed to generate tag cloud:', error);
+        tagCloudElement.innerHTML = '<div class="tag-cloud-empty">Unable to load tag cloud</div>';
+    }
+}
+
+function setupTagCloudControls() {
+    const controls = document.querySelectorAll('.tag-cloud-control-btn');
+    const tagCloud = document.getElementById('tag-cloud');
+    if (!tagCloud) return;
+
+    controls.forEach(btn => {
+        btn.onclick = async () => {
+            // Update active state
+            controls.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            const sortBy = btn.getAttribute('data-sort');
+
+            // Re-fetch and re-sort
+            try {
+                const response = await fetch('assets/data/navigation.json');
+                const nav = await response.json();
+
+                let tagData = Object.keys(nav.by_tags).map(tag => ({
+                    tag: tag,
+                    count: nav.by_tags[tag].length
+                }));
+
+                // Sort based on selected option
+                if (sortBy === 'alpha') {
+                    tagData.sort((a, b) => a.tag.localeCompare(b.tag));
+                } else if (sortBy === 'count') {
+                    tagData.sort((a, b) => b.count - a.count);
+                } else if (sortBy === 'random') {
+                    tagData = tagData.sort(() => Math.random() - 0.5);
+                }
+
+                // Calculate size classes
+                const maxCount = Math.max(...tagData.map(t => t.count));
+                const minCount = Math.min(...tagData.map(t => t.count));
+
+                function getSizeClass(count) {
+                    const ratio = (count - minCount) / (maxCount - minCount);
+                    if (ratio > 0.8) return 'size-xxl';
+                    if (ratio > 0.6) return 'size-xl';
+                    if (ratio > 0.4) return 'size-lg';
+                    if (ratio > 0.2) return 'size-md';
+                    if (ratio > 0.1) return 'size-sm';
+                    return 'size-xs';
+                }
+
+                // Re-render
+                const html = tagData.map((item, index) => {
+                    const sizeClass = getSizeClass(item.count);
+                    return `
+                        <span class="tag-cloud-item ${sizeClass}"
+                              data-tag="${escapeHtml(item.tag)}"
+                              data-count="${item.count}"
+                              style="animation: fadeIn 0.3s ease-out ${index * 0.02}s both">
+                            ${escapeHtml(item.tag)}
+                            <span class="tag-count">${item.count}</span>
+                        </span>
+                    `;
+                }).join('');
+
+                tagCloud.innerHTML = html;
+
+                // Re-add click handlers
+                document.querySelectorAll('.tag-cloud-item').forEach(item => {
+                    item.onclick = () => {
+                        const tag = item.getAttribute('data-tag');
+                        window.location.href = `documents.html#tag-${tag}`;
+                    };
+                });
+
+            } catch (error) {
+                console.error('Failed to re-sort tag cloud:', error);
+            }
+        };
+    });
 }
 
 // Load search index on page load

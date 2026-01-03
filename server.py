@@ -778,8 +778,61 @@ class KnowledgeBase:
             cursor.execute("CREATE INDEX idx_extraction_jobs_status ON extraction_jobs(status)")
             cursor.execute("CREATE INDEX idx_extraction_jobs_queued_at ON extraction_jobs(queued_at)")
 
+            # Create graph_cache table for knowledge graph caching (v2.24.0)
+            cursor.execute("""
+                CREATE TABLE graph_cache (
+                    cache_id TEXT PRIMARY KEY,
+                    graph_version INTEGER NOT NULL,
+                    graph_data BLOB NOT NULL,
+                    node_count INTEGER NOT NULL,
+                    edge_count INTEGER NOT NULL,
+                    created_date TEXT NOT NULL,
+                    last_accessed TEXT
+                )
+            """)
+
+            cursor.execute("CREATE INDEX idx_graph_cache_created ON graph_cache(created_date)")
+            cursor.execute("CREATE INDEX idx_graph_cache_accessed ON graph_cache(last_accessed)")
+
+            # Create graph_metrics table for graph analysis metrics (v2.24.0)
+            cursor.execute("""
+                CREATE TABLE graph_metrics (
+                    metric_id TEXT PRIMARY KEY,
+                    entity_text TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    pagerank REAL,
+                    betweenness_centrality REAL,
+                    closeness_centrality REAL,
+                    degree_centrality REAL,
+                    community_id INTEGER,
+                    computed_date TEXT NOT NULL
+                )
+            """)
+
+            cursor.execute("CREATE INDEX idx_graph_metrics_entity ON graph_metrics(entity_text)")
+            cursor.execute("CREATE INDEX idx_graph_metrics_pagerank ON graph_metrics(pagerank DESC)")
+            cursor.execute("CREATE INDEX idx_graph_metrics_community ON graph_metrics(community_id)")
+            cursor.execute("CREATE INDEX idx_graph_metrics_type ON graph_metrics(entity_type)")
+
+            # Create graph_paths table for path finding cache (v2.24.0)
+            cursor.execute("""
+                CREATE TABLE graph_paths (
+                    path_id TEXT PRIMARY KEY,
+                    entity1 TEXT NOT NULL,
+                    entity2 TEXT NOT NULL,
+                    path_length INTEGER NOT NULL,
+                    path_nodes TEXT NOT NULL,
+                    path_weight REAL,
+                    computed_date TEXT NOT NULL
+                )
+            """)
+
+            cursor.execute("CREATE INDEX idx_graph_paths_entity1 ON graph_paths(entity1)")
+            cursor.execute("CREATE INDEX idx_graph_paths_entity2 ON graph_paths(entity2)")
+            cursor.execute("CREATE INDEX idx_graph_paths_entities ON graph_paths(entity1, entity2)")
+
             self.db_conn.commit()
-            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, summaries, entities, relationships, and extraction jobs)")
+            self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, summaries, entities, relationships, extraction jobs, and knowledge graph)")
         else:
             self.logger.info("Using existing database")
 
@@ -1240,6 +1293,80 @@ class KnowledgeBase:
 
                 self.db_conn.commit()
                 self.logger.info("extraction_jobs table created")
+
+            # Check for graph_cache table (v2.24.0 - Knowledge Graph Analysis)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='graph_cache'")
+            if not cursor.fetchone():
+                self.logger.info("Creating graph_cache table for knowledge graph caching")
+                cursor.execute("""
+                    CREATE TABLE graph_cache (
+                        cache_id TEXT PRIMARY KEY,
+                        graph_version INTEGER NOT NULL,
+                        graph_data BLOB NOT NULL,
+                        node_count INTEGER NOT NULL,
+                        edge_count INTEGER NOT NULL,
+                        created_date TEXT NOT NULL,
+                        last_accessed TEXT
+                    )
+                """)
+
+                # Create index for cache management
+                cursor.execute("CREATE INDEX idx_graph_cache_created ON graph_cache(created_date)")
+                cursor.execute("CREATE INDEX idx_graph_cache_accessed ON graph_cache(last_accessed)")
+
+                self.db_conn.commit()
+                self.logger.info("graph_cache table created")
+
+            # Check for graph_metrics table (v2.24.0 - Knowledge Graph Analysis)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='graph_metrics'")
+            if not cursor.fetchone():
+                self.logger.info("Creating graph_metrics table for graph analysis metrics")
+                cursor.execute("""
+                    CREATE TABLE graph_metrics (
+                        metric_id TEXT PRIMARY KEY,
+                        entity_text TEXT NOT NULL,
+                        entity_type TEXT NOT NULL,
+                        pagerank REAL,
+                        betweenness_centrality REAL,
+                        closeness_centrality REAL,
+                        degree_centrality REAL,
+                        community_id INTEGER,
+                        computed_date TEXT NOT NULL
+                    )
+                """)
+
+                # Create indexes for metric queries
+                cursor.execute("CREATE INDEX idx_graph_metrics_entity ON graph_metrics(entity_text)")
+                cursor.execute("CREATE INDEX idx_graph_metrics_pagerank ON graph_metrics(pagerank DESC)")
+                cursor.execute("CREATE INDEX idx_graph_metrics_community ON graph_metrics(community_id)")
+                cursor.execute("CREATE INDEX idx_graph_metrics_type ON graph_metrics(entity_type)")
+
+                self.db_conn.commit()
+                self.logger.info("graph_metrics table created")
+
+            # Check for graph_paths table (v2.24.0 - Knowledge Graph Analysis)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='graph_paths'")
+            if not cursor.fetchone():
+                self.logger.info("Creating graph_paths table for path finding cache")
+                cursor.execute("""
+                    CREATE TABLE graph_paths (
+                        path_id TEXT PRIMARY KEY,
+                        entity1 TEXT NOT NULL,
+                        entity2 TEXT NOT NULL,
+                        path_length INTEGER NOT NULL,
+                        path_nodes TEXT NOT NULL,
+                        path_weight REAL,
+                        computed_date TEXT NOT NULL
+                    )
+                """)
+
+                # Create indexes for path queries
+                cursor.execute("CREATE INDEX idx_graph_paths_entity1 ON graph_paths(entity1)")
+                cursor.execute("CREATE INDEX idx_graph_paths_entity2 ON graph_paths(entity2)")
+                cursor.execute("CREATE INDEX idx_graph_paths_entities ON graph_paths(entity1, entity2)")
+
+                self.db_conn.commit()
+                self.logger.info("graph_paths table created")
 
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""

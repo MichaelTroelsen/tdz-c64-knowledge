@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.24.0] - In Progress
+
+### Added
+- **Knowledge Graph Database Schema (Phase 1, Task 1.1)** - Infrastructure for graph-based analysis
+  - **New Tables**:
+    1. **graph_cache** - Stores pickled NetworkX graphs for quick reloading
+       - Fields: cache_id, graph_version, graph_data (BLOB), node_count, edge_count, created_date, last_accessed
+       - Indexes: created_date, last_accessed (cache management)
+    2. **graph_metrics** - Stores graph analysis metrics per entity
+       - Fields: metric_id, entity_text, entity_type, pagerank, betweenness_centrality, closeness_centrality, degree_centrality, community_id, computed_date
+       - Indexes: entity_text, pagerank DESC, community_id, entity_type
+    3. **graph_paths** - Caches shortest paths between entities
+       - Fields: path_id, entity1, entity2, path_length, path_nodes (JSON), path_weight, computed_date
+       - Indexes: entity1, entity2, (entity1, entity2) composite
+  - **Automatic Migration**: Tables created automatically for existing databases
+  - **Initial Schema**: Tables included in new database creation
+  - **Total Tables**: 45 (was 42)
+  - **Preparation for**: PageRank analysis, community detection, centrality measures, path finding
+
 ## [2.23.18] - 2026-01-03
 
 ### Fixed

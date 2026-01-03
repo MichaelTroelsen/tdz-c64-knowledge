@@ -29,9 +29,9 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
   - Fuzzy search with typo tolerance
   - Progressive search refinement
   - Smart document tagging
-- ✅ Phase 3: Content Intelligence (v2.15-v2.22.0) - Complete
+- ✅ Phase 3: Content Intelligence (v2.15-v2.23.15) - Complete (100%)
   - Entity extraction, relationship mapping
-  - Version tracking, anomaly detection
+  - Version tracking, anomaly detection (fully implemented)
 - ✅ **Knowledge Extraction Phase 2: Topical Analysis (v2.23.14) - Complete**
   - Topic modeling (LDA, NMF, BERTopic)
   - Document clustering (K-Means, DBSCAN, HDBSCAN)
@@ -59,14 +59,14 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 
 ## MCP Tools Summary
 
-**58 tools organized by category:**
+**59 tools organized by category:**
 - Search (11): search_docs, semantic_search, hybrid_search, fuzzy_search, search_within_results, answer_question, translate_query, search_tables, search_code, find_similar, faceted_search
 - Documents (6): add_document, add_documents_bulk, remove_document, remove_documents_bulk, list_docs, get_document, get_chunk, check_updates
 - URL Scraping (3): scrape_url, rescrape_document, check_url_updates
 - AI & Analytics (14): extract_entities, get_entities, search_entities, entity_stats, extract_entities_bulk, extract_entity_relationships, get_entity_relationships, find_related_entities, search_entity_pair, extract_relationships_bulk, get_entity_analytics, compare_documents, suggest_tags, add_tags_to_document, get_tags_by_category
 - **Topics & Clustering (8):** train_lda_topics, train_nmf_topics, train_bertopic, get_document_topics, cluster_documents_kmeans, cluster_documents_dbscan, cluster_documents_hdbscan, get_cluster_documents
 - Export (3): export_entities, export_relationships, export_documents_bulk
-- System (2): kb_stats, health_check
+- System (3): kb_stats, health_check, detect_anomalies
 
 See README.md for complete tool documentation.
 

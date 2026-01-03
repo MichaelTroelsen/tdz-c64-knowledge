@@ -27,6 +27,15 @@ load_dotenv()  # Load .env file from current directory
 # Import version information
 from version import __build_date__, get_full_version_string
 
+# Anomaly detection support
+try:
+    from anomaly_detector import AnomalyDetector, CheckResult, AnomalyScore, Baseline
+    ANOMALY_SUPPORT = True
+except ImportError:
+    ANOMALY_SUPPORT = False
+    AnomalyDetector = None
+    print("Warning: anomaly_detector not found. Anomaly detection disabled.", file=sys.stderr)
+
 # Caching support
 try:
     from cachetools import TTLCache
@@ -403,6 +412,19 @@ class KnowledgeBase:
         )
         self._extraction_worker.start()
         self.logger.info("Background entity extraction worker started")
+
+        # Initialize anomaly detection
+        self.anomaly_detector = None
+        if ANOMALY_SUPPORT and os.getenv('USE_ANOMALY_DETECTION', '1') == '1':
+            try:
+                self.anomaly_detector = AnomalyDetector(self)
+                self.logger.info("Anomaly detection enabled")
+            except Exception as e:
+                self.logger.warning(f"Anomaly detection initialization failed: {e}")
+                self.anomaly_detector = None
+        else:
+            if ANOMALY_SUPPORT:
+                self.logger.info("Anomaly detection disabled via USE_ANOMALY_DETECTION=0")
 
     def _init_database(self):
         """Initialize SQLite database and create schema if needed."""
@@ -10735,6 +10757,100 @@ Important:
 
         return events
 
+    def detect_anomalies(self, min_severity: str = 'moderate', days: int = 7) -> dict:
+        """
+        Detect anomalies in document monitoring history.
+
+        This method analyzes URL monitoring history to identify unusual patterns:
+        - Unexpected update frequencies (sites changing much more/less than normal)
+        - Performance degradation (significantly slower response times)
+        - Change magnitude anomalies (unusually large or small content changes)
+
+        The system learns baseline patterns for each document over a configurable
+        learning period (default: 30 days) and scores deviations across multiple
+        dimensions.
+
+        Args:
+            min_severity: Minimum severity level to include ('normal', 'minor', 'moderate', 'critical')
+            days: Number of days of history to analyze (default: 7)
+
+        Returns:
+            Dictionary containing:
+            - 'anomalies': List of anomaly records with scores and details
+            - 'total_anomalies': Total number of anomalies found
+            - 'by_severity': Count breakdown by severity level
+            - 'avg_score': Average anomaly score
+            - 'time_range_days': Days of history analyzed
+
+        Severity Levels:
+            - normal: 0-30 (no alert needed)
+            - minor: 31-60 (include in digest)
+            - moderate: 61-85 (immediate notification)
+            - critical: 86-100 (urgent alert)
+
+        Examples:
+            >>> # Get critical and moderate anomalies from last 7 days
+            >>> results = kb.detect_anomalies(min_severity='moderate', days=7)
+            >>> print(f"Found {results['total_anomalies']} anomalies")
+            >>> for anomaly in results['anomalies']:
+            ...     print(f"  {anomaly['doc_title']}: {anomaly['severity']} ({anomaly['score']}/100)")
+
+            >>> # Get all anomalies (including minor) from last 30 days
+            >>> results = kb.detect_anomalies(min_severity='minor', days=30)
+            >>> print(f"Breakdown: {results['by_severity']}")
+
+        Note:
+            Requires anomaly detection to be enabled (USE_ANOMALY_DETECTION=1).
+            Will return error if anomaly_detector is not initialized.
+        """
+        if not self.anomaly_detector:
+            return {
+                'error': 'Anomaly detection not available',
+                'anomalies': [],
+                'total_anomalies': 0,
+                'by_severity': {},
+                'avg_score': 0.0,
+                'time_range_days': days
+            }
+
+        try:
+            # Get anomalies from detector
+            anomalies = self.anomaly_detector.get_anomalies(
+                min_severity=min_severity,
+                days=days
+            )
+
+            # Calculate statistics
+            total_anomalies = len(anomalies)
+            by_severity = {}
+            total_score = 0.0
+
+            for anomaly in anomalies:
+                severity = anomaly.get('severity', 'unknown')
+                by_severity[severity] = by_severity.get(severity, 0) + 1
+                total_score += anomaly.get('score', 0.0)
+
+            avg_score = total_score / total_anomalies if total_anomalies > 0 else 0.0
+
+            return {
+                'anomalies': anomalies,
+                'total_anomalies': total_anomalies,
+                'by_severity': by_severity,
+                'avg_score': round(avg_score, 2),
+                'time_range_days': days
+            }
+
+        except Exception as e:
+            self.logger.error(f"Anomaly detection failed: {e}", exc_info=True)
+            return {
+                'error': f'Anomaly detection failed: {str(e)}',
+                'anomalies': [],
+                'total_anomalies': 0,
+                'by_severity': {},
+                'avg_score': 0.0,
+                'time_range_days': days
+            }
+
     def extract_document_events(self, doc_id: str, min_confidence: float = 0.5) -> dict:
         """
         Extract events from a specific document and store them in the database.
@@ -18381,6 +18497,28 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="detect_anomalies",
+            description="Detect anomalies in URL monitoring history. Analyzes patterns to identify unusual update frequencies, performance degradation, or unexpected content changes. Returns anomalies with severity scores (normal/minor/moderate/critical) based on learned baselines.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "min_severity": {
+                        "type": "string",
+                        "description": "Minimum severity level to include ('normal', 'minor', 'moderate', 'critical', default: 'moderate')",
+                        "enum": ["normal", "minor", "moderate", "critical"],
+                        "default": "moderate"
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of days of history to analyze (default: 7)",
+                        "default": 7,
+                        "minimum": 1,
+                        "maximum": 90
+                    }
+                }
+            }
+        ),
+        Tool(
             name="check_updates",
             description="Check all indexed documents for updates. Detects files that have been modified since indexing and optionally re-indexes them automatically.",
             inputSchema={
@@ -20900,6 +21038,57 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output += f"  {i}. {issue}\n"
         else:
             output += "✓ No issues detected\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "detect_anomalies":
+        min_severity = arguments.get("min_severity", "moderate")
+        days = arguments.get("days", 7)
+
+        results = kb.detect_anomalies(min_severity=min_severity, days=days)
+
+        if 'error' in results:
+            return [TextContent(type="text", text=f"Error: {results['error']}")]
+
+        # Format output
+        output = f"Anomaly Detection Results\n{'='*60}\n\n"
+        output += f"Time Range: Last {results['time_range_days']} days\n"
+        output += f"Minimum Severity: {min_severity}\n"
+        output += f"Total Anomalies: {results['total_anomalies']}\n"
+
+        if results['by_severity']:
+            output += f"\nBreakdown by Severity:\n"
+            for severity, count in sorted(results['by_severity'].items()):
+                output += f"  {severity.title()}: {count}\n"
+
+        if results['total_anomalies'] > 0:
+            output += f"\nAverage Score: {results['avg_score']}/100\n\n"
+            output += f"Anomalies Detected:\n"
+            output += "-" * 60 + "\n\n"
+
+            for anomaly in results['anomalies']:
+                output += f"Document: {anomaly.get('doc_title', 'Unknown')}\n"
+                output += f"  Severity: {anomaly.get('severity', 'unknown').upper()} (Score: {anomaly.get('score', 0)}/100)\n"
+                output += f"  Check Date: {anomaly.get('check_date', 'N/A')}\n"
+                output += f"  Status: {anomaly.get('status', 'N/A')}\n"
+
+                if 'components' in anomaly:
+                    output += f"  Score Components:\n"
+                    for component, score in anomaly['components'].items():
+                        output += f"    - {component}: {score:.1f}\n"
+
+                if 'change_type' in anomaly and anomaly['change_type']:
+                    output += f"  Change Type: {anomaly['change_type']}\n"
+
+                if 'http_status' in anomaly and anomaly['http_status']:
+                    output += f"  HTTP Status: {anomaly['http_status']}\n"
+
+                if 'error_message' in anomaly and anomaly['error_message']:
+                    output += f"  Error: {anomaly['error_message']}\n"
+
+                output += "\n"
+        else:
+            output += "\n✓ No anomalies detected in the specified time range.\n"
 
         return [TextContent(type="text", text=output)]
 

@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.24.0] - In Planning
+
+### Planning
+- **Advanced Knowledge Extraction System** - Comprehensive implementation plan for 6 algorithms across 4 phases
+  - **Planning Document** (`docs/KNOWLEDGE_EXTRACTION_PLAN.md` - 82 pages, 1,850 lines)
+    - Complete roadmap for 64-80 hour implementation
+    - 4 phases broken into 27 tasks (1-4 hours each)
+    - Detailed code examples for every major component
+    - Dependencies, testing strategies, and validation criteria
+  - **Phase 1: Foundation (16-20 hours)**
+    - Knowledge graph infrastructure with NetworkX
+    - PageRank, community detection, centrality measures
+    - 6 new MCP tools for graph operations
+    - PyVis interactive HTML visualizations
+    - GraphML/GEXF/JSON export formats
+  - **Phase 2: Discovery (20-24 hours)**
+    - Topic modeling: LDA, NMF, BERTopic
+    - Document clustering: K-Means, DBSCAN, HDBSCAN
+    - 8 new MCP tools for topics and clusters
+    - Word clouds, cluster scatter plots, dendrograms
+  - **Phase 3: Temporal (16-20 hours)**
+    - Date/time extraction (regex + SpaCy)
+    - Event detection (product releases, milestones, innovations)
+    - Timeline construction and chronological ordering
+    - 4 new MCP tools for timeline operations
+    - Interactive timeline visualizations with Plotly
+  - **Phase 4: Integration (12-16 hours)**
+    - Streamlit analytics dashboard (6 pages)
+    - Knowledge graph explorer with real-time controls
+    - Topic discovery interface with model comparison
+    - Cluster navigator with 2D/3D visualization
+    - Timeline viewer with date filtering
+    - Unified search and export tools
+  - **Implementation Details**:
+    - Total: 20+ new MCP tools for Claude integration
+    - 10+ database tables/indexes for caching results
+    - 90%+ test coverage requirement
+    - Risk assessment with mitigations
+    - 5-week recommended timeline
+  - **Success Criteria**:
+    - Knowledge graph: 100+ nodes, 200+ edges
+    - Topics: 10 coherent themes from 7.4M words
+    - Clusters: Silhouette score > 0.3
+    - Timeline: 50+ events spanning C64 history (1975-1995)
+    - Dashboard: All pages load in < 5 seconds
+
 ## [2.23.16] - 2026-01-03
 
 ### Added

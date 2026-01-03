@@ -1368,6 +1368,260 @@ class KnowledgeBase:
                 self.db_conn.commit()
                 self.logger.info("graph_paths table created")
 
+            # ============================================================
+            # Phase 2 Topic & Cluster Tables (v2.24.0 - Discovery)
+            # ============================================================
+
+            # Check for topics table (v2.24.0 - Topic Modeling)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='topics'")
+            if not cursor.fetchone():
+                self.logger.info("Creating topics table for topic modeling")
+                cursor.execute("""
+                    CREATE TABLE topics (
+                        topic_id TEXT PRIMARY KEY,
+                        model_type TEXT NOT NULL,
+                        topic_number INTEGER NOT NULL,
+                        top_words TEXT NOT NULL,
+                        word_weights TEXT NOT NULL,
+                        num_documents INTEGER DEFAULT 0,
+                        coherence_score REAL,
+                        created_date TEXT NOT NULL,
+                        UNIQUE(model_type, topic_number)
+                    )
+                """)
+
+                # Create indexes for topic queries
+                cursor.execute("CREATE INDEX idx_topics_model ON topics(model_type)")
+                cursor.execute("CREATE INDEX idx_topics_number ON topics(model_type, topic_number)")
+
+                self.db_conn.commit()
+                self.logger.info("topics table created")
+
+            # Check for document_topics table (v2.24.0 - Topic Modeling)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='document_topics'")
+            if not cursor.fetchone():
+                self.logger.info("Creating document_topics table for topic assignments")
+                cursor.execute("""
+                    CREATE TABLE document_topics (
+                        assignment_id TEXT PRIMARY KEY,
+                        doc_id TEXT NOT NULL,
+                        topic_id TEXT NOT NULL,
+                        probability REAL NOT NULL,
+                        model_type TEXT NOT NULL,
+                        assigned_date TEXT NOT NULL,
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
+                        FOREIGN KEY (topic_id) REFERENCES topics(topic_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Create indexes for topic assignment queries
+                cursor.execute("CREATE INDEX idx_doc_topics_doc ON document_topics(doc_id)")
+                cursor.execute("CREATE INDEX idx_doc_topics_topic ON document_topics(topic_id)")
+                cursor.execute("CREATE INDEX idx_doc_topics_model ON document_topics(model_type)")
+                cursor.execute("CREATE INDEX idx_doc_topics_probability ON document_topics(probability DESC)")
+
+                self.db_conn.commit()
+                self.logger.info("document_topics table created")
+
+            # Check for clusters table (v2.24.0 - Document Clustering)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='clusters'")
+            if not cursor.fetchone():
+                self.logger.info("Creating clusters table for clustering analysis")
+                cursor.execute("""
+                    CREATE TABLE clusters (
+                        cluster_id TEXT PRIMARY KEY,
+                        algorithm TEXT NOT NULL,
+                        cluster_number INTEGER NOT NULL,
+                        centroid_vector BLOB,
+                        num_documents INTEGER DEFAULT 0,
+                        representative_docs TEXT,
+                        top_terms TEXT,
+                        silhouette_score REAL,
+                        created_date TEXT NOT NULL,
+                        UNIQUE(algorithm, cluster_number)
+                    )
+                """)
+
+                # Create indexes for cluster queries
+                cursor.execute("CREATE INDEX idx_clusters_algorithm ON clusters(algorithm)")
+                cursor.execute("CREATE INDEX idx_clusters_number ON clusters(algorithm, cluster_number)")
+
+                self.db_conn.commit()
+                self.logger.info("clusters table created")
+
+            # Check for document_clusters table (v2.24.0 - Document Clustering)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='document_clusters'")
+            if not cursor.fetchone():
+                self.logger.info("Creating document_clusters table for cluster assignments")
+                cursor.execute("""
+                    CREATE TABLE document_clusters (
+                        assignment_id TEXT PRIMARY KEY,
+                        doc_id TEXT NOT NULL,
+                        cluster_id TEXT NOT NULL,
+                        distance REAL,
+                        algorithm TEXT NOT NULL,
+                        assigned_date TEXT NOT NULL,
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
+                        FOREIGN KEY (cluster_id) REFERENCES clusters(cluster_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # ========================================
+                # PHASE 3: TEMPORAL ANALYSIS TABLES
+                # ========================================
+
+                # Events table - stores detected temporal events
+                cursor.execute("""
+                    CREATE TABLE events (
+                        event_id TEXT PRIMARY KEY,
+                        event_type TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        date_extracted TEXT,
+                        date_normalized TEXT,
+                        year INTEGER,
+                        month INTEGER,
+                        day INTEGER,
+                        confidence REAL DEFAULT 0.5,
+                        entities TEXT,
+                        metadata TEXT,
+                        created_date TEXT NOT NULL
+                    )
+                """)
+
+                # Document-events mapping table
+                cursor.execute("""
+                    CREATE TABLE document_events (
+                        mapping_id TEXT PRIMARY KEY,
+                        doc_id TEXT NOT NULL,
+                        event_id TEXT NOT NULL,
+                        context TEXT,
+                        position INTEGER,
+                        created_date TEXT NOT NULL,
+                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
+                        FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Timeline entries table
+                cursor.execute("""
+                    CREATE TABLE timeline_entries (
+                        entry_id TEXT PRIMARY KEY,
+                        event_id TEXT NOT NULL,
+                        display_date TEXT NOT NULL,
+                        sort_order INTEGER NOT NULL,
+                        category TEXT,
+                        importance INTEGER DEFAULT 3,
+                        created_date TEXT NOT NULL,
+                        FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Create indexes for Phase 3 tables
+                self.logger.info("Creating indexes for Phase 3 tables")
+                cursor.execute("CREATE INDEX idx_events_type ON events(event_type)")
+                cursor.execute("CREATE INDEX idx_events_year ON events(year)")
+                cursor.execute("CREATE INDEX idx_events_date ON events(date_normalized)")
+                cursor.execute("CREATE INDEX idx_document_events_doc ON document_events(doc_id)")
+                cursor.execute("CREATE INDEX idx_document_events_event ON document_events(event_id)")
+                cursor.execute("CREATE INDEX idx_timeline_entries_event ON timeline_entries(event_id)")
+                cursor.execute("CREATE INDEX idx_timeline_entries_sort ON timeline_entries(sort_order)")
+                cursor.execute("CREATE INDEX idx_timeline_entries_category ON timeline_entries(category)")
+
+                # Create indexes for cluster assignment queries
+                cursor.execute("CREATE INDEX idx_doc_clusters_doc ON document_clusters(doc_id)")
+                cursor.execute("CREATE INDEX idx_doc_clusters_cluster ON document_clusters(cluster_id)")
+                cursor.execute("CREATE INDEX idx_doc_clusters_algorithm ON document_clusters(algorithm)")
+                cursor.execute("CREATE INDEX idx_doc_clusters_distance ON document_clusters(distance)")
+
+                self.db_conn.commit()
+                self.logger.info("document_clusters table created")
+
+        # Always run migrations for schema updates (regardless of db_exists)
+        self._migrate_phase3_schema()
+
+    def _migrate_phase3_schema(self):
+        """Migrate existing databases to include Phase 3 temporal analysis tables."""
+        cursor = self.db_conn.cursor()
+
+        # Check if Phase 3 tables already exist
+        result = cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='events'
+        """).fetchone()
+
+        if result:
+            # Phase 3 tables already exist, skip migration
+            return
+
+        self.logger.info("Creating Phase 3 temporal analysis tables")
+
+        try:
+            # Create events table
+            cursor.execute("""
+                CREATE TABLE events (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    date_extracted TEXT,
+                    date_normalized TEXT,
+                    year INTEGER,
+                    month INTEGER,
+                    day INTEGER,
+                    confidence REAL DEFAULT 0.5,
+                    entities TEXT,
+                    metadata TEXT,
+                    created_date TEXT NOT NULL
+                )
+            """)
+
+            # Create document-events mapping table
+            cursor.execute("""
+                CREATE TABLE document_events (
+                    mapping_id TEXT PRIMARY KEY,
+                    doc_id TEXT NOT NULL,
+                    event_id TEXT NOT NULL,
+                    context TEXT,
+                    position INTEGER,
+                    created_date TEXT NOT NULL,
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
+                    FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create timeline entries table
+            cursor.execute("""
+                CREATE TABLE timeline_entries (
+                    entry_id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL,
+                    display_date TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL,
+                    category TEXT,
+                    importance INTEGER DEFAULT 3,
+                    created_date TEXT NOT NULL,
+                    FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create indexes for Phase 3 tables
+            cursor.execute("CREATE INDEX idx_events_type ON events(event_type)")
+            cursor.execute("CREATE INDEX idx_events_year ON events(year)")
+            cursor.execute("CREATE INDEX idx_events_date ON events(date_normalized)")
+            cursor.execute("CREATE INDEX idx_document_events_doc ON document_events(doc_id)")
+            cursor.execute("CREATE INDEX idx_document_events_event ON document_events(event_id)")
+            cursor.execute("CREATE INDEX idx_timeline_entries_event ON timeline_entries(event_id)")
+            cursor.execute("CREATE INDEX idx_timeline_entries_sort ON timeline_entries(sort_order)")
+            cursor.execute("CREATE INDEX idx_timeline_entries_category ON timeline_entries(category)")
+
+            self.db_conn.commit()
+            self.logger.info("Phase 3 temporal analysis tables created successfully")
+
+        except Exception as e:
+            self.logger.error(f"Failed to create Phase 3 tables: {e}")
+            self.db_conn.rollback()
+            raise
+
     def _fts5_available(self) -> bool:
         """Check if FTS5 is available and table exists."""
         try:
@@ -7466,6 +7720,6663 @@ Important:
 
         return results
 
+    # ============================================================
+    # Knowledge Graph Methods (v2.24.0 - Phase 1)
+    # ============================================================
+
+    def build_knowledge_graph(self, entity_types: Optional[list[str]] = None,
+                             min_occurrences: int = 2,
+                             min_relationship_strength: float = 0.3,
+                             use_cache: bool = True):
+        """
+        Build NetworkX graph from entities and relationships.
+
+        Args:
+            entity_types: Filter to specific entity types (None = all types)
+            min_occurrences: Minimum entity occurrences to include in graph
+            min_relationship_strength: Minimum relationship strength to include
+            use_cache: Try to load from cache if available
+
+        Returns:
+            NetworkX Graph with weighted nodes and edges
+
+        Examples:
+            # Build graph from all entities
+            G = kb.build_knowledge_graph()
+
+            # Build graph for hardware entities only
+            G = kb.build_knowledge_graph(entity_types=['hardware', 'register'])
+
+            # Build graph with minimum 5 occurrences
+            G = kb.build_knowledge_graph(min_occurrences=5)
+        """
+        import networkx as nx
+        import hashlib
+        import pickle
+
+        # Try to load from cache first
+        if use_cache:
+            cache_key = f"{entity_types}_{min_occurrences}_{min_relationship_strength}"
+            cache_id = hashlib.md5(cache_key.encode()).hexdigest()[:16]
+
+            cached_graph = self._load_cached_graph(cache_id)
+            if cached_graph:
+                self.logger.info(f"Loaded knowledge graph from cache ({cached_graph.number_of_nodes()} nodes, {cached_graph.number_of_edges()} edges)")
+                return cached_graph
+
+        self.logger.info(f"Building knowledge graph (min_occurrences={min_occurrences}, min_strength={min_relationship_strength})")
+
+        # Create empty graph
+        G = nx.Graph()
+
+        # Build query for entities
+        query = """
+            SELECT entity_text, entity_type, SUM(occurrence_count) as occurrences
+            FROM document_entities
+            GROUP BY entity_text, entity_type
+            HAVING occurrences >= ?
+        """
+        params = [min_occurrences]
+
+        # Add entity type filter if specified
+        if entity_types:
+            placeholders = ','.join('?' * len(entity_types))
+            query += f" AND entity_type IN ({placeholders})"
+            params.extend(entity_types)
+
+        # Fetch entities
+        cursor = self.db_conn.cursor()
+        entities = cursor.execute(query, params).fetchall()
+
+        if not entities:
+            self.logger.warning("No entities found matching criteria")
+            return G
+
+        # Add nodes to graph
+        for text, etype, count in entities:
+            G.add_node(text,
+                      type=etype,
+                      occurrences=count,
+                      weight=count)  # Node weight = occurrence count
+
+        self.logger.info(f"Added {G.number_of_nodes()} nodes to graph")
+
+        # Fetch relationships
+        rel_query = """
+            SELECT entity1_text, entity2_text, strength, doc_count
+            FROM entity_relationships
+            WHERE strength >= ?
+        """
+
+        relationships = cursor.execute(rel_query, [min_relationship_strength]).fetchall()
+
+        # Add edges to graph (only if both nodes exist)
+        edges_added = 0
+        for e1, e2, strength, count in relationships:
+            if G.has_node(e1) and G.has_node(e2):
+                G.add_edge(e1, e2,
+                          weight=strength,
+                          doc_count=count)
+                edges_added += 1
+
+        self.logger.info(f"Added {edges_added} edges to graph")
+
+        # Log graph statistics
+        if G.number_of_nodes() > 0:
+            density = nx.density(G)
+            self.logger.info(f"Graph density: {density:.4f}")
+
+            # Count connected components
+            num_components = nx.number_connected_components(G)
+            self.logger.info(f"Connected components: {num_components}")
+
+        # Cache the graph
+        if use_cache and G.number_of_nodes() > 0:
+            cache_id = self._cache_graph(G, entity_types, min_occurrences, min_relationship_strength)
+            self.logger.info(f"Cached graph with ID: {cache_id}")
+
+        return G
+
+    def _cache_graph(self, G, entity_types=None, min_occurrences=2, min_relationship_strength=0.3) -> str:
+        """
+        Cache NetworkX graph to database for quick reloading.
+
+        Args:
+            G: NetworkX graph to cache
+            entity_types: Entity types filter used
+            min_occurrences: Minimum occurrences filter used
+            min_relationship_strength: Minimum strength filter used
+
+        Returns:
+            cache_id: ID of the cached graph
+        """
+        import pickle
+        import hashlib
+        from datetime import datetime
+
+        # Generate cache ID from parameters
+        cache_key = f"{entity_types}_{min_occurrences}_{min_relationship_strength}"
+        cache_id = hashlib.md5(cache_key.encode()).hexdigest()[:16]
+
+        # Serialize graph
+        try:
+            graph_data = pickle.dumps(G, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception as e:
+            self.logger.error(f"Failed to pickle graph: {e}")
+            return ""
+
+        # Store in database
+        cursor = self.db_conn.cursor()
+
+        # Delete old cache with same ID if exists
+        cursor.execute("DELETE FROM graph_cache WHERE cache_id = ?", (cache_id,))
+
+        # Insert new cache
+        cursor.execute("""
+            INSERT INTO graph_cache
+            (cache_id, graph_version, graph_data, node_count, edge_count, created_date, last_accessed)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (cache_id, 1, graph_data, G.number_of_nodes(),
+              G.number_of_edges(), datetime.now().isoformat(), datetime.now().isoformat()))
+
+        self.db_conn.commit()
+
+        self.logger.debug(f"Cached graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+        return cache_id
+
+    def _load_cached_graph(self, cache_id: str):
+        """
+        Load cached graph from database.
+
+        Args:
+            cache_id: ID of the cached graph
+
+        Returns:
+            NetworkX graph if found, None otherwise
+        """
+        import pickle
+        from datetime import datetime
+
+        cursor = self.db_conn.cursor()
+        row = cursor.execute("""
+            SELECT graph_data, node_count, edge_count, created_date
+            FROM graph_cache
+            WHERE cache_id = ?
+        """, (cache_id,)).fetchone()
+
+        if not row:
+            return None
+
+        try:
+            # Deserialize graph
+            graph_data, node_count, edge_count, created_date = row
+            G = pickle.loads(graph_data)
+
+            # Update last accessed time
+            cursor.execute("""
+                UPDATE graph_cache SET last_accessed = ? WHERE cache_id = ?
+            """, (datetime.now().isoformat(), cache_id))
+            self.db_conn.commit()
+
+            self.logger.debug(f"Loaded cached graph from {created_date}: {node_count} nodes, {edge_count} edges")
+
+            return G
+
+        except Exception as e:
+            self.logger.warning(f"Failed to load cached graph: {e}")
+            return None
+
+    def clear_graph_cache(self, older_than_days: Optional[int] = None) -> int:
+        """
+        Clear cached graphs from database.
+
+        Args:
+            older_than_days: Only clear caches older than this many days (None = clear all)
+
+        Returns:
+            Number of caches cleared
+        """
+        from datetime import datetime, timedelta
+
+        cursor = self.db_conn.cursor()
+
+        if older_than_days is None:
+            # Clear all caches
+            cursor.execute("DELETE FROM graph_cache")
+        else:
+            # Clear old caches
+            cutoff_date = (datetime.now() - timedelta(days=older_than_days)).isoformat()
+            cursor.execute("""
+                DELETE FROM graph_cache WHERE created_date < ?
+            """, (cutoff_date,))
+
+        deleted = cursor.rowcount
+        self.db_conn.commit()
+
+        self.logger.info(f"Cleared {deleted} cached graphs")
+        return deleted
+
+    # ============================================================
+    # Graph Analysis Algorithms (v2.24.0 - Phase 1, Task 1.3)
+    # ============================================================
+
+    def compute_graph_metrics(self, G=None, entity_types: Optional[list[str]] = None,
+                              min_occurrences: int = 2,
+                              min_relationship_strength: float = 0.3,
+                              store_results: bool = True) -> dict:
+        """
+        Compute comprehensive graph analysis metrics.
+
+        Computes:
+        - PageRank centrality (importance based on connections)
+        - Betweenness centrality (bridge nodes)
+        - Degree centrality (connection count)
+        - Community detection (Louvain method)
+
+        Args:
+            G: Pre-built NetworkX graph (None = build new graph)
+            entity_types: Filter to specific entity types
+            min_occurrences: Minimum entity occurrences for graph building
+            min_relationship_strength: Minimum relationship strength
+            store_results: Save metrics to database
+
+        Returns:
+            {
+                'pagerank': {entity: score, ...},
+                'betweenness': {entity: score, ...},
+                'degree': {entity: score, ...},
+                'communities': {entity: community_id, ...},
+                'num_communities': int,
+                'graph_stats': {...}
+            }
+        """
+        import networkx as nx
+        from datetime import datetime
+
+        # Build or use provided graph
+        if G is None:
+            self.logger.info("Building knowledge graph for analysis...")
+            G = self.build_knowledge_graph(
+                entity_types=entity_types,
+                min_occurrences=min_occurrences,
+                min_relationship_strength=min_relationship_strength
+            )
+
+        if G.number_of_nodes() == 0:
+            self.logger.warning("Empty graph - no metrics to compute")
+            return {
+                'pagerank': {},
+                'betweenness': {},
+                'degree': {},
+                'communities': {},
+                'num_communities': 0,
+                'graph_stats': {}
+            }
+
+        self.logger.info(f"Computing graph metrics for {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+        results = {}
+
+        # 1. PageRank - Measures entity importance based on connections
+        try:
+            self.logger.debug("Computing PageRank centrality...")
+            pagerank = nx.pagerank(G, weight='weight', max_iter=100, tol=1e-6)
+            results['pagerank'] = pagerank
+            top_pr = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[:5]
+            self.logger.info(f"Top 5 PageRank entities: {[f'{e}({s:.4f})' for e, s in top_pr]}")
+        except Exception as e:
+            self.logger.error(f"PageRank computation failed: {e}")
+            results['pagerank'] = {}
+
+        # 2. Betweenness Centrality - Measures entities that bridge communities
+        try:
+            self.logger.debug("Computing betweenness centrality...")
+            betweenness = nx.betweenness_centrality(G, weight='weight', normalized=True)
+            results['betweenness'] = betweenness
+            top_bt = sorted(betweenness.items(), key=lambda x: x[1], reverse=True)[:5]
+            self.logger.info(f"Top 5 betweenness entities: {[f'{e}({s:.4f})' for e, s in top_bt]}")
+        except Exception as e:
+            self.logger.error(f"Betweenness computation failed: {e}")
+            results['betweenness'] = {}
+
+        # 3. Degree Centrality - Measures connection count
+        try:
+            self.logger.debug("Computing degree centrality...")
+            degree = nx.degree_centrality(G)
+            results['degree'] = degree
+            top_deg = sorted(degree.items(), key=lambda x: x[1], reverse=True)[:5]
+            self.logger.info(f"Top 5 degree entities: {[f'{e}({s:.4f})' for e, s in top_deg]}")
+        except Exception as e:
+            self.logger.error(f"Degree computation failed: {e}")
+            results['degree'] = {}
+
+        # 4. Community Detection - Louvain method
+        try:
+            self.logger.debug("Detecting communities (Louvain method)...")
+            # Import community detection
+            try:
+                import community.community_louvain as community_louvain
+                communities = community_louvain.best_partition(G, weight='weight')
+                results['communities'] = communities
+                results['num_communities'] = len(set(communities.values()))
+                self.logger.info(f"Detected {results['num_communities']} communities")
+
+                # Show community sizes
+                comm_sizes = {}
+                for entity, comm_id in communities.items():
+                    comm_sizes[comm_id] = comm_sizes.get(comm_id, 0) + 1
+                top_comms = sorted(comm_sizes.items(), key=lambda x: x[1], reverse=True)[:5]
+                self.logger.info(f"Top 5 community sizes: {top_comms}")
+
+            except ImportError:
+                self.logger.warning("python-louvain not installed - using greedy modularity communities instead")
+                from networkx.algorithms import community as nx_community
+                communities_list = nx_community.greedy_modularity_communities(G, weight='weight')
+                # Convert to dict format
+                communities = {}
+                for idx, comm in enumerate(communities_list):
+                    for entity in comm:
+                        communities[entity] = idx
+                results['communities'] = communities
+                results['num_communities'] = len(communities_list)
+                self.logger.info(f"Detected {results['num_communities']} communities (greedy modularity)")
+
+        except Exception as e:
+            self.logger.error(f"Community detection failed: {e}")
+            results['communities'] = {}
+            results['num_communities'] = 0
+
+        # Graph statistics
+        results['graph_stats'] = {
+            'nodes': G.number_of_nodes(),
+            'edges': G.number_of_edges(),
+            'density': nx.density(G) if G.number_of_nodes() > 0 else 0,
+            'connected_components': nx.number_connected_components(G),
+            'computed_at': datetime.now().isoformat()
+        }
+
+        # Store results in database
+        if store_results and results['pagerank']:
+            try:
+                self._store_graph_metrics(results)
+                self.logger.info("Stored graph metrics to database")
+            except Exception as e:
+                self.logger.error(f"Failed to store graph metrics: {e}")
+
+        return results
+
+    def _store_graph_metrics(self, results: dict) -> None:
+        """Store computed graph metrics to database."""
+        from datetime import datetime
+        import hashlib
+
+        cursor = self.db_conn.cursor()
+        timestamp = datetime.now().isoformat()
+
+        # Clear old metrics first
+        cursor.execute("DELETE FROM graph_metrics")
+
+        # Get entity types from database for all entities
+        entity_types = {}
+        for entity in results.get('pagerank', {}).keys():
+            # Get entity type from document_entities table
+            row = cursor.execute("""
+                SELECT entity_type FROM document_entities
+                WHERE entity_text = ?
+                LIMIT 1
+            """, (entity,)).fetchone()
+            entity_types[entity] = row[0] if row else 'unknown'
+
+        # Insert new metrics (one row per entity with all metrics)
+        for entity in results.get('pagerank', {}).keys():
+            # Generate metric_id
+            metric_id = hashlib.md5(f"{entity}_{timestamp}".encode()).hexdigest()[:16]
+
+            cursor.execute("""
+                INSERT INTO graph_metrics
+                (metric_id, entity_text, entity_type, pagerank, betweenness_centrality,
+                 degree_centrality, community_id, computed_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                metric_id,
+                entity,
+                entity_types.get(entity, 'unknown'),
+                results['pagerank'].get(entity),
+                results['betweenness'].get(entity),
+                results['degree'].get(entity),
+                results['communities'].get(entity),
+                timestamp
+            ))
+
+        self.db_conn.commit()
+        self.logger.debug(f"Stored metrics for {len(results.get('pagerank', {}))} entities")
+
+    def find_shortest_path(self, entity1: str, entity2: str,
+                          G=None, max_path_length: int = 6,
+                          store_result: bool = True) -> Optional[dict]:
+        """
+        Find shortest path between two entities in the knowledge graph.
+
+        Args:
+            entity1: Source entity text
+            entity2: Target entity text
+            G: Pre-built graph (None = build default graph)
+            max_path_length: Maximum path length to search
+            store_result: Save path to database
+
+        Returns:
+            {
+                'path': [entity1, intermediate1, ..., entity2],
+                'length': int,
+                'exists': bool,
+                'relationships': [rel_data, ...]
+            }
+            or None if no path found
+        """
+        import networkx as nx
+
+        # Build graph if not provided
+        if G is None:
+            self.logger.debug("Building graph for path finding...")
+            G = self.build_knowledge_graph(min_occurrences=2)
+
+        # Check if both entities exist in graph
+        if not G.has_node(entity1):
+            self.logger.warning(f"Entity '{entity1}' not found in graph")
+            return None
+
+        if not G.has_node(entity2):
+            self.logger.warning(f"Entity '{entity2}' not found in graph")
+            return None
+
+        # Find shortest path
+        try:
+            path = nx.shortest_path(G, source=entity1, target=entity2, weight='weight')
+            path_length = len(path) - 1  # Number of edges
+
+            if path_length > max_path_length:
+                self.logger.info(f"Path found but exceeds max length ({path_length} > {max_path_length})")
+                return None
+
+            self.logger.info(f"Found path of length {path_length}: {' -> '.join(path)}")
+
+            # Get relationship data for each edge in path
+            relationships = []
+            for i in range(len(path) - 1):
+                e1, e2 = path[i], path[i + 1]
+                edge_data = G.get_edge_data(e1, e2)
+                relationships.append({
+                    'from': e1,
+                    'to': e2,
+                    'weight': edge_data.get('weight', 0),
+                    'doc_count': edge_data.get('doc_count', 0)
+                })
+
+            result = {
+                'path': path,
+                'length': path_length,
+                'exists': True,
+                'relationships': relationships
+            }
+
+            # Store in database
+            if store_result:
+                try:
+                    self._store_graph_path(entity1, entity2, path, path_length)
+                except Exception as e:
+                    self.logger.error(f"Failed to store path: {e}")
+
+            return result
+
+        except nx.NetworkXNoPath:
+            self.logger.info(f"No path exists between '{entity1}' and '{entity2}'")
+            return {
+                'path': [],
+                'length': -1,
+                'exists': False,
+                'relationships': []
+            }
+        except Exception as e:
+            self.logger.error(f"Path finding failed: {e}")
+            return None
+
+    def _store_graph_path(self, entity1: str, entity2: str, path: list, length: int) -> None:
+        """Store computed shortest path to database."""
+        from datetime import datetime
+        import json
+        import hashlib
+
+        cursor = self.db_conn.cursor()
+
+        # Generate path_id
+        path_id = hashlib.md5(f"{entity1}_{entity2}_{datetime.now().isoformat()}".encode()).hexdigest()[:16]
+
+        # Check if path already exists
+        cursor.execute("""
+            DELETE FROM graph_paths
+            WHERE entity1 = ? AND entity2 = ?
+        """, (entity1, entity2))
+
+        # Insert new path
+        cursor.execute("""
+            INSERT INTO graph_paths
+            (path_id, entity1, entity2, path_length, path_nodes, path_weight, computed_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            path_id,
+            entity1,
+            entity2,
+            length,
+            json.dumps(path),
+            None,  # path_weight can be computed later if needed
+            datetime.now().isoformat()
+        ))
+
+        self.db_conn.commit()
+        self.logger.debug(f"Stored path: {entity1} -> {entity2} (length {length})")
+
+    def get_entity_metrics(self, entity_text: str, metric_types: Optional[list[str]] = None) -> dict:
+        """
+        Retrieve stored graph metrics for an entity.
+
+        Args:
+            entity_text: Entity to get metrics for
+            metric_types: List of metric types to retrieve (None = all)
+                         Options: 'pagerank', 'betweenness', 'degree', 'community'
+
+        Returns:
+            {
+                'entity': str,
+                'entity_type': str,
+                'metrics': {
+                    'pagerank': float,
+                    'betweenness': float,
+                    'degree': float,
+                    'community': int
+                },
+                'computed_date': str,
+                'found': bool
+            }
+        """
+        cursor = self.db_conn.cursor()
+
+        # Query metrics table
+        row = cursor.execute("""
+            SELECT entity_type, pagerank, betweenness_centrality,
+                   degree_centrality, community_id, computed_date
+            FROM graph_metrics
+            WHERE entity_text = ?
+        """, (entity_text,)).fetchone()
+
+        if not row:
+            return {
+                'entity': entity_text,
+                'entity_type': None,
+                'metrics': {},
+                'computed_date': None,
+                'found': False
+            }
+
+        entity_type, pagerank, betweenness, degree, community, computed_date = row
+
+        # Build metrics dict (filter by metric_types if provided)
+        all_metrics = {
+            'pagerank': pagerank,
+            'betweenness': betweenness,
+            'degree': degree,
+            'community': community
+        }
+
+        if metric_types:
+            metrics = {k: v for k, v in all_metrics.items() if k in metric_types}
+        else:
+            metrics = all_metrics
+
+        return {
+            'entity': entity_text,
+            'entity_type': entity_type,
+            'metrics': metrics,
+            'computed_date': computed_date,
+            'found': True
+        }
+
+    def visualize_knowledge_graph(self, G=None,
+                                  output_path: str = "knowledge_graph.html",
+                                  entity_types: Optional[list[str]] = None,
+                                  min_occurrences: int = 2,
+                                  min_relationship_strength: float = 0.3,
+                                  color_by: str = "entity_type",
+                                  size_by: str = "pagerank",
+                                  highlight_communities: bool = False,
+                                  physics_enabled: bool = True,
+                                  height: str = "800px",
+                                  width: str = "100%") -> str:
+        """
+        Generate interactive HTML visualization of the knowledge graph using PyVis.
+
+        Args:
+            G: Pre-built NetworkX graph (None = build new graph)
+            output_path: Path to save HTML file
+            entity_types: Filter to specific entity types
+            min_occurrences: Minimum entity occurrences for graph building
+            min_relationship_strength: Minimum relationship strength
+            color_by: Node coloring scheme: 'entity_type', 'community', or 'uniform'
+            size_by: Node sizing metric: 'pagerank', 'degree', 'betweenness', or 'uniform'
+            highlight_communities: Add community borders/grouping
+            physics_enabled: Enable physics simulation for layout
+            height: Visualization height (CSS format)
+            width: Visualization width (CSS format)
+
+        Returns:
+            Path to generated HTML file
+
+        Examples:
+            # Basic visualization
+            path = kb.visualize_knowledge_graph()
+
+            # Color by community, size by PageRank
+            path = kb.visualize_knowledge_graph(
+                color_by='community',
+                size_by='pagerank',
+                highlight_communities=True
+            )
+
+            # Hardware entities only
+            path = kb.visualize_knowledge_graph(
+                entity_types=['hardware'],
+                min_occurrences=3
+            )
+        """
+        from pyvis.network import Network
+        import networkx as nx
+        from pathlib import Path
+
+        # Build graph if not provided
+        if G is None:
+            self.logger.info("Building knowledge graph for visualization...")
+            G = self.build_knowledge_graph(
+                entity_types=entity_types,
+                min_occurrences=min_occurrences,
+                min_relationship_strength=min_relationship_strength
+            )
+
+        if G.number_of_nodes() == 0:
+            self.logger.warning("Empty graph - cannot visualize")
+            return ""
+
+        self.logger.info(f"Visualizing graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+        # Create PyVis network
+        net = Network(height=height, width=width, directed=False, notebook=False)
+
+        # Configure physics
+        if physics_enabled:
+            net.barnes_hut(gravity=-8000, central_gravity=0.3, spring_length=200, spring_strength=0.05)
+        else:
+            net.toggle_physics(False)
+
+        # Get metrics if using them for sizing or coloring
+        metrics = None
+        if size_by in ['pagerank', 'degree', 'betweenness'] or color_by == 'community':
+            # Try to load from database first
+            cursor = self.db_conn.cursor()
+            stored_metrics = cursor.execute("SELECT COUNT(*) FROM graph_metrics").fetchone()[0]
+
+            if stored_metrics == 0:
+                self.logger.info("Computing graph metrics for visualization...")
+                metrics = self.compute_graph_metrics(G=G, store_results=False)
+            else:
+                # Load from database
+                self.logger.info("Loading stored metrics for visualization...")
+                metrics = {
+                    'pagerank': {},
+                    'betweenness': {},
+                    'degree': {},
+                    'communities': {}
+                }
+                rows = cursor.execute("""
+                    SELECT entity_text, pagerank, betweenness_centrality,
+                           degree_centrality, community_id
+                    FROM graph_metrics
+                """).fetchall()
+
+                for entity, pr, betw, deg, comm in rows:
+                    if entity in G.nodes():
+                        metrics['pagerank'][entity] = pr
+                        metrics['betweenness'][entity] = betw or 0
+                        metrics['degree'][entity] = deg
+                        metrics['communities'][entity] = comm
+
+        # Define color scheme for entity types
+        entity_type_colors = {
+            'hardware': '#FF6B6B',      # Red
+            'memory_address': '#4ECDC4', # Teal
+            'instruction': '#45B7D1',    # Blue
+            'person': '#FFA07A',         # Light salmon
+            'company': '#98D8C8',        # Mint
+            'product': '#F7DC6F',        # Yellow
+            'concept': '#BB8FCE',        # Purple
+            'unknown': '#95A5A6'         # Gray
+        }
+
+        # Generate community colors if needed
+        community_colors = {}
+        if color_by == 'community' and metrics:
+            import random
+            random.seed(42)  # Consistent colors
+            unique_communities = set(metrics['communities'].values()) if metrics['communities'] else set()
+            colors = ['#%06x' % random.randint(0, 0xFFFFFF) for _ in range(len(unique_communities))]
+            community_colors = dict(zip(sorted(unique_communities), colors))
+
+        # Calculate node sizes if using metric
+        node_sizes = {}
+        if size_by != 'uniform' and metrics:
+            metric_values = metrics.get(size_by, {})
+            if metric_values:
+                max_val = max(metric_values.values()) if metric_values else 1
+                min_val = min(metric_values.values()) if metric_values else 0
+
+                for node in G.nodes():
+                    val = metric_values.get(node, 0)
+                    # Scale to size range 10-50
+                    if max_val > min_val:
+                        normalized = (val - min_val) / (max_val - min_val)
+                        node_sizes[node] = 10 + (normalized * 40)
+                    else:
+                        node_sizes[node] = 20
+
+        # Add nodes to PyVis network
+        for node in G.nodes(data=True):
+            node_id = node[0]
+            node_data = node[1]
+
+            # Determine color
+            if color_by == 'entity_type':
+                entity_type = node_data.get('type', 'unknown')
+                color = entity_type_colors.get(entity_type, '#95A5A6')
+            elif color_by == 'community' and metrics:
+                comm_id = metrics['communities'].get(node_id, 0)
+                color = community_colors.get(comm_id, '#95A5A6')
+            else:  # uniform
+                color = '#4ECDC4'
+
+            # Determine size
+            size = node_sizes.get(node_id, 20)
+
+            # Create hover title with entity info
+            title = f"<b>{node_id}</b><br>"
+            title += f"Type: {node_data.get('type', 'unknown')}<br>"
+            title += f"Occurrences: {node_data.get('occurrences', 0)}<br>"
+
+            if metrics:
+                if node_id in metrics.get('pagerank', {}):
+                    title += f"PageRank: {metrics['pagerank'][node_id]:.6f}<br>"
+                if node_id in metrics.get('betweenness', {}):
+                    title += f"Betweenness: {metrics['betweenness'][node_id]:.6f}<br>"
+                if node_id in metrics.get('degree', {}):
+                    title += f"Degree: {metrics['degree'][node_id]:.6f}<br>"
+                if node_id in metrics.get('communities', {}):
+                    title += f"Community: {metrics['communities'][node_id]}"
+
+            net.add_node(node_id, label=node_id, color=color, size=size, title=title)
+
+        # Add edges to PyVis network
+        for edge in G.edges(data=True):
+            source = edge[0]
+            target = edge[1]
+            edge_data = edge[2]
+
+            weight = edge_data.get('weight', 0.5)
+            doc_count = edge_data.get('doc_count', 0)
+
+            # Edge width based on weight
+            width = 1 + (weight * 3)
+
+            # Edge title
+            title = f"Strength: {weight:.3f}<br>Documents: {doc_count}"
+
+            net.add_edge(source, target, value=width, title=title)
+
+        # Generate HTML
+        output_path_obj = Path(output_path)
+        if not output_path_obj.is_absolute():
+            # Save to data directory if relative path
+            output_path_obj = Path(self.data_dir) / output_path
+
+        net.save_graph(str(output_path_obj))
+
+        self.logger.info(f"Visualization saved to: {output_path_obj}")
+
+        return str(output_path_obj)
+
+    # ============================================================
+    # Topic Modeling Methods (v2.24.0 - Phase 2, Task 2.2)
+    # ============================================================
+
+    def _prepare_topic_model_corpus(self, min_df: int = 2,
+                                    max_df: float = 0.8,
+                                    max_features: int = 1000) -> tuple:
+        """
+        Prepare document corpus for topic modeling.
+
+        Args:
+            min_df: Minimum document frequency (ignore terms in fewer docs)
+            max_df: Maximum document frequency (ignore terms in more than this fraction)
+            max_features: Maximum number of features to extract
+
+        Returns:
+            (doc_ids, vectorizer, document_term_matrix, feature_names)
+
+        Examples:
+            doc_ids, vectorizer, dtm, features = kb._prepare_topic_model_corpus()
+        """
+        from sklearn.feature_extraction.text import CountVectorizer
+
+        self.logger.info("Preparing corpus for topic modeling...")
+
+        # Get all document texts
+        docs = []
+        doc_ids = []
+
+        for doc_id, doc in self.documents.items():
+            # Get all chunks for this document
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                # Combine all chunks into full document text
+                full_text = " ".join(chunk.content for chunk in chunks)
+                docs.append(full_text)
+                doc_ids.append(doc_id)
+
+        if not docs:
+            self.logger.warning("No documents found for topic modeling")
+            return [], None, None, []
+
+        self.logger.info(f"Preparing corpus from {len(docs)} documents...")
+
+        # Create CountVectorizer for LDA (LDA works better with raw counts than TF-IDF)
+        vectorizer = CountVectorizer(
+            max_df=max_df,
+            min_df=min_df,
+            stop_words='english',
+            max_features=max_features,
+            ngram_range=(1, 2),  # Unigrams and bigrams
+            lowercase=True,
+            token_pattern=r'\b[a-zA-Z]{3,}\b'  # Words with 3+ letters
+        )
+
+        # Transform documents to document-term matrix
+        doc_term_matrix = vectorizer.fit_transform(docs)
+        feature_names = vectorizer.get_feature_names_out()
+
+        self.logger.info(f"Corpus prepared: {doc_term_matrix.shape[0]} docs, {doc_term_matrix.shape[1]} terms")
+
+        return doc_ids, vectorizer, doc_term_matrix, feature_names
+
+    def train_lda_model(self, num_topics: int = 10,
+                       max_iter: int = 100,
+                       random_state: int = 42,
+                       min_df: int = 2,
+                       max_df: float = 0.8,
+                       max_features: int = 1000,
+                       store_results: bool = True) -> dict:
+        """
+        Train Latent Dirichlet Allocation (LDA) topic model.
+
+        LDA discovers hidden topics in document collections by finding
+        patterns of word co-occurrence. Each document is modeled as a
+        mixture of topics, and each topic is modeled as a distribution
+        over words.
+
+        Args:
+            num_topics: Number of topics to discover
+            max_iter: Maximum iterations for LDA training
+            random_state: Random seed for reproducibility
+            min_df: Minimum document frequency for vocabulary
+            max_df: Maximum document frequency for vocabulary
+            max_features: Maximum vocabulary size
+            store_results: Save topics and assignments to database
+
+        Returns:
+            {
+                'model_type': 'lda',
+                'num_topics': int,
+                'topics': [{
+                    'topic_id': str,
+                    'topic_number': int,
+                    'top_words': [str, ...],
+                    'word_weights': {word: weight, ...},
+                    'coherence_score': float
+                }, ...],
+                'document_topics': [{
+                    'doc_id': str,
+                    'topic_assignments': [(topic_num, probability), ...]
+                }, ...],
+                'perplexity': float,
+                'training_time': float
+            }
+
+        Examples:
+            # Train 10-topic model
+            results = kb.train_lda_model(num_topics=10)
+
+            # Train model without storing to database
+            results = kb.train_lda_model(num_topics=15, store_results=False)
+        """
+        from sklearn.decomposition import LatentDirichletAllocation
+        import time
+        from datetime import datetime
+
+        self.logger.info(f"Training LDA model with {num_topics} topics...")
+        start_time = time.time()
+
+        # Prepare corpus
+        doc_ids, vectorizer, doc_term_matrix, feature_names = self._prepare_topic_model_corpus(
+            min_df=min_df,
+            max_df=max_df,
+            max_features=max_features
+        )
+
+        if doc_term_matrix is None:
+            return {
+                'model_type': 'lda',
+                'num_topics': 0,
+                'topics': [],
+                'document_topics': [],
+                'error': 'No documents available for topic modeling'
+            }
+
+        # Train LDA model
+        self.logger.info("Training LDA model...")
+        lda = LatentDirichletAllocation(
+            n_components=num_topics,
+            max_iter=max_iter,
+            learning_method='online',
+            learning_offset=50.0,
+            random_state=random_state,
+            n_jobs=-1  # Use all CPUs
+        )
+
+        lda.fit(doc_term_matrix)
+
+        training_time = time.time() - start_time
+        self.logger.info(f"LDA training completed in {training_time:.2f} seconds")
+
+        # Calculate perplexity (lower is better)
+        perplexity = lda.perplexity(doc_term_matrix)
+        self.logger.info(f"Model perplexity: {perplexity:.2f}")
+
+        # Extract topics
+        topics = []
+        n_top_words = 10
+
+        for topic_idx, topic in enumerate(lda.components_):
+            # Get top words for this topic
+            top_indices = topic.argsort()[-n_top_words:][::-1]
+            top_words = [feature_names[i] for i in top_indices]
+            top_weights = [float(topic[i]) for i in top_indices]
+
+            # Create word weights dict
+            word_weights = dict(zip(top_words, top_weights))
+
+            topic_info = {
+                'topic_id': f"lda_topic_{topic_idx}",
+                'topic_number': topic_idx,
+                'top_words': top_words,
+                'word_weights': word_weights,
+                'coherence_score': None  # Can be computed separately if needed
+            }
+
+            topics.append(topic_info)
+
+            self.logger.debug(f"Topic {topic_idx}: {', '.join(top_words[:5])}")
+
+        # Get document-topic distributions
+        doc_topic_dist = lda.transform(doc_term_matrix)
+
+        document_topics = []
+        for doc_idx, doc_id in enumerate(doc_ids):
+            # Get topic probabilities for this document
+            topic_probs = doc_topic_dist[doc_idx]
+
+            # Get all topics with their probabilities
+            topic_assignments = [
+                (topic_num, float(prob))
+                for topic_num, prob in enumerate(topic_probs)
+            ]
+
+            # Sort by probability descending
+            topic_assignments.sort(key=lambda x: x[1], reverse=True)
+
+            document_topics.append({
+                'doc_id': doc_id,
+                'topic_assignments': topic_assignments
+            })
+
+        # Build results
+        results = {
+            'model_type': 'lda',
+            'num_topics': num_topics,
+            'topics': topics,
+            'document_topics': document_topics,
+            'perplexity': perplexity,
+            'training_time': training_time,
+            'vocabulary_size': len(feature_names),
+            'num_documents': len(doc_ids)
+        }
+
+        # Store to database if requested
+        if store_results:
+            self.logger.info("Storing LDA results to database...")
+            self._store_topics_to_db(topics, 'lda')
+            self._store_document_topics(document_topics, 'lda')
+            self.logger.info("LDA results stored to database")
+
+        return results
+
+    def _store_topics_to_db(self, topics: list, model_type: str) -> None:
+        """Store topics to database."""
+        import json
+        from datetime import datetime
+        import hashlib
+
+        cursor = self.db_conn.cursor()
+        timestamp = datetime.now().isoformat()
+
+        # Clear existing topics for this model type
+        cursor.execute("DELETE FROM topics WHERE model_type = ?", (model_type,))
+
+        # Insert new topics
+        for topic in topics:
+            topic_id = topic['topic_id']
+
+            cursor.execute("""
+                INSERT INTO topics
+                (topic_id, model_type, topic_number, top_words, word_weights,
+                 num_documents, coherence_score, created_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                topic_id,
+                model_type,
+                topic['topic_number'],
+                json.dumps(topic['top_words']),
+                json.dumps(topic['word_weights']),
+                0,  # Will be updated when document assignments are stored
+                topic.get('coherence_score'),
+                timestamp
+            ))
+
+        self.db_conn.commit()
+        self.logger.debug(f"Stored {len(topics)} {model_type} topics to database")
+
+    def _store_document_topics(self, document_topics: list, model_type: str) -> None:
+        """Store document-topic assignments to database."""
+        from datetime import datetime
+        import hashlib
+
+        cursor = self.db_conn.cursor()
+        timestamp = datetime.now().isoformat()
+
+        # Clear existing assignments for this model type
+        cursor.execute("DELETE FROM document_topics WHERE model_type = ?", (model_type,))
+
+        # Store new assignments
+        for doc_topic in document_topics:
+            doc_id = doc_topic['doc_id']
+
+            # Store each topic assignment
+            for topic_num, probability in doc_topic['topic_assignments']:
+                # Generate assignment ID
+                assignment_id = hashlib.md5(
+                    f"{doc_id}_{model_type}_{topic_num}".encode()
+                ).hexdigest()[:16]
+
+                # Get topic_id
+                topic_id = f"{model_type}_topic_{topic_num}"
+
+                cursor.execute("""
+                    INSERT INTO document_topics
+                    (assignment_id, doc_id, topic_id, probability, model_type, assigned_date)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    assignment_id,
+                    doc_id,
+                    topic_id,
+                    probability,
+                    model_type,
+                    timestamp
+                ))
+
+        self.db_conn.commit()
+
+        # Update document counts in topics table
+        cursor.execute("""
+            UPDATE topics
+            SET num_documents = (
+                SELECT COUNT(DISTINCT doc_id)
+                FROM document_topics
+                WHERE document_topics.topic_id = topics.topic_id
+            )
+            WHERE model_type = ?
+        """, (model_type,))
+
+        self.db_conn.commit()
+        self.logger.debug(f"Stored {len(document_topics)} document-topic assignments to database")
+
+    def train_nmf_model(self, num_topics: int = 10,
+                       max_iter: int = 200,
+                       random_state: int = 42,
+                       min_df: int = 2,
+                       max_df: float = 0.8,
+                       max_features: int = 1000,
+                       store_results: bool = True) -> dict:
+        """
+        Train Non-negative Matrix Factorization (NMF) topic model.
+
+        NMF often produces more coherent topics than LDA and is faster.
+        Uses TF-IDF representation which works better for NMF.
+
+        Args:
+            num_topics: Number of topics to discover
+            max_iter: Maximum iterations for NMF
+            random_state: Random seed for reproducibility
+            min_df: Minimum document frequency for terms
+            max_df: Maximum document frequency for terms
+            max_features: Maximum vocabulary size
+            store_results: Whether to store results to database
+
+        Returns:
+            {
+                'model_type': 'nmf',
+                'num_topics': int,
+                'topics': list of topic dicts,
+                'document_topics': list of document-topic assignments,
+                'reconstruction_error': float,
+                'training_time': float,
+                'vocabulary_size': int,
+                'num_documents': int
+            }
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> results = kb.train_nmf_model(num_topics=5, max_iter=200)
+            >>> print(f"Found {results['num_topics']} topics")
+            >>> print(f"Reconstruction error: {results['reconstruction_error']:.2f}")
+        """
+        from sklearn.decomposition import NMF
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        import time
+
+        self.logger.info(f"Training NMF model with {num_topics} topics...")
+
+        # Get all document texts
+        self.logger.info("Preparing corpus from documents...")
+        docs = []
+        doc_ids = []
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                full_text = " ".join(chunk.content for chunk in chunks)
+                docs.append(full_text)
+                doc_ids.append(doc_id)
+
+        if not docs:
+            raise ValueError("No documents available for topic modeling")
+
+        # Create TF-IDF vectorizer (better for NMF than raw counts)
+        vectorizer = TfidfVectorizer(
+            max_df=max_df,
+            min_df=min_df,
+            stop_words='english',
+            max_features=max_features,
+            ngram_range=(1, 2),
+            lowercase=True,
+            token_pattern=r'\b[a-zA-Z]{3,}\b'
+        )
+
+        tfidf_matrix = vectorizer.fit_transform(docs)
+        feature_names = vectorizer.get_feature_names_out()
+
+        self.logger.info(f"Corpus prepared: {len(docs)} docs, {len(feature_names)} terms")
+
+        # Train NMF model
+        self.logger.info("Training NMF model...")
+        start_time = time.time()
+
+        nmf = NMF(
+            n_components=num_topics,
+            max_iter=max_iter,
+            random_state=random_state,
+            init='nndsvda',  # Better initialization for sparse matrices
+            solver='mu',     # Multiplicative update solver
+            beta_loss='frobenius',
+            alpha_W=0.1,     # L1 regularization for topic-word distribution
+            alpha_H=0.1,     # L1 regularization for document-topic distribution
+            l1_ratio=0.5
+        )
+
+        doc_topic_dist = nmf.fit_transform(tfidf_matrix)
+        training_time = time.time() - start_time
+
+        self.logger.info(f"NMF training completed in {training_time:.2f} seconds")
+
+        # Calculate reconstruction error
+        reconstruction_error = nmf.reconstruction_err_
+        self.logger.info(f"Reconstruction error: {reconstruction_error:.2f}")
+
+        # Extract topics (top 10 words per topic)
+        topics = []
+        for topic_idx, topic in enumerate(nmf.components_):
+            # Get top 10 words for this topic
+            top_indices = topic.argsort()[-10:][::-1]
+            top_words = [feature_names[i] for i in top_indices]
+            top_weights = [float(topic[i]) for i in top_indices]
+            word_weights = dict(zip(top_words, top_weights))
+
+            topics.append({
+                'topic_id': f"nmf_topic_{topic_idx}",
+                'topic_number': topic_idx,
+                'top_words': top_words,
+                'word_weights': word_weights,
+                'coherence_score': None  # Can be calculated separately
+            })
+
+        # Get document-topic distributions
+        document_topics = []
+        for doc_idx, doc_id in enumerate(doc_ids):
+            topic_probs = doc_topic_dist[doc_idx]
+            # Normalize to probabilities (NMF outputs can be > 1)
+            topic_probs = topic_probs / topic_probs.sum() if topic_probs.sum() > 0 else topic_probs
+
+            topic_assignments = [
+                (topic_num, float(prob))
+                for topic_num, prob in enumerate(topic_probs)
+            ]
+            # Sort by probability descending
+            topic_assignments.sort(key=lambda x: x[1], reverse=True)
+
+            document_topics.append({
+                'doc_id': doc_id,
+                'topic_assignments': topic_assignments
+            })
+
+        # Store results to database if requested
+        if store_results:
+            self.logger.info("Storing NMF results to database...")
+            self._store_topics_to_db(topics, 'nmf')
+            self._store_document_topics(document_topics, 'nmf')
+            self.logger.info("NMF results stored to database")
+
+        return {
+            'model_type': 'nmf',
+            'num_topics': num_topics,
+            'topics': topics,
+            'document_topics': document_topics,
+            'reconstruction_error': reconstruction_error,
+            'training_time': training_time,
+            'vocabulary_size': len(feature_names),
+            'num_documents': len(doc_ids)
+        }
+
+    def train_bertopic_model(self, num_topics: int = 10,
+                            min_topic_size: int = 5,
+                            store_results: bool = True) -> dict:
+        """
+        Train BERTopic model using embeddings + UMAP + HDBSCAN.
+
+        BERTopic is a state-of-the-art topic modeling technique that uses:
+        1. Document embeddings (from sentence transformers)
+        2. UMAP dimensionality reduction
+        3. HDBSCAN clustering
+        4. c-TF-IDF for topic representation
+
+        Args:
+            num_topics: Target number of topics (actual may vary with HDBSCAN)
+            min_topic_size: Minimum cluster size for HDBSCAN
+            store_results: Whether to store results to database
+
+        Returns:
+            {
+                'model_type': 'bertopic',
+                'num_topics': int,
+                'topics': list of topic dicts,
+                'document_topics': list of document-topic assignments,
+                'training_time': float,
+                'num_documents': int,
+                'outliers': int (documents in topic -1)
+            }
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> results = kb.train_bertopic_model(num_topics=5, min_topic_size=3)
+            >>> print(f"Found {results['num_topics']} topics")
+            >>> print(f"Outliers: {results['outliers']} documents")
+        """
+        from bertopic import BERTopic
+        from umap import UMAP
+        from hdbscan import HDBSCAN
+        import numpy as np
+        import time
+
+        self.logger.info(f"Training BERTopic model (target: {num_topics} topics)...")
+
+        # Get documents and generate embeddings
+        self.logger.info("Collecting documents and generating embeddings...")
+        doc_ids = []
+        documents = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                # Use full document text
+                full_text = " ".join(chunk.content for chunk in chunks)
+                documents.append(full_text)
+                doc_ids.append(doc_id)
+
+        if not documents:
+            raise ValueError("No documents available for topic modeling")
+
+        # Generate embeddings for all documents
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        if not self._embeddings_loaded:
+            self._ensure_embeddings_loaded()
+
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+        self.logger.info(f"Generated embeddings: {embeddings.shape}")
+
+        # Configure UMAP for dimensionality reduction
+        umap_model = UMAP(
+            n_neighbors=15,
+            n_components=5,
+            min_dist=0.0,
+            metric='cosine',
+            random_state=42
+        )
+
+        # Configure HDBSCAN for clustering
+        hdbscan_model = HDBSCAN(
+            min_cluster_size=min_topic_size,
+            metric='euclidean',
+            cluster_selection_method='eom',
+            prediction_data=True
+        )
+
+        # Create BERTopic model
+        self.logger.info("Training BERTopic model...")
+        start_time = time.time()
+
+        topic_model = BERTopic(
+            umap_model=umap_model,
+            hdbscan_model=hdbscan_model,
+            nr_topics=num_topics if num_topics > 0 else 'auto',
+            calculate_probabilities=True,
+            verbose=False
+        )
+
+        # Train model
+        topics, probs = topic_model.fit_transform(documents, embeddings)
+        training_time = time.time() - start_time
+
+        self.logger.info(f"BERTopic training completed in {training_time:.2f} seconds")
+
+        # Get topic information
+        topic_info = topic_model.get_topic_info()
+        num_actual_topics = len(topic_info) - 1  # Exclude outlier topic (-1)
+
+        self.logger.info(f"Found {num_actual_topics} topics (excluding outliers)")
+
+        # Count outliers (topic -1)
+        outliers = sum(1 for t in topics if t == -1)
+        self.logger.info(f"Outliers: {outliers} documents")
+
+        # Extract topics (excluding outlier topic -1)
+        extracted_topics = []
+        for topic_num in topic_info['Topic'].tolist():
+            if topic_num == -1:
+                continue  # Skip outlier topic
+
+            topic_words = topic_model.get_topic(topic_num)
+            if topic_words:
+                top_words = [word for word, _ in topic_words[:10]]
+                word_weights = {word: float(score) for word, score in topic_words[:10]}
+
+                extracted_topics.append({
+                    'topic_id': f"bertopic_topic_{topic_num}",
+                    'topic_number': topic_num,
+                    'top_words': top_words,
+                    'word_weights': word_weights,
+                    'coherence_score': None
+                })
+
+        # Get document-topic assignments
+        document_topics = []
+        for doc_idx, doc_id in enumerate(doc_ids):
+            topic_num = topics[doc_idx]
+
+            # Get probability distribution if available
+            if probs is not None and doc_idx < len(probs):
+                topic_probs = probs[doc_idx]
+                # Create assignments for all topics with their probabilities
+                topic_assignments = []
+                for i, prob in enumerate(topic_probs):
+                    if i - 1 >= 0:  # Adjust for BERTopic indexing
+                        topic_assignments.append((i - 1, float(prob)))
+                topic_assignments.sort(key=lambda x: x[1], reverse=True)
+            else:
+                # Fallback: single topic assignment with probability 1.0
+                if topic_num != -1:
+                    topic_assignments = [(topic_num, 1.0)]
+                else:
+                    topic_assignments = [(-1, 1.0)]
+
+            document_topics.append({
+                'doc_id': doc_id,
+                'topic_assignments': topic_assignments
+            })
+
+        # Store results to database if requested
+        if store_results and extracted_topics:
+            self.logger.info("Storing BERTopic results to database...")
+            # Filter out outlier assignments (topic -1)
+            valid_document_topics = []
+            for dt in document_topics:
+                valid_assignments = [(t, p) for t, p in dt['topic_assignments'] if t != -1]
+                if valid_assignments:
+                    valid_document_topics.append({
+                        'doc_id': dt['doc_id'],
+                        'topic_assignments': valid_assignments
+                    })
+
+            self._store_topics_to_db(extracted_topics, 'bertopic')
+            self._store_document_topics(valid_document_topics, 'bertopic')
+            self.logger.info("BERTopic results stored to database")
+
+        return {
+            'model_type': 'bertopic',
+            'num_topics': num_actual_topics,
+            'topics': extracted_topics,
+            'document_topics': document_topics,
+            'training_time': training_time,
+            'num_documents': len(doc_ids),
+            'outliers': outliers
+        }
+
+    def compare_topic_models(self) -> dict:
+        """
+        Compare all topic models (LDA, NMF, BERTopic) stored in the database.
+
+        Provides a comprehensive comparison of different topic modeling approaches
+        to help select the best model for the corpus.
+
+        Returns:
+            {
+                'models': {
+                    'lda': model_stats,
+                    'nmf': model_stats,
+                    'bertopic': model_stats
+                },
+                'comparison': {
+                    'fastest': str,
+                    'most_topics': str,
+                    'best_coverage': str
+                }
+            }
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> kb.train_lda_model(num_topics=5)
+            >>> kb.train_nmf_model(num_topics=5)
+            >>> kb.train_bertopic_model(num_topics=5)
+            >>> comparison = kb.compare_topic_models()
+            >>> print(f"Fastest model: {comparison['comparison']['fastest']}")
+        """
+        cursor = self.db_conn.cursor()
+
+        models = {}
+        model_types = ['lda', 'nmf', 'bertopic']
+
+        for model_type in model_types:
+            # Get topics for this model
+            topics = cursor.execute("""
+                SELECT COUNT(*), AVG(num_documents)
+                FROM topics
+                WHERE model_type = ?
+            """, (model_type,)).fetchone()
+
+            if topics and topics[0] > 0:
+                num_topics = topics[0]
+                avg_docs_per_topic = topics[1] or 0
+
+                # Get document coverage
+                doc_count = cursor.execute("""
+                    SELECT COUNT(DISTINCT doc_id)
+                    FROM document_topics
+                    WHERE model_type = ?
+                """, (model_type,)).fetchone()[0]
+
+                # Get top topics by document count
+                top_topics = cursor.execute("""
+                    SELECT topic_number, num_documents, top_words
+                    FROM topics
+                    WHERE model_type = ?
+                    ORDER BY num_documents DESC
+                    LIMIT 5
+                """, (model_type,)).fetchall()
+
+                # Calculate topic diversity (unique words across all topics)
+                all_topics_data = cursor.execute("""
+                    SELECT top_words
+                    FROM topics
+                    WHERE model_type = ?
+                """, (model_type,)).fetchall()
+
+                unique_words = set()
+                for (top_words_json,) in all_topics_data:
+                    import json
+                    words = json.loads(top_words_json)
+                    unique_words.update(words)
+
+                models[model_type] = {
+                    'num_topics': num_topics,
+                    'documents_covered': doc_count,
+                    'avg_docs_per_topic': round(avg_docs_per_topic, 1),
+                    'vocabulary_diversity': len(unique_words),
+                    'top_topics': [
+                        {
+                            'topic_number': t[0],
+                            'num_documents': t[1],
+                            'top_words': json.loads(t[2])[:5]  # First 5 words
+                        }
+                        for t in top_topics
+                    ]
+                }
+            else:
+                models[model_type] = None
+
+        # Calculate comparisons
+        comparison = {}
+
+        # Find model with most topics
+        valid_models = {k: v for k, v in models.items() if v is not None}
+        if valid_models:
+            most_topics = max(valid_models.items(),
+                            key=lambda x: x[1]['num_topics'])
+            comparison['most_topics'] = {
+                'model': most_topics[0],
+                'count': most_topics[1]['num_topics']
+            }
+
+            # Find model with best coverage
+            best_coverage = max(valid_models.items(),
+                              key=lambda x: x[1]['documents_covered'])
+            comparison['best_coverage'] = {
+                'model': best_coverage[0],
+                'documents': best_coverage[1]['documents_covered']
+            }
+
+            # Find model with highest vocabulary diversity
+            most_diverse = max(valid_models.items(),
+                             key=lambda x: x[1]['vocabulary_diversity'])
+            comparison['most_diverse_vocabulary'] = {
+                'model': most_diverse[0],
+                'unique_words': most_diverse[1]['vocabulary_diversity']
+            }
+
+            # Summary recommendation
+            if len(valid_models) >= 2:
+                # Simple heuristic: prioritize coverage and diversity
+                scores = {}
+                for model, stats in valid_models.items():
+                    score = (stats['documents_covered'] * 0.4 +
+                            stats['vocabulary_diversity'] * 0.3 +
+                            stats['num_topics'] * 0.3)
+                    scores[model] = score
+
+                recommended = max(scores.items(), key=lambda x: x[1])
+                comparison['recommended'] = {
+                    'model': recommended[0],
+                    'score': round(recommended[1], 2),
+                    'reason': f"Best balance of coverage, diversity, and topic count"
+                }
+
+        return {
+            'models': models,
+            'comparison': comparison,
+            'total_models': len(valid_models)
+        }
+
+    def _store_clusters_to_db(self, clusters: list, algorithm: str) -> None:
+        """
+        Store clusters to database.
+
+        Args:
+            clusters: List of cluster dicts with cluster info
+            algorithm: Clustering algorithm name (kmeans, dbscan, hdbscan)
+        """
+        import json
+        import pickle
+
+        cursor = self.db_conn.cursor()
+
+        # Clear existing clusters for this algorithm
+        cursor.execute("DELETE FROM clusters WHERE algorithm = ?", (algorithm,))
+
+        for cluster in clusters:
+            # Serialize centroid vector if present
+            centroid_blob = None
+            if cluster.get('centroid') is not None:
+                centroid_blob = pickle.dumps(cluster['centroid'])
+
+            cursor.execute("""
+                INSERT INTO clusters
+                (cluster_id, algorithm, cluster_number, centroid_vector,
+                 num_documents, representative_docs, top_terms, silhouette_score, created_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                cluster['cluster_id'],
+                algorithm,
+                cluster['cluster_number'],
+                centroid_blob,
+                cluster.get('num_documents', 0),
+                json.dumps(cluster.get('representative_docs', [])),
+                json.dumps(cluster.get('top_terms', [])),
+                cluster.get('silhouette_score'),
+                datetime.now().isoformat()
+            ))
+
+        self.db_conn.commit()
+        self.logger.debug(f"Stored {len(clusters)} clusters to database")
+
+    def _store_document_clusters(self, document_clusters: list, algorithm: str) -> None:
+        """
+        Store document-cluster assignments to database.
+
+        Args:
+            document_clusters: List of {doc_id, cluster_assignments} dicts
+            algorithm: Clustering algorithm name
+        """
+        cursor = self.db_conn.cursor()
+
+        # Clear existing assignments for this algorithm
+        cursor.execute("DELETE FROM document_clusters WHERE algorithm = ?", (algorithm,))
+
+        for doc_cluster in document_clusters:
+            doc_id = doc_cluster['doc_id']
+            cluster_num = doc_cluster['cluster_number']
+            distance = doc_cluster.get('distance')
+
+            assignment_id = hashlib.md5(
+                f"{doc_id}_{algorithm}_{cluster_num}".encode()
+            ).hexdigest()[:16]
+            cluster_id = f"{algorithm}_cluster_{cluster_num}"
+
+            cursor.execute("""
+                INSERT INTO document_clusters
+                (assignment_id, doc_id, cluster_id, distance, algorithm, assigned_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (assignment_id, doc_id, cluster_id, distance,
+                  algorithm, datetime.now().isoformat()))
+
+        self.db_conn.commit()
+
+        # Update document counts in clusters table
+        cursor.execute("""
+            UPDATE clusters
+            SET num_documents = (
+                SELECT COUNT(DISTINCT doc_id)
+                FROM document_clusters
+                WHERE document_clusters.cluster_id = clusters.cluster_id
+            )
+            WHERE algorithm = ?
+        """, (algorithm,))
+        self.db_conn.commit()
+        self.logger.debug(f"Stored {len(document_clusters)} document-cluster assignments to database")
+
+    def cluster_documents_kmeans(self, num_clusters: int = 10,
+                                 store_results: bool = True) -> dict:
+        """
+        Cluster documents using K-Means on embeddings.
+
+        K-Means is a centroid-based clustering algorithm that partitions documents
+        into K clusters based on embedding similarity.
+
+        Args:
+            num_clusters: Number of clusters (K)
+            store_results: Whether to store results to database
+
+        Returns:
+            {
+                'algorithm': 'kmeans',
+                'num_clusters': int,
+                'clusters': list of cluster dicts,
+                'document_clusters': list of assignments,
+                'silhouette_score': float,
+                'training_time': float,
+                'num_documents': int
+            }
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> results = kb.cluster_documents_kmeans(num_clusters=5)
+            >>> print(f"Silhouette score: {results['silhouette_score']:.3f}")
+        """
+        from sklearn.cluster import KMeans
+        from sklearn.metrics import silhouette_score
+        import numpy as np
+        import time
+
+        self.logger.info(f"Clustering documents with K-Means (K={num_clusters})...")
+
+        # Get documents and generate embeddings
+        self.logger.info("Collecting documents and generating embeddings...")
+        doc_ids = []
+        documents = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                full_text = " ".join(chunk.content for chunk in chunks)
+                documents.append(full_text)
+                doc_ids.append(doc_id)
+
+        if not documents:
+            raise ValueError("No documents available for clustering")
+
+        # Generate embeddings
+        if not self._embeddings_loaded:
+            self._ensure_embeddings_loaded()
+
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+        self.logger.info(f"Embeddings shape: {embeddings.shape}")
+
+        # Train K-Means
+        self.logger.info("Training K-Means model...")
+        start_time = time.time()
+
+        kmeans = KMeans(
+            n_clusters=num_clusters,
+            random_state=42,
+            n_init=10,
+            max_iter=300
+        )
+        labels = kmeans.fit_predict(embeddings)
+        training_time = time.time() - start_time
+
+        self.logger.info(f"K-Means training completed in {training_time:.2f} seconds")
+
+        # Calculate silhouette score
+        silhouette = silhouette_score(embeddings, labels)
+        self.logger.info(f"Silhouette score: {silhouette:.3f}")
+
+        # Extract clusters
+        clusters = []
+        document_clusters = []
+
+        for cluster_num in range(num_clusters):
+            # Get documents in this cluster
+            cluster_doc_indices = [i for i, label in enumerate(labels) if label == cluster_num]
+            cluster_doc_ids = [doc_ids[i] for i in cluster_doc_indices]
+
+            # Get cluster centroid
+            centroid = kmeans.cluster_centers_[cluster_num]
+
+            # Get representative documents (closest to centroid)
+            if cluster_doc_indices:
+                cluster_embeddings = embeddings[cluster_doc_indices]
+                distances = np.linalg.norm(cluster_embeddings - centroid, axis=1)
+                top_indices = distances.argsort()[:5]  # Top 5 closest
+                representative_docs = [cluster_doc_ids[i] for i in top_indices]
+            else:
+                representative_docs = []
+
+            # Calculate top terms for this cluster
+            cluster_texts = [documents[i] for i in cluster_doc_indices]
+            top_terms = self._extract_top_terms_from_texts(cluster_texts, top_n=10)
+
+            clusters.append({
+                'cluster_id': f"kmeans_cluster_{cluster_num}",
+                'cluster_number': cluster_num,
+                'centroid': centroid,
+                'num_documents': len(cluster_doc_ids),
+                'representative_docs': representative_docs,
+                'top_terms': top_terms,
+                'silhouette_score': silhouette
+            })
+
+            # Create document-cluster assignments
+            for doc_idx in cluster_doc_indices:
+                doc_id = doc_ids[doc_idx]
+                distance = float(np.linalg.norm(embeddings[doc_idx] - centroid))
+
+                document_clusters.append({
+                    'doc_id': doc_id,
+                    'cluster_number': cluster_num,
+                    'distance': distance
+                })
+
+        # Store results to database if requested
+        if store_results:
+            self.logger.info("Storing K-Means results to database...")
+            self._store_clusters_to_db(clusters, 'kmeans')
+            self._store_document_clusters(document_clusters, 'kmeans')
+            self.logger.info("K-Means results stored to database")
+
+        return {
+            'algorithm': 'kmeans',
+            'num_clusters': num_clusters,
+            'clusters': clusters,
+            'document_clusters': document_clusters,
+            'silhouette_score': silhouette,
+            'training_time': training_time,
+            'num_documents': len(doc_ids)
+        }
+
+    def _extract_top_terms_from_texts(self, texts: list, top_n: int = 10) -> list:
+        """
+        Extract top N terms from a list of texts using TF-IDF.
+
+        Args:
+            texts: List of text strings
+            top_n: Number of top terms to extract
+
+        Returns:
+            List of top terms
+        """
+        if not texts:
+            return []
+
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        try:
+            vectorizer = TfidfVectorizer(
+                max_features=top_n,
+                stop_words='english',
+                ngram_range=(1, 2),
+                max_df=0.8,
+                min_df=1
+            )
+            vectorizer.fit(texts)
+            return list(vectorizer.get_feature_names_out())
+        except Exception as e:
+            self.logger.warning(f"Could not extract top terms: {e}")
+            return []
+
+    def cluster_documents_dbscan(self, eps: float = 0.5,
+                                 min_samples: int = 3,
+                                 store_results: bool = True) -> dict:
+        """
+        Cluster documents using DBSCAN (Density-Based Spatial Clustering).
+
+        DBSCAN finds arbitrary-shaped clusters and identifies outliers.
+        Does not require specifying the number of clusters.
+
+        Args:
+            eps: Maximum distance between two samples to be considered neighbors
+            min_samples: Minimum samples in a neighborhood for a core point
+            store_results: Whether to store results to database
+
+        Returns:
+            {
+                'algorithm': 'dbscan',
+                'num_clusters': int (excluding noise),
+                'clusters': list of cluster dicts,
+                'document_clusters': list of assignments,
+                'num_outliers': int (noise points),
+                'training_time': float,
+                'num_documents': int
+            }
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> results = kb.cluster_documents_dbscan(eps=0.5, min_samples=3)
+            >>> print(f"Found {results['num_clusters']} clusters")
+            >>> print(f"Outliers: {results['num_outliers']}")
+        """
+        from sklearn.cluster import DBSCAN
+        import numpy as np
+        import time
+
+        self.logger.info(f"Clustering documents with DBSCAN (eps={eps}, min_samples={min_samples})...")
+
+        # Get documents and generate embeddings
+        self.logger.info("Collecting documents and generating embeddings...")
+        doc_ids = []
+        documents = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                full_text = " ".join(chunk.content for chunk in chunks)
+                documents.append(full_text)
+                doc_ids.append(doc_id)
+
+        if not documents:
+            raise ValueError("No documents available for clustering")
+
+        # Generate embeddings
+        if not self._embeddings_loaded:
+            self._ensure_embeddings_loaded()
+
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+        self.logger.info(f"Embeddings shape: {embeddings.shape}")
+
+        # Train DBSCAN
+        self.logger.info("Training DBSCAN model...")
+        start_time = time.time()
+
+        dbscan = DBSCAN(
+            eps=eps,
+            min_samples=min_samples,
+            metric='cosine',
+            n_jobs=-1
+        )
+        labels = dbscan.fit_predict(embeddings)
+        training_time = time.time() - start_time
+
+        self.logger.info(f"DBSCAN training completed in {training_time:.2f} seconds")
+
+        # Count clusters (excluding noise label -1)
+        unique_labels = set(labels)
+        num_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+        num_outliers = sum(1 for label in labels if label == -1)
+
+        self.logger.info(f"Found {num_clusters} clusters and {num_outliers} outliers")
+
+        # Extract clusters
+        clusters = []
+        document_clusters = []
+
+        for cluster_num in unique_labels:
+            if cluster_num == -1:
+                continue  # Skip noise/outliers
+
+            # Get documents in this cluster
+            cluster_doc_indices = [i for i, label in enumerate(labels) if label == cluster_num]
+            cluster_doc_ids = [doc_ids[i] for i in cluster_doc_indices]
+
+            # Calculate centroid (mean of cluster embeddings)
+            cluster_embeddings = embeddings[cluster_doc_indices]
+            centroid = np.mean(cluster_embeddings, axis=0)
+
+            # Get representative documents (closest to centroid)
+            if cluster_doc_indices:
+                distances = np.linalg.norm(cluster_embeddings - centroid, axis=1)
+                top_indices = distances.argsort()[:5]  # Top 5 closest
+                representative_docs = [cluster_doc_ids[i] for i in top_indices]
+            else:
+                representative_docs = []
+
+            # Calculate top terms for this cluster
+            cluster_texts = [documents[i] for i in cluster_doc_indices]
+            top_terms = self._extract_top_terms_from_texts(cluster_texts, top_n=10)
+
+            clusters.append({
+                'cluster_id': f"dbscan_cluster_{cluster_num}",
+                'cluster_number': cluster_num,
+                'centroid': centroid,
+                'num_documents': len(cluster_doc_ids),
+                'representative_docs': representative_docs,
+                'top_terms': top_terms,
+                'silhouette_score': None
+            })
+
+            # Create document-cluster assignments
+            for doc_idx in cluster_doc_indices:
+                doc_id = doc_ids[doc_idx]
+                distance = float(np.linalg.norm(embeddings[doc_idx] - centroid))
+
+                document_clusters.append({
+                    'doc_id': doc_id,
+                    'cluster_number': cluster_num,
+                    'distance': distance
+                })
+
+        # Store results to database if requested
+        if store_results and clusters:
+            self.logger.info("Storing DBSCAN results to database...")
+            self._store_clusters_to_db(clusters, 'dbscan')
+            self._store_document_clusters(document_clusters, 'dbscan')
+            self.logger.info("DBSCAN results stored to database")
+
+        return {
+            'algorithm': 'dbscan',
+            'num_clusters': num_clusters,
+            'clusters': clusters,
+            'document_clusters': document_clusters,
+            'num_outliers': num_outliers,
+            'training_time': training_time,
+            'num_documents': len(doc_ids)
+        }
+
+    def cluster_documents_hdbscan(self, min_cluster_size: int = 5,
+                                  min_samples: int = 3,
+                                  store_results: bool = True) -> dict:
+        """
+        Cluster documents using HDBSCAN (Hierarchical DBSCAN).
+
+        HDBSCAN is an improved version of DBSCAN that automatically selects
+        clusters and handles varying density clusters better.
+
+        Args:
+            min_cluster_size: Minimum cluster size
+            min_samples: Minimum samples in a neighborhood
+            store_results: Whether to store results to database
+
+        Returns:
+            {
+                'algorithm': 'hdbscan',
+                'num_clusters': int (excluding noise),
+                'clusters': list of cluster dicts,
+                'document_clusters': list of assignments,
+                'num_outliers': int (noise points),
+                'training_time': float,
+                'num_documents': int
+            }
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> results = kb.cluster_documents_hdbscan(min_cluster_size=5)
+            >>> print(f"Found {results['num_clusters']} clusters")
+            >>> print(f"Outliers: {results['num_outliers']}")
+        """
+        from hdbscan import HDBSCAN
+        import numpy as np
+        import time
+
+        self.logger.info(f"Clustering documents with HDBSCAN (min_cluster_size={min_cluster_size})...")
+
+        # Get documents and generate embeddings
+        self.logger.info("Collecting documents and generating embeddings...")
+        doc_ids = []
+        documents = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                full_text = " ".join(chunk.content for chunk in chunks)
+                documents.append(full_text)
+                doc_ids.append(doc_id)
+
+        if not documents:
+            raise ValueError("No documents available for clustering")
+
+        # Generate embeddings
+        if not self._embeddings_loaded:
+            self._ensure_embeddings_loaded()
+
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+        self.logger.info(f"Embeddings shape: {embeddings.shape}")
+
+        # Train HDBSCAN
+        self.logger.info("Training HDBSCAN model...")
+        start_time = time.time()
+
+        hdbscan = HDBSCAN(
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            metric='euclidean',
+            cluster_selection_method='eom',
+            prediction_data=True
+        )
+        labels = hdbscan.fit_predict(embeddings)
+        training_time = time.time() - start_time
+
+        self.logger.info(f"HDBSCAN training completed in {training_time:.2f} seconds")
+
+        # Count clusters (excluding noise label -1)
+        unique_labels = set(labels)
+        num_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+        num_outliers = sum(1 for label in labels if label == -1)
+
+        self.logger.info(f"Found {num_clusters} clusters and {num_outliers} outliers")
+
+        # Extract clusters
+        clusters = []
+        document_clusters = []
+
+        for cluster_num in unique_labels:
+            if cluster_num == -1:
+                continue  # Skip noise/outliers
+
+            # Get documents in this cluster
+            cluster_doc_indices = [i for i, label in enumerate(labels) if label == cluster_num]
+            cluster_doc_ids = [doc_ids[i] for i in cluster_doc_indices]
+
+            # Calculate centroid (mean of cluster embeddings)
+            cluster_embeddings = embeddings[cluster_doc_indices]
+            centroid = np.mean(cluster_embeddings, axis=0)
+
+            # Get representative documents (closest to centroid)
+            if cluster_doc_indices:
+                distances = np.linalg.norm(cluster_embeddings - centroid, axis=1)
+                top_indices = distances.argsort()[:5]  # Top 5 closest
+                representative_docs = [cluster_doc_ids[i] for i in top_indices]
+            else:
+                representative_docs = []
+
+            # Calculate top terms for this cluster
+            cluster_texts = [documents[i] for i in cluster_doc_indices]
+            top_terms = self._extract_top_terms_from_texts(cluster_texts, top_n=10)
+
+            clusters.append({
+                'cluster_id': f"hdbscan_cluster_{cluster_num}",
+                'cluster_number': cluster_num,
+                'centroid': centroid,
+                'num_documents': len(cluster_doc_ids),
+                'representative_docs': representative_docs,
+                'top_terms': top_terms,
+                'silhouette_score': None
+            })
+
+            # Create document-cluster assignments
+            for doc_idx in cluster_doc_indices:
+                doc_id = doc_ids[doc_idx]
+                distance = float(np.linalg.norm(embeddings[doc_idx] - centroid))
+
+                document_clusters.append({
+                    'doc_id': doc_id,
+                    'cluster_number': cluster_num,
+                    'distance': distance
+                })
+
+        # Store results to database if requested
+        if store_results and clusters:
+            self.logger.info("Storing HDBSCAN results to database...")
+            self._store_clusters_to_db(clusters, 'hdbscan')
+            self._store_document_clusters(document_clusters, 'hdbscan')
+            self.logger.info("HDBSCAN results stored to database")
+
+        return {
+            'algorithm': 'hdbscan',
+            'num_clusters': num_clusters,
+            'clusters': clusters,
+            'document_clusters': document_clusters,
+            'num_outliers': num_outliers,
+            'training_time': training_time,
+            'num_documents': len(doc_ids)
+        }
+
+    def evaluate_clustering(self, algorithm: str) -> dict:
+        """
+        Evaluate clustering quality with multiple metrics.
+
+        Calculates Silhouette score, Davies-Bouldin index, and
+        Calinski-Harabasz score for the specified clustering algorithm.
+
+        Args:
+            algorithm: Clustering algorithm name (kmeans, dbscan, hdbscan)
+
+        Returns:
+            {
+                'algorithm': str,
+                'silhouette_score': float (higher is better, -1 to 1),
+                'davies_bouldin_score': float (lower is better, ≥0),
+                'calinski_harabasz_score': float (higher is better, ≥0),
+                'num_clusters': int,
+                'num_documents': int
+            }
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> kb.cluster_documents_kmeans(num_clusters=5)
+            >>> metrics = kb.evaluate_clustering('kmeans')
+            >>> print(f"Silhouette: {metrics['silhouette_score']:.3f}")
+        """
+        from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+        import numpy as np
+
+        self.logger.info(f"Evaluating {algorithm} clustering quality...")
+
+        # Get document cluster assignments
+        cursor = self.db_conn.cursor()
+        assignments = cursor.execute("""
+            SELECT doc_id, cluster_id
+            FROM document_clusters
+            WHERE algorithm = ?
+            ORDER BY doc_id
+        """, (algorithm,)).fetchall()
+
+        if not assignments:
+            raise ValueError(f"No clustering results found for algorithm: {algorithm}")
+
+        # Get documents and generate embeddings
+        doc_ids = [doc_id for doc_id, _ in assignments]
+        documents = []
+
+        for doc_id in doc_ids:
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                full_text = " ".join(chunk.content for chunk in chunks)
+                documents.append(full_text)
+
+        # Generate embeddings
+        if not self._embeddings_loaded:
+            self._ensure_embeddings_loaded()
+
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+
+        # Get cluster labels
+        cluster_ids = [cluster_id for _, cluster_id in assignments]
+        unique_cluster_ids = list(set(cluster_ids))
+        cluster_to_label = {cid: i for i, cid in enumerate(unique_cluster_ids)}
+        labels = np.array([cluster_to_label[cid] for cid in cluster_ids])
+
+        # Calculate metrics
+        silhouette = silhouette_score(embeddings, labels)
+        davies_bouldin = davies_bouldin_score(embeddings, labels)
+        calinski_harabasz = calinski_harabasz_score(embeddings, labels)
+
+        self.logger.info(f"Silhouette score: {silhouette:.3f}")
+        self.logger.info(f"Davies-Bouldin index: {davies_bouldin:.3f}")
+        self.logger.info(f"Calinski-Harabasz score: {calinski_harabasz:.2f}")
+
+        return {
+            'algorithm': algorithm,
+            'silhouette_score': float(silhouette),
+            'davies_bouldin_score': float(davies_bouldin),
+            'calinski_harabasz_score': float(calinski_harabasz),
+            'num_clusters': len(unique_cluster_ids),
+            'num_documents': len(doc_ids)
+        }
+
+    # ============================================================
+    # VISUALIZATION METHODS (Phase 2, Task 2.6)
+    # ============================================================
+
+    def visualize_topics_wordcloud(self, model_type: str = 'lda',
+                                   output_dir: str = "topic_wordclouds") -> List[str]:
+        """
+        Generate word cloud visualizations for each topic.
+
+        Creates PNG images showing word importance in each topic using
+        word clouds. Words that are more important in the topic appear
+        larger in the visualization.
+
+        Args:
+            model_type: Topic model type (lda, nmf, bertopic)
+            output_dir: Directory to save word cloud images
+
+        Returns:
+            List of output file paths
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> kb.train_lda_model(num_topics=5)
+            >>> files = kb.visualize_topics_wordcloud('lda')
+            >>> print(f"Created {len(files)} word clouds")
+        """
+        import json
+        import os
+        from pathlib import Path
+
+        # Import visualization libraries
+        try:
+            from wordcloud import WordCloud
+            import matplotlib
+            matplotlib.use('Agg')  # Non-interactive backend
+            import matplotlib.pyplot as plt
+        except ImportError:
+            raise ImportError("wordcloud and matplotlib required for visualizations. Install with: pip install wordcloud matplotlib")
+
+        self.logger.info(f"Generating word clouds for {model_type} topics...")
+
+        # Create output directory
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Get topics from database
+        cursor = self.db_conn.cursor()
+        topics = cursor.execute("""
+            SELECT topic_number, word_weights, top_words
+            FROM topics
+            WHERE model_type = ?
+            ORDER BY topic_number
+        """, (model_type,)).fetchall()
+
+        if not topics:
+            raise ValueError(f"No topics found for model type: {model_type}")
+
+        output_files = []
+
+        for topic_num, word_weights_json, top_words_json in topics:
+            # Parse word weights
+            word_weights = json.loads(word_weights_json)
+
+            # Create word cloud
+            wc = WordCloud(
+                width=800,
+                height=400,
+                background_color='white',
+                colormap='viridis',
+                relative_scaling=0.5,
+                min_font_size=10
+            ).generate_from_frequencies(word_weights)
+
+            # Create figure
+            plt.figure(figsize=(10, 5))
+            plt.imshow(wc, interpolation='bilinear')
+            plt.axis('off')
+            plt.title(f"{model_type.upper()} Topic {topic_num}", fontsize=16, fontweight='bold')
+
+            # Save image
+            output_file = output_path / f"topic_{model_type}_{topic_num}.png"
+            plt.savefig(output_file, bbox_inches='tight', dpi=150)
+            plt.close()
+
+            output_files.append(str(output_file))
+            self.logger.info(f"Created word cloud: {output_file}")
+
+        self.logger.info(f"Generated {len(output_files)} word cloud visualizations")
+        return output_files
+
+    def visualize_topic_distribution(self, model_type: str = 'lda',
+                                     output_path: str = "topic_distribution.html") -> str:
+        """
+        Create interactive bar chart showing topic distribution across corpus.
+
+        Shows how many documents are primarily associated with each topic,
+        with interactive hover information.
+
+        Args:
+            model_type: Topic model type (lda, nmf, bertopic)
+            output_path: Output HTML file path
+
+        Returns:
+            Path to output HTML file
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> kb.train_lda_model(num_topics=5)
+            >>> file = kb.visualize_topic_distribution('lda')
+            >>> print(f"Chart saved to {file}")
+        """
+        import json
+        from pathlib import Path
+
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            raise ImportError("plotly required for visualizations. Install with: pip install plotly")
+
+        self.logger.info(f"Creating topic distribution chart for {model_type}...")
+
+        # Get topics with document counts
+        cursor = self.db_conn.cursor()
+        topics = cursor.execute("""
+            SELECT topic_number, num_documents, top_words
+            FROM topics
+            WHERE model_type = ?
+            ORDER BY topic_number
+        """, (model_type,)).fetchall()
+
+        if not topics:
+            raise ValueError(f"No topics found for model type: {model_type}")
+
+        # Parse data
+        topic_numbers = []
+        doc_counts = []
+        top_words_list = []
+
+        for topic_num, num_docs, top_words_json in topics:
+            topic_numbers.append(f"Topic {topic_num}")
+            doc_counts.append(num_docs)
+            top_words = json.loads(top_words_json)
+            top_words_list.append(", ".join(top_words[:5]))
+
+        # Create bar chart
+        fig = go.Figure(data=[
+            go.Bar(
+                x=topic_numbers,
+                y=doc_counts,
+                text=doc_counts,
+                textposition='auto',
+                hovertemplate='<b>%{x}</b><br>Documents: %{y}<br>Top words: %{customdata}<extra></extra>',
+                customdata=top_words_list,
+                marker=dict(
+                    color=doc_counts,
+                    colorscale='Viridis',
+                    showscale=True,
+                    colorbar=dict(title="Documents")
+                )
+            )
+        ])
+
+        fig.update_layout(
+            title=f"{model_type.upper()} Topic Distribution Across Corpus",
+            xaxis_title="Topic",
+            yaxis_title="Number of Documents",
+            height=500,
+            template="plotly_white",
+            hovermode='closest'
+        )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"Topic distribution chart saved to {output_file}")
+        return str(output_file)
+
+    def visualize_clusters_2d(self, algorithm: str = 'kmeans',
+                              output_path: str = "clusters_2d.html") -> str:
+        """
+        Visualize document clusters in 2D using UMAP dimensionality reduction.
+
+        Creates interactive scatter plot showing how documents cluster together
+        in semantic space. Uses UMAP to reduce high-dimensional embeddings to 2D.
+
+        Args:
+            algorithm: Clustering algorithm (kmeans, dbscan, hdbscan)
+            output_path: Output HTML file path
+
+        Returns:
+            Path to output HTML file
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> kb.cluster_documents_kmeans(num_clusters=5)
+            >>> file = kb.visualize_clusters_2d('kmeans')
+            >>> print(f"Cluster visualization saved to {file}")
+        """
+        import numpy as np
+        from pathlib import Path
+
+        try:
+            import plotly.express as px
+            import pandas as pd
+        except ImportError:
+            raise ImportError("plotly and pandas required. Install with: pip install plotly pandas")
+
+        try:
+            from umap import UMAP
+        except ImportError:
+            raise ImportError("umap-learn required. Install with: pip install umap-learn")
+
+        self.logger.info(f"Creating 2D cluster visualization for {algorithm}...")
+
+        # Get cluster assignments
+        cursor = self.db_conn.cursor()
+        assignments = cursor.execute("""
+            SELECT dc.doc_id, dc.cluster_id, c.cluster_number
+            FROM document_clusters dc
+            JOIN clusters c ON dc.cluster_id = c.cluster_id
+            WHERE dc.algorithm = ?
+            ORDER BY dc.doc_id
+        """, (algorithm,)).fetchall()
+
+        if not assignments:
+            raise ValueError(f"No clustering results found for algorithm: {algorithm}")
+
+        # Get documents and generate embeddings
+        doc_ids = [doc_id for doc_id, _, _ in assignments]
+        cluster_labels = [cluster_num for _, _, cluster_num in assignments]
+        documents = []
+        titles = []
+
+        for doc_id in doc_ids:
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                full_text = " ".join(chunk.content for chunk in chunks)
+                documents.append(full_text)
+                titles.append(self.documents[doc_id].title if doc_id in self.documents else doc_id[:12])
+
+        # Generate embeddings
+        if not self._embeddings_loaded:
+            self._ensure_embeddings_loaded()
+
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+
+        # Reduce to 2D with UMAP
+        self.logger.info("Reducing embeddings to 2D with UMAP...")
+        reducer = UMAP(
+            n_components=2,
+            random_state=42,
+            n_neighbors=15,
+            min_dist=0.1,
+            metric='cosine'
+        )
+        embedding_2d = reducer.fit_transform(embeddings)
+
+        # Create DataFrame
+        df = pd.DataFrame({
+            'x': embedding_2d[:, 0],
+            'y': embedding_2d[:, 1],
+            'cluster': [f"Cluster {label}" for label in cluster_labels],
+            'cluster_num': cluster_labels,
+            'doc_id': doc_ids,
+            'title': titles
+        })
+
+        # Create scatter plot
+        fig = px.scatter(
+            df,
+            x='x',
+            y='y',
+            color='cluster',
+            hover_data=['title', 'doc_id'],
+            title=f"Document Clusters in 2D ({algorithm.upper()})",
+            labels={'x': 'UMAP Dimension 1', 'y': 'UMAP Dimension 2'},
+            color_discrete_sequence=px.colors.qualitative.Vivid
+        )
+
+        fig.update_traces(marker=dict(size=8, line=dict(width=0.5, color='DarkSlateGrey')))
+        fig.update_layout(
+            height=600,
+            template="plotly_white",
+            hovermode='closest',
+            legend=dict(title="Cluster")
+        )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"2D cluster visualization saved to {output_file}")
+        return str(output_file)
+
+    def visualize_cluster_dendrogram(self, algorithm: str = 'kmeans',
+                                     output_path: str = "cluster_dendrogram.html") -> str:
+        """
+        Create dendrogram visualization showing hierarchical cluster relationships.
+
+        Builds a hierarchical tree showing how clusters relate to each other
+        based on their centroid distances. Useful for understanding cluster
+        similarity and structure.
+
+        Args:
+            algorithm: Clustering algorithm (kmeans, dbscan, hdbscan)
+            output_path: Output HTML file path
+
+        Returns:
+            Path to output HTML file
+
+        Examples:
+            >>> kb = KnowledgeBase()
+            >>> kb.cluster_documents_kmeans(num_clusters=5)
+            >>> file = kb.visualize_cluster_dendrogram('kmeans')
+            >>> print(f"Dendrogram saved to {file}")
+        """
+        import numpy as np
+        from pathlib import Path
+
+        try:
+            from scipy.cluster.hierarchy import dendrogram, linkage
+            from scipy.spatial.distance import pdist
+        except ImportError:
+            raise ImportError("scipy required. Install with: pip install scipy")
+
+        try:
+            import plotly.figure_factory as ff
+        except ImportError:
+            raise ImportError("plotly required. Install with: pip install plotly")
+
+        self.logger.info(f"Creating dendrogram for {algorithm} clusters...")
+
+        # Get cluster centroids
+        cursor = self.db_conn.cursor()
+        clusters = cursor.execute("""
+            SELECT cluster_number, centroid_vector
+            FROM clusters
+            WHERE algorithm = ?
+            ORDER BY cluster_number
+        """, (algorithm,)).fetchall()
+
+        if not clusters:
+            raise ValueError(f"No clustering results found for algorithm: {algorithm}")
+
+        # Parse centroids
+        cluster_numbers = []
+        centroids = []
+
+        for cluster_num, centroid_blob in clusters:
+            cluster_numbers.append(cluster_num)
+            centroid = np.frombuffer(centroid_blob, dtype=np.float32)
+            centroids.append(centroid)
+
+        centroids = np.array(centroids, dtype=np.float64)  # Convert to float64
+        self.logger.info(f"Loaded {len(centroids)} cluster centroids with shape {centroids.shape}")
+
+        # Check for and handle non-finite values
+        if not np.all(np.isfinite(centroids)):
+            self.logger.warning("Found non-finite values in centroids, replacing with zeros")
+            centroids = np.nan_to_num(centroids, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Normalize centroids to prevent numerical issues
+        from sklearn.preprocessing import normalize
+        centroids = normalize(centroids)
+
+        # Perform hierarchical clustering on centroids
+        self.logger.info("Computing hierarchical clustering...")
+        linkage_matrix = linkage(centroids, method='ward')
+
+        # Create labels
+        labels = [f"Cluster {num}" for num in cluster_numbers]
+
+        # Create dendrogram using plotly
+        fig = ff.create_dendrogram(
+            centroids,
+            labels=labels,
+            linkagefun=lambda x: linkage(x, method='ward')
+        )
+
+        fig.update_layout(
+            title=f"Cluster Dendrogram ({algorithm.upper()})",
+            xaxis_title="Cluster",
+            yaxis_title="Distance",
+            height=500,
+            template="plotly_white"
+        )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"Dendrogram saved to {output_file}")
+        return str(output_file)
+
+    # ============================================================
+    # Phase 3: Temporal Analysis Methods
+    # ============================================================
+
+    def extract_dates_from_text(self, text: str) -> list[dict]:
+        """
+        Extract dates and temporal references from text using regex patterns.
+
+        This method identifies various date formats commonly found in C64 documentation:
+        - Years: "1982", "1983"
+        - Month/Year: "January 1982", "Jan 1982"
+        - Full dates: "January 15, 1982", "15-Jan-1982"
+        - Decades: "1980s", "early 80s"
+        - Date ranges: "1982-1985", "1982 to 1985"
+
+        Args:
+            text: Text to extract dates from
+
+        Returns:
+            List of dictionaries with:
+            - 'text': Original matched text
+            - 'type': Date type (year, month_year, full_date, decade, range)
+            - 'year': Extracted year (int or None)
+            - 'month': Extracted month (int or None)
+            - 'day': Extracted day (int or None)
+            - 'start_pos': Character position in text
+            - 'end_pos': Character position in text
+
+        Examples:
+            >>> kb.extract_dates_from_text("The C64 was released in August 1982")
+            [{'text': 'August 1982', 'type': 'month_year', 'year': 1982, 'month': 8, ...}]
+
+            >>> kb.extract_dates_from_text("Popular throughout the 1980s")
+            [{'text': '1980s', 'type': 'decade', 'year': 1980, ...}]
+        """
+        import re
+
+        dates = []
+
+        # Month names mapping
+        months = {
+            'january': 1, 'jan': 1,
+            'february': 2, 'feb': 2,
+            'march': 3, 'mar': 3,
+            'april': 4, 'apr': 4,
+            'may': 5,
+            'june': 6, 'jun': 6,
+            'july': 7, 'jul': 7,
+            'august': 8, 'aug': 8,
+            'september': 9, 'sep': 9, 'sept': 9,
+            'october': 10, 'oct': 10,
+            'november': 11, 'nov': 11,
+            'december': 12, 'dec': 12
+        }
+
+        # Pattern 1a: Full dates - Month Day, Year (January 15, 1982)
+        pattern1a = r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[\s]+(\d{1,2}),?[\s]+(\d{4})\b'
+        for match in re.finditer(pattern1a, text, re.IGNORECASE):
+            month_str = match.group(1).lower()
+            day = int(match.group(2))
+            year = int(match.group(3))
+            month = months.get(month_str, None)
+
+            dates.append({
+                'text': match.group(0),
+                'type': 'full_date',
+                'year': year,
+                'month': month,
+                'day': day,
+                'start_pos': match.start(),
+                'end_pos': match.end()
+            })
+
+        # Pattern 1b: Full dates - Day Month Year (15 Jan 1982 | 15-Jan-1982)
+        pattern1b = r'\b(\d{1,2})[\s\-](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[\s,\-]+(\d{4})\b'
+        for match in re.finditer(pattern1b, text, re.IGNORECASE):
+            day = int(match.group(1))
+            month_str = match.group(2).lower()
+            year = int(match.group(3))
+            month = months.get(month_str, None)
+
+            # Skip if already matched
+            if not any(d['start_pos'] <= match.start() < d['end_pos'] for d in dates):
+                dates.append({
+                    'text': match.group(0),
+                    'type': 'full_date',
+                    'year': year,
+                    'month': month,
+                    'day': day,
+                    'start_pos': match.start(),
+                    'end_pos': match.end()
+                })
+
+        # Pattern 2: Month Year (January 1982 | Jan 1982)
+        pattern2 = r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)[\s,]+(\d{4})\b'
+        for match in re.finditer(pattern2, text, re.IGNORECASE):
+            month_str = match.group(1).lower()
+            year = int(match.group(2))
+            month = months.get(month_str, None)
+
+            # Skip if already matched as full date
+            if not any(d['start_pos'] <= match.start() < d['end_pos'] for d in dates):
+                dates.append({
+                    'text': match.group(0),
+                    'type': 'month_year',
+                    'year': year,
+                    'month': month,
+                    'day': None,
+                    'start_pos': match.start(),
+                    'end_pos': match.end()
+                })
+
+        # Pattern 3: Year only (1982, 1983) - must be in C64 era (1975-2000)
+        pattern3 = r'\b(19[7-9]\d|200\d)\b'
+        for match in re.finditer(pattern3, text):
+            year = int(match.group(0))
+
+            # Skip if already matched in a more specific date
+            if not any(d['start_pos'] <= match.start() < d['end_pos'] for d in dates):
+                dates.append({
+                    'text': match.group(0),
+                    'type': 'year',
+                    'year': year,
+                    'month': None,
+                    'day': None,
+                    'start_pos': match.start(),
+                    'end_pos': match.end()
+                })
+
+        # Pattern 4: Decades (1980s, early 80s, mid-80s)
+        pattern4 = r'\b(early\s+|mid[\s\-]?|late\s+)?(19)?([7-9]0)s\b'
+        for match in re.finditer(pattern4, text, re.IGNORECASE):
+            decade = match.group(3)
+            prefix = match.group(1) if match.group(1) else ''
+
+            # Determine decade start year
+            if match.group(2):  # Has "19" prefix
+                year = int(f"19{decade}")
+            else:
+                year = int(f"19{decade}")  # Assume 1900s
+
+            dates.append({
+                'text': match.group(0),
+                'type': 'decade',
+                'year': year,
+                'month': None,
+                'day': None,
+                'prefix': prefix.strip(),
+                'start_pos': match.start(),
+                'end_pos': match.end()
+            })
+
+        # Pattern 5: Date ranges (1982-1985, 1982 to 1985)
+        pattern5 = r'\b(19[7-9]\d)[\s]*([\-to]+)[\s]*(19[7-9]\d)\b'
+        for match in re.finditer(pattern5, text, re.IGNORECASE):
+            start_year = int(match.group(1))
+            end_year = int(match.group(3))
+
+            dates.append({
+                'text': match.group(0),
+                'type': 'range',
+                'year': start_year,
+                'end_year': end_year,
+                'month': None,
+                'day': None,
+                'start_pos': match.start(),
+                'end_pos': match.end()
+            })
+
+        # Sort by position in text
+        dates.sort(key=lambda x: x['start_pos'])
+
+        return dates
+
+    def normalize_date(self, date_dict: dict) -> tuple[str, int, int, int]:
+        """
+        Normalize a date dictionary to ISO format and component integers.
+
+        Args:
+            date_dict: Dictionary from extract_dates_from_text()
+
+        Returns:
+            Tuple of (iso_string, year, month, day)
+            - iso_string: ISO 8601 date string (YYYY-MM-DD or YYYY-MM or YYYY)
+            - year: Integer year
+            - month: Integer month or 0 if not specified
+            - day: Integer day or 0 if not specified
+
+        Examples:
+            >>> date_dict = {'type': 'month_year', 'year': 1982, 'month': 8, 'day': None}
+            >>> kb.normalize_date(date_dict)
+            ('1982-08', 1982, 8, 0)
+
+            >>> date_dict = {'type': 'year', 'year': 1982, 'month': None, 'day': None}
+            >>> kb.normalize_date(date_dict)
+            ('1982', 1982, 0, 0)
+        """
+        year = date_dict.get('year', 0)
+        month = date_dict.get('month', 0) if date_dict.get('month') else 0
+        day = date_dict.get('day', 0) if date_dict.get('day') else 0
+
+        # Build ISO string based on precision
+        if day > 0 and month > 0:
+            iso_string = f"{year:04d}-{month:02d}-{day:02d}"
+        elif month > 0:
+            iso_string = f"{year:04d}-{month:02d}"
+        else:
+            iso_string = f"{year:04d}"
+
+        return iso_string, year, month, day
+
+    def detect_events_in_text(self, text: str, doc_id: Optional[str] = None) -> list[dict]:
+        """
+        Detect significant events in text using pattern matching.
+
+        This method identifies events commonly found in C64 documentation:
+        - Product releases: "released", "launched", "introduced"
+        - Company milestones: "founded", "acquired", "established"
+        - Technical innovations: "first", "invented", "developed", "created"
+        - Cultural events: "competition", "demo", "conference", "meeting"
+
+        Args:
+            text: Text to analyze for events
+            doc_id: Optional document ID for context
+
+        Returns:
+            List of event dictionaries with:
+            - 'type': Event type (release, milestone, innovation, cultural)
+            - 'title': Brief event title
+            - 'description': Event description with context
+            - 'date_info': Associated date information
+            - 'confidence': Confidence score (0.0-1.0)
+            - 'entities': Related entities (if any)
+            - 'position': Character position in text
+
+        Examples:
+            >>> kb.detect_events_in_text("The C64 was released in August 1982")
+            [{'type': 'release', 'title': 'C64 released', 'date_info': {...}, ...}]
+        """
+        import re
+
+        events = []
+
+        # First, extract all dates from the text
+        dates = self.extract_dates_from_text(text)
+
+        # Event patterns with trigger words and types
+        event_patterns = [
+            # Product releases
+            {
+                'pattern': r'\b(released|launched|introduced|unveiled|announced|shipped|available)\b',
+                'type': 'release',
+                'confidence': 0.85
+            },
+            # Company milestones
+            {
+                'pattern': r'\b(founded|established|acquired|merged|created|formed|incorporated)\b',
+                'type': 'milestone',
+                'confidence': 0.80
+            },
+            # Technical innovations
+            {
+                'pattern': r'\b(first|invented|developed|created|designed|pioneered|innovated|breakthrough)\b',
+                'type': 'innovation',
+                'confidence': 0.75
+            },
+            # Cultural events
+            {
+                'pattern': r'\b(competition|contest|demo|demonstration|conference|convention|meeting|expo|exhibition|show)\b',
+                'type': 'cultural',
+                'confidence': 0.70
+            },
+            # Version/update events
+            {
+                'pattern': r'\b(updated|upgraded|revised|version|release|edition)\b',
+                'type': 'update',
+                'confidence': 0.65
+            }
+        ]
+
+        # Find all event trigger words
+        for event_pattern in event_patterns:
+            for match in re.finditer(event_pattern['pattern'], text, re.IGNORECASE):
+                trigger_word = match.group(0)
+                trigger_pos = match.start()
+
+                # Find the nearest date (within 200 characters)
+                nearest_date = None
+                min_distance = float('inf')
+
+                for date in dates:
+                    distance = abs(date['start_pos'] - trigger_pos)
+                    if distance < min_distance and distance < 200:
+                        min_distance = distance
+                        nearest_date = date
+
+                # Extract context around the trigger word (100 chars before and after)
+                context_start = max(0, trigger_pos - 100)
+                context_end = min(len(text), trigger_pos + 100)
+                context = text[context_start:context_end].strip()
+
+                # Try to extract a title from the surrounding sentence
+                # Find sentence boundaries
+                sentence_start = max(0, text.rfind('.', 0, trigger_pos) + 1)
+                sentence_end = text.find('.', trigger_pos)
+                if sentence_end == -1:
+                    sentence_end = len(text)
+
+                sentence = text[sentence_start:sentence_end].strip()
+
+                # Create event title (first 100 chars of sentence or context)
+                title = sentence[:100] if len(sentence) <= 100 else sentence[:97] + "..."
+
+                # Adjust confidence based on date proximity
+                confidence = event_pattern['confidence']
+                if nearest_date:
+                    # Higher confidence if date is very close
+                    if min_distance < 50:
+                        confidence = min(1.0, confidence + 0.1)
+                else:
+                    # Lower confidence if no date found
+                    confidence = max(0.3, confidence - 0.2)
+
+                # Try to extract entities from the context (basic noun extraction)
+                entities = []
+                # Look for capitalized words (potential proper nouns)
+                entity_matches = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b', sentence)
+                entities = list(set(entity_matches))[:5]  # Max 5 entities
+
+                event = {
+                    'type': event_pattern['type'],
+                    'title': title,
+                    'description': context,
+                    'trigger_word': trigger_word,
+                    'date_info': nearest_date,
+                    'confidence': confidence,
+                    'entities': entities,
+                    'position': trigger_pos,
+                    'sentence': sentence
+                }
+
+                events.append(event)
+
+        # Sort by position in text
+        events.sort(key=lambda x: x['position'])
+
+        return events
+
+    def extract_document_events(self, doc_id: str, min_confidence: float = 0.5) -> dict:
+        """
+        Extract events from a specific document and store them in the database.
+
+        Args:
+            doc_id: Document ID to process
+            min_confidence: Minimum confidence threshold (0.0-1.0)
+
+        Returns:
+            Dictionary with:
+            - 'doc_id': Document ID
+            - 'title': Document title
+            - 'event_count': Number of events extracted
+            - 'events': List of extracted events
+            - 'stored_count': Number of events stored to database
+
+        Examples:
+            >>> result = kb.extract_document_events('doc123', min_confidence=0.6)
+            >>> print(f"Found {result['event_count']} events")
+        """
+        if doc_id not in self.documents:
+            raise ValueError(f"Document {doc_id} not found")
+
+        doc = self.documents[doc_id]
+
+        # Load document chunks
+        chunks = self._get_chunks_db(doc_id)
+
+        # Combine chunks into full text (with chunk boundaries marked)
+        full_text = ""
+        chunk_positions = []  # Track which chunk each character belongs to
+
+        for chunk in chunks:
+            start_pos = len(full_text)
+            full_text += chunk.content + "\n\n"
+            end_pos = len(full_text)
+            chunk_positions.append({
+                'chunk_id': chunk.chunk_id,
+                'start': start_pos,
+                'end': end_pos
+            })
+
+        # Detect events in the full text
+        events = self.detect_events_in_text(full_text, doc_id)
+
+        # Filter by confidence
+        filtered_events = [e for e in events if e['confidence'] >= min_confidence]
+
+        # Store events to database
+        stored_count = 0
+        cursor = self.db_conn.cursor()
+
+        try:
+            cursor.execute("BEGIN TRANSACTION")
+
+            for event in filtered_events:
+                # Generate event ID
+                import uuid
+                from datetime import datetime
+
+                event_id = str(uuid.uuid4())
+
+                # Normalize date if available
+                date_normalized = None
+                year = None
+                month = None
+                day = None
+
+                if event['date_info']:
+                    iso_string, year, month, day = self.normalize_date(event['date_info'])
+                    date_normalized = iso_string
+
+                # Store event
+                cursor.execute("""
+                    INSERT INTO events
+                    (event_id, event_type, title, description, date_extracted,
+                     date_normalized, year, month, day, confidence, entities,
+                     metadata, created_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    event_id,
+                    event['type'],
+                    event['title'],
+                    event['description'],
+                    event['date_info']['text'] if event['date_info'] else None,
+                    date_normalized,
+                    year if year else None,
+                    month if month else None,
+                    day if day else None,
+                    event['confidence'],
+                    json.dumps(event['entities']),
+                    json.dumps({
+                        'trigger_word': event['trigger_word'],
+                        'sentence': event['sentence']
+                    }),
+                    datetime.utcnow().isoformat()
+                ))
+
+                # Find which chunk this event belongs to
+                event_chunk_id = None
+                for chunk_pos in chunk_positions:
+                    if chunk_pos['start'] <= event['position'] < chunk_pos['end']:
+                        event_chunk_id = chunk_pos['chunk_id']
+                        break
+
+                # Store document-event mapping
+                mapping_id = str(uuid.uuid4())
+                cursor.execute("""
+                    INSERT INTO document_events
+                    (mapping_id, doc_id, event_id, context, position, created_date)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    mapping_id,
+                    doc_id,
+                    event_id,
+                    event['description'],
+                    event['position'],
+                    datetime.utcnow().isoformat()
+                ))
+
+                stored_count += 1
+
+            self.db_conn.commit()
+            self.logger.info(f"Stored {stored_count} events for document {doc_id}")
+
+        except Exception as e:
+            self.db_conn.rollback()
+            self.logger.error(f"Failed to store events: {e}")
+            raise
+
+        return {
+            'doc_id': doc_id,
+            'title': doc.title,
+            'event_count': len(events),
+            'filtered_count': len(filtered_events),
+            'stored_count': stored_count,
+            'events': filtered_events
+        }
+
+    def build_timeline(self, min_confidence: float = 0.5,
+                       categorize: bool = True) -> dict:
+        """
+        Build a chronological timeline from events in the database.
+
+        This method creates timeline_entries records from events, organizing them
+        chronologically and optionally categorizing them by event type and time period.
+
+        Args:
+            min_confidence: Minimum confidence threshold for events to include
+            categorize: If True, categorize events by decade and type
+
+        Returns:
+            Dictionary with:
+            - 'total_events': Total events processed
+            - 'timeline_entries': Number of timeline entries created
+            - 'date_range': Earliest and latest years
+            - 'categories': Event counts by category
+            - 'by_year': Event counts by year
+
+        Examples:
+            >>> result = kb.build_timeline(min_confidence=0.6)
+            >>> print(f"Created timeline with {result['timeline_entries']} entries")
+        """
+        import uuid
+        from datetime import datetime
+
+        cursor = self.db_conn.cursor()
+
+        # Get all events with dates above confidence threshold
+        events = cursor.execute("""
+            SELECT event_id, event_type, title, description,
+                   date_normalized, year, month, day, confidence
+            FROM events
+            WHERE confidence >= ? AND year IS NOT NULL
+            ORDER BY year, month, day
+        """, (min_confidence,)).fetchall()
+
+        if not events:
+            self.logger.warning("No events found with dates to build timeline")
+            return {
+                'total_events': 0,
+                'timeline_entries': 0,
+                'date_range': None,
+                'categories': {},
+                'by_year': {}
+            }
+
+        # Clear existing timeline entries (rebuild)
+        cursor.execute("DELETE FROM timeline_entries")
+
+        # Track statistics
+        categories = {}
+        by_year = {}
+        created_count = 0
+
+        try:
+            for event in events:
+                event_id, event_type, title, description, date_normalized, year, month, day, confidence = event
+
+                # Create display date
+                if day and month:
+                    display_date = f"{year}-{month:02d}-{day:02d}"
+                elif month:
+                    display_date = f"{year}-{month:02d}"
+                else:
+                    display_date = str(year)
+
+                # Create sort order (YYYYMMDD as integer)
+                sort_order = year * 10000
+                if month:
+                    sort_order += month * 100
+                if day:
+                    sort_order += day
+
+                # Determine category
+                if categorize:
+                    decade = (year // 10) * 10
+                    category = f"{decade}s-{event_type}"
+                else:
+                    category = event_type
+
+                # Determine importance (1-5 scale, 5 is highest)
+                # Higher confidence = higher importance
+                importance = min(5, max(1, int(confidence * 5)))
+
+                # Create timeline entry
+                entry_id = str(uuid.uuid4())
+                cursor.execute("""
+                    INSERT INTO timeline_entries
+                    (entry_id, event_id, display_date, sort_order,
+                     category, importance, created_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    entry_id,
+                    event_id,
+                    display_date,
+                    sort_order,
+                    category,
+                    importance,
+                    datetime.utcnow().isoformat()
+                ))
+
+                created_count += 1
+
+                # Update statistics
+                categories[category] = categories.get(category, 0) + 1
+                by_year[year] = by_year.get(year, 0) + 1
+
+            self.db_conn.commit()
+            self.logger.info(f"Built timeline with {created_count} entries from {len(events)} events")
+
+        except Exception as e:
+            self.db_conn.rollback()
+            self.logger.error(f"Failed to build timeline: {e}")
+            raise
+
+        # Determine date range
+        years = list(by_year.keys())
+        date_range = (min(years), max(years)) if years else None
+
+        return {
+            'total_events': len(events),
+            'timeline_entries': created_count,
+            'date_range': date_range,
+            'categories': categories,
+            'by_year': by_year
+        }
+
+    def get_timeline(self, start_year: Optional[int] = None,
+                     end_year: Optional[int] = None,
+                     category: Optional[str] = None,
+                     min_importance: int = 1,
+                     limit: Optional[int] = None) -> list[dict]:
+        """
+        Query timeline entries with optional filtering.
+
+        Args:
+            start_year: Filter events from this year onwards (inclusive)
+            end_year: Filter events up to this year (inclusive)
+            category: Filter by category (e.g., "1980s-release")
+            min_importance: Minimum importance level (1-5)
+            limit: Maximum number of entries to return
+
+        Returns:
+            List of timeline entry dictionaries with:
+            - 'entry_id': Timeline entry ID
+            - 'event_id': Associated event ID
+            - 'display_date': Formatted date string
+            - 'sort_order': Integer for chronological sorting
+            - 'category': Event category
+            - 'importance': Importance level (1-5)
+            - 'event_type': Event type
+            - 'title': Event title
+            - 'description': Event description
+            - 'confidence': Event confidence
+
+        Examples:
+            >>> # Get all events from the 1980s
+            >>> timeline = kb.get_timeline(start_year=1980, end_year=1989)
+
+            >>> # Get important release events
+            >>> releases = kb.get_timeline(category="1980s-release", min_importance=4)
+        """
+        cursor = self.db_conn.cursor()
+
+        # Build query with filters
+        query = """
+            SELECT
+                t.entry_id, t.event_id, t.display_date, t.sort_order,
+                t.category, t.importance,
+                e.event_type, e.title, e.description, e.confidence, e.year
+            FROM timeline_entries t
+            JOIN events e ON t.event_id = e.event_id
+            WHERE t.importance >= ?
+        """
+        params = [min_importance]
+
+        if start_year:
+            query += " AND e.year >= ?"
+            params.append(start_year)
+
+        if end_year:
+            query += " AND e.year <= ?"
+            params.append(end_year)
+
+        if category:
+            query += " AND t.category = ?"
+            params.append(category)
+
+        query += " ORDER BY t.sort_order ASC"
+
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        results = cursor.execute(query, params).fetchall()
+
+        timeline = []
+        for row in results:
+            timeline.append({
+                'entry_id': row[0],
+                'event_id': row[1],
+                'display_date': row[2],
+                'sort_order': row[3],
+                'category': row[4],
+                'importance': row[5],
+                'event_type': row[6],
+                'title': row[7],
+                'description': row[8],
+                'confidence': row[9],
+                'year': row[10]
+            })
+
+        return timeline
+
+    def search_events_by_date(self, start_year: Optional[int] = None,
+                              end_year: Optional[int] = None,
+                              event_type: Optional[str] = None,
+                              min_confidence: float = 0.5) -> list[dict]:
+        """
+        Search for events within a date range.
+
+        Args:
+            start_year: Start year (inclusive)
+            end_year: End year (inclusive)
+            event_type: Filter by event type (release, milestone, innovation, etc.)
+            min_confidence: Minimum confidence threshold
+
+        Returns:
+            List of event dictionaries ordered chronologically
+
+        Examples:
+            >>> # Find all releases in the 1980s
+            >>> events = kb.search_events_by_date(
+            ...     start_year=1980,
+            ...     end_year=1989,
+            ...     event_type='release'
+            ... )
+        """
+        cursor = self.db_conn.cursor()
+
+        query = """
+            SELECT event_id, event_type, title, description,
+                   date_extracted, date_normalized, year, month, day,
+                   confidence, entities, metadata
+            FROM events
+            WHERE confidence >= ?
+        """
+        params = [min_confidence]
+
+        if start_year:
+            query += " AND year >= ?"
+            params.append(start_year)
+
+        if end_year:
+            query += " AND year <= ?"
+            params.append(end_year)
+
+        if event_type:
+            query += " AND event_type = ?"
+            params.append(event_type)
+
+        query += " ORDER BY year, month, day"
+
+        results = cursor.execute(query, params).fetchall()
+
+        events = []
+        for row in results:
+            events.append({
+                'event_id': row[0],
+                'event_type': row[1],
+                'title': row[2],
+                'description': row[3],
+                'date_extracted': row[4],
+                'date_normalized': row[5],
+                'year': row[6],
+                'month': row[7],
+                'day': row[8],
+                'confidence': row[9],
+                'entities': json.loads(row[10]) if row[10] else [],
+                'metadata': json.loads(row[11]) if row[11] else {}
+            })
+
+        return events
+
+    def get_historical_context(self, year: int, context_years: int = 2) -> dict:
+        """
+        Get historical context for a specific year.
+
+        Returns events from the target year plus surrounding years to provide context.
+
+        Args:
+            year: Target year
+            context_years: Number of years before/after to include (default: 2)
+
+        Returns:
+            Dictionary with:
+            - 'target_year': The requested year
+            - 'year_range': (start_year, end_year)
+            - 'events': List of events in the range
+            - 'events_by_year': Events grouped by year
+            - 'total_events': Total event count
+
+        Examples:
+            >>> # Get context for 1982 (the C64 release year)
+            >>> context = kb.get_historical_context(1982, context_years=2)
+            >>> # Returns events from 1980-1984
+        """
+        start_year = year - context_years
+        end_year = year + context_years
+
+        events = self.search_events_by_date(start_year=start_year, end_year=end_year)
+
+        # Group events by year
+        events_by_year = {}
+        for event in events:
+            event_year = event['year']
+            if event_year not in events_by_year:
+                events_by_year[event_year] = []
+            events_by_year[event_year].append(event)
+
+        return {
+            'target_year': year,
+            'year_range': (start_year, end_year),
+            'events': events,
+            'events_by_year': events_by_year,
+            'total_events': len(events)
+        }
+
+    def visualize_timeline(self, start_year: Optional[int] = None,
+                          end_year: Optional[int] = None,
+                          output_path: str = "timeline.html") -> str:
+        """
+        Create interactive timeline visualization using Plotly.
+
+        Generates a horizontal timeline showing events chronologically with:
+        - Color-coded event types
+        - Hover information with event details
+        - Importance-based marker sizes
+        - Zoomable and interactive
+
+        Args:
+            start_year: Filter events from this year (optional)
+            end_year: Filter events to this year (optional)
+            output_path: Path to save HTML file
+
+        Returns:
+            Path to saved HTML file
+
+        Examples:
+            >>> kb.visualize_timeline(start_year=1980, end_year=1990)
+            'timeline.html'
+        """
+        import plotly.graph_objects as go
+        from pathlib import Path
+
+        # Get timeline entries
+        timeline = self.get_timeline(start_year=start_year, end_year=end_year)
+
+        if not timeline:
+            self.logger.warning("No timeline entries to visualize")
+            return ""
+
+        # Color map for event types
+        color_map = {
+            'release': '#FF6B6B',      # Red
+            'milestone': '#4ECDC4',    # Teal
+            'innovation': '#95E1D3',   # Mint
+            'cultural': '#FFA07A',     # Salmon
+            'update': '#9B59B6'        # Purple
+        }
+
+        # Prepare data for plotting
+        dates = []
+        titles = []
+        types = []
+        importances = []
+        confidences = []
+        descriptions = []
+        colors = []
+
+        for entry in timeline:
+            # Parse date for plotting
+            date_str = entry['display_date']
+            if len(date_str) == 4:  # Year only
+                date_str += '-01-01'
+            elif len(date_str) == 7:  # Year-month
+                date_str += '-01'
+
+            dates.append(date_str)
+            titles.append(entry['title'][:100])
+            types.append(entry['event_type'])
+            importances.append(entry['importance'] * 5)  # Scale for marker size
+            confidences.append(entry['confidence'])
+            descriptions.append(entry['description'][:200] if entry['description'] else 'No description')
+            colors.append(color_map.get(entry['event_type'], '#95A5A6'))
+
+        # Create scatter plot for timeline
+        fig = go.Figure()
+
+        # Add trace for each event type
+        for event_type in set(types):
+            type_indices = [i for i, t in enumerate(types) if t == event_type]
+
+            fig.add_trace(go.Scatter(
+                x=[dates[i] for i in type_indices],
+                y=[1] * len(type_indices),  # All on same horizontal line
+                mode='markers',
+                name=event_type.capitalize(),
+                marker=dict(
+                    size=[importances[i] for i in type_indices],
+                    color=color_map.get(event_type, '#95A5A6'),
+                    line=dict(width=1, color='white'),
+                    symbol='circle'
+                ),
+                text=[titles[i] for i in type_indices],
+                customdata=[[
+                    confidences[i],
+                    importances[i] / 5,
+                    descriptions[i]
+                ] for i in type_indices],
+                hovertemplate=(
+                    '<b>%{text}</b><br>'
+                    'Type: ' + event_type + '<br>'
+                    'Date: %{x}<br>'
+                    'Confidence: %{customdata[0]:.2f}<br>'
+                    'Importance: %{customdata[1]}/5<br>'
+                    '<extra></extra>'
+                )
+            ))
+
+        # Update layout
+        title_text = f"C64 Knowledge Base Timeline"
+        if start_year and end_year:
+            title_text += f" ({start_year}-{end_year})"
+
+        fig.update_layout(
+            title=title_text,
+            xaxis_title="Date",
+            yaxis_title="",
+            yaxis=dict(
+                showgrid=False,
+                showticklabels=False,
+                range=[0.5, 1.5]
+            ),
+            hovermode='closest',
+            height=600,
+            showlegend=True,
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01
+            )
+        )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"Timeline visualization saved to {output_file}")
+        return str(output_file)
+
+    def visualize_event_network(self, start_year: Optional[int] = None,
+                                end_year: Optional[int] = None,
+                                output_path: str = "event_network.html") -> str:
+        """
+        Create network visualization showing relationships between events.
+
+        Events are connected based on:
+        - Shared entities (people, companies, technologies)
+        - Temporal proximity (events in same year)
+        - Event type similarity
+
+        Args:
+            start_year: Filter events from this year (optional)
+            end_year: Filter events to this year (optional)
+            output_path: Path to save HTML file
+
+        Returns:
+            Path to saved HTML file
+
+        Examples:
+            >>> kb.visualize_event_network(start_year=1980, end_year=1990)
+            'event_network.html'
+        """
+        import plotly.graph_objects as go
+        from pathlib import Path
+        import networkx as nx
+
+        # Get events
+        events = self.search_events_by_date(start_year=start_year, end_year=end_year)
+
+        if not events or len(events) < 2:
+            self.logger.warning("Need at least 2 events for network visualization")
+            return ""
+
+        # Build network graph
+        G = nx.Graph()
+
+        # Add nodes (events)
+        for i, event in enumerate(events):
+            G.add_node(i,
+                      title=event['title'][:50],
+                      year=event['year'],
+                      type=event['event_type'],
+                      confidence=event['confidence'],
+                      entities=event['entities'])
+
+        # Add edges based on relationships
+        for i, event1 in enumerate(events):
+            for j, event2 in enumerate(events[i+1:], i+1):
+                weight = 0
+
+                # Shared entities
+                entities1 = set(event1['entities'])
+                entities2 = set(event2['entities'])
+                shared = entities1.intersection(entities2)
+                if shared:
+                    weight += len(shared) * 2
+
+                # Same year
+                if event1['year'] == event2['year']:
+                    weight += 1
+
+                # Same type
+                if event1['event_type'] == event2['event_type']:
+                    weight += 0.5
+
+                # Add edge if there's a connection
+                if weight > 0:
+                    G.add_edge(i, j, weight=weight)
+
+        # Calculate layout
+        pos = nx.spring_layout(G, k=0.5, iterations=50)
+
+        # Prepare edge trace
+        edge_x = []
+        edge_y = []
+        for edge in G.edges():
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
+            edge_x.extend([x0, x1, None])
+            edge_y.extend([y0, y1, None])
+
+        edge_trace = go.Scatter(
+            x=edge_x, y=edge_y,
+            line=dict(width=0.5, color='#888'),
+            hoverinfo='none',
+            mode='lines'
+        )
+
+        # Prepare node traces by type
+        color_map = {
+            'release': '#FF6B6B',
+            'milestone': '#4ECDC4',
+            'innovation': '#95E1D3',
+            'cultural': '#FFA07A',
+            'update': '#9B59B6'
+        }
+
+        node_traces = []
+        for event_type in set(node['type'] for _, node in G.nodes(data=True)):
+            node_x = []
+            node_y = []
+            node_text = []
+            node_size = []
+
+            for node_id, node_data in G.nodes(data=True):
+                if node_data['type'] == event_type:
+                    x, y = pos[node_id]
+                    node_x.append(x)
+                    node_y.append(y)
+                    node_text.append(
+                        f"{node_data['title']}<br>"
+                        f"Year: {node_data['year']}<br>"
+                        f"Type: {node_data['type']}<br>"
+                        f"Confidence: {node_data['confidence']:.2f}<br>"
+                        f"Connections: {G.degree(node_id)}"
+                    )
+                    # Node size based on number of connections
+                    node_size.append(10 + G.degree(node_id) * 3)
+
+            node_trace = go.Scatter(
+                x=node_x, y=node_y,
+                mode='markers',
+                name=event_type.capitalize(),
+                hoverinfo='text',
+                text=node_text,
+                marker=dict(
+                    size=node_size,
+                    color=color_map.get(event_type, '#95A5A6'),
+                    line=dict(width=2, color='white')
+                )
+            )
+            node_traces.append(node_trace)
+
+        # Create figure
+        fig = go.Figure(data=[edge_trace] + node_traces,
+                       layout=go.Layout(
+                           title=dict(text='Event Network - C64 Knowledge Base', font=dict(size=16)),
+                           showlegend=True,
+                           hovermode='closest',
+                           margin=dict(b=0, l=0, r=0, t=40),
+                           xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                           yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                           height=800
+                       ))
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"Event network visualization saved to {output_file}")
+        return str(output_file)
+
+    def visualize_event_trends(self, output_path: str = "event_trends.html") -> str:
+        """
+        Create trend charts showing event distribution over time.
+
+        Generates:
+        - Events per year bar chart
+        - Events by type over time (stacked area chart)
+        - Cumulative events over time
+
+        Args:
+            output_path: Path to save HTML file
+
+        Returns:
+            Path to saved HTML file
+
+        Examples:
+            >>> kb.visualize_event_trends()
+            'event_trends.html'
+        """
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        from pathlib import Path
+
+        cursor = self.db_conn.cursor()
+
+        # Get events by year and type
+        events_data = cursor.execute("""
+            SELECT year, event_type, COUNT(*) as count
+            FROM events
+            WHERE year IS NOT NULL
+            GROUP BY year, event_type
+            ORDER BY year, event_type
+        """).fetchall()
+
+        if not events_data:
+            self.logger.warning("No events with dates for trend visualization")
+            return ""
+
+        # Organize data
+        years_set = set()
+        type_year_counts = {}
+
+        for year, event_type, count in events_data:
+            years_set.add(year)
+            if event_type not in type_year_counts:
+                type_year_counts[event_type] = {}
+            type_year_counts[event_type][year] = count
+
+        years = sorted(years_set)
+
+        # Create subplots
+        fig = make_subplots(
+            rows=3, cols=1,
+            subplot_titles=(
+                'Events Per Year',
+                'Events by Type Over Time',
+                'Cumulative Events'
+            ),
+            vertical_spacing=0.12,
+            row_heights=[0.33, 0.33, 0.33]
+        )
+
+        # 1. Events per year (bar chart)
+        year_totals = {}
+        for year in years:
+            year_totals[year] = sum(
+                type_year_counts[et].get(year, 0)
+                for et in type_year_counts
+            )
+
+        fig.add_trace(
+            go.Bar(
+                x=years,
+                y=[year_totals[y] for y in years],
+                name='Total Events',
+                marker_color='#3498db',
+                showlegend=False
+            ),
+            row=1, col=1
+        )
+
+        # 2. Events by type (stacked area chart)
+        color_map = {
+            'release': '#FF6B6B',
+            'milestone': '#4ECDC4',
+            'innovation': '#95E1D3',
+            'cultural': '#FFA07A',
+            'update': '#9B59B6'
+        }
+
+        for event_type in sorted(type_year_counts.keys()):
+            type_counts = [type_year_counts[event_type].get(y, 0) for y in years]
+
+            fig.add_trace(
+                go.Scatter(
+                    x=years,
+                    y=type_counts,
+                    name=event_type.capitalize(),
+                    mode='lines',
+                    stackgroup='one',
+                    fillcolor=color_map.get(event_type, '#95A5A6'),
+                    line=dict(width=0.5, color=color_map.get(event_type, '#95A5A6'))
+                ),
+                row=2, col=1
+            )
+
+        # 3. Cumulative events
+        cumulative = []
+        total = 0
+        for year in years:
+            total += year_totals[year]
+            cumulative.append(total)
+
+        fig.add_trace(
+            go.Scatter(
+                x=years,
+                y=cumulative,
+                name='Cumulative',
+                mode='lines+markers',
+                line=dict(color='#e74c3c', width=3),
+                marker=dict(size=8),
+                showlegend=False
+            ),
+            row=3, col=1
+        )
+
+        # Update layout
+        fig.update_xaxes(title_text="Year", row=3, col=1)
+        fig.update_yaxes(title_text="Count", row=1, col=1)
+        fig.update_yaxes(title_text="Count", row=2, col=1)
+        fig.update_yaxes(title_text="Total Events", row=3, col=1)
+
+        fig.update_layout(
+            title_text="Event Trends - C64 Knowledge Base",
+            height=1200,
+            showlegend=True,
+            hovermode='x unified'
+        )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"Event trends visualization saved to {output_file}")
+        return str(output_file)
+
+    def visualize_knowledge_graph_3d(self, max_entities: int = 50,
+                                     min_confidence: float = 0.7,
+                                     output_path: str = "knowledge_graph_3d.html") -> str:
+        """
+        Create 3D interactive knowledge graph showing entities, relationships, and documents.
+
+        Args:
+            max_entities: Maximum number of entities to include (top by frequency)
+            min_confidence: Minimum confidence for entities
+            output_path: Output HTML file path
+
+        Returns:
+            Path to generated HTML file
+        """
+        import plotly.graph_objects as go
+        from pathlib import Path
+        import networkx as nx
+        import numpy as np
+
+        cursor = self.db_conn.cursor()
+
+        # Get top entities
+        entities_data = cursor.execute("""
+            SELECT entity_text, entity_type, COUNT(*) as frequency,
+                   AVG(confidence) as avg_confidence
+            FROM document_entities
+            WHERE confidence >= ?
+            GROUP BY entity_text, entity_type
+            ORDER BY frequency DESC
+            LIMIT ?
+        """, (min_confidence, max_entities)).fetchall()
+
+        if not entities_data:
+            self.logger.warning("No entities found for 3D knowledge graph")
+            return ""
+
+        # Build graph
+        G = nx.Graph()
+
+        # Add entity nodes
+        entity_map = {}
+        for i, (name, entity_type, freq, conf) in enumerate(entities_data):
+            G.add_node(f"entity_{i}", label=name, node_type='entity',
+                      entity_type=entity_type, frequency=freq, confidence=conf)
+            entity_map[name] = f"entity_{i}"
+
+        # Get relationships between entities
+        relationships = cursor.execute("""
+            SELECT entity1_text, entity2_text, relationship_type, strength, doc_count
+            FROM entity_relationships
+            WHERE entity1_text IN ({}) AND entity2_text IN ({})
+            AND strength >= 0.5
+        """.format(','.join('?' * len(entity_map)), ','.join('?' * len(entity_map))),
+                                     list(entity_map.keys()) * 2).fetchall()
+
+        # Add edges
+        for entity1, entity2, rel_type, strength, co_occur in relationships:
+            if entity1 in entity_map and entity2 in entity_map:
+                G.add_edge(entity_map[entity1], entity_map[entity2],
+                          relationship=rel_type, strength=strength, co_occur=co_occur)
+
+        # Calculate 3D spring layout
+        pos_3d = nx.spring_layout(G, dim=3, k=0.5, iterations=50)
+
+        # Extract positions
+        x_nodes = [pos_3d[node][0] for node in G.nodes()]
+        y_nodes = [pos_3d[node][1] for node in G.nodes()]
+        z_nodes = [pos_3d[node][2] for node in G.nodes()]
+
+        # Prepare node data
+        node_labels = [G.nodes[node]['label'] for node in G.nodes()]
+        node_types = [G.nodes[node]['entity_type'] for node in G.nodes()]
+        node_frequencies = [G.nodes[node]['frequency'] for node in G.nodes()]
+
+        # Color map for entity types
+        type_color_map = {
+            'PERSON': '#FF6B6B',
+            'ORG': '#4ECDC4',
+            'PRODUCT': '#95E1D3',
+            'TECH': '#FFA07A',
+            'LOCATION': '#9B59B6'
+        }
+        node_colors = [type_color_map.get(t, '#95A5A6') for t in node_types]
+
+        # Create edge traces
+        edge_x = []
+        edge_y = []
+        edge_z = []
+
+        for edge in G.edges():
+            x0, y0, z0 = pos_3d[edge[0]]
+            x1, y1, z1 = pos_3d[edge[1]]
+            edge_x.extend([x0, x1, None])
+            edge_y.extend([y0, y1, None])
+            edge_z.extend([z0, z1, None])
+
+        # Create edge trace
+        edge_trace = go.Scatter3d(
+            x=edge_x, y=edge_y, z=edge_z,
+            mode='lines',
+            line=dict(color='rgba(125, 125, 125, 0.3)', width=1),
+            hoverinfo='none',
+            name='Relationships'
+        )
+
+        # Create node trace
+        node_trace = go.Scatter3d(
+            x=x_nodes, y=y_nodes, z=z_nodes,
+            mode='markers+text',
+            marker=dict(
+                size=[min(30, freq * 2) for freq in node_frequencies],
+                color=node_colors,
+                line=dict(color='white', width=0.5),
+                opacity=0.8
+            ),
+            text=node_labels,
+            textposition='top center',
+            textfont=dict(size=8),
+            customdata=list(zip(node_types, node_frequencies)),
+            hovertemplate=(
+                '<b>%{text}</b><br>'
+                'Type: %{customdata[0]}<br>'
+                'Frequency: %{customdata[1]}<br>'
+                '<extra></extra>'
+            ),
+            name='Entities'
+        )
+
+        # Create figure
+        fig = go.Figure(data=[edge_trace, node_trace])
+
+        fig.update_layout(
+            title=dict(text='3D Knowledge Graph - C64 Knowledge Base', font=dict(size=16)),
+            showlegend=True,
+            scene=dict(
+                xaxis=dict(showgrid=False, showticklabels=False, title=''),
+                yaxis=dict(showgrid=False, showticklabels=False, title=''),
+                zaxis=dict(showgrid=False, showticklabels=False, title=''),
+                bgcolor='rgba(240, 240, 240, 0.9)'
+            ),
+            margin=dict(l=0, r=0, b=0, t=40),
+            height=800
+        )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"3D knowledge graph saved to {output_file} ({len(G.nodes())} nodes, {len(G.edges())} edges)")
+        return str(output_file)
+
+    def visualize_hierarchical_bundling(self, max_entities: int = 30,
+                                       output_path: str = "hierarchical_bundling.html") -> str:
+        """
+        Create hierarchical edge bundling visualization showing entity relationships.
+
+        Uses circular layout with entities grouped by type, showing relationships
+        with curved bundled edges.
+
+        Args:
+            max_entities: Maximum number of entities to include
+            output_path: Output HTML file path
+
+        Returns:
+            Path to generated HTML file
+        """
+        import plotly.graph_objects as go
+        from pathlib import Path
+        import numpy as np
+
+        cursor = self.db_conn.cursor()
+
+        # Get top entities grouped by type
+        entities_data = cursor.execute("""
+            SELECT entity_text, entity_type, COUNT(*) as frequency,
+                   AVG(confidence) as avg_confidence
+            FROM document_entities
+            WHERE confidence >= 0.7
+            GROUP BY entity_text, entity_type
+            ORDER BY entity_type, frequency DESC
+        """).fetchall()
+
+        # Limit and group by type
+        entities_by_type = {}
+        for name, entity_type, freq, conf in entities_data:
+            if entity_type not in entities_by_type:
+                entities_by_type[entity_type] = []
+            if len(entities_by_type[entity_type]) < max_entities // len(set(e[1] for e in entities_data[:max_entities])):
+                entities_by_type[entity_type].append((name, freq, conf))
+
+        # Calculate circular positions for each type
+        entity_positions = {}
+        angle = 0
+        total_entities = sum(len(entities) for entities in entities_by_type.values())
+
+        if total_entities == 0:
+            self.logger.warning("No entities found for hierarchical bundling")
+            return ""
+
+        angle_step = 2 * np.pi / total_entities
+
+        for entity_type, entities in entities_by_type.items():
+            for name, freq, conf in entities:
+                x = np.cos(angle)
+                y = np.sin(angle)
+                entity_positions[name] = (x, y, entity_type, freq, conf)
+                angle += angle_step
+
+        # Get relationships
+        entity_names = list(entity_positions.keys())
+        relationships = cursor.execute("""
+            SELECT entity1_text, entity2_text, relationship_type, strength, doc_count
+            FROM entity_relationships
+            WHERE entity1_text IN ({}) AND entity2_text IN ({})
+            AND strength >= 0.3
+        """.format(','.join('?' * len(entity_names)), ','.join('?' * len(entity_names))),
+                                     entity_names * 2).fetchall()
+
+        # Create edge traces with bundling effect
+        edge_traces = []
+
+        for entity1, entity2, rel_type, strength, co_occur in relationships:
+            if entity1 in entity_positions and entity2 in entity_positions:
+                x1, y1, type1, freq1, conf1 = entity_positions[entity1]
+                x2, y2, type2, freq2, conf2 = entity_positions[entity2]
+
+                # Create curved path (quadratic Bezier curve through origin)
+                t = np.linspace(0, 1, 20)
+                # Control point at origin for bundling effect
+                cx, cy = 0, 0
+                x_curve = (1-t)**2 * x1 + 2*(1-t)*t * cx + t**2 * x2
+                y_curve = (1-t)**2 * y1 + 2*(1-t)*t * cy + t**2 * y2
+
+                # Color and width based on strength
+                color = f'rgba(100, 100, 100, {strength * 0.5})'
+                width = max(0.5, strength * 3)
+
+                edge_trace = go.Scatter(
+                    x=x_curve, y=y_curve,
+                    mode='lines',
+                    line=dict(color=color, width=width),
+                    hoverinfo='skip',
+                    showlegend=False
+                )
+                edge_traces.append(edge_trace)
+
+        # Create node traces by type
+        type_color_map = {
+            'PERSON': '#FF6B6B',
+            'ORG': '#4ECDC4',
+            'PRODUCT': '#95E1D3',
+            'TECH': '#FFA07A',
+            'LOCATION': '#9B59B6'
+        }
+
+        node_traces = []
+        for entity_type, color in type_color_map.items():
+            type_entities = [(name, pos) for name, pos in entity_positions.items() if pos[2] == entity_type]
+
+            if type_entities:
+                x_nodes = [pos[0] for name, pos in type_entities]
+                y_nodes = [pos[1] for name, pos in type_entities]
+                labels = [name for name, pos in type_entities]
+                frequencies = [pos[3] for name, pos in type_entities]
+
+                node_trace = go.Scatter(
+                    x=x_nodes, y=y_nodes,
+                    mode='markers+text',
+                    marker=dict(
+                        size=[min(20, f * 2) for f in frequencies],
+                        color=color,
+                        line=dict(color='white', width=1)
+                    ),
+                    text=labels,
+                    textposition='top center',
+                    textfont=dict(size=8),
+                    name=entity_type,
+                    hovertemplate='<b>%{text}</b><br>Type: ' + entity_type + '<br><extra></extra>'
+                )
+                node_traces.append(node_trace)
+
+        # Create figure
+        fig = go.Figure(data=edge_traces + node_traces)
+
+        fig.update_layout(
+            title=dict(text='Hierarchical Edge Bundling - Entity Relationships', font=dict(size=16)),
+            showlegend=True,
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-1.5, 1.5]),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-1.5, 1.5]),
+            plot_bgcolor='rgba(240, 240, 240, 0.5)',
+            height=800,
+            hovermode='closest'
+        )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"Hierarchical bundling visualization saved to {output_file}")
+        return str(output_file)
+
+    def visualize_topic_flow_sankey(self, time_period: str = 'decade',
+                                   output_path: str = "topic_flow.html") -> str:
+        """
+        Create Sankey diagram showing flow of topics/entities over time.
+
+        Args:
+            time_period: Time grouping ('year' or 'decade')
+            output_path: Output HTML file path
+
+        Returns:
+            Path to generated HTML file
+        """
+        import plotly.graph_objects as go
+        from pathlib import Path
+
+        cursor = self.db_conn.cursor()
+
+        # Get events with entities
+        events_data = cursor.execute("""
+            SELECT e.year, e.event_type, e.entities
+            FROM events e
+            WHERE e.year IS NOT NULL AND e.entities IS NOT NULL
+            ORDER BY e.year
+        """).fetchall()
+
+        if not events_data:
+            self.logger.warning("No events with entities found for Sankey diagram")
+            return ""
+
+        # Process data into time periods
+        import json
+
+        time_entity_map = {}
+        entity_type_map = {}
+
+        for year, event_type, entities_json in events_data:
+            # Determine time period
+            if time_period == 'decade':
+                period = f"{(year // 10) * 10}s"
+            else:
+                period = str(year)
+
+            # Parse entities
+            try:
+                entities = json.loads(entities_json)
+                for entity in entities:
+                    if period not in time_entity_map:
+                        time_entity_map[period] = {}
+
+                    if entity not in time_entity_map[period]:
+                        time_entity_map[period][entity] = 0
+                    time_entity_map[period][entity] += 1
+
+                    # Track entity types
+                    if entity not in entity_type_map:
+                        entity_type_map[entity] = event_type
+            except:
+                continue
+
+        if len(time_entity_map) < 2:
+            self.logger.warning("Need at least 2 time periods for Sankey diagram")
+            return ""
+
+        # Build Sankey data
+        nodes = []
+        node_map = {}
+        node_colors = []
+
+        # Color scheme for time periods
+        period_colors = ['#FF6B6B', '#4ECDC4', '#95E1D3', '#FFA07A', '#9B59B6', '#F7DC6F']
+
+        # Create nodes for each time period and their entities
+        color_idx = 0
+        for period in sorted(time_entity_map.keys()):
+            # Get top entities for this period
+            top_entities = sorted(time_entity_map[period].items(),
+                                key=lambda x: x[1], reverse=True)[:10]
+
+            base_color = period_colors[color_idx % len(period_colors)]
+
+            for entity, count in top_entities:
+                node_label = f"{entity} ({period})"
+                node_map[node_label] = len(nodes)
+                nodes.append(node_label)
+                node_colors.append(base_color)
+
+            color_idx += 1
+
+        # Create links between consecutive periods
+        links_source = []
+        links_target = []
+        links_value = []
+        links_color = []
+
+        sorted_periods = sorted(time_entity_map.keys())
+        for i in range(len(sorted_periods) - 1):
+            period1 = sorted_periods[i]
+            period2 = sorted_periods[i + 1]
+
+            # Find entities that appear in both periods
+            entities1 = set(time_entity_map[period1].keys())
+            entities2 = set(time_entity_map[period2].keys())
+            common_entities = entities1.intersection(entities2)
+
+            for entity in common_entities:
+                node1 = f"{entity} ({period1})"
+                node2 = f"{entity} ({period2})"
+
+                if node1 in node_map and node2 in node_map:
+                    # Flow value is minimum of the two counts
+                    value = min(time_entity_map[period1][entity],
+                              time_entity_map[period2][entity])
+
+                    links_source.append(node_map[node1])
+                    links_target.append(node_map[node2])
+                    links_value.append(value)
+                    links_color.append('rgba(100, 100, 100, 0.3)')
+
+        if not links_source:
+            self.logger.warning("No entity flows found between periods")
+            return ""
+
+        # Create Sankey diagram
+        fig = go.Figure(data=[go.Sankey(
+            node=dict(
+                pad=15,
+                thickness=20,
+                line=dict(color='white', width=0.5),
+                label=nodes,
+                color=node_colors
+            ),
+            link=dict(
+                source=links_source,
+                target=links_target,
+                value=links_value,
+                color=links_color
+            )
+        )])
+
+        fig.update_layout(
+            title=dict(text=f'Topic Flow Over Time ({time_period.capitalize()})',
+                      font=dict(size=16)),
+            font=dict(size=10),
+            height=800
+        )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        fig.write_html(str(output_file))
+
+        self.logger.info(f"Sankey diagram saved to {output_file} ({len(nodes)} nodes, {len(links_source)} flows)")
+        return str(output_file)
+
+    # ========================================================================
+    # Phase 1: Knowledge Graph Builder (v2.24.0)
+    # ========================================================================
+
+    def build_knowledge_graph(self, entity_types: Optional[List[str]] = None,
+                             min_occurrences: int = 2,
+                             min_relationship_strength: float = 0.3,
+                             use_cache: bool = True) -> 'nx.Graph':
+        """
+        Build NetworkX knowledge graph from entities and relationships.
+
+        Creates a weighted graph where:
+        - Nodes = entities (with type, occurrences, weight attributes)
+        - Edges = relationships (with weight=strength, co_occurrences attributes)
+
+        Args:
+            entity_types: Filter to specific entity types (None = all types)
+            min_occurrences: Minimum entity occurrences to include (default: 2)
+            min_relationship_strength: Minimum relationship strength (0.0-1.0, default: 0.3)
+            use_cache: Try to load from cache first (default: True)
+
+        Returns:
+            NetworkX Graph with entities as nodes and relationships as edges
+
+        Example:
+            >>> kb = KnowledgeBase()
+            >>> G = kb.build_knowledge_graph(entity_types=['person', 'org'], min_occurrences=5)
+            >>> print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+        Raises:
+            ImportError: If NetworkX is not installed
+            ValueError: If parameters are invalid
+        """
+        import hashlib
+        from datetime import datetime
+
+        try:
+            import networkx as nx
+        except ImportError:
+            self.logger.error("NetworkX not installed. Run: pip install networkx")
+            raise ImportError("NetworkX required for knowledge graph. Install with: pip install networkx>=3.0")
+
+        # Validate parameters
+        if min_occurrences < 1:
+            raise ValueError("min_occurrences must be >= 1")
+        if not 0.0 <= min_relationship_strength <= 1.0:
+            raise ValueError("min_relationship_strength must be between 0.0 and 1.0")
+
+        self.logger.info(f"Building knowledge graph (min_occurrences={min_occurrences}, min_strength={min_relationship_strength})")
+
+        cursor = self.db_conn.cursor()
+
+        # Add nodes from entities
+        query = """
+            SELECT entity_text, entity_type, COUNT(*) as occurrences
+            FROM document_entities
+            WHERE confidence >= 0.5
+            GROUP BY entity_text, entity_type
+            HAVING occurrences >= ?
+        """
+        params = [min_occurrences]
+
+        if entity_types:
+            placeholders = ','.join('?' * len(entity_types))
+            query += f" AND entity_type IN ({placeholders})"
+            params.extend(entity_types)
+
+        query += " ORDER BY occurrences DESC"
+
+        entities = cursor.execute(query, params).fetchall()
+
+        if not entities:
+            self.logger.warning("No entities found matching criteria")
+            return nx.Graph()
+
+        # Create graph and add nodes
+        G = nx.Graph()
+        entity_set = set()
+
+        for entity_text, entity_type, occurrences in entities:
+            G.add_node(entity_text,
+                      type=entity_type,
+                      occurrences=occurrences,
+                      weight=occurrences)  # Node weight = occurrence count
+            entity_set.add(entity_text)
+
+        self.logger.info(f"Added {G.number_of_nodes()} nodes to graph")
+
+        # Add edges from relationships
+        rel_query = """
+            SELECT entity1_text, entity2_text, strength, doc_count
+            FROM entity_relationships
+            WHERE strength >= ?
+            ORDER BY strength DESC
+        """
+
+        relationships = cursor.execute(rel_query, [min_relationship_strength]).fetchall()
+
+        edge_count = 0
+        for e1, e2, strength, doc_count in relationships:
+            # Only add edge if both entities are in the graph
+            if e1 in entity_set and e2 in entity_set:
+                G.add_edge(e1, e2,
+                          weight=strength,
+                          co_occurrences=doc_count)
+                edge_count += 1
+
+        self.logger.info(f"Added {edge_count} edges to graph")
+
+        # Validate graph
+        if G.number_of_nodes() == 0:
+            self.logger.warning("Graph has no nodes")
+            return G
+
+        # Log graph statistics
+        density = nx.density(G) if G.number_of_nodes() > 1 else 0.0
+        num_components = nx.number_connected_components(G)
+        largest_cc = max(nx.connected_components(G), key=len) if num_components > 0 else set()
+
+        self.logger.info(f"Graph statistics:")
+        self.logger.info(f"  Nodes: {G.number_of_nodes()}")
+        self.logger.info(f"  Edges: {G.number_of_edges()}")
+        self.logger.info(f"  Density: {density:.4f}")
+        self.logger.info(f"  Connected components: {num_components}")
+        self.logger.info(f"  Largest component size: {len(largest_cc)}")
+
+        # Cache graph
+        if use_cache and G.number_of_nodes() > 0:
+            cache_id = self._cache_graph(G)
+            self.logger.info(f"Graph cached with ID: {cache_id}")
+
+        return G
+
+    def _cache_graph(self, G: 'nx.Graph') -> str:
+        """
+        Cache NetworkX graph to database for quick reloading.
+
+        Args:
+            G: NetworkX graph to cache
+
+        Returns:
+            cache_id: Unique identifier for cached graph
+
+        Example:
+            >>> cache_id = kb._cache_graph(G)
+            >>> print(f"Cached as: {cache_id}")
+        """
+        import pickle
+        import hashlib
+        from datetime import datetime
+
+        # Generate cache ID from graph properties and timestamp
+        cache_str = f"{G.number_of_nodes()}_{G.number_of_edges()}_{datetime.now().isoformat()}"
+        cache_id = hashlib.sha256(cache_str.encode()).hexdigest()[:16]
+
+        # Serialize graph
+        try:
+            graph_data = pickle.dumps(G)
+        except Exception as e:
+            self.logger.error(f"Failed to pickle graph: {e}")
+            raise
+
+        # Store to database
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            INSERT INTO graph_cache
+            (cache_id, graph_version, graph_data, node_count, edge_count, created_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (cache_id, 1, graph_data, G.number_of_nodes(),
+              G.number_of_edges(), datetime.now().isoformat()))
+
+        self.db_conn.commit()
+
+        self.logger.debug(f"Cached graph {cache_id}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+        return cache_id
+
+    def _load_cached_graph(self, cache_id: str) -> Optional['nx.Graph']:
+        """
+        Load cached NetworkX graph from database.
+
+        Args:
+            cache_id: Unique identifier of cached graph
+
+        Returns:
+            NetworkX graph if found, None otherwise
+
+        Example:
+            >>> G = kb._load_cached_graph("abc123def456")
+            >>> if G:
+            >>>     print(f"Loaded: {G.number_of_nodes()} nodes")
+        """
+        import pickle
+        from datetime import datetime
+
+        cursor = self.db_conn.cursor()
+        row = cursor.execute("""
+            SELECT graph_data FROM graph_cache WHERE cache_id = ?
+        """, (cache_id,)).fetchone()
+
+        if not row:
+            self.logger.debug(f"Cache miss: {cache_id}")
+            return None
+
+        # Update last accessed timestamp
+        cursor.execute("""
+            UPDATE graph_cache SET last_accessed = ? WHERE cache_id = ?
+        """, (datetime.now().isoformat(), cache_id))
+        self.db_conn.commit()
+
+        # Deserialize graph
+        try:
+            G = pickle.loads(row[0])
+            self.logger.debug(f"Cache hit: {cache_id} ({G.number_of_nodes()} nodes, {G.number_of_edges()} edges)")
+            return G
+        except Exception as e:
+            self.logger.error(f"Failed to unpickle graph {cache_id}: {e}")
+            return None
+
+    def analyze_pagerank(self, G: 'nx.Graph', alpha: float = 0.85,
+                        max_iter: int = 100, store_to_db: bool = True) -> Dict[str, float]:
+        """
+        Calculate PageRank scores for all entities in knowledge graph.
+
+        PageRank identifies the most "important" entities based on their
+        connections to other entities in the graph.
+
+        Args:
+            G: NetworkX graph (from build_knowledge_graph)
+            alpha: Damping parameter (0.0-1.0, default: 0.85)
+            max_iter: Maximum iterations for convergence (default: 100)
+            store_to_db: Store results to graph_metrics table (default: True)
+
+        Returns:
+            Dict mapping entity_text -> PageRank score (sorted by score descending)
+
+        Example:
+            >>> G = kb.build_knowledge_graph()
+            >>> pagerank = kb.analyze_pagerank(G)
+            >>> top_5 = list(pagerank.items())[:5]
+            >>> for entity, score in top_5:
+            >>>     print(f"{entity}: {score:.4f}")
+
+        Raises:
+            ImportError: If NetworkX is not installed
+        """
+        try:
+            import networkx as nx
+        except ImportError:
+            raise ImportError("NetworkX required. Install with: pip install networkx>=3.0")
+
+        if G.number_of_nodes() == 0:
+            self.logger.warning("Cannot compute PageRank on empty graph")
+            return {}
+
+        self.logger.info(f"Computing PageRank (alpha={alpha}, max_iter={max_iter})")
+
+        # Calculate PageRank with edge weights
+        pagerank = nx.pagerank(G, alpha=alpha, max_iter=max_iter, weight='weight')
+
+        # Sort by score descending
+        sorted_pr = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)
+
+        self.logger.info(f"PageRank computed for {len(pagerank)} entities")
+        self.logger.info(f"Top entity: {sorted_pr[0][0]} (score: {sorted_pr[0][1]:.6f})")
+
+        # Store to database
+        if store_to_db:
+            stored = self._store_graph_metrics(pagerank, metric_type='pagerank', G=G)
+            self.logger.info(f"Stored PageRank metrics for {stored} entities")
+
+        return dict(sorted_pr)
+
+    def detect_communities(self, G: 'nx.Graph', algorithm: str = 'louvain',
+                          store_to_db: bool = True) -> Dict[str, int]:
+        """
+        Detect communities (clusters) in knowledge graph.
+
+        Communities are groups of entities that are more densely connected
+        to each other than to the rest of the graph.
+
+        Args:
+            G: NetworkX graph (from build_knowledge_graph)
+            algorithm: Detection algorithm:
+                - 'louvain': Louvain method (best for large graphs)
+                - 'label_propagation': Fast, non-deterministic
+                - 'greedy_modularity': Greedy optimization
+            store_to_db: Store results to graph_metrics table (default: True)
+
+        Returns:
+            Dict mapping entity_text -> community_id
+
+        Example:
+            >>> G = kb.build_knowledge_graph()
+            >>> communities = kb.detect_communities(G, algorithm='louvain')
+            >>> print(f"Found {len(set(communities.values()))} communities")
+
+        Raises:
+            ImportError: If NetworkX is not installed
+            ValueError: If algorithm is unknown
+        """
+        try:
+            import networkx as nx
+        except ImportError:
+            raise ImportError("NetworkX required. Install with: pip install networkx>=3.0")
+
+        if G.number_of_nodes() == 0:
+            self.logger.warning("Cannot detect communities in empty graph")
+            return {}
+
+        self.logger.info(f"Detecting communities using {algorithm} algorithm")
+
+        # Run community detection
+        if algorithm == 'louvain':
+            communities = nx.community.louvain_communities(G, weight='weight')
+        elif algorithm == 'label_propagation':
+            communities = nx.community.label_propagation_communities(G)
+        elif algorithm == 'greedy_modularity':
+            communities = nx.community.greedy_modularity_communities(G, weight='weight')
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}. Use 'louvain', 'label_propagation', or 'greedy_modularity'")
+
+        # Convert to dict: entity -> community_id
+        entity_to_community = {}
+        for idx, community in enumerate(communities):
+            for entity in community:
+                entity_to_community[entity] = idx
+
+        num_communities = len(communities)
+        avg_size = len(entity_to_community) / num_communities if num_communities > 0 else 0
+
+        self.logger.info(f"Detected {num_communities} communities (avg size: {avg_size:.1f})")
+
+        # Store to database
+        if store_to_db:
+            stored = self._store_graph_metrics(entity_to_community, metric_type='community', G=G)
+            self.logger.info(f"Stored community assignments for {stored} entities")
+
+        return entity_to_community
+
+    def calculate_centrality(self, G: 'nx.Graph', store_to_db: bool = True) -> Dict[str, Dict[str, float]]:
+        """
+        Calculate multiple centrality measures for all entities.
+
+        Centrality measures identify important/influential entities:
+        - Betweenness: Entities that bridge different parts of the graph
+        - Closeness: Entities that are close to all other entities
+        - Degree: Entities with many direct connections
+
+        Args:
+            G: NetworkX graph (from build_knowledge_graph)
+            store_to_db: Store results to graph_metrics table (default: True)
+
+        Returns:
+            Dict with keys 'betweenness', 'closeness', 'degree', each mapping entity -> score
+
+        Example:
+            >>> G = kb.build_knowledge_graph()
+            >>> centrality = kb.calculate_centrality(G)
+            >>> top_betweenness = sorted(centrality['betweenness'].items(),
+            >>>                          key=lambda x: x[1], reverse=True)[:5]
+
+        Raises:
+            ImportError: If NetworkX is not installed
+        """
+        try:
+            import networkx as nx
+        except ImportError:
+            raise ImportError("NetworkX required. Install with: pip install networkx>=3.0")
+
+        if G.number_of_nodes() == 0:
+            self.logger.warning("Cannot calculate centrality on empty graph")
+            return {'betweenness': {}, 'closeness': {}, 'degree': {}}
+
+        self.logger.info("Calculating centrality measures...")
+
+        centrality = {}
+
+        # Betweenness centrality (weighted)
+        self.logger.debug("Computing betweenness centrality")
+        centrality['betweenness'] = nx.betweenness_centrality(G, weight='weight')
+
+        # Closeness centrality (weighted as distance)
+        self.logger.debug("Computing closeness centrality")
+        centrality['closeness'] = nx.closeness_centrality(G, distance='weight')
+
+        # Degree centrality (unweighted)
+        self.logger.debug("Computing degree centrality")
+        centrality['degree'] = nx.degree_centrality(G)
+
+        self.logger.info(f"Computed 3 centrality measures for {G.number_of_nodes()} entities")
+
+        # Store all metrics to database
+        if store_to_db:
+            for metric_type, values in centrality.items():
+                stored = self._store_graph_metrics(values, metric_type=metric_type, G=G)
+                self.logger.debug(f"Stored {metric_type} for {stored} entities")
+
+        return centrality
+
+    def find_shortest_path(self, G: 'nx.Graph', entity1: str, entity2: str,
+                          cache_result: bool = True) -> Optional[List[str]]:
+        """
+        Find shortest path between two entities in knowledge graph.
+
+        Args:
+            G: NetworkX graph (from build_knowledge_graph)
+            entity1: Source entity name
+            entity2: Target entity name
+            cache_result: Cache path to database (default: True)
+
+        Returns:
+            List of entity names forming the path, or None if no path exists
+
+        Example:
+            >>> G = kb.build_knowledge_graph()
+            >>> path = kb.find_shortest_path(G, "VIC-II", "sprites")
+            >>> if path:
+            >>>     print(" -> ".join(path))
+
+        Raises:
+            ImportError: If NetworkX is not installed
+        """
+        try:
+            import networkx as nx
+        except ImportError:
+            raise ImportError("NetworkX required. Install with: pip install networkx>=3.0")
+
+        if entity1 not in G.nodes():
+            self.logger.warning(f"Entity not in graph: {entity1}")
+            return None
+
+        if entity2 not in G.nodes():
+            self.logger.warning(f"Entity not in graph: {entity2}")
+            return None
+
+        try:
+            # Find shortest path using edge weights
+            path = nx.shortest_path(G, entity1, entity2, weight='weight')
+
+            self.logger.info(f"Found path from '{entity1}' to '{entity2}': {len(path)} steps")
+
+            # Cache path to database
+            if cache_result:
+                self._cache_path(entity1, entity2, path, G=G)
+
+            return path
+
+        except nx.NetworkXNoPath:
+            self.logger.info(f"No path found between '{entity1}' and '{entity2}'")
+            return None
+
+    def _store_graph_metrics(self, metrics: Dict[str, float], metric_type: str,
+                            G: Optional['nx.Graph'] = None) -> int:
+        """
+        Store graph analysis metrics to database.
+
+        Args:
+            metrics: Dict mapping entity_text -> metric_value
+            metric_type: Type of metric ('pagerank', 'community', 'betweenness', 'closeness', 'degree')
+            G: NetworkX graph (optional, for entity type lookup)
+
+        Returns:
+            Number of metrics stored
+        """
+        from datetime import datetime
+
+        cursor = self.db_conn.cursor()
+        stored = 0
+
+        for entity_text, value in metrics.items():
+            # Get entity type from graph or database
+            entity_type = None
+            if G and entity_text in G.nodes():
+                entity_type = G.nodes[entity_text].get('type', 'unknown')
+            else:
+                # Lookup from database
+                row = cursor.execute("""
+                    SELECT entity_type FROM document_entities
+                    WHERE entity_text = ?
+                    LIMIT 1
+                """, (entity_text,)).fetchone()
+                if row:
+                    entity_type = row[0]
+
+            if not entity_type:
+                entity_type = 'unknown'
+
+            # Generate metric ID
+            import hashlib
+            metric_id = hashlib.sha256(f"{entity_text}_{metric_type}_{datetime.now().isoformat()}".encode()).hexdigest()[:16]
+
+            # Determine which column to update based on metric type
+            if metric_type == 'pagerank':
+                cursor.execute("""
+                    INSERT OR REPLACE INTO graph_metrics
+                    (metric_id, entity_text, entity_type, pagerank, computed_date)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (metric_id, entity_text, entity_type, value, datetime.now().isoformat()))
+
+            elif metric_type == 'community':
+                cursor.execute("""
+                    INSERT OR REPLACE INTO graph_metrics
+                    (metric_id, entity_text, entity_type, community_id, computed_date)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (metric_id, entity_text, entity_type, int(value), datetime.now().isoformat()))
+
+            elif metric_type == 'betweenness':
+                cursor.execute("""
+                    INSERT OR REPLACE INTO graph_metrics
+                    (metric_id, entity_text, entity_type, betweenness_centrality, computed_date)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (metric_id, entity_text, entity_type, value, datetime.now().isoformat()))
+
+            elif metric_type == 'closeness':
+                cursor.execute("""
+                    INSERT OR REPLACE INTO graph_metrics
+                    (metric_id, entity_text, entity_type, closeness_centrality, computed_date)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (metric_id, entity_text, entity_type, value, datetime.now().isoformat()))
+
+            elif metric_type == 'degree':
+                cursor.execute("""
+                    INSERT OR REPLACE INTO graph_metrics
+                    (metric_id, entity_text, entity_type, degree_centrality, computed_date)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (metric_id, entity_text, entity_type, value, datetime.now().isoformat()))
+
+            stored += 1
+
+        self.db_conn.commit()
+        return stored
+
+    def _cache_path(self, entity1: str, entity2: str, path: List[str],
+                   G: Optional['nx.Graph'] = None) -> str:
+        """
+        Cache shortest path to database.
+
+        Args:
+            entity1: Source entity
+            entity2: Target entity
+            path: List of entities forming the path
+            G: NetworkX graph (optional, for weight calculation)
+
+        Returns:
+            path_id: Unique identifier for cached path
+        """
+        import hashlib
+        import json
+        from datetime import datetime
+
+        # Generate path ID
+        path_str = f"{entity1}_{entity2}_{len(path)}_{datetime.now().isoformat()}"
+        path_id = hashlib.sha256(path_str.encode()).hexdigest()[:16]
+
+        # Calculate path weight if graph provided
+        path_weight = None
+        if G:
+            path_weight = 0.0
+            for i in range(len(path) - 1):
+                if G.has_edge(path[i], path[i + 1]):
+                    path_weight += G.edges[path[i], path[i + 1]].get('weight', 1.0)
+
+        # Store to database
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            INSERT INTO graph_paths
+            (path_id, entity1, entity2, path_length, path_nodes, path_weight, computed_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (path_id, entity1, entity2, len(path), json.dumps(path),
+              path_weight, datetime.now().isoformat()))
+
+        self.db_conn.commit()
+
+        return path_id
+
+    def visualize_knowledge_graph_pyvis(self, G: 'nx.Graph',
+                                       output_path: str = "knowledge_graph.html",
+                                       color_by: str = "type",
+                                       size_by: str = "pagerank",
+                                       show_labels: bool = True,
+                                       max_nodes: int = 100) -> str:
+        """
+        Generate interactive HTML visualization of knowledge graph using PyVis.
+
+        Creates an interactive, physics-based graph visualization that can be
+        panned, zoomed, and explored in a web browser.
+
+        Args:
+            G: NetworkX graph (from build_knowledge_graph)
+            output_path: Output HTML file path (default: "knowledge_graph.html")
+            color_by: Node coloring attribute:
+                - 'type': Color by entity type
+                - 'community': Color by community ID
+            size_by: Node sizing attribute:
+                - 'pagerank': Size by PageRank score
+                - 'occurrences': Size by occurrence count
+                - 'degree': Size by node degree
+            show_labels: Show entity names on nodes (default: True)
+            max_nodes: Maximum nodes to display (default: 100)
+
+        Returns:
+            Path to generated HTML file
+
+        Example:
+            >>> G = kb.build_knowledge_graph()
+            >>> pagerank = kb.analyze_pagerank(G)
+            >>> communities = kb.detect_communities(G)
+            >>> kb.visualize_knowledge_graph_pyvis(G, color_by='community', size_by='pagerank')
+
+        Raises:
+            ImportError: If PyVis is not installed
+        """
+        try:
+            from pyvis.network import Network
+        except ImportError:
+            self.logger.error("PyVis not installed. Run: pip install pyvis")
+            raise ImportError("PyVis required for visualization. Install with: pip install pyvis>=0.3.0")
+
+        try:
+            import networkx as nx
+        except ImportError:
+            raise ImportError("NetworkX required. Install with: pip install networkx>=3.0")
+
+        from pathlib import Path
+
+        if G.number_of_nodes() == 0:
+            self.logger.warning("Cannot visualize empty graph")
+            return ""
+
+        self.logger.info(f"Creating PyVis visualization (color_by={color_by}, size_by={size_by})")
+
+        # Calculate metrics if needed for sizing
+        if size_by == "pagerank":
+            # Check if PageRank already computed
+            sample_node = list(G.nodes())[0]
+            if 'pagerank' not in G.nodes[sample_node]:
+                self.logger.info("Computing PageRank for node sizing")
+                pagerank = self.analyze_pagerank(G, store_to_db=False)
+                nx.set_node_attributes(G, pagerank, 'pagerank')
+
+        elif size_by == "degree":
+            # Calculate degree centrality
+            degree_cent = nx.degree_centrality(G)
+            nx.set_node_attributes(G, degree_cent, 'degree')
+
+        # Calculate communities if needed for coloring
+        if color_by == "community":
+            sample_node = list(G.nodes())[0]
+            if 'community' not in G.nodes[sample_node]:
+                self.logger.info("Computing communities for node coloring")
+                communities = self.detect_communities(G, store_to_db=False)
+                nx.set_node_attributes(G, communities, 'community')
+
+        # Filter to top nodes if graph is too large
+        if G.number_of_nodes() > max_nodes:
+            self.logger.info(f"Filtering graph to top {max_nodes} nodes by degree centrality")
+            centrality = nx.degree_centrality(G)
+            top_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[:max_nodes]
+            G = G.subgraph([n for n, _ in top_nodes]).copy()
+
+        # Create PyVis network
+        net = Network(
+            height="750px",
+            width="100%",
+            bgcolor="#222222",
+            font_color="white",
+            notebook=False
+        )
+
+        # Configure physics for better layout
+        net.barnes_hut(
+            gravity=-80000,
+            central_gravity=0.3,
+            spring_length=250,
+            spring_strength=0.001,
+            damping=0.09
+        )
+
+        # Get color mapping
+        color_map = self._get_color_map_for_graph(G, color_by)
+
+        # Add nodes with styling
+        for node, attrs in G.nodes(data=True):
+            # Determine size
+            if size_by == "pagerank":
+                size = attrs.get('pagerank', 0.001) * 1000  # Scale PageRank
+            elif size_by == "occurrences":
+                size = attrs.get('occurrences', 1) * 2
+            elif size_by == "degree":
+                size = attrs.get('degree', 0.01) * 100
+            else:
+                size = 10
+
+            # Clamp size to reasonable range
+            size = max(10, min(50, size))
+
+            # Determine color
+            if color_by == "type":
+                color_key = attrs.get('type', 'default')
+            elif color_by == "community":
+                color_key = attrs.get('community', 0)
+            else:
+                color_key = 'default'
+
+            color = color_map.get(color_key, "#97c2fc")
+
+            # Create tooltip
+            tooltip = self._get_node_tooltip(node, attrs)
+
+            # Add node
+            net.add_node(
+                node,
+                label=node if show_labels else "",
+                size=size,
+                color=color,
+                title=tooltip
+            )
+
+        # Add edges
+        for e1, e2, attrs in G.edges(data=True):
+            weight = attrs.get('weight', 0.5)
+            co_occurrences = attrs.get('co_occurrences', 0)
+
+            net.add_edge(
+                e1, e2,
+                value=weight * 5,  # Scale edge width
+                title=f"Strength: {weight:.2f}, Co-occurrences: {co_occurrences}"
+            )
+
+        # Save to HTML
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        net.save_graph(str(output_file))
+
+        self.logger.info(f"PyVis visualization saved to {output_file} ({G.number_of_nodes()} nodes, {G.number_of_edges()} edges)")
+        return str(output_file)
+
+    def _get_color_map_for_graph(self, G: 'nx.Graph', color_by: str) -> Dict[str, str]:
+        """
+        Get color mapping for graph nodes.
+
+        Args:
+            G: NetworkX graph
+            color_by: Attribute to color by ('type' or 'community')
+
+        Returns:
+            Dict mapping attribute value -> hex color
+        """
+        if color_by == "type":
+            return {
+                'hardware': '#e74c3c',       # Red
+                'instruction': '#3498db',    # Blue
+                'register': '#2ecc71',       # Green
+                'memory_address': '#f39c12', # Orange
+                'person': '#9b59b6',         # Purple
+                'company': '#1abc9c',        # Teal
+                'product': '#e67e22',        # Dark orange
+                'org': '#16a085',            # Dark teal
+                'tech': '#d35400',           # Dark red-orange
+                'location': '#8e44ad',       # Dark purple
+                'default': '#95a5a6'         # Gray
+            }
+
+        elif color_by == "community":
+            # Generate distinct colors for communities
+            import colorsys
+            try:
+                import networkx as nx
+            except ImportError:
+                return {}
+
+            communities = nx.get_node_attributes(G, 'community')
+            if not communities:
+                return {}
+
+            num_communities = len(set(communities.values()))
+            color_map = {}
+
+            for i in range(num_communities):
+                hue = i / num_communities
+                rgb = colorsys.hsv_to_rgb(hue, 0.8, 0.9)
+                hex_color = '#%02x%02x%02x' % tuple(int(c * 255) for c in rgb)
+                color_map[i] = hex_color
+
+            return color_map
+
+        return {'default': '#97c2fc'}
+
+    def _get_node_tooltip(self, node: str, attrs: Dict) -> str:
+        """
+        Generate HTML tooltip for graph node.
+
+        Args:
+            node: Node name/text
+            attrs: Node attributes dict
+
+        Returns:
+            HTML string for tooltip
+        """
+        lines = [
+            f"<b>{node}</b>",
+            f"Type: {attrs.get('type', 'unknown')}",
+            f"Occurrences: {attrs.get('occurrences', 0)}"
+        ]
+
+        if 'pagerank' in attrs:
+            lines.append(f"PageRank: {attrs['pagerank']:.6f}")
+
+        if 'community' in attrs:
+            lines.append(f"Community: {attrs['community']}")
+
+        if 'betweenness_centrality' in attrs:
+            lines.append(f"Betweenness: {attrs['betweenness_centrality']:.4f}")
+
+        if 'degree' in attrs:
+            lines.append(f"Degree Centrality: {attrs['degree']:.4f}")
+
+        return "<br>".join(lines)
+
+    def export_graph(self, G: 'nx.Graph', output_path: str,
+                    format: str = 'graphml') -> str:
+        """
+        Export knowledge graph to various formats.
+
+        Args:
+            G: NetworkX graph
+            output_path: Output file path
+            format: Export format:
+                - 'graphml': GraphML XML format
+                - 'gexf': GEXF XML format (Gephi)
+                - 'json': JSON graph format
+                - 'gml': GML format
+
+        Returns:
+            Path to exported file
+
+        Example:
+            >>> G = kb.build_knowledge_graph()
+            >>> kb.export_graph(G, "graph.graphml", format="graphml")
+
+        Raises:
+            ImportError: If NetworkX is not installed
+            ValueError: If format is unknown
+        """
+        try:
+            import networkx as nx
+        except ImportError:
+            raise ImportError("NetworkX required. Install with: pip install networkx>=3.0")
+
+        from pathlib import Path
+
+        if format not in ['graphml', 'gexf', 'json', 'gml']:
+            raise ValueError(f"Unknown format: {format}. Use 'graphml', 'gexf', 'json', or 'gml'")
+
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        self.logger.info(f"Exporting graph to {format} format: {output_file}")
+
+        if format == 'graphml':
+            nx.write_graphml(G, str(output_file))
+        elif format == 'gexf':
+            nx.write_gexf(G, str(output_file))
+        elif format == 'json':
+            from networkx.readwrite import json_graph
+            import json
+            data = json_graph.node_link_data(G)
+            with open(output_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        elif format == 'gml':
+            nx.write_gml(G, str(output_file))
+
+        self.logger.info(f"Graph exported to {output_file} ({G.number_of_nodes()} nodes, {G.number_of_edges()} edges)")
+        return str(output_file)
+
+    # ========================================================================
+    # Phase 2: Topic Modeling & Clustering (v2.24.0)
+    # ========================================================================
+
+    def _prepare_topic_model_corpus(self, min_df: int = 2,
+                                   max_df: float = 0.8,
+                                   max_features: int = 1000) -> Tuple[List[str], Any, Any]:
+        """
+        Prepare document corpus for topic modeling.
+
+        Creates TF-IDF matrix from all documents in the knowledge base.
+
+        Args:
+            min_df: Minimum document frequency (default: 2)
+            max_df: Maximum document frequency as fraction (default: 0.8)
+            max_features: Maximum number of features (default: 1000)
+
+        Returns:
+            Tuple of (doc_ids, vectorizer, tfidf_matrix)
+
+        Example:
+            >>> doc_ids, vectorizer, matrix = kb._prepare_topic_model_corpus()
+            >>> print(f"Prepared {len(doc_ids)} documents")
+        """
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        self.logger.info(f"Preparing corpus for topic modeling ({len(self.documents)} documents)")
+
+        # Get all document texts
+        docs = []
+        doc_ids = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                full_text = " ".join(chunk.content for chunk in chunks)
+                docs.append(full_text)
+                doc_ids.append(doc_id)
+
+        if not docs:
+            self.logger.warning("No documents found for topic modeling")
+            return [], None, None
+
+        self.logger.info(f"Creating TF-IDF vectorizer (min_df={min_df}, max_df={max_df}, max_features={max_features})")
+
+        # Create TF-IDF vectorizer
+        vectorizer = TfidfVectorizer(
+            max_df=max_df,
+            min_df=min_df,
+            stop_words='english',
+            max_features=max_features,
+            ngram_range=(1, 2),
+            lowercase=True,
+            strip_accents='unicode'
+        )
+
+        try:
+            tfidf_matrix = vectorizer.fit_transform(docs)
+            self.logger.info(f"TF-IDF matrix: {tfidf_matrix.shape[0]} documents × {tfidf_matrix.shape[1]} features")
+            return doc_ids, vectorizer, tfidf_matrix
+        except Exception as e:
+            self.logger.error(f"Failed to create TF-IDF matrix: {e}")
+            raise
+
+    def train_lda_model(self, num_topics: int = 10,
+                       max_iter: int = 100,
+                       random_state: int = 42,
+                       min_doc_prob: float = 0.05) -> Dict[str, Any]:
+        """
+        Train Latent Dirichlet Allocation (LDA) topic model.
+
+        LDA discovers latent topics in document collection by modeling
+        documents as mixtures of topics and topics as mixtures of words.
+
+        Args:
+            num_topics: Number of topics to discover (default: 10)
+            max_iter: Maximum iterations (default: 100)
+            random_state: Random seed for reproducibility (default: 42)
+            min_doc_prob: Minimum topic probability to assign document (default: 0.05)
+
+        Returns:
+            Dict with model statistics:
+                - model_type: 'lda'
+                - num_topics: Number of topics
+                - topics: List of topic dicts with words and weights
+                - perplexity: Model perplexity (lower = better)
+                - num_documents: Number of documents processed
+
+        Example:
+            >>> results = kb.train_lda_model(num_topics=5)
+            >>> for topic in results['topics']:
+            >>>     print(f"Topic {topic['topic_number']}: {', '.join(topic['words'][:5])}")
+
+        Raises:
+            ImportError: If scikit-learn is not installed
+        """
+        try:
+            from sklearn.decomposition import LatentDirichletAllocation
+        except ImportError:
+            self.logger.error("scikit-learn not installed. Run: pip install scikit-learn")
+            raise ImportError("scikit-learn required for LDA. Install with: pip install scikit-learn")
+
+        import hashlib
+        from datetime import datetime
+
+        self.logger.info(f"Training LDA model with {num_topics} topics")
+
+        # Prepare corpus
+        doc_ids, vectorizer, tfidf_matrix = self._prepare_topic_model_corpus()
+
+        if not doc_ids:
+            return {'error': 'No documents available for topic modeling'}
+
+        # Train LDA
+        self.logger.info("Fitting LDA model...")
+        lda = LatentDirichletAllocation(
+            n_components=num_topics,
+            max_iter=max_iter,
+            learning_method='online',
+            random_state=random_state,
+            n_jobs=-1,
+            verbose=0
+        )
+
+        doc_topic_dist = lda.fit_transform(tfidf_matrix)
+
+        self.logger.info(f"LDA training complete")
+
+        # Extract topics
+        feature_names = vectorizer.get_feature_names_out()
+        topics = []
+
+        for topic_idx, topic_weights in enumerate(lda.components_):
+            # Get top 10 words for this topic
+            top_indices = topic_weights.argsort()[-10:][::-1]
+            top_words = [feature_names[i] for i in top_indices]
+            word_weights = {feature_names[i]: float(topic_weights[i])
+                           for i in top_indices}
+
+            # Store topic to database
+            topic_id = self._store_topic(
+                model_type='lda',
+                topic_number=topic_idx,
+                top_words=top_words,
+                word_weights=word_weights
+            )
+
+            topics.append({
+                'topic_id': topic_id,
+                'topic_number': topic_idx,
+                'words': top_words,
+                'weights': word_weights
+            })
+
+            self.logger.debug(f"Topic {topic_idx}: {', '.join(top_words[:5])}")
+
+        # Assign documents to topics
+        assignments = 0
+        for doc_idx, doc_id in enumerate(doc_ids):
+            topic_probs = doc_topic_dist[doc_idx]
+
+            # Get top 3 topics for this document
+            top_topic_indices = topic_probs.argsort()[-3:][::-1]
+
+            for topic_idx in top_topic_indices:
+                prob = topic_probs[topic_idx]
+                if prob > min_doc_prob:
+                    self._assign_document_to_topic(
+                        doc_id=doc_id,
+                        topic_id=topics[topic_idx]['topic_id'],
+                        probability=float(prob),
+                        model_type='lda'
+                    )
+                    assignments += 1
+
+        self.logger.info(f"Created {assignments} document-topic assignments")
+
+        # Calculate perplexity (lower is better)
+        perplexity = lda.perplexity(tfidf_matrix)
+
+        self.logger.info(f"LDA model perplexity: {perplexity:.2f}")
+
+        return {
+            'model_type': 'lda',
+            'num_topics': num_topics,
+            'topics': topics,
+            'perplexity': perplexity,
+            'num_documents': len(doc_ids),
+            'num_assignments': assignments
+        }
+
+    def _store_topic(self, model_type: str, topic_number: int,
+                    top_words: List[str], word_weights: Dict[str, float],
+                    coherence_score: Optional[float] = None) -> str:
+        """
+        Store topic to database.
+
+        Args:
+            model_type: Model type ('lda', 'nmf', 'bertopic')
+            topic_number: Topic index number
+            top_words: List of top words for topic
+            word_weights: Dict mapping words to weights
+            coherence_score: Optional coherence score
+
+        Returns:
+            topic_id: Unique topic identifier
+        """
+        import hashlib
+        import json
+        from datetime import datetime
+
+        # Generate topic ID
+        topic_str = f"{model_type}_{topic_number}_{datetime.now().isoformat()}"
+        topic_id = hashlib.sha256(topic_str.encode()).hexdigest()[:16]
+
+        cursor = self.db_conn.cursor()
+
+        # Store topic
+        cursor.execute("""
+            INSERT OR REPLACE INTO topics
+            (topic_id, model_type, topic_number, top_words, word_weights,
+             coherence_score, created_date, num_documents)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        """, (
+            topic_id,
+            model_type,
+            topic_number,
+            json.dumps(top_words),
+            json.dumps(word_weights),
+            coherence_score,
+            datetime.now().isoformat()
+        ))
+
+        self.db_conn.commit()
+
+        return topic_id
+
+    def _assign_document_to_topic(self, doc_id: str, topic_id: str,
+                                  probability: float, model_type: str):
+        """
+        Assign document to topic with probability.
+
+        Args:
+            doc_id: Document ID
+            topic_id: Topic ID
+            probability: Topic probability for document (0.0-1.0)
+            model_type: Model type ('lda', 'nmf', 'bertopic')
+        """
+        import hashlib
+        from datetime import datetime
+
+        # Generate assignment ID
+        assignment_str = f"{doc_id}_{topic_id}_{datetime.now().isoformat()}"
+        assignment_id = hashlib.sha256(assignment_str.encode()).hexdigest()[:16]
+
+        cursor = self.db_conn.cursor()
+
+        # Store assignment
+        cursor.execute("""
+            INSERT OR REPLACE INTO document_topics
+            (assignment_id, doc_id, topic_id, probability, model_type, assigned_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            assignment_id,
+            doc_id,
+            topic_id,
+            probability,
+            model_type,
+            datetime.now().isoformat()
+        ))
+
+        # Update topic document count
+        cursor.execute("""
+            UPDATE topics
+            SET num_documents = (
+                SELECT COUNT(DISTINCT doc_id)
+                FROM document_topics
+                WHERE topic_id = ?
+            )
+            WHERE topic_id = ?
+        """, (topic_id, topic_id))
+
+        self.db_conn.commit()
+
+    def train_nmf_model(self, num_topics: int = 10,
+                       max_iter: int = 200,
+                       random_state: int = 42,
+                       min_doc_prob: float = 0.05) -> Dict[str, Any]:
+        """
+        Train Non-negative Matrix Factorization (NMF) topic model.
+
+        NMF produces topics by factorizing the document-term matrix into
+        two non-negative matrices. Often produces more coherent and
+        interpretable topics than LDA.
+
+        Args:
+            num_topics: Number of topics to discover (default: 10)
+            max_iter: Maximum iterations (default: 200)
+            random_state: Random seed for reproducibility (default: 42)
+            min_doc_prob: Minimum topic weight to assign document (default: 0.05)
+
+        Returns:
+            Dict with model statistics:
+                - model_type: 'nmf'
+                - num_topics: Number of topics
+                - topics: List of topic dicts with words and weights
+                - reconstruction_error: Model reconstruction error (lower = better)
+                - num_documents: Number of documents processed
+
+        Example:
+            >>> results = kb.train_nmf_model(num_topics=5)
+            >>> for topic in results['topics']:
+            >>>     print(f"Topic {topic['topic_number']}: {', '.join(topic['words'][:5])}")
+
+        Raises:
+            ImportError: If scikit-learn is not installed
+        """
+        try:
+            from sklearn.decomposition import NMF
+        except ImportError:
+            self.logger.error("scikit-learn not installed. Run: pip install scikit-learn")
+            raise ImportError("scikit-learn required for NMF. Install with: pip install scikit-learn")
+
+        import hashlib
+        from datetime import datetime
+
+        self.logger.info(f"Training NMF model with {num_topics} topics")
+
+        # Prepare corpus
+        doc_ids, vectorizer, tfidf_matrix = self._prepare_topic_model_corpus()
+
+        if not doc_ids:
+            return {'error': 'No documents available for topic modeling'}
+
+        # Train NMF
+        self.logger.info("Fitting NMF model...")
+        nmf = NMF(
+            n_components=num_topics,
+            max_iter=max_iter,
+            random_state=random_state,
+            init='nndsvd',   # Non-negative Double SVD initialization
+            verbose=0
+        )
+
+        # W = document-topic matrix, H = topic-word matrix
+        doc_topic_matrix = nmf.fit_transform(tfidf_matrix)
+
+        self.logger.info(f"NMF training complete")
+
+        # Extract topics from H matrix (topic-word matrix)
+        feature_names = vectorizer.get_feature_names_out()
+        topics = []
+
+        for topic_idx, topic_weights in enumerate(nmf.components_):
+            # Get top 10 words for this topic
+            top_indices = topic_weights.argsort()[-10:][::-1]
+            top_words = [feature_names[i] for i in top_indices]
+            word_weights = {feature_names[i]: float(topic_weights[i])
+                           for i in top_indices}
+
+            # Store topic to database
+            topic_id = self._store_topic(
+                model_type='nmf',
+                topic_number=topic_idx,
+                top_words=top_words,
+                word_weights=word_weights
+            )
+
+            topics.append({
+                'topic_id': topic_id,
+                'topic_number': topic_idx,
+                'words': top_words,
+                'weights': word_weights
+            })
+
+            self.logger.debug(f"Topic {topic_idx}: {', '.join(top_words[:5])}")
+
+        # Assign documents to topics
+        assignments = 0
+        for doc_idx, doc_id in enumerate(doc_ids):
+            topic_weights = doc_topic_matrix[doc_idx]
+
+            # Normalize to get probabilities
+            topic_probs = topic_weights / topic_weights.sum() if topic_weights.sum() > 0 else topic_weights
+
+            # Get top 3 topics for this document
+            top_topic_indices = topic_probs.argsort()[-3:][::-1]
+
+            for topic_idx in top_topic_indices:
+                prob = topic_probs[topic_idx]
+                if prob > min_doc_prob:
+                    self._assign_document_to_topic(
+                        doc_id=doc_id,
+                        topic_id=topics[topic_idx]['topic_id'],
+                        probability=float(prob),
+                        model_type='nmf'
+                    )
+                    assignments += 1
+
+        self.logger.info(f"Created {assignments} document-topic assignments")
+
+        # Calculate reconstruction error (lower is better)
+        reconstruction_error = nmf.reconstruction_err_
+
+        self.logger.info(f"NMF model reconstruction error: {reconstruction_error:.2f}")
+
+        return {
+            'model_type': 'nmf',
+            'num_topics': num_topics,
+            'topics': topics,
+            'reconstruction_error': reconstruction_error,
+            'num_documents': len(doc_ids),
+            'num_assignments': assignments
+        }
+
+    def train_bertopic_model(self, num_topics: int = 10,
+                            min_cluster_size: int = 5,
+                            random_state: int = 42) -> Dict[str, Any]:
+        """
+        Train BERTopic model using document embeddings.
+
+        BERTopic is a state-of-the-art topic modeling technique that uses
+        embeddings, UMAP dimensionality reduction, and HDBSCAN clustering.
+        Produces highly coherent topics.
+
+        Args:
+            num_topics: Target number of topics (default: 10)
+            min_cluster_size: Minimum documents per topic (default: 5)
+            random_state: Random seed for reproducibility (default: 42)
+
+        Returns:
+            Dict with model statistics:
+                - model_type: 'bertopic'
+                - num_topics: Number of topics discovered
+                - topics: List of topic dicts with words and scores
+                - num_documents: Number of documents processed
+
+        Example:
+            >>> results = kb.train_bertopic_model(num_topics=5)
+            >>> for topic in results['topics']:
+            >>>     print(f"Topic {topic['topic_number']}: {', '.join(topic['words'][:5])}")
+
+        Raises:
+            ImportError: If bertopic, umap-learn, or hdbscan not installed
+        """
+        try:
+            from bertopic import BERTopic
+            from umap import UMAP
+            from hdbscan import HDBSCAN
+        except ImportError as e:
+            missing = str(e).split("'")[1]
+            self.logger.error(f"{missing} not installed. Run: pip install bertopic umap-learn hdbscan")
+            raise ImportError(f"BERTopic dependencies required. Install with: pip install bertopic umap-learn hdbscan")
+
+        import numpy as np
+        from datetime import datetime
+
+        self.logger.info(f"Training BERTopic model (target topics: {num_topics})")
+
+        # Ensure embeddings model is loaded
+        if self.embeddings_model is None:
+            self._ensure_embeddings_loaded()
+
+        # Get documents and generate/retrieve embeddings
+        doc_ids = []
+        documents = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                doc_ids.append(doc_id)
+                # Use first chunk as document representation
+                documents.append(chunks[0].content[:500])  # Limit length for performance
+
+        if not doc_ids:
+            self.logger.warning("No documents found")
+            return {'error': 'No documents available for topic modeling'}
+
+        # Generate embeddings for all documents
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+
+        embeddings = np.array(embeddings)
+        self.logger.info(f"Loaded {len(doc_ids)} documents with embeddings (shape: {embeddings.shape})")
+
+        # Configure UMAP for dimensionality reduction
+        umap_model = UMAP(
+            n_neighbors=15,
+            n_components=5,
+            min_dist=0.0,
+            metric='cosine',
+            random_state=random_state
+        )
+
+        # Configure HDBSCAN for clustering
+        hdbscan_model = HDBSCAN(
+            min_cluster_size=min_cluster_size,
+            metric='euclidean',
+            cluster_selection_method='eom',
+            prediction_data=True
+        )
+
+        # Create BERTopic model
+        self.logger.info("Fitting BERTopic model...")
+        topic_model = BERTopic(
+            umap_model=umap_model,
+            hdbscan_model=hdbscan_model,
+            nr_topics=num_topics,
+            verbose=False,
+            calculate_probabilities=True
+        )
+
+        # Train model
+        topic_assignments, probs = topic_model.fit_transform(documents, embeddings)
+
+        # Get topic info
+        topic_info = topic_model.get_topic_info()
+        num_discovered_topics = len(topic_info) - 1  # -1 for outlier topic (-1)
+
+        self.logger.info(f"BERTopic discovered {num_discovered_topics} topics")
+
+        # Extract and store topics
+        topics = []
+        topic_id_map = {}  # Map BERTopic topic numbers to our topic_ids
+
+        for idx, row in topic_info.iterrows():
+            topic_num = row['Topic']
+            if topic_num == -1:  # Skip outlier topic
+                continue
+
+            # Get top words for this topic
+            topic_words = topic_model.get_topic(topic_num)
+            if not topic_words:
+                continue
+
+            top_words = [word for word, _ in topic_words[:10]]
+            word_weights = {word: float(score) for word, score in topic_words[:10]}
+
+            # Store topic to database
+            topic_id = self._store_topic(
+                model_type='bertopic',
+                topic_number=int(topic_num),
+                top_words=top_words,
+                word_weights=word_weights
+            )
+
+            topic_id_map[topic_num] = topic_id
+
+            topics.append({
+                'topic_id': topic_id,
+                'topic_number': int(topic_num),
+                'words': top_words,
+                'weights': word_weights,
+                'document_count': int(row['Count'])
+            })
+
+            self.logger.debug(f"Topic {topic_num}: {', '.join(top_words[:5])}")
+
+        # Assign documents to topics
+        assignments = 0
+        for doc_idx, (doc_id, topic_num, prob) in enumerate(zip(doc_ids, topic_assignments, probs)):
+            if topic_num == -1:  # Skip outlier documents
+                continue
+
+            if topic_num in topic_id_map:
+                # For BERTopic, prob might be an array, take max
+                if isinstance(prob, (list, np.ndarray)):
+                    probability = float(np.max(prob))
+                else:
+                    probability = float(prob)
+
+                self._assign_document_to_topic(
+                    doc_id=doc_id,
+                    topic_id=topic_id_map[topic_num],
+                    probability=probability,
+                    model_type='bertopic'
+                )
+                assignments += 1
+
+        self.logger.info(f"Created {assignments} document-topic assignments")
+
+        # Count outliers (topic -1)
+        outlier_count = int(np.sum(np.array(topic_assignments) == -1))
+
+        return {
+            'model_type': 'bertopic',
+            'num_topics': num_discovered_topics,
+            'topics': topics,
+            'num_documents': len(doc_ids),
+            'num_assignments': assignments,
+            'outliers': outlier_count
+        }
+
+    # ========================================
+    # Phase 2: Document Clustering
+    # ========================================
+
+    def _store_cluster(self, algorithm: str, cluster_number: int,
+                      centroid_vector: Optional[np.ndarray] = None,
+                      silhouette_score: Optional[float] = None) -> str:
+        """
+        Store cluster to database.
+
+        Args:
+            algorithm: Clustering algorithm ('kmeans', 'dbscan', 'hdbscan')
+            cluster_number: Cluster index number
+            centroid_vector: Optional cluster centroid (for kmeans)
+            silhouette_score: Optional silhouette score
+
+        Returns:
+            cluster_id: Unique cluster identifier
+        """
+        import hashlib
+        import json
+        from datetime import datetime
+
+        # Generate cluster ID
+        cluster_str = f"{algorithm}_{cluster_number}_{datetime.now().isoformat()}"
+        cluster_id = hashlib.sha256(cluster_str.encode()).hexdigest()[:16]
+
+        cursor = self.db_conn.cursor()
+
+        # Convert centroid to JSON if provided
+        centroid_json = json.dumps(centroid_vector.tolist()) if centroid_vector is not None else None
+
+        # Store cluster
+        cursor.execute("""
+            INSERT OR REPLACE INTO clusters
+            (cluster_id, algorithm, cluster_number, centroid_vector,
+             silhouette_score, created_date, num_documents)
+            VALUES (?, ?, ?, ?, ?, ?, 0)
+        """, (
+            cluster_id,
+            algorithm,
+            cluster_number,
+            centroid_json,
+            silhouette_score,
+            datetime.now().isoformat()
+        ))
+
+        self.db_conn.commit()
+
+        return cluster_id
+
+    def _assign_document_to_cluster(self, doc_id: str, cluster_id: str,
+                                    distance: float, algorithm: str):
+        """
+        Assign document to cluster with distance metric.
+
+        Args:
+            doc_id: Document ID
+            cluster_id: Cluster ID
+            distance: Distance from cluster centroid
+            algorithm: Clustering algorithm
+        """
+        import hashlib
+        from datetime import datetime
+
+        cursor = self.db_conn.cursor()
+
+        # Generate assignment ID
+        assignment_str = f"{doc_id}_{cluster_id}_{datetime.now().isoformat()}"
+        assignment_id = hashlib.sha256(assignment_str.encode()).hexdigest()[:16]
+
+        cursor.execute("""
+            INSERT OR REPLACE INTO document_clusters
+            (assignment_id, doc_id, cluster_id, distance, algorithm, assigned_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (assignment_id, doc_id, cluster_id, distance, algorithm, datetime.now().isoformat()))
+
+        self.db_conn.commit()
+
+    def cluster_documents_kmeans(self, num_clusters: int = 10,
+                                 random_state: int = 42) -> Dict[str, Any]:
+        """
+        Cluster documents using K-Means on embeddings.
+
+        K-Means is a centroid-based clustering algorithm that partitions
+        documents into K clusters based on embedding similarity.
+
+        Args:
+            num_clusters: Number of clusters (K) (default: 10)
+            random_state: Random seed for reproducibility (default: 42)
+
+        Returns:
+            Dict with clustering statistics:
+                - algorithm: 'kmeans'
+                - num_clusters: Number of clusters
+                - silhouette_score: Clustering quality metric (-1 to 1)
+                - num_documents: Number of documents clustered
+
+        Example:
+            >>> results = kb.cluster_documents_kmeans(num_clusters=5)
+            >>> print(f"Clustered {results['num_documents']} docs into 5 clusters")
+            >>> print(f"Silhouette score: {results['silhouette_score']:.3f}")
+
+        Raises:
+            ImportError: If scikit-learn is not installed
+        """
+        try:
+            from sklearn.cluster import KMeans
+            from sklearn.metrics import silhouette_score
+        except ImportError:
+            self.logger.error("scikit-learn not installed. Run: pip install scikit-learn")
+            raise ImportError("scikit-learn required for K-Means. Install with: pip install scikit-learn")
+
+        import numpy as np
+
+        self.logger.info(f"K-Means clustering with {num_clusters} clusters")
+
+        # Ensure embeddings model is loaded
+        if self.embeddings_model is None:
+            self._ensure_embeddings_loaded()
+
+        # Get documents and generate embeddings
+        doc_ids = []
+        documents = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                doc_ids.append(doc_id)
+                documents.append(chunks[0].content[:500])
+
+        if not doc_ids:
+            return {'error': 'No documents available for clustering'}
+
+        # Generate embeddings
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+
+        # Train K-Means
+        self.logger.info("Fitting K-Means model...")
+        kmeans = KMeans(n_clusters=num_clusters, random_state=random_state, n_init=10)
+        labels = kmeans.fit_predict(embeddings)
+
+        # Calculate silhouette score
+        silhouette = silhouette_score(embeddings, labels)
+        self.logger.info(f"K-Means silhouette score: {silhouette:.3f}")
+
+        # Store clusters and assign documents
+        assignments = 0
+        for cluster_num in range(num_clusters):
+            # Find documents in this cluster
+            cluster_doc_indices = [i for i, label in enumerate(labels) if label == cluster_num]
+
+            # Store cluster
+            cluster_id = self._store_cluster(
+                algorithm='kmeans',
+                cluster_number=cluster_num,
+                centroid_vector=kmeans.cluster_centers_[cluster_num],
+                silhouette_score=silhouette
+            )
+
+            # Assign documents to cluster
+            for doc_idx in cluster_doc_indices:
+                doc_id = doc_ids[doc_idx]
+                distance = np.linalg.norm(embeddings[doc_idx] - kmeans.cluster_centers_[cluster_num])
+                self._assign_document_to_cluster(doc_id, cluster_id, float(distance), 'kmeans')
+                assignments += 1
+
+        self.logger.info(f"Created {assignments} document-cluster assignments")
+
+        return {
+            'algorithm': 'kmeans',
+            'num_clusters': num_clusters,
+            'silhouette_score': float(silhouette),
+            'num_documents': len(doc_ids),
+            'num_assignments': assignments
+        }
+
+    def cluster_documents_dbscan(self, eps: float = 0.5,
+                                 min_samples: int = 5) -> Dict[str, Any]:
+        """
+        Cluster documents using DBSCAN on embeddings.
+
+        DBSCAN is a density-based clustering algorithm that finds
+        arbitrary-shaped clusters and identifies outliers. Does not
+        require specifying the number of clusters.
+
+        Args:
+            eps: Maximum distance between samples (default: 0.5)
+            min_samples: Minimum samples in neighborhood (default: 5)
+
+        Returns:
+            Dict with clustering statistics:
+                - algorithm: 'dbscan'
+                - num_clusters: Number of clusters found
+                - silhouette_score: Clustering quality metric
+                - num_documents: Number of documents clustered
+                - num_outliers: Number of outlier documents
+
+        Example:
+            >>> results = kb.cluster_documents_dbscan(eps=0.5, min_samples=5)
+            >>> print(f"Found {results['num_clusters']} clusters")
+            >>> print(f"Outliers: {results['num_outliers']}")
+
+        Raises:
+            ImportError: If scikit-learn is not installed
+        """
+        try:
+            from sklearn.cluster import DBSCAN
+            from sklearn.metrics import silhouette_score
+        except ImportError:
+            self.logger.error("scikit-learn not installed. Run: pip install scikit-learn")
+            raise ImportError("scikit-learn required for DBSCAN. Install with: pip install scikit-learn")
+
+        import numpy as np
+
+        self.logger.info(f"DBSCAN clustering (eps={eps}, min_samples={min_samples})")
+
+        # Ensure embeddings model is loaded
+        if self.embeddings_model is None:
+            self._ensure_embeddings_loaded()
+
+        # Get documents and generate embeddings
+        doc_ids = []
+        documents = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                doc_ids.append(doc_id)
+                documents.append(chunks[0].content[:500])
+
+        if not doc_ids:
+            return {'error': 'No documents available for clustering'}
+
+        # Generate embeddings
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+
+        # Train DBSCAN
+        self.logger.info("Fitting DBSCAN model...")
+        dbscan = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine')
+        labels = dbscan.fit_predict(embeddings)
+
+        # Count clusters and outliers
+        unique_labels = set(labels)
+        num_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+        num_outliers = int((labels == -1).sum())
+
+        self.logger.info(f"DBSCAN found {num_clusters} clusters and {num_outliers} outliers")
+
+        # Calculate silhouette score (excluding outliers)
+        if num_clusters > 1 and num_outliers < len(labels):
+            # Filter out outliers for silhouette calculation
+            non_outlier_mask = labels != -1
+            if non_outlier_mask.sum() > 1:
+                silhouette = silhouette_score(
+                    embeddings[non_outlier_mask],
+                    labels[non_outlier_mask]
+                )
+            else:
+                silhouette = 0.0
+        else:
+            silhouette = 0.0
+
+        self.logger.info(f"DBSCAN silhouette score: {silhouette:.3f}")
+
+        # Store clusters and assign documents
+        assignments = 0
+        cluster_centroids = {}
+
+        for cluster_num in unique_labels:
+            if cluster_num == -1:
+                continue  # Skip outliers
+
+            # Find documents in this cluster
+            cluster_doc_indices = [i for i, label in enumerate(labels) if label == cluster_num]
+
+            # Calculate cluster centroid
+            cluster_embeddings = embeddings[cluster_doc_indices]
+            centroid = np.mean(cluster_embeddings, axis=0)
+            cluster_centroids[cluster_num] = centroid
+
+            # Store cluster
+            cluster_id = self._store_cluster(
+                algorithm='dbscan',
+                cluster_number=cluster_num,
+                centroid_vector=centroid,
+                silhouette_score=silhouette
+            )
+
+            # Assign documents to cluster
+            for doc_idx in cluster_doc_indices:
+                doc_id = doc_ids[doc_idx]
+                distance = np.linalg.norm(embeddings[doc_idx] - centroid)
+                self._assign_document_to_cluster(doc_id, cluster_id, float(distance), 'dbscan')
+                assignments += 1
+
+        self.logger.info(f"Created {assignments} document-cluster assignments")
+
+        return {
+            'algorithm': 'dbscan',
+            'num_clusters': num_clusters,
+            'silhouette_score': float(silhouette),
+            'num_documents': len(doc_ids),
+            'num_assignments': assignments,
+            'num_outliers': num_outliers
+        }
+
+    def cluster_documents_hdbscan(self, min_cluster_size: int = 5,
+                                  min_samples: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Cluster documents using HDBSCAN on embeddings.
+
+        HDBSCAN (Hierarchical DBSCAN) is an advanced density-based
+        clustering algorithm that automatically selects clusters and
+        handles varying densities better than DBSCAN.
+
+        Args:
+            min_cluster_size: Minimum samples per cluster (default: 5)
+            min_samples: Minimum samples in neighborhood (default: None = min_cluster_size)
+
+        Returns:
+            Dict with clustering statistics:
+                - algorithm: 'hdbscan'
+                - num_clusters: Number of clusters found
+                - num_documents: Number of documents clustered
+                - num_outliers: Number of outlier documents
+
+        Example:
+            >>> results = kb.cluster_documents_hdbscan(min_cluster_size=5)
+            >>> print(f"Found {results['num_clusters']} clusters")
+            >>> print(f"Outliers: {results['num_outliers']}")
+
+        Raises:
+            ImportError: If hdbscan is not installed
+        """
+        try:
+            import hdbscan
+        except ImportError:
+            self.logger.error("hdbscan not installed. Run: pip install hdbscan")
+            raise ImportError("hdbscan required for HDBSCAN. Install with: pip install hdbscan")
+
+        import numpy as np
+
+        self.logger.info(f"HDBSCAN clustering (min_cluster_size={min_cluster_size})")
+
+        # Ensure embeddings model is loaded
+        if self.embeddings_model is None:
+            self._ensure_embeddings_loaded()
+
+        # Get documents and generate embeddings
+        doc_ids = []
+        documents = []
+
+        for doc_id, doc in self.documents.items():
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                doc_ids.append(doc_id)
+                documents.append(chunks[0].content[:500])
+
+        if not doc_ids:
+            return {'error': 'No documents available for clustering'}
+
+        # Generate embeddings
+        self.logger.info(f"Generating embeddings for {len(documents)} documents...")
+        embeddings = self.embeddings_model.encode(documents, show_progress_bar=False)
+        embeddings = np.array(embeddings)
+
+        # Train HDBSCAN
+        self.logger.info("Fitting HDBSCAN model...")
+        clusterer = hdbscan.HDBSCAN(
+            min_cluster_size=min_cluster_size,
+            min_samples=min_samples,
+            metric='euclidean',
+            cluster_selection_method='eom',
+            prediction_data=True
+        )
+        labels = clusterer.fit_predict(embeddings)
+
+        # Count clusters and outliers
+        unique_labels = set(labels)
+        num_clusters = len(unique_labels) - (1 if -1 in unique_labels else 0)
+        num_outliers = int((labels == -1).sum())
+
+        self.logger.info(f"HDBSCAN found {num_clusters} clusters and {num_outliers} outliers")
+
+        # Store clusters and assign documents
+        assignments = 0
+        cluster_centroids = {}
+
+        for cluster_num in unique_labels:
+            if cluster_num == -1:
+                continue  # Skip outliers
+
+            # Find documents in this cluster
+            cluster_doc_indices = [i for i, label in enumerate(labels) if label == cluster_num]
+
+            # Calculate cluster centroid
+            cluster_embeddings = embeddings[cluster_doc_indices]
+            centroid = np.mean(cluster_embeddings, axis=0)
+            cluster_centroids[cluster_num] = centroid
+
+            # Store cluster
+            cluster_id = self._store_cluster(
+                algorithm='hdbscan',
+                cluster_number=cluster_num,
+                centroid_vector=centroid,
+                silhouette_score=None  # HDBSCAN uses different metrics
+            )
+
+            # Assign documents to cluster
+            for doc_idx in cluster_doc_indices:
+                doc_id = doc_ids[doc_idx]
+                distance = np.linalg.norm(embeddings[doc_idx] - centroid)
+                self._assign_document_to_cluster(doc_id, cluster_id, float(distance), 'hdbscan')
+                assignments += 1
+
+        self.logger.info(f"Created {assignments} document-cluster assignments")
+
+        return {
+            'algorithm': 'hdbscan',
+            'num_clusters': num_clusters,
+            'num_documents': len(doc_ids),
+            'num_assignments': assignments,
+            'num_outliers': num_outliers,
+            'cluster_persistence': clusterer.cluster_persistence_.tolist() if hasattr(clusterer, 'cluster_persistence_') else []
+        }
+
+    def generate_topic_wordcloud(self, topic_id: str, output_path: str,
+                                 width: int = 800, height: int = 400,
+                                 background_color: str = 'white') -> Dict[str, Any]:
+        """
+        Generate a word cloud visualization for a topic.
+
+        Args:
+            topic_id: Topic ID to visualize
+            output_path: Path to save the word cloud image
+            width: Image width in pixels
+            height: Image height in pixels
+            background_color: Background color for word cloud
+
+        Returns:
+            {
+                'topic_id': str,
+                'topic_number': int,
+                'model_type': str,
+                'output_path': str,
+                'num_words': int
+            }
+
+        Examples:
+            # Generate word cloud for a topic
+            result = kb.generate_topic_wordcloud(
+                'topic-123',
+                'topic_wordcloud.png',
+                width=1200,
+                height=600
+            )
+        """
+        from wordcloud import WordCloud
+        import matplotlib.pyplot as plt
+
+        cursor = self.db_conn.cursor()
+
+        # Get topic details
+        topic_row = cursor.execute(
+            "SELECT topic_number, model_type, top_words, word_weights FROM topics WHERE topic_id = ?",
+            (topic_id,)
+        ).fetchone()
+
+        if not topic_row:
+            return {'error': f'Topic {topic_id} not found'}
+
+        topic_number, model_type, top_words_json, weights_json = topic_row
+
+        # Parse word weights
+        import json
+        weights = json.loads(weights_json)
+
+        # Create word cloud
+        wordcloud = WordCloud(
+            width=width,
+            height=height,
+            background_color=background_color,
+            colormap='viridis',
+            relative_scaling=0.5
+        ).generate_from_frequencies(weights)
+
+        # Save to file
+        plt.figure(figsize=(width/100, height/100), dpi=100)
+        plt.imshow(wordcloud, interpolation='bilinear')
+        plt.axis('off')
+        plt.title(f'Topic {topic_number} ({model_type.upper()})', fontsize=16)
+        plt.tight_layout(pad=0)
+        plt.savefig(output_path, dpi=100, bbox_inches='tight')
+        plt.close()
+
+        return {
+            'topic_id': topic_id,
+            'topic_number': topic_number,
+            'model_type': model_type,
+            'output_path': output_path,
+            'num_words': len(weights)
+        }
+
+    def visualize_cluster_scatter(self, algorithm: str, output_path: str,
+                                  width: int = 1200, height: int = 800,
+                                  n_neighbors: int = 15,
+                                  min_dist: float = 0.1) -> Dict[str, Any]:
+        """
+        Generate 2D scatter plot of document clusters using UMAP projection.
+
+        Args:
+            algorithm: Clustering algorithm ('kmeans', 'dbscan', 'hdbscan')
+            output_path: Path to save the scatter plot
+            width: Image width in pixels
+            height: Image height in pixels
+            n_neighbors: UMAP n_neighbors parameter (controls local vs global structure)
+            min_dist: UMAP min_dist parameter (controls cluster tightness)
+
+        Returns:
+            {
+                'algorithm': str,
+                'num_clusters': int,
+                'num_documents': int,
+                'output_path': str
+            }
+
+        Examples:
+            # Visualize DBSCAN clusters
+            result = kb.visualize_cluster_scatter('dbscan', 'clusters.png')
+        """
+        import umap
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        cursor = self.db_conn.cursor()
+
+        # Get clusters for this algorithm
+        clusters = cursor.execute(
+            "SELECT cluster_id, cluster_number FROM clusters WHERE algorithm = ?",
+            (algorithm,)
+        ).fetchall()
+
+        if not clusters:
+            return {'error': f'No clusters found for algorithm {algorithm}'}
+
+        cluster_map = {cid: cnum for cid, cnum in clusters}
+
+        # Get document embeddings and cluster assignments
+        doc_data = []
+        for doc_id, doc in self.documents.items():
+            # Get cluster assignment
+            assignment = cursor.execute(
+                """SELECT c.cluster_number FROM document_clusters dc
+                   JOIN clusters c ON dc.cluster_id = c.cluster_id
+                   WHERE dc.doc_id = ? AND c.algorithm = ?""",
+                (doc_id, algorithm)
+            ).fetchone()
+
+            if assignment:
+                cluster_num = assignment[0]
+                doc_data.append((doc_id, doc.title, cluster_num))
+
+        if not doc_data:
+            return {'error': f'No document assignments found for algorithm {algorithm}'}
+
+        # Extract embeddings for assigned documents
+        doc_ids = [d[0] for d in doc_data]
+        titles = [d[1] for d in doc_data]
+        cluster_labels = np.array([d[2] for d in doc_data])
+
+        # Generate embeddings
+        documents = [self.documents[doc_id] for doc_id in doc_ids]
+        doc_texts = []
+        for doc in documents:
+            chunks = self._get_chunks_db(doc.doc_id)[:3]
+            chunk_texts = [chunk.content for chunk in chunks]
+            doc_text = doc.title + " " + " ".join(chunk_texts)
+            doc_texts.append(doc_text)
+
+        # Ensure embeddings model is loaded
+        self._ensure_embeddings_loaded()
+        embeddings = self.embeddings_model.encode(doc_texts, show_progress_bar=False)
+
+        # Apply UMAP dimensionality reduction
+        reducer = umap.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            n_components=2,
+            random_state=42,
+            metric='cosine'
+        )
+        embedding_2d = reducer.fit_transform(embeddings)
+
+        # Create scatter plot
+        plt.figure(figsize=(width/100, height/100), dpi=100)
+
+        # Get unique clusters (including outliers as -1)
+        unique_clusters = np.unique(cluster_labels)
+        colors = plt.cm.tab20(np.linspace(0, 1, len(unique_clusters)))
+
+        for i, cluster_num in enumerate(unique_clusters):
+            mask = cluster_labels == cluster_num
+            label = f'Outliers' if cluster_num == -1 else f'Cluster {cluster_num}'
+
+            plt.scatter(
+                embedding_2d[mask, 0],
+                embedding_2d[mask, 1],
+                c=[colors[i]],
+                label=label,
+                alpha=0.6,
+                s=50
+            )
+
+        plt.title(f'Document Clusters ({algorithm.upper()})', fontsize=16)
+        plt.xlabel('UMAP Dimension 1', fontsize=12)
+        plt.ylabel('UMAP Dimension 2', fontsize=12)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=100, bbox_inches='tight')
+        plt.close()
+
+        return {
+            'algorithm': algorithm,
+            'num_clusters': len(unique_clusters),
+            'num_documents': len(doc_data),
+            'output_path': output_path
+        }
+
+    def generate_topic_heatmap(self, model_type: str, output_path: str,
+                               max_topics: int = 20,
+                               max_documents: int = 50) -> Dict[str, Any]:
+        """
+        Generate heatmap showing document-topic probability matrix.
+
+        Args:
+            model_type: Topic model type ('lda', 'nmf', 'bertopic')
+            output_path: Path to save the heatmap
+            max_topics: Maximum number of topics to include
+            max_documents: Maximum number of documents to include
+
+        Returns:
+            {
+                'model_type': str,
+                'num_topics': int,
+                'num_documents': int,
+                'output_path': str
+            }
+
+        Examples:
+            # Generate heatmap for LDA model
+            result = kb.generate_topic_heatmap('lda', 'topic_heatmap.png')
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import pandas as pd
+
+        cursor = self.db_conn.cursor()
+
+        # Get topics for this model
+        topics = cursor.execute(
+            "SELECT topic_id, topic_number FROM topics WHERE model_type = ? ORDER BY topic_number LIMIT ?",
+            (model_type, max_topics)
+        ).fetchall()
+
+        if not topics:
+            return {'error': f'No topics found for model type {model_type}'}
+
+        topic_ids = [t[0] for t in topics]
+        topic_numbers = [t[1] for t in topics]
+
+        # Get document-topic assignments
+        # Get top documents by average probability across topics
+        doc_assignments = cursor.execute(
+            f"""SELECT dt.doc_id, d.title, AVG(dt.probability) as avg_prob
+               FROM document_topics dt
+               JOIN documents d ON dt.doc_id = d.doc_id
+               JOIN topics t ON dt.topic_id = t.topic_id
+               WHERE t.model_type = ?
+               GROUP BY dt.doc_id
+               ORDER BY avg_prob DESC
+               LIMIT ?""",
+            (model_type, max_documents)
+        ).fetchall()
+
+        if not doc_assignments:
+            return {'error': f'No document-topic assignments found for {model_type}'}
+
+        doc_ids = [d[0] for d in doc_assignments]
+        doc_titles = [d[1][:40] for d in doc_assignments]  # Truncate titles
+
+        # Build probability matrix
+        matrix = np.zeros((len(doc_ids), len(topic_ids)))
+
+        for i, doc_id in enumerate(doc_ids):
+            for j, topic_id in enumerate(topic_ids):
+                prob = cursor.execute(
+                    "SELECT probability FROM document_topics WHERE doc_id = ? AND topic_id = ?",
+                    (doc_id, topic_id)
+                ).fetchone()
+                if prob:
+                    matrix[i, j] = prob[0]
+
+        # Create heatmap
+        plt.figure(figsize=(12, max(8, len(doc_ids) * 0.3)))
+
+        plt.imshow(matrix, cmap='YlOrRd', aspect='auto', interpolation='nearest')
+        plt.colorbar(label='Topic Probability')
+
+        # Set ticks
+        plt.xticks(range(len(topic_numbers)), [f'T{n}' for n in topic_numbers], rotation=0)
+        plt.yticks(range(len(doc_titles)), doc_titles, fontsize=8)
+
+        plt.xlabel('Topics', fontsize=12)
+        plt.ylabel('Documents', fontsize=12)
+        plt.title(f'Document-Topic Heatmap ({model_type.upper()})', fontsize=14)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        return {
+            'model_type': model_type,
+            'num_topics': len(topic_ids),
+            'num_documents': len(doc_ids),
+            'output_path': output_path
+        }
+
+    def visualize_cluster_distribution(self, algorithm: str, output_path: str,
+                                       width: int = 1000, height: int = 600) -> Dict[str, Any]:
+        """
+        Generate bar chart showing cluster size distribution.
+
+        Args:
+            algorithm: Clustering algorithm ('kmeans', 'dbscan', 'hdbscan')
+            output_path: Path to save the bar chart
+            width: Image width in pixels
+            height: Image height in pixels
+
+        Returns:
+            {
+                'algorithm': str,
+                'num_clusters': int,
+                'output_path': str,
+                'cluster_sizes': dict
+            }
+
+        Examples:
+            # Visualize cluster distribution
+            result = kb.visualize_cluster_distribution('kmeans', 'distribution.png')
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        cursor = self.db_conn.cursor()
+
+        # Get cluster sizes
+        cluster_sizes = cursor.execute(
+            """SELECT c.cluster_number, COUNT(*) as size
+               FROM document_clusters dc
+               JOIN clusters c ON dc.cluster_id = c.cluster_id
+               WHERE c.algorithm = ?
+               GROUP BY c.cluster_number
+               ORDER BY c.cluster_number""",
+            (algorithm,)
+        ).fetchall()
+
+        if not cluster_sizes:
+            return {'error': f'No clusters found for algorithm {algorithm}'}
+
+        cluster_numbers = [c[0] for c in cluster_sizes]
+        sizes = [c[1] for c in cluster_sizes]
+
+        # Create bar chart
+        plt.figure(figsize=(width/100, height/100), dpi=100)
+
+        colors = ['red' if cn == -1 else 'steelblue' for cn in cluster_numbers]
+        labels = ['Outliers' if cn == -1 else f'Cluster {cn}' for cn in cluster_numbers]
+
+        bars = plt.bar(range(len(cluster_numbers)), sizes, color=colors, alpha=0.7)
+
+        plt.xticks(range(len(cluster_numbers)), labels, rotation=45 if len(cluster_numbers) > 10 else 0)
+        plt.ylabel('Number of Documents', fontsize=12)
+        plt.xlabel('Cluster', fontsize=12)
+        plt.title(f'Cluster Size Distribution ({algorithm.upper()})', fontsize=14)
+
+        # Add value labels on bars
+        for i, (bar, size) in enumerate(zip(bars, sizes)):
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(size)}',
+                    ha='center', va='bottom', fontsize=9)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=100, bbox_inches='tight')
+        plt.close()
+
+        # Build cluster sizes dict
+        sizes_dict = {f'cluster_{cn}' if cn != -1 else 'outliers': size
+                      for cn, size in cluster_sizes}
+
+        return {
+            'algorithm': algorithm,
+            'num_clusters': len(cluster_numbers),
+            'output_path': output_path,
+            'cluster_sizes': sizes_dict
+        }
+
     def extract_relationships_bulk(self, min_confidence: float = 0.6,
                                    max_docs: Optional[int] = None,
                                    skip_existing: bool = False) -> dict:
@@ -12369,6 +19280,986 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": []
             }
+        ),
+        # ============================================================
+        # Knowledge Graph Tools (v2.24.0 - Phase 1, Task 1.4)
+        # ============================================================
+        Tool(
+            name="build_knowledge_graph",
+            description="Build a knowledge graph from extracted entities and relationships. Returns graph statistics including node count, edge count, density, and connected components. The graph can be filtered by entity types, minimum occurrence counts, and relationship strength thresholds.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "description": "Filter to specific entity types (e.g., ['hardware', 'instruction']). Leave empty for all types.",
+                        "items": {
+                            "type": "string",
+                            "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"]
+                        }
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences to include in graph",
+                        "default": 2,
+                        "minimum": 1
+                    },
+                    "min_relationship_strength": {
+                        "type": "number",
+                        "description": "Minimum relationship strength threshold (0.0-1.0)",
+                        "default": 0.3,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "use_cache": {
+                        "type": "boolean",
+                        "description": "Use cached graph if available",
+                        "default": True
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="compute_graph_metrics",
+            description="Compute comprehensive graph analysis metrics including PageRank (importance), betweenness centrality (bridge nodes), degree centrality (connections), and community detection. Returns detailed metrics for all entities and graph-level statistics. Metrics are stored in the database for later retrieval.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "description": "Filter graph to specific entity types",
+                        "items": {
+                            "type": "string",
+                            "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"]
+                        }
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences for graph building",
+                        "default": 2,
+                        "minimum": 1
+                    },
+                    "min_relationship_strength": {
+                        "type": "number",
+                        "description": "Minimum relationship strength",
+                        "default": 0.3,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "store_results": {
+                        "type": "boolean",
+                        "description": "Store computed metrics to database",
+                        "default": True
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="get_entity_metrics",
+            description="Retrieve stored graph metrics for a specific entity. Returns PageRank score, betweenness centrality, degree centrality, community ID, entity type, and computation timestamp. Useful for understanding an entity's importance and role in the knowledge graph.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_text": {
+                        "type": "string",
+                        "description": "Entity to retrieve metrics for (e.g., 'VIC-II', 'SID', 'Commodore 64')"
+                    },
+                    "metric_types": {
+                        "type": "array",
+                        "description": "Specific metrics to retrieve. Leave empty for all metrics.",
+                        "items": {
+                            "type": "string",
+                            "enum": ["pagerank", "betweenness", "degree", "community"]
+                        }
+                    }
+                },
+                "required": ["entity_text"]
+            }
+        ),
+        Tool(
+            name="find_entity_path",
+            description="Find the shortest path between two entities in the knowledge graph. Returns the complete path, path length, and relationship details for each connection. Useful for discovering how concepts are related and understanding knowledge connections.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity1": {
+                        "type": "string",
+                        "description": "Source entity (e.g., 'STA')"
+                    },
+                    "entity2": {
+                        "type": "string",
+                        "description": "Target entity (e.g., 'VIC-II')"
+                    },
+                    "max_path_length": {
+                        "type": "integer",
+                        "description": "Maximum path length to search",
+                        "default": 6,
+                        "minimum": 1,
+                        "maximum": 10
+                    },
+                    "store_result": {
+                        "type": "boolean",
+                        "description": "Store computed path to database",
+                        "default": True
+                    }
+                },
+                "required": ["entity1", "entity2"]
+            }
+        ),
+        Tool(
+            name="get_entity_community",
+            description="Get all entities in the same community as the specified entity. Communities are groups of closely related entities detected through graph analysis. Returns community ID, member count, and list of community members with their types.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_text": {
+                        "type": "string",
+                        "description": "Entity to find community for (e.g., 'SID')"
+                    },
+                    "max_members": {
+                        "type": "integer",
+                        "description": "Maximum number of community members to return",
+                        "default": 50,
+                        "minimum": 1
+                    }
+                },
+                "required": ["entity_text"]
+            }
+        ),
+        Tool(
+            name="get_top_entities",
+            description="Get top-ranked entities by a specific metric (PageRank, betweenness, or degree centrality). Returns ranked list of entities with their scores, types, and other metrics. Useful for discovering the most important, central, or well-connected entities in the knowledge graph.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "metric": {
+                        "type": "string",
+                        "description": "Metric to rank by",
+                        "enum": ["pagerank", "betweenness", "degree"],
+                        "default": "pagerank"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of top entities to return",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 100
+                    },
+                    "entity_types": {
+                        "type": "array",
+                        "description": "Filter to specific entity types",
+                        "items": {
+                            "type": "string",
+                            "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"]
+                        }
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="visualize_graph",
+            description="Generate interactive HTML visualization of the knowledge graph using PyVis. Creates a beautiful network diagram with customizable node colors (by entity type or community), node sizes (by PageRank/betweenness/degree), and interactive physics simulation. Perfect for exploring entity relationships and discovering patterns in the knowledge base.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "output_path": {
+                        "type": "string",
+                        "description": "Output file path for HTML visualization (relative to data directory or absolute path)",
+                        "default": "knowledge_graph.html"
+                    },
+                    "entity_types": {
+                        "type": "array",
+                        "description": "Filter to specific entity types",
+                        "items": {
+                            "type": "string",
+                            "enum": ["hardware", "memory_address", "instruction", "person", "company", "product", "concept"]
+                        }
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences to include",
+                        "default": 2,
+                        "minimum": 1
+                    },
+                    "min_relationship_strength": {
+                        "type": "number",
+                        "description": "Minimum relationship strength",
+                        "default": 0.3,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    },
+                    "color_by": {
+                        "type": "string",
+                        "description": "Node coloring scheme",
+                        "enum": ["entity_type", "community", "uniform"],
+                        "default": "entity_type"
+                    },
+                    "size_by": {
+                        "type": "string",
+                        "description": "Node sizing metric",
+                        "enum": ["pagerank", "degree", "betweenness", "uniform"],
+                        "default": "pagerank"
+                    },
+                    "physics_enabled": {
+                        "type": "boolean",
+                        "description": "Enable physics simulation for dynamic layout",
+                        "default": True
+                    },
+                    "height": {
+                        "type": "string",
+                        "description": "Visualization height (CSS format)",
+                        "default": "800px"
+                    },
+                    "width": {
+                        "type": "string",
+                        "description": "Visualization width (CSS format)",
+                        "default": "100%"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="train_lda_topics",
+            description="Train LDA topic model on all documents to discover latent topics. Uses Latent Dirichlet Allocation to find topics based on word co-occurrence patterns.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "num_topics": {
+                        "type": "integer",
+                        "description": "Number of topics to discover",
+                        "default": 10,
+                        "minimum": 2
+                    },
+                    "max_iter": {
+                        "type": "integer",
+                        "description": "Maximum training iterations",
+                        "default": 100
+                    },
+                    "max_features": {
+                        "type": "integer",
+                        "description": "Maximum vocabulary size",
+                        "default": 1000
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="train_nmf_topics",
+            description="Train NMF topic model on all documents. Non-negative Matrix Factorization often produces more coherent topics than LDA and is faster.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "num_topics": {
+                        "type": "integer",
+                        "description": "Number of topics to discover",
+                        "default": 10,
+                        "minimum": 2
+                    },
+                    "max_iter": {
+                        "type": "integer",
+                        "description": "Maximum training iterations",
+                        "default": 200
+                    },
+                    "max_features": {
+                        "type": "integer",
+                        "description": "Maximum vocabulary size",
+                        "default": 1000
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="train_bertopic",
+            description="Train BERTopic model using embeddings + UMAP + HDBSCAN. State-of-the-art transformer-based topic modeling that automatically discovers topics.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "num_topics": {
+                        "type": "integer",
+                        "description": "Target number of topics (actual may vary)",
+                        "default": 10,
+                        "minimum": 2
+                    },
+                    "min_topic_size": {
+                        "type": "integer",
+                        "description": "Minimum documents per topic",
+                        "default": 5,
+                        "minimum": 2
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="get_document_topics",
+            description="Get topic assignments for a specific document or all documents. Shows which topics each document belongs to with probability scores.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model_type": {
+                        "type": "string",
+                        "description": "Topic model type",
+                        "enum": ["lda", "nmf", "bertopic"]
+                    },
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID (optional, omit to get all documents)"
+                    },
+                    "min_probability": {
+                        "type": "number",
+                        "description": "Minimum topic probability to include",
+                        "default": 0.1,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                },
+                "required": ["model_type"]
+            }
+        ),
+        Tool(
+            name="cluster_documents_kmeans",
+            description="Cluster documents using K-Means algorithm on embeddings. Partitions documents into K clusters based on similarity.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "num_clusters": {
+                        "type": "integer",
+                        "description": "Number of clusters (K)",
+                        "default": 10,
+                        "minimum": 2
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="cluster_documents_dbscan",
+            description="Cluster documents using DBSCAN (density-based clustering). Automatically discovers clusters and identifies outliers without needing to specify number of clusters.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "eps": {
+                        "type": "number",
+                        "description": "Maximum distance between neighbors",
+                        "default": 0.5,
+                        "minimum": 0.0
+                    },
+                    "min_samples": {
+                        "type": "integer",
+                        "description": "Minimum samples in neighborhood",
+                        "default": 3,
+                        "minimum": 2
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="cluster_documents_hdbscan",
+            description="Cluster documents using HDBSCAN (hierarchical density-based clustering). Improved version of DBSCAN with better handling of varying density clusters.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "min_cluster_size": {
+                        "type": "integer",
+                        "description": "Minimum cluster size",
+                        "default": 5,
+                        "minimum": 2
+                    },
+                    "min_samples": {
+                        "type": "integer",
+                        "description": "Minimum samples in neighborhood",
+                        "default": 3,
+                        "minimum": 1
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="get_cluster_documents",
+            description="Get documents in a specific cluster or all clusters. Shows cluster membership, distances, and cluster characteristics.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "algorithm": {
+                        "type": "string",
+                        "description": "Clustering algorithm",
+                        "enum": ["kmeans", "dbscan", "hdbscan"]
+                    },
+                    "cluster_number": {
+                        "type": "integer",
+                        "description": "Cluster number (optional, omit to get all clusters)"
+                    }
+                },
+                "required": ["algorithm"]
+            }
+        ),
+        # Phase 2: Visualization Tools
+        Tool(
+            name="generate_topic_wordcloud",
+            description="Generate word cloud visualization for a topic. Creates an image file showing the most important words in a topic with size proportional to their weights.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic_id": {
+                        "type": "string",
+                        "description": "Topic ID to visualize"
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Path to save the word cloud image (PNG)"
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Image width in pixels (default: 800)",
+                        "default": 800
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Image height in pixels (default: 400)",
+                        "default": 400
+                    },
+                    "background_color": {
+                        "type": "string",
+                        "description": "Background color (default: 'white')",
+                        "default": "white"
+                    }
+                },
+                "required": ["topic_id", "output_path"]
+            }
+        ),
+        Tool(
+            name="visualize_cluster_scatter",
+            description="Generate 2D scatter plot of document clusters using UMAP projection. Shows how documents are distributed across clusters in 2D space.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "algorithm": {
+                        "type": "string",
+                        "description": "Clustering algorithm",
+                        "enum": ["kmeans", "dbscan", "hdbscan"]
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Path to save the scatter plot image (PNG)"
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Image width in pixels (default: 1200)",
+                        "default": 1200
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Image height in pixels (default: 800)",
+                        "default": 800
+                    },
+                    "n_neighbors": {
+                        "type": "integer",
+                        "description": "UMAP n_neighbors parameter (default: 15)",
+                        "default": 15
+                    },
+                    "min_dist": {
+                        "type": "number",
+                        "description": "UMAP min_dist parameter (default: 0.1)",
+                        "default": 0.1
+                    }
+                },
+                "required": ["algorithm", "output_path"]
+            }
+        ),
+        Tool(
+            name="generate_topic_heatmap",
+            description="Generate heatmap showing document-topic probability matrix. Visualizes which topics are most prominent in which documents.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model_type": {
+                        "type": "string",
+                        "description": "Topic model type",
+                        "enum": ["lda", "nmf", "bertopic"]
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Path to save the heatmap image (PNG)"
+                    },
+                    "max_topics": {
+                        "type": "integer",
+                        "description": "Maximum number of topics to include (default: 20)",
+                        "default": 20
+                    },
+                    "max_documents": {
+                        "type": "integer",
+                        "description": "Maximum number of documents to include (default: 50)",
+                        "default": 50
+                    }
+                },
+                "required": ["model_type", "output_path"]
+            }
+        ),
+        Tool(
+            name="visualize_cluster_distribution",
+            description="Generate bar chart showing cluster size distribution. Shows how many documents are in each cluster.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "algorithm": {
+                        "type": "string",
+                        "description": "Clustering algorithm",
+                        "enum": ["kmeans", "dbscan", "hdbscan"]
+                    },
+                    "output_path": {
+                        "type": "string",
+                        "description": "Path to save the bar chart image (PNG)"
+                    },
+                    "width": {
+                        "type": "integer",
+                        "description": "Image width in pixels (default: 1000)",
+                        "default": 1000
+                    },
+                    "height": {
+                        "type": "integer",
+                        "description": "Image height in pixels (default: 600)",
+                        "default": 600
+                    }
+                },
+                "required": ["algorithm", "output_path"]
+            }
+        ),
+        # Phase 3: Temporal Analysis Tools
+        Tool(
+            name="extract_document_events",
+            description="Extract temporal events from a document (product releases, company milestones, technical innovations, cultural events). Detects event patterns and dates, then stores to database.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID to extract events from"
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Minimum confidence threshold (0.0-1.0)",
+                        "default": 0.5,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="get_timeline",
+            description="Get chronological timeline of events with optional filtering. Returns timeline entries sorted by date with event details.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "start_year": {
+                        "type": "integer",
+                        "description": "Filter events from this year onwards (inclusive)"
+                    },
+                    "end_year": {
+                        "type": "integer",
+                        "description": "Filter events up to this year (inclusive)"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Filter by category (e.g., '1980s-release', '1970s-innovation')"
+                    },
+                    "min_importance": {
+                        "type": "integer",
+                        "description": "Minimum importance level (1-5, where 5 is highest)",
+                        "default": 1,
+                        "minimum": 1,
+                        "maximum": 5
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of entries to return"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="search_events_by_date",
+            description="Search for events within a date range. Filter by year range, event type (release, milestone, innovation, cultural, update), and confidence.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "start_year": {
+                        "type": "integer",
+                        "description": "Start year (inclusive)"
+                    },
+                    "end_year": {
+                        "type": "integer",
+                        "description": "End year (inclusive)"
+                    },
+                    "event_type": {
+                        "type": "string",
+                        "description": "Event type filter",
+                        "enum": ["release", "milestone", "innovation", "cultural", "update"]
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Minimum confidence threshold",
+                        "default": 0.5,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="get_historical_context",
+            description="Get historical context for a specific year. Returns events from the target year plus surrounding years to provide temporal context.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "year": {
+                        "type": "integer",
+                        "description": "Target year to get context for"
+                    },
+                    "context_years": {
+                        "type": "integer",
+                        "description": "Number of years before/after to include",
+                        "default": 2,
+                        "minimum": 0,
+                        "maximum": 10
+                    }
+                },
+                "required": ["year"]
+            }
+        ),
+        # Phase 1: Knowledge Graph Tools (v2.24.0)
+        Tool(
+            name="build_knowledge_graph",
+            description="Build a knowledge graph from entities and relationships in the C64 knowledge base. The graph represents entities as nodes and their relationships as weighted edges. Use this to understand the structure of knowledge and find connections between concepts.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter to specific entity types (e.g., ['person', 'product', 'hardware']). Omit for all types."
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences to include (default: 2)",
+                        "default": 2,
+                        "minimum": 1
+                    },
+                    "min_relationship_strength": {
+                        "type": "number",
+                        "description": "Minimum relationship strength 0.0-1.0 (default: 0.3)",
+                        "default": 0.3,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="analyze_graph_pagerank",
+            description="Calculate PageRank scores for entities in the knowledge graph. PageRank identifies the most 'important' or 'central' entities based on their connections. Higher scores indicate entities that are more connected and influential in the knowledge network.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter graph to specific entity types (optional)"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences (default: 2)",
+                        "default": 2
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top entities to return (default: 20)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    },
+                    "alpha": {
+                        "type": "number",
+                        "description": "Damping parameter for PageRank (default: 0.85)",
+                        "default": 0.85,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="detect_graph_communities",
+            description="Detect communities (clusters) in the knowledge graph. Communities are groups of entities that are more densely connected to each other than to the rest of the graph. This helps identify topic clusters and thematic groupings.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter graph to specific entity types (optional)"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences (default: 2)",
+                        "default": 2
+                    },
+                    "algorithm": {
+                        "type": "string",
+                        "description": "Detection algorithm: 'louvain' (best for large graphs), 'label_propagation' (fast), or 'greedy_modularity'",
+                        "default": "louvain",
+                        "enum": ["louvain", "label_propagation", "greedy_modularity"]
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="calculate_graph_centrality",
+            description="Calculate centrality measures for entities in the knowledge graph. Returns betweenness, closeness, and degree centrality. These measures identify entities that bridge different parts of the graph, are close to all others, or have many connections.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter graph to specific entity types (optional)"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences (default: 2)",
+                        "default": 2
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top entities per measure (default: 10)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="find_entity_path",
+            description="Find the shortest path between two entities in the knowledge graph. Shows how entities are connected through intermediate relationships. Useful for understanding conceptual connections and knowledge pathways.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity1": {
+                        "type": "string",
+                        "description": "Source entity name"
+                    },
+                    "entity2": {
+                        "type": "string",
+                        "description": "Target entity name"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences for graph (default: 2)",
+                        "default": 2
+                    }
+                },
+                "required": ["entity1", "entity2"]
+            }
+        ),
+        Tool(
+            name="get_graph_statistics",
+            description="Get statistical overview of the knowledge graph including node count, edge count, density, connected components, and degree distribution. Provides insight into the overall structure and complexity of the knowledge network.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter graph to specific entity types (optional)"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences (default: 2)",
+                        "default": 2
+                    }
+                }
+            }
+        ),
+        # ========================================
+        # Phase 2: Topic Modeling & Clustering
+        # ========================================
+        Tool(
+            name="train_lda_topics",
+            description="Train LDA (Latent Dirichlet Allocation) topic model on documents. Discovers latent topics using probabilistic modeling. Returns topics with top words and document assignments.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "num_topics": {
+                        "type": "integer",
+                        "description": "Number of topics to discover (default: 10)",
+                        "default": 10
+                    },
+                    "max_iter": {
+                        "type": "integer",
+                        "description": "Maximum iterations (default: 100)",
+                        "default": 100
+                    },
+                    "random_state": {
+                        "type": "integer",
+                        "description": "Random seed for reproducibility (default: 42)",
+                        "default": 42
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="train_nmf_topics",
+            description="Train NMF (Non-negative Matrix Factorization) topic model on documents. Often produces more coherent topics than LDA using matrix factorization. Returns topics with top words and document assignments.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "num_topics": {
+                        "type": "integer",
+                        "description": "Number of topics to discover (default: 10)",
+                        "default": 10
+                    },
+                    "max_iter": {
+                        "type": "integer",
+                        "description": "Maximum iterations (default: 200)",
+                        "default": 200
+                    },
+                    "random_state": {
+                        "type": "integer",
+                        "description": "Random seed for reproducibility (default: 42)",
+                        "default": 42
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="train_bertopic",
+            description="Train BERTopic model using document embeddings. State-of-the-art topic modeling with UMAP + HDBSCAN clustering. Automatically discovers topics from semantic embeddings.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "num_topics": {
+                        "type": "integer",
+                        "description": "Target number of topics (default: 10)",
+                        "default": 10
+                    },
+                    "min_cluster_size": {
+                        "type": "integer",
+                        "description": "Minimum documents per topic (default: 5)",
+                        "default": 5
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="get_document_topics",
+            description="Get topics assigned to a specific document, including probabilities and top words for each topic. Shows which topics the document belongs to.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID"
+                    },
+                    "model_type": {
+                        "type": "string",
+                        "description": "Topic model type: 'lda', 'nmf', or 'bertopic' (optional)",
+                        "enum": ["lda", "nmf", "bertopic"]
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="cluster_documents_kmeans",
+            description="Cluster documents using K-Means algorithm on embeddings. Partitions documents into K clusters. Returns cluster assignments and silhouette score.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "num_clusters": {
+                        "type": "integer",
+                        "description": "Number of clusters (default: 10)",
+                        "default": 10
+                    },
+                    "random_state": {
+                        "type": "integer",
+                        "description": "Random seed (default: 42)",
+                        "default": 42
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="cluster_documents_dbscan",
+            description="Cluster documents using DBSCAN (density-based) algorithm. Automatically discovers clusters and identifies outliers. Does not require specifying number of clusters.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "eps": {
+                        "type": "number",
+                        "description": "Maximum distance between samples (default: 0.5)",
+                        "default": 0.5
+                    },
+                    "min_samples": {
+                        "type": "integer",
+                        "description": "Minimum samples in neighborhood (default: 5)",
+                        "default": 5
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="cluster_documents_hdbscan",
+            description="Cluster documents using HDBSCAN (hierarchical density-based) algorithm. Advanced clustering that handles varying densities. Automatically discovers clusters and outliers.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "min_cluster_size": {
+                        "type": "integer",
+                        "description": "Minimum samples per cluster (default: 5)",
+                        "default": 5
+                    },
+                    "min_samples": {
+                        "type": "integer",
+                        "description": "Minimum samples in neighborhood (optional)"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="get_cluster_documents",
+            description="Get all documents in a specific cluster, including distances from centroid. Shows which documents are grouped together.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cluster_id": {
+                        "type": "string",
+                        "description": "Cluster ID"
+                    },
+                    "algorithm": {
+                        "type": "string",
+                        "description": "Clustering algorithm: 'kmeans', 'dbscan', or 'hdbscan' (optional)",
+                        "enum": ["kmeans", "dbscan", "hdbscan"]
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum documents to return (default: 50)",
+                        "default": 50
+                    }
+                },
+                "required": ["cluster_id"]
+            }
         )
     ]
 
@@ -14341,6 +22232,1631 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         except Exception as e:
             return [TextContent(type="text", text=f"Error getting extraction jobs: {str(e)}")]
+
+    # ============================================================
+    # Knowledge Graph Tool Handlers (v2.24.0 - Phase 1, Task 1.4)
+    # ============================================================
+
+    elif name == "build_knowledge_graph":
+        entity_types = arguments.get("entity_types")
+        min_occurrences = arguments.get("min_occurrences", 2)
+        min_relationship_strength = arguments.get("min_relationship_strength", 0.3)
+        use_cache = arguments.get("use_cache", True)
+
+        try:
+            import networkx as nx
+
+            G = kb.build_knowledge_graph(
+                entity_types=entity_types,
+                min_occurrences=min_occurrences,
+                min_relationship_strength=min_relationship_strength,
+                use_cache=use_cache
+            )
+
+            # Build comprehensive output
+            output = "# Knowledge Graph Built\n\n"
+            output += f"**Graph Statistics:**\n"
+            output += f"- Nodes (entities): {G.number_of_nodes()}\n"
+            output += f"- Edges (relationships): {G.number_of_edges()}\n"
+
+            if G.number_of_nodes() > 0:
+                density = nx.density(G)
+                output += f"- Density: {density:.4f}\n"
+                output += f"- Connected components: {nx.number_connected_components(G)}\n"
+
+                # Show sample nodes
+                sample_nodes = list(G.nodes())[:10]
+                output += f"\n**Sample Entities (first 10):**\n"
+                for node in sample_nodes:
+                    node_data = G.nodes[node]
+                    output += f"- {node} (type: {node_data.get('type', 'unknown')}, "
+                    output += f"occurrences: {node_data.get('occurrences', 0)})\n"
+
+                # Show sample edges
+                if G.number_of_edges() > 0:
+                    sample_edges = list(G.edges(data=True))[:10]
+                    output += f"\n**Sample Relationships (first 10):**\n"
+                    for e1, e2, data in sample_edges:
+                        output += f"- {e1} ↔ {e2} (strength: {data.get('weight', 0):.3f})\n"
+            else:
+                output += "\n**No entities found matching the criteria.**\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error building knowledge graph: {str(e)}")]
+
+    elif name == "compute_graph_metrics":
+        entity_types = arguments.get("entity_types")
+        min_occurrences = arguments.get("min_occurrences", 2)
+        min_relationship_strength = arguments.get("min_relationship_strength", 0.3)
+        store_results = arguments.get("store_results", True)
+
+        try:
+            metrics = kb.compute_graph_metrics(
+                G=None,  # Will build new graph
+                entity_types=entity_types,
+                min_occurrences=min_occurrences,
+                min_relationship_strength=min_relationship_strength,
+                store_results=store_results
+            )
+
+            # Build output
+            output = "# Graph Metrics Computed\n\n"
+
+            # Graph statistics
+            output += f"**Graph Statistics:**\n"
+            stats = metrics['graph_stats']
+            output += f"- Nodes: {stats['nodes']}\n"
+            output += f"- Edges: {stats['edges']}\n"
+            output += f"- Density: {stats['density']:.4f}\n"
+            output += f"- Connected components: {stats['connected_components']}\n"
+            output += f"- Communities detected: {metrics['num_communities']}\n"
+            output += f"- Computed: {stats['computed_at']}\n"
+
+            # Top entities by PageRank
+            if metrics['pagerank']:
+                output += f"\n**Top 15 Entities by PageRank:**\n"
+                top_pr = sorted(metrics['pagerank'].items(), key=lambda x: x[1], reverse=True)[:15]
+                for rank, (entity, score) in enumerate(top_pr, 1):
+                    community = metrics['communities'].get(entity, 'N/A')
+                    output += f"{rank:2d}. {entity:30s} (PR: {score:.6f}, Community: {community})\n"
+
+            # Top entities by Betweenness
+            if metrics['betweenness']:
+                output += f"\n**Top 10 Bridge Entities (Betweenness):**\n"
+                top_bt = sorted(metrics['betweenness'].items(), key=lambda x: x[1], reverse=True)[:10]
+                for rank, (entity, score) in enumerate(top_bt, 1):
+                    output += f"{rank:2d}. {entity:30s} (Betweenness: {score:.6f})\n"
+
+            if store_results:
+                output += f"\n**Metrics stored to database for {len(metrics['pagerank'])} entities.**\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error computing graph metrics: {str(e)}")]
+
+    elif name == "get_entity_metrics":
+        entity_text = arguments.get("entity_text")
+        metric_types = arguments.get("metric_types")
+
+        if not entity_text:
+            return [TextContent(type="text", text="Error: entity_text is required")]
+
+        try:
+            result = kb.get_entity_metrics(entity_text, metric_types)
+
+            if not result['found']:
+                return [TextContent(type="text", text=f"No metrics found for entity: '{entity_text}'\n\nThis entity may not be in the knowledge graph, or metrics have not been computed yet. Run 'compute_graph_metrics' first.")]
+
+            # Build output
+            output = f"# Entity Metrics: {entity_text}\n\n"
+            output += f"**Entity Type:** {result['entity_type']}\n"
+            output += f"**Computed:** {result['computed_date']}\n\n"
+
+            output += f"**Metrics:**\n"
+            metrics = result['metrics']
+
+            if 'pagerank' in metrics and metrics['pagerank'] is not None:
+                output += f"- PageRank: {metrics['pagerank']:.6f} (importance score)\n"
+
+            if 'betweenness' in metrics and metrics['betweenness'] is not None:
+                output += f"- Betweenness: {metrics['betweenness']:.6f} (bridge score)\n"
+
+            if 'degree' in metrics and metrics['degree'] is not None:
+                output += f"- Degree: {metrics['degree']:.6f} (connection score)\n"
+
+            if 'community' in metrics and metrics['community'] is not None:
+                output += f"- Community ID: {metrics['community']}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error retrieving entity metrics: {str(e)}")]
+
+    elif name == "find_entity_path":
+        entity1 = arguments.get("entity1")
+        entity2 = arguments.get("entity2")
+        max_path_length = arguments.get("max_path_length", 6)
+        store_result = arguments.get("store_result", True)
+
+        if not entity1 or not entity2:
+            return [TextContent(type="text", text="Error: both entity1 and entity2 are required")]
+
+        try:
+            result = kb.find_shortest_path(
+                entity1=entity1,
+                entity2=entity2,
+                G=None,  # Will build graph
+                max_path_length=max_path_length,
+                store_result=store_result
+            )
+
+            if result is None:
+                return [TextContent(type="text", text=f"Error: Could not compute path. One or both entities may not exist in the graph.")]
+
+            # Build output
+            output = f"# Path: {entity1} → {entity2}\n\n"
+
+            if result['exists']:
+                output += f"**Path Found:** {result['length']} edges\n\n"
+                output += f"**Path:**\n"
+                output += " → ".join(result['path']) + "\n\n"
+
+                if result['relationships']:
+                    output += f"**Relationship Details:**\n"
+                    for i, rel in enumerate(result['relationships'], 1):
+                        output += f"{i}. {rel['from']} → {rel['to']}\n"
+                        output += f"   - Strength: {rel['weight']:.3f}\n"
+                        output += f"   - Co-occurrences: {rel['doc_count']} documents\n"
+
+                if store_result:
+                    output += f"\n**Path stored to database.**\n"
+            else:
+                output += f"**No path found.**\n\n"
+                output += f"The entities '{entity1}' and '{entity2}' are in different connected components "
+                output += f"of the knowledge graph (no relationship path exists between them).\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error finding path: {str(e)}")]
+
+    elif name == "get_entity_community":
+        entity_text = arguments.get("entity_text")
+        max_members = arguments.get("max_members", 50)
+
+        if not entity_text:
+            return [TextContent(type="text", text="Error: entity_text is required")]
+
+        try:
+            # First, get the entity's community ID
+            entity_metrics = kb.get_entity_metrics(entity_text)
+
+            if not entity_metrics['found']:
+                return [TextContent(type="text", text=f"Entity '{entity_text}' not found in graph metrics.\n\nRun 'compute_graph_metrics' first to detect communities.")]
+
+            if 'community' not in entity_metrics['metrics'] or entity_metrics['metrics']['community'] is None:
+                return [TextContent(type="text", text=f"No community information for '{entity_text}'.\n\nRun 'compute_graph_metrics' first.")]
+
+            community_id = entity_metrics['metrics']['community']
+
+            # Get all entities in the same community
+            cursor = kb.db_conn.cursor()
+            rows = cursor.execute("""
+                SELECT entity_text, entity_type, pagerank, degree_centrality
+                FROM graph_metrics
+                WHERE community_id = ?
+                ORDER BY pagerank DESC
+                LIMIT ?
+            """, (community_id, max_members)).fetchall()
+
+            # Build output
+            output = f"# Community {community_id}\n\n"
+            output += f"**Anchor Entity:** {entity_text} ({entity_metrics['entity_type']})\n"
+            output += f"**Total Members:** {len(rows)}\n\n"
+
+            output += f"**Community Members (ranked by PageRank):**\n"
+            for i, (ent_text, ent_type, pr, degree) in enumerate(rows, 1):
+                marker = " ← anchor" if ent_text == entity_text else ""
+                output += f"{i:2d}. {ent_text:30s} (type: {ent_type}, PR: {pr:.6f}){marker}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting community: {str(e)}")]
+
+    elif name == "get_top_entities":
+        metric = arguments.get("metric", "pagerank")
+        limit = arguments.get("limit", 10)
+        entity_types = arguments.get("entity_types")
+
+        try:
+            # Build query based on metric
+            metric_column_map = {
+                'pagerank': 'pagerank',
+                'betweenness': 'betweenness_centrality',
+                'degree': 'degree_centrality'
+            }
+
+            metric_column = metric_column_map.get(metric, 'pagerank')
+
+            cursor = kb.db_conn.cursor()
+
+            # Build query
+            query = f"""
+                SELECT entity_text, entity_type, pagerank, betweenness_centrality,
+                       degree_centrality, community_id
+                FROM graph_metrics
+                WHERE {metric_column} IS NOT NULL
+            """
+            params = []
+
+            if entity_types:
+                placeholders = ','.join('?' * len(entity_types))
+                query += f" AND entity_type IN ({placeholders})"
+                params.extend(entity_types)
+
+            query += f" ORDER BY {metric_column} DESC LIMIT ?"
+            params.append(limit)
+
+            rows = cursor.execute(query, params).fetchall()
+
+            if not rows:
+                return [TextContent(type="text", text=f"No entities found.\n\nRun 'compute_graph_metrics' first to generate metrics.")]
+
+            # Build output
+            metric_display = metric.replace('_', ' ').title()
+            output = f"# Top {len(rows)} Entities by {metric_display}\n\n"
+
+            if entity_types:
+                output += f"**Filtered by types:** {', '.join(entity_types)}\n\n"
+
+            output += f"**Ranking:**\n"
+            for rank, (ent_text, ent_type, pr, betw, deg, comm) in enumerate(rows, 1):
+                output += f"{rank:2d}. {ent_text:30s}\n"
+                output += f"    Type: {ent_type}, Community: {comm}\n"
+                output += f"    PageRank: {pr:.6f}, Betweenness: {betw:.6f}, Degree: {deg:.6f}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting top entities: {str(e)}")]
+
+    elif name == "visualize_graph":
+        output_path = arguments.get("output_path", "knowledge_graph.html")
+        entity_types = arguments.get("entity_types")
+        min_occurrences = arguments.get("min_occurrences", 2)
+        min_relationship_strength = arguments.get("min_relationship_strength", 0.3)
+        color_by = arguments.get("color_by", "entity_type")
+        size_by = arguments.get("size_by", "pagerank")
+        physics_enabled = arguments.get("physics_enabled", True)
+        height = arguments.get("height", "800px")
+        width = arguments.get("width", "100%")
+
+        try:
+            # Generate visualization
+            saved_path = kb.visualize_knowledge_graph(
+                G=None,  # Will build graph
+                output_path=output_path,
+                entity_types=entity_types,
+                min_occurrences=min_occurrences,
+                min_relationship_strength=min_relationship_strength,
+                color_by=color_by,
+                size_by=size_by,
+                physics_enabled=physics_enabled,
+                height=height,
+                width=width
+            )
+
+            if not saved_path:
+                return [TextContent(type="text", text="Error: Could not generate visualization (empty graph or error occurred).")]
+
+            # Build output message
+            output = "# Knowledge Graph Visualization Generated\n\n"
+            output += f"**File saved to:** `{saved_path}`\n\n"
+
+            output += f"**Visualization Settings:**\n"
+            output += f"- Nodes colored by: {color_by}\n"
+            output += f"- Node size based on: {size_by}\n"
+            output += f"- Physics simulation: {'Enabled' if physics_enabled else 'Disabled'}\n"
+
+            if entity_types:
+                output += f"- Filtered to types: {', '.join(entity_types)}\n"
+
+            output += f"- Min occurrences: {min_occurrences}\n"
+            output += f"- Min relationship strength: {min_relationship_strength}\n\n"
+
+            output += f"**Interactive Features:**\n"
+            output += f"- Hover over nodes to see entity details and metrics\n"
+            output += f"- Hover over edges to see relationship strength\n"
+            output += f"- Click and drag nodes to rearrange\n"
+            output += f"- Zoom with mouse wheel\n"
+            output += f"- Pan by dragging the background\n\n"
+
+            output += f"Open the HTML file in your web browser to explore the interactive visualization!\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error generating visualization: {str(e)}")]
+
+    elif name == "train_lda_topics":
+        num_topics = arguments.get("num_topics", 10)
+        max_iter = arguments.get("max_iter", 100)
+        max_features = arguments.get("max_features", 1000)
+
+        try:
+            results = kb.train_lda_model(
+                num_topics=num_topics,
+                max_iter=max_iter,
+                max_features=max_features,
+                store_results=True
+            )
+
+            output = f"# LDA Topic Model Trained\n\n"
+            output += f"**Model Statistics:**\n"
+            output += f"- Number of topics: {results['num_topics']}\n"
+            output += f"- Documents processed: {results['num_documents']}\n"
+            output += f"- Vocabulary size: {results['vocabulary_size']}\n"
+            output += f"- Perplexity: {results['perplexity']:.2f}\n"
+            output += f"- Training time: {results['training_time']:.2f}s\n\n"
+
+            output += f"**Top Topics:**\n\n"
+            for i, topic in enumerate(results['topics'][:5], 1):
+                output += f"{i}. **Topic {topic['topic_number']}:** {', '.join(topic['top_words'][:5])}\n"
+
+            output += f"\nResults stored to database. Use `get_document_topics` to see document assignments.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error training LDA model: {str(e)}")]
+
+    elif name == "train_nmf_topics":
+        num_topics = arguments.get("num_topics", 10)
+        max_iter = arguments.get("max_iter", 200)
+        max_features = arguments.get("max_features", 1000)
+
+        try:
+            results = kb.train_nmf_model(
+                num_topics=num_topics,
+                max_iter=max_iter,
+                max_features=max_features,
+                store_results=True
+            )
+
+            output = f"# NMF Topic Model Trained\n\n"
+            output += f"**Model Statistics:**\n"
+            output += f"- Number of topics: {results['num_topics']}\n"
+            output += f"- Documents processed: {results['num_documents']}\n"
+            output += f"- Vocabulary size: {results['vocabulary_size']}\n"
+            output += f"- Reconstruction error: {results['reconstruction_error']:.2f}\n"
+            output += f"- Training time: {results['training_time']:.2f}s\n\n"
+
+            output += f"**Top Topics:**\n\n"
+            for i, topic in enumerate(results['topics'][:5], 1):
+                output += f"{i}. **Topic {topic['topic_number']}:** {', '.join(topic['top_words'][:5])}\n"
+
+            output += f"\nResults stored to database. Use `get_document_topics` to see document assignments.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error training NMF model: {str(e)}")]
+
+    elif name == "train_bertopic":
+        num_topics = arguments.get("num_topics", 10)
+        min_topic_size = arguments.get("min_topic_size", 5)
+
+        try:
+            results = kb.train_bertopic_model(
+                num_topics=num_topics,
+                min_topic_size=min_topic_size,
+                store_results=True
+            )
+
+            output = f"# BERTopic Model Trained\n\n"
+            output += f"**Model Statistics:**\n"
+            output += f"- Number of topics: {results['num_topics']}\n"
+            output += f"- Documents processed: {results['num_documents']}\n"
+            output += f"- Outliers: {results['outliers']}\n"
+            output += f"- Training time: {results['training_time']:.2f}s\n\n"
+
+            output += f"**Top Topics:**\n\n"
+            for i, topic in enumerate(results['topics'][:5], 1):
+                output += f"{i}. **Topic {topic['topic_number']}:** {', '.join(topic['top_words'][:5])}\n"
+
+            output += f"\nResults stored to database. Use `get_document_topics` to see document assignments.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error training BERTopic model: {str(e)}")]
+
+    elif name == "get_document_topics":
+        model_type = arguments.get("model_type")
+        doc_id = arguments.get("doc_id")
+        min_probability = arguments.get("min_probability", 0.1)
+
+        try:
+            cursor = kb.db_conn.cursor()
+
+            if doc_id:
+                # Get topics for specific document
+                assignments = cursor.execute("""
+                    SELECT dt.topic_id, t.topic_number, t.top_words, dt.probability
+                    FROM document_topics dt
+                    JOIN topics t ON dt.topic_id = t.topic_id
+                    WHERE dt.doc_id = ? AND dt.model_type = ? AND dt.probability >= ?
+                    ORDER BY dt.probability DESC
+                """, (doc_id, model_type, min_probability)).fetchall()
+
+                if not assignments:
+                    return [TextContent(type="text", text=f"No topic assignments found for document {doc_id} with model {model_type}")]
+
+                doc = kb.documents.get(doc_id)
+                doc_title = doc.title if doc else "Unknown"
+
+                output = f"# Topic Assignments for: {doc_title}\n\n"
+                output += f"**Model:** {model_type}\n\n"
+
+                for topic_id, topic_num, top_words_json, probability in assignments:
+                    import json
+                    top_words = json.loads(top_words_json)
+                    output += f"- **Topic {topic_num}** (prob: {probability:.3f}): {', '.join(top_words[:5])}\n"
+
+            else:
+                # Get summary of all documents
+                stats = cursor.execute("""
+                    SELECT COUNT(DISTINCT doc_id), COUNT(*)
+                    FROM document_topics
+                    WHERE model_type = ?
+                """, (model_type,)).fetchone()
+
+                if not stats or stats[0] == 0:
+                    return [TextContent(type="text", text=f"No topic assignments found for model {model_type}")]
+
+                num_docs, num_assignments = stats
+
+                output = f"# Topic Assignments Summary\n\n"
+                output += f"**Model:** {model_type}\n"
+                output += f"**Documents:** {num_docs}\n"
+                output += f"**Total assignments:** {num_assignments}\n\n"
+
+                # Get topic distribution
+                topic_dist = cursor.execute("""
+                    SELECT t.topic_number, t.top_words, COUNT(DISTINCT dt.doc_id) as doc_count
+                    FROM topics t
+                    LEFT JOIN document_topics dt ON t.topic_id = dt.topic_id
+                    WHERE t.model_type = ?
+                    GROUP BY t.topic_number
+                    ORDER BY doc_count DESC
+                """, (model_type,)).fetchall()
+
+                output += f"**Topic Distribution:**\n\n"
+                for topic_num, top_words_json, doc_count in topic_dist:
+                    import json
+                    top_words = json.loads(top_words_json)
+                    output += f"- **Topic {topic_num}** ({doc_count} docs): {', '.join(top_words[:5])}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting document topics: {str(e)}")]
+
+    elif name == "cluster_documents_kmeans":
+        num_clusters = arguments.get("num_clusters", 10)
+
+        try:
+            results = kb.cluster_documents_kmeans(
+                num_clusters=num_clusters,
+                store_results=True
+            )
+
+            output = f"# K-Means Clustering Complete\n\n"
+            output += f"**Clustering Statistics:**\n"
+            output += f"- Number of clusters: {results['num_clusters']}\n"
+            output += f"- Documents clustered: {results['num_documents']}\n"
+            output += f"- Silhouette score: {results['silhouette_score']:.3f}\n"
+            output += f"- Training time: {results['training_time']:.2f}s\n\n"
+
+            output += f"**Cluster Sizes:**\n\n"
+            for i, cluster in enumerate(results['clusters'][:10], 1):
+                output += f"{i}. **Cluster {cluster['cluster_number']}** ({cluster['num_documents']} docs): {', '.join(cluster['top_terms'][:5])}\n"
+
+            output += f"\nResults stored to database. Use `get_cluster_documents` to see cluster contents.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error clustering documents: {str(e)}")]
+
+    elif name == "cluster_documents_dbscan":
+        eps = arguments.get("eps", 0.5)
+        min_samples = arguments.get("min_samples", 3)
+
+        try:
+            results = kb.cluster_documents_dbscan(
+                eps=eps,
+                min_samples=min_samples,
+                store_results=True
+            )
+
+            output = f"# DBSCAN Clustering Complete\n\n"
+            output += f"**Clustering Statistics:**\n"
+            output += f"- Number of clusters: {results['num_clusters']}\n"
+            output += f"- Documents clustered: {results['num_documents']}\n"
+            output += f"- Outliers: {results['num_outliers']}\n"
+            output += f"- Training time: {results['training_time']:.2f}s\n\n"
+
+            if results['clusters']:
+                output += f"**Cluster Sizes:**\n\n"
+                for i, cluster in enumerate(results['clusters'][:10], 1):
+                    output += f"{i}. **Cluster {cluster['cluster_number']}** ({cluster['num_documents']} docs): {', '.join(cluster['top_terms'][:5])}\n"
+
+            output += f"\nResults stored to database. Use `get_cluster_documents` to see cluster contents.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error clustering documents: {str(e)}")]
+
+    elif name == "cluster_documents_hdbscan":
+        min_cluster_size = arguments.get("min_cluster_size", 5)
+        min_samples = arguments.get("min_samples", 3)
+
+        try:
+            results = kb.cluster_documents_hdbscan(
+                min_cluster_size=min_cluster_size,
+                min_samples=min_samples,
+                store_results=True
+            )
+
+            output = f"# HDBSCAN Clustering Complete\n\n"
+            output += f"**Clustering Statistics:**\n"
+            output += f"- Number of clusters: {results['num_clusters']}\n"
+            output += f"- Documents clustered: {results['num_documents']}\n"
+            output += f"- Outliers: {results['num_outliers']}\n"
+            output += f"- Training time: {results['training_time']:.2f}s\n\n"
+
+            if results['clusters']:
+                output += f"**Cluster Sizes:**\n\n"
+                for i, cluster in enumerate(results['clusters'][:10], 1):
+                    output += f"{i}. **Cluster {cluster['cluster_number']}** ({cluster['num_documents']} docs): {', '.join(cluster['top_terms'][:5])}\n"
+
+            output += f"\nResults stored to database. Use `get_cluster_documents` to see cluster contents.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error clustering documents: {str(e)}")]
+
+    elif name == "get_cluster_documents":
+        algorithm = arguments.get("algorithm")
+        cluster_number = arguments.get("cluster_number")
+
+        try:
+            cursor = kb.db_conn.cursor()
+
+            if cluster_number is not None:
+                # Get documents in specific cluster
+                cluster_id = f"{algorithm}_cluster_{cluster_number}"
+
+                # Get cluster info
+                cluster_info = cursor.execute("""
+                    SELECT num_documents, top_terms, silhouette_score
+                    FROM clusters
+                    WHERE cluster_id = ?
+                """, (cluster_id,)).fetchone()
+
+                if not cluster_info:
+                    return [TextContent(type="text", text=f"Cluster {cluster_number} not found for algorithm {algorithm}")]
+
+                num_docs, top_terms_json, silhouette = cluster_info
+                import json
+                top_terms = json.loads(top_terms_json)
+
+                # Get documents
+                docs = cursor.execute("""
+                    SELECT dc.doc_id, dc.distance
+                    FROM document_clusters dc
+                    WHERE dc.cluster_id = ?
+                    ORDER BY dc.distance ASC
+                    LIMIT 20
+                """, (cluster_id,)).fetchall()
+
+                output = f"# Cluster {cluster_number} ({algorithm})\n\n"
+                output += f"**Cluster Info:**\n"
+                output += f"- Documents: {num_docs}\n"
+                output += f"- Top terms: {', '.join(top_terms[:10])}\n"
+                if silhouette:
+                    output += f"- Silhouette score: {silhouette:.3f}\n"
+                output += f"\n**Documents (closest to centroid):**\n\n"
+
+                for doc_id, distance in docs:
+                    doc = kb.documents.get(doc_id)
+                    if doc:
+                        output += f"- {doc.title[:60]} (distance: {distance:.3f})\n"
+
+            else:
+                # Get summary of all clusters
+                clusters = cursor.execute("""
+                    SELECT cluster_number, num_documents, top_terms
+                    FROM clusters
+                    WHERE algorithm = ?
+                    ORDER BY num_documents DESC
+                """, (algorithm,)).fetchall()
+
+                if not clusters:
+                    return [TextContent(type="text", text=f"No clusters found for algorithm {algorithm}")]
+
+                output = f"# Clusters ({algorithm})\n\n"
+                output += f"**Total clusters:** {len(clusters)}\n\n"
+
+                for cluster_num, num_docs, top_terms_json in clusters[:20]:
+                    import json
+                    top_terms = json.loads(top_terms_json)
+                    output += f"- **Cluster {cluster_num}** ({num_docs} docs): {', '.join(top_terms[:5])}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting cluster documents: {str(e)}")]
+
+    # Phase 3: Temporal Analysis Tools
+    elif name == "extract_document_events":
+        doc_id = arguments.get("doc_id")
+        min_confidence = arguments.get("min_confidence", 0.5)
+
+        try:
+            result = kb.extract_document_events(doc_id, min_confidence=min_confidence)
+
+            output = f"# Event Extraction Complete\n\n"
+            output += f"**Document:** {result['title']}\n"
+            output += f"**Statistics:**\n"
+            output += f"- Total events detected: {result['event_count']}\n"
+            output += f"- Events with confidence >= {min_confidence}: {result['filtered_count']}\n"
+            output += f"- Events stored to database: {result['stored_count']}\n\n"
+
+            if result['events']:
+                output += f"**Extracted Events:**\n\n"
+                for i, event in enumerate(result['events'][:10], 1):
+                    date_str = event['date_info']['text'] if event['date_info'] else 'No date'
+                    output += f"{i}. **[{event['type']}]** {event['title'][:80]}...\n"
+                    output += f"   - Date: {date_str}\n"
+                    output += f"   - Confidence: {event['confidence']:.2f}\n"
+                    if event['entities']:
+                        output += f"   - Entities: {', '.join(event['entities'][:3])}\n"
+                    output += "\n"
+
+                if len(result['events']) > 10:
+                    output += f"... and {len(result['events']) - 10} more events\n\n"
+
+            output += f"Events stored to database. Use `get_timeline` or `search_events_by_date` to query.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error extracting events: {str(e)}")]
+
+    elif name == "get_timeline":
+        start_year = arguments.get("start_year")
+        end_year = arguments.get("end_year")
+        category = arguments.get("category")
+        min_importance = arguments.get("min_importance", 1)
+        limit = arguments.get("limit")
+
+        try:
+            timeline = kb.get_timeline(
+                start_year=start_year,
+                end_year=end_year,
+                category=category,
+                min_importance=min_importance,
+                limit=limit
+            )
+
+            if not timeline:
+                # Try to build timeline if empty
+                kb.build_timeline()
+                timeline = kb.get_timeline(
+                    start_year=start_year,
+                    end_year=end_year,
+                    category=category,
+                    min_importance=min_importance,
+                    limit=limit
+                )
+
+            if not timeline:
+                return [TextContent(type="text", text="No timeline entries found. Extract events from documents first using `extract_document_events`.")]
+
+            output = f"# Timeline\n\n"
+
+            # Add filter info
+            filters = []
+            if start_year:
+                filters.append(f"from {start_year}")
+            if end_year:
+                filters.append(f"to {end_year}")
+            if category:
+                filters.append(f"category: {category}")
+            if min_importance > 1:
+                filters.append(f"importance >= {min_importance}")
+
+            if filters:
+                output += f"**Filters:** {', '.join(filters)}\n"
+
+            output += f"**Total entries:** {len(timeline)}\n\n"
+            output += f"**Timeline Entries:**\n\n"
+
+            for entry in timeline[:50]:  # Limit to 50 entries
+                importance_stars = "⭐" * entry['importance']
+                output += f"**[{entry['display_date']}]** {entry['title'][:70]}...\n"
+                output += f"  - Type: {entry['event_type']} | Importance: {importance_stars} ({entry['importance']}/5)\n"
+                output += f"  - Confidence: {entry['confidence']:.2f}\n\n"
+
+            if len(timeline) > 50:
+                output += f"... and {len(timeline) - 50} more entries (use `limit` parameter to see more)\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting timeline: {str(e)}")]
+
+    elif name == "search_events_by_date":
+        start_year = arguments.get("start_year")
+        end_year = arguments.get("end_year")
+        event_type = arguments.get("event_type")
+        min_confidence = arguments.get("min_confidence", 0.5)
+
+        try:
+            events = kb.search_events_by_date(
+                start_year=start_year,
+                end_year=end_year,
+                event_type=event_type,
+                min_confidence=min_confidence
+            )
+
+            if not events:
+                return [TextContent(type="text", text="No events found matching the criteria.")]
+
+            output = f"# Event Search Results\n\n"
+
+            # Add search criteria
+            criteria = []
+            if start_year and end_year:
+                criteria.append(f"{start_year}-{end_year}")
+            elif start_year:
+                criteria.append(f"from {start_year}")
+            elif end_year:
+                criteria.append(f"to {end_year}")
+            if event_type:
+                criteria.append(f"type: {event_type}")
+            criteria.append(f"confidence >= {min_confidence}")
+
+            output += f"**Search criteria:** {', '.join(criteria)}\n"
+            output += f"**Results:** {len(events)} events\n\n"
+
+            # Group events by year
+            events_by_year = {}
+            for event in events:
+                year = event['year']
+                if year not in events_by_year:
+                    events_by_year[year] = []
+                events_by_year[year].append(event)
+
+            for year in sorted(events_by_year.keys()):
+                year_events = events_by_year[year]
+                output += f"## {year} ({len(year_events)} events)\n\n"
+
+                for event in year_events[:20]:  # Limit per year
+                    output += f"- **[{event['date_normalized']}]** {event['title'][:70]}...\n"
+                    output += f"  Type: {event['event_type']}, Confidence: {event['confidence']:.2f}\n"
+
+                if len(year_events) > 20:
+                    output += f"  ... and {len(year_events) - 20} more events from {year}\n"
+
+                output += "\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error searching events: {str(e)}")]
+
+    elif name == "get_historical_context":
+        year = arguments.get("year")
+        context_years = arguments.get("context_years", 2)
+
+        try:
+            context = kb.get_historical_context(year, context_years=context_years)
+
+            if context['total_events'] == 0:
+                return [TextContent(type="text", text=f"No events found in the period {context['year_range'][0]}-{context['year_range'][1]}.")]
+
+            output = f"# Historical Context for {year}\n\n"
+            output += f"**Context range:** {context['year_range'][0]} - {context['year_range'][1]}\n"
+            output += f"**Total events:** {context['total_events']}\n\n"
+
+            # Show events by year
+            for event_year in sorted(context['events_by_year'].keys()):
+                year_events = context['events_by_year'][event_year]
+                marker = "📍 **TARGET YEAR**" if event_year == year else ""
+
+                output += f"## {event_year} ({len(year_events)} events) {marker}\n\n"
+
+                for event in year_events[:10]:
+                    output += f"- **[{event['event_type']}]** {event['title'][:70]}...\n"
+                    output += f"  Date: {event['date_normalized']}, Confidence: {event['confidence']:.2f}\n"
+
+                if len(year_events) > 10:
+                    output += f"  ... and {len(year_events) - 10} more events\n"
+
+                output += "\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting historical context: {str(e)}")]
+
+    # Phase 1: Knowledge Graph Tools (v2.24.0)
+    elif name == "build_knowledge_graph":
+        try:
+            import networkx as nx
+        except ImportError:
+            return [TextContent(type="text", text="NetworkX not installed. Run: pip install networkx>=3.0")]
+
+        entity_types = arguments.get("entity_types")
+        min_occurrences = arguments.get("min_occurrences", 2)
+        min_relationship_strength = arguments.get("min_relationship_strength", 0.3)
+
+        try:
+            G = kb.build_knowledge_graph(
+                entity_types=entity_types,
+                min_occurrences=min_occurrences,
+                min_relationship_strength=min_relationship_strength
+            )
+
+            output = f"# Knowledge Graph Built\n\n"
+            output += f"**Nodes (entities):** {G.number_of_nodes()}\n"
+            output += f"**Edges (relationships):** {G.number_of_edges()}\n"
+            output += f"**Density:** {nx.density(G):.4f}\n"
+            output += f"**Connected components:** {nx.number_connected_components(G)}\n\n"
+
+            # Show largest connected component
+            if G.number_of_nodes() > 0:
+                largest_cc = max(nx.connected_components(G), key=len)
+                output += f"**Largest component:** {len(largest_cc)} nodes\n\n"
+
+            # Show sample nodes with highest degree
+            degrees = dict(G.degree())
+            if degrees:
+                top_nodes = sorted(degrees.items(), key=lambda x: x[1], reverse=True)[:10]
+                output += "## Top Connected Entities\n\n"
+                for entity, degree in top_nodes:
+                    node_type = G.nodes[entity].get('type', 'unknown')
+                    occurrences = G.nodes[entity].get('occurrences', 0)
+                    output += f"- **{entity}** (type: {node_type}, degree: {degree}, occurrences: {occurrences})\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error building knowledge graph: {str(e)}")]
+
+    elif name == "analyze_graph_pagerank":
+        try:
+            import networkx as nx
+        except ImportError:
+            return [TextContent(type="text", text="NetworkX not installed. Run: pip install networkx>=3.0")]
+
+        entity_types = arguments.get("entity_types")
+        min_occurrences = arguments.get("min_occurrences", 2)
+        top_n = arguments.get("top_n", 20)
+        alpha = arguments.get("alpha", 0.85)
+
+        try:
+            # Build graph
+            G = kb.build_knowledge_graph(
+                entity_types=entity_types,
+                min_occurrences=min_occurrences
+            )
+
+            if G.number_of_nodes() == 0:
+                return [TextContent(type="text", text="No entities found for graph construction.")]
+
+            # Calculate PageRank
+            pagerank = kb.analyze_pagerank(G, alpha=alpha)
+
+            # Format results
+            output = f"# PageRank Analysis\n\n"
+            output += f"**Total entities:** {len(pagerank)}\n"
+            output += f"**Damping factor (alpha):** {alpha}\n\n"
+            output += f"## Top {top_n} Entities by PageRank\n\n"
+
+            for i, (entity, score) in enumerate(list(pagerank.items())[:top_n], 1):
+                node_data = G.nodes[entity]
+                output += f"{i}. **{entity}**\n"
+                output += f"   - PageRank: {score:.6f}\n"
+                output += f"   - Type: {node_data['type']}\n"
+                output += f"   - Occurrences: {node_data['occurrences']}\n\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error analyzing PageRank: {str(e)}")]
+
+    elif name == "detect_graph_communities":
+        try:
+            import networkx as nx
+        except ImportError:
+            return [TextContent(type="text", text="NetworkX not installed. Run: pip install networkx>=3.0")]
+
+        entity_types = arguments.get("entity_types")
+        min_occurrences = arguments.get("min_occurrences", 2)
+        algorithm = arguments.get("algorithm", "louvain")
+
+        try:
+            # Build graph
+            G = kb.build_knowledge_graph(
+                entity_types=entity_types,
+                min_occurrences=min_occurrences
+            )
+
+            if G.number_of_nodes() == 0:
+                return [TextContent(type="text", text="No entities found for graph construction.")]
+
+            # Detect communities
+            communities = kb.detect_communities(G, algorithm=algorithm)
+            num_communities = len(set(communities.values()))
+
+            # Format results
+            output = f"# Community Detection\n\n"
+            output += f"**Algorithm:** {algorithm}\n"
+            output += f"**Total entities:** {len(communities)}\n"
+            output += f"**Communities detected:** {num_communities}\n\n"
+
+            # Group entities by community
+            community_groups = {}
+            for entity, comm_id in communities.items():
+                if comm_id not in community_groups:
+                    community_groups[comm_id] = []
+                community_groups[comm_id].append(entity)
+
+            # Show communities sorted by size
+            sorted_communities = sorted(community_groups.items(), key=lambda x: len(x[1]), reverse=True)
+
+            output += "## Communities (by size)\n\n"
+            for i, (comm_id, members) in enumerate(sorted_communities[:10], 1):
+                output += f"### Community {comm_id} ({len(members)} members)\n\n"
+                # Show first 10 members
+                for entity in members[:10]:
+                    node_type = G.nodes[entity].get('type', 'unknown')
+                    output += f"- {entity} (type: {node_type})\n"
+                if len(members) > 10:
+                    output += f"- ... and {len(members) - 10} more\n"
+                output += "\n"
+
+            if len(sorted_communities) > 10:
+                output += f"\n... and {len(sorted_communities) - 10} more communities\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error detecting communities: {str(e)}")]
+
+    elif name == "calculate_graph_centrality":
+        try:
+            import networkx as nx
+        except ImportError:
+            return [TextContent(type="text", text="NetworkX not installed. Run: pip install networkx>=3.0")]
+
+        entity_types = arguments.get("entity_types")
+        min_occurrences = arguments.get("min_occurrences", 2)
+        top_n = arguments.get("top_n", 10)
+
+        try:
+            # Build graph
+            G = kb.build_knowledge_graph(
+                entity_types=entity_types,
+                min_occurrences=min_occurrences
+            )
+
+            if G.number_of_nodes() == 0:
+                return [TextContent(type="text", text="No entities found for graph construction.")]
+
+            # Calculate centrality
+            centrality = kb.calculate_centrality(G)
+
+            # Format results
+            output = f"# Centrality Analysis\n\n"
+            output += f"**Total entities:** {G.number_of_nodes()}\n\n"
+
+            # Show top entities for each centrality measure
+            for measure_name, measure_values in centrality.items():
+                sorted_values = sorted(measure_values.items(), key=lambda x: x[1], reverse=True)
+
+                output += f"## Top {top_n} by {measure_name.capitalize()} Centrality\n\n"
+                output += f"*{measure_name.capitalize()} measures "
+                if measure_name == 'betweenness':
+                    output += "entities that bridge different parts of the graph*\n\n"
+                elif measure_name == 'closeness':
+                    output += "entities that are close to all other entities*\n\n"
+                elif measure_name == 'degree':
+                    output += "entities with many direct connections*\n\n"
+
+                for i, (entity, score) in enumerate(sorted_values[:top_n], 1):
+                    node_data = G.nodes[entity]
+                    output += f"{i}. **{entity}**\n"
+                    output += f"   - Score: {score:.6f}\n"
+                    output += f"   - Type: {node_data['type']}\n\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error calculating centrality: {str(e)}")]
+
+    elif name == "find_entity_path":
+        try:
+            import networkx as nx
+        except ImportError:
+            return [TextContent(type="text", text="NetworkX not installed. Run: pip install networkx>=3.0")]
+
+        entity1 = arguments.get("entity1")
+        entity2 = arguments.get("entity2")
+        min_occurrences = arguments.get("min_occurrences", 2)
+
+        try:
+            # Build graph
+            G = kb.build_knowledge_graph(min_occurrences=min_occurrences)
+
+            if G.number_of_nodes() == 0:
+                return [TextContent(type="text", text="No entities found for graph construction.")]
+
+            # Find path
+            path = kb.find_shortest_path(G, entity1, entity2)
+
+            if path is None:
+                # Check if entities exist in graph
+                if entity1 not in G.nodes():
+                    return [TextContent(type="text", text=f"Entity '{entity1}' not found in graph. Try lowering min_occurrences or check spelling.")]
+                if entity2 not in G.nodes():
+                    return [TextContent(type="text", text=f"Entity '{entity2}' not found in graph. Try lowering min_occurrences or check spelling.")]
+
+                return [TextContent(type="text", text=f"No path found between '{entity1}' and '{entity2}'. They are in different connected components.")]
+
+            # Format results
+            output = f"# Entity Path: {entity1} → {entity2}\n\n"
+            output += f"**Path length:** {len(path)} steps\n"
+            output += f"**Path:** {' → '.join(path)}\n\n"
+
+            # Show detailed path with relationship info
+            output += "## Detailed Path\n\n"
+            for i in range(len(path) - 1):
+                curr_entity = path[i]
+                next_entity = path[i + 1]
+
+                curr_type = G.nodes[curr_entity].get('type', 'unknown')
+                next_type = G.nodes[next_entity].get('type', 'unknown')
+
+                if G.has_edge(curr_entity, next_entity):
+                    edge_data = G.edges[curr_entity, next_entity]
+                    weight = edge_data.get('weight', 0.0)
+                    co_occurrences = edge_data.get('co_occurrences', 0)
+
+                    output += f"{i + 1}. **{curr_entity}** (type: {curr_type})\n"
+                    output += f"   ↓ *relationship strength: {weight:.2f}, co-occurrences: {co_occurrences}*\n"
+
+            # Add final entity
+            final_entity = path[-1]
+            final_type = G.nodes[final_entity].get('type', 'unknown')
+            output += f"{len(path)}. **{final_entity}** (type: {final_type})\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error finding entity path: {str(e)}")]
+
+    elif name == "get_graph_statistics":
+        try:
+            import networkx as nx
+        except ImportError:
+            return [TextContent(type="text", text="NetworkX not installed. Run: pip install networkx>=3.0")]
+
+        entity_types = arguments.get("entity_types")
+        min_occurrences = arguments.get("min_occurrences", 2)
+
+        try:
+            # Build graph
+            G = kb.build_knowledge_graph(
+                entity_types=entity_types,
+                min_occurrences=min_occurrences
+            )
+
+            if G.number_of_nodes() == 0:
+                return [TextContent(type="text", text="No entities found for graph construction.")]
+
+            # Calculate statistics
+            density = nx.density(G)
+            num_components = nx.number_connected_components(G)
+
+            # Get degree distribution
+            degrees = [d for _, d in G.degree()]
+            avg_degree = sum(degrees) / len(degrees) if degrees else 0
+            max_degree = max(degrees) if degrees else 0
+            min_degree = min(degrees) if degrees else 0
+
+            # Format results
+            output = f"# Knowledge Graph Statistics\n\n"
+            output += f"## Basic Metrics\n\n"
+            output += f"- **Nodes (entities):** {G.number_of_nodes()}\n"
+            output += f"- **Edges (relationships):** {G.number_of_edges()}\n"
+            output += f"- **Density:** {density:.4f} (0 = sparse, 1 = complete)\n"
+            output += f"- **Connected components:** {num_components}\n\n"
+
+            # Show largest connected component
+            if num_components > 0:
+                components = sorted(nx.connected_components(G), key=len, reverse=True)
+                output += f"## Connected Components\n\n"
+                output += f"- Largest: {len(components[0])} nodes ({len(components[0])/G.number_of_nodes()*100:.1f}%)\n"
+                if len(components) > 1:
+                    output += f"- Second largest: {len(components[1])} nodes\n"
+                output += f"- Isolated nodes: {sum(1 for c in components if len(c) == 1)}\n\n"
+
+            # Degree statistics
+            output += f"## Degree Distribution\n\n"
+            output += f"- Average degree: {avg_degree:.2f}\n"
+            output += f"- Maximum degree: {max_degree}\n"
+            output += f"- Minimum degree: {min_degree}\n\n"
+
+            # Entity type distribution
+            type_counts = {}
+            for node in G.nodes():
+                node_type = G.nodes[node].get('type', 'unknown')
+                type_counts[node_type] = type_counts.get(node_type, 0) + 1
+
+            output += f"## Entity Types\n\n"
+            for etype, count in sorted(type_counts.items(), key=lambda x: x[1], reverse=True):
+                output += f"- {etype}: {count} ({count/G.number_of_nodes()*100:.1f}%)\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting graph statistics: {str(e)}")]
+
+    # ========================================
+    # Phase 2: Topic Modeling & Clustering
+    # ========================================
+
+    elif name == "train_lda_topics":
+        num_topics = arguments.get("num_topics", 10)
+        max_iter = arguments.get("max_iter", 100)
+        random_state = arguments.get("random_state", 42)
+
+        try:
+            result = kb.train_lda_model(num_topics, max_iter, random_state)
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"LDA Topic Modeling Complete\n{'='*60}\n\n"
+            output += f"Model: {result['model_type']}\n"
+            output += f"Topics: {result['num_topics']}\n"
+            output += f"Documents: {result['num_documents']}\n"
+            output += f"Assignments: {result['num_assignments']}\n"
+            output += f"Perplexity: {result['perplexity']:.2f}\n\n"
+
+            output += "Discovered Topics:\n\n"
+            for topic in result['topics'][:5]:  # Show first 5 topics
+                top_words = topic['words'][:5]
+                output += f"Topic {topic['topic_number']}: {', '.join(top_words)}\n"
+
+            if len(result['topics']) > 5:
+                output += f"\n... and {len(result['topics']) - 5} more topics\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error training LDA model: {str(e)}")]
+
+    elif name == "train_nmf_topics":
+        num_topics = arguments.get("num_topics", 10)
+        max_iter = arguments.get("max_iter", 200)
+        random_state = arguments.get("random_state", 42)
+
+        try:
+            result = kb.train_nmf_model(num_topics, max_iter, random_state)
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"NMF Topic Modeling Complete\n{'='*60}\n\n"
+            output += f"Model: {result['model_type']}\n"
+            output += f"Topics: {result['num_topics']}\n"
+            output += f"Documents: {result['num_documents']}\n"
+            output += f"Assignments: {result['num_assignments']}\n"
+            output += f"Reconstruction Error: {result['reconstruction_error']:.2f}\n\n"
+
+            output += "Discovered Topics:\n\n"
+            for topic in result['topics'][:5]:
+                top_words = topic['words'][:5]
+                output += f"Topic {topic['topic_number']}: {', '.join(top_words)}\n"
+
+            if len(result['topics']) > 5:
+                output += f"\n... and {len(result['topics']) - 5} more topics\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error training NMF model: {str(e)}")]
+
+    elif name == "train_bertopic":
+        num_topics = arguments.get("num_topics", 10)
+        min_cluster_size = arguments.get("min_cluster_size", 5)
+
+        try:
+            result = kb.train_bertopic_model(num_topics, min_cluster_size)
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"BERTopic Modeling Complete\n{'='*60}\n\n"
+            output += f"Model: {result['model_type']}\n"
+            output += f"Topics Discovered: {result['num_topics']}\n"
+            output += f"Documents: {result['num_documents']}\n"
+            output += f"Assignments: {result['num_assignments']}\n"
+            output += f"Outliers: {result['outliers']}\n\n"
+
+            output += "Discovered Topics:\n\n"
+            for topic in result['topics'][:5]:
+                top_words = topic['words'][:5]
+                output += f"Topic {topic['topic_number']}: {', '.join(top_words)}\n"
+
+            if len(result['topics']) > 5:
+                output += f"\n... and {len(result['topics']) - 5} more topics\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error training BERTopic model: {str(e)}")]
+
+    elif name == "get_document_topics":
+        doc_id = arguments.get("doc_id")
+        model_type = arguments.get("model_type")
+
+        try:
+            cursor = kb.db_conn.cursor()
+
+            # Build query
+            if model_type:
+                query = """
+                    SELECT t.model_type, t.topic_number, t.top_words, dt.probability
+                    FROM document_topics dt
+                    JOIN topics t ON dt.topic_id = t.topic_id
+                    WHERE dt.doc_id = ? AND t.model_type = ?
+                    ORDER BY dt.probability DESC
+                """
+                results = cursor.execute(query, (doc_id, model_type)).fetchall()
+            else:
+                query = """
+                    SELECT t.model_type, t.topic_number, t.top_words, dt.probability
+                    FROM document_topics dt
+                    JOIN topics t ON dt.topic_id = t.topic_id
+                    WHERE dt.doc_id = ?
+                    ORDER BY t.model_type, dt.probability DESC
+                """
+                results = cursor.execute(query, (doc_id,)).fetchall()
+
+            if not results:
+                return [TextContent(type="text", text=f"No topics found for document: {doc_id}")]
+
+            # Get document info
+            doc = kb.documents.get(doc_id)
+            doc_title = doc.title if doc else "Unknown"
+
+            output = f"Topics for Document: {doc_title}\n{'='*60}\n\n"
+            output += f"Document ID: {doc_id}\n"
+            output += f"Total Topics: {len(results)}\n\n"
+
+            current_model = None
+            for model, topic_num, top_words_json, prob in results:
+                if model != current_model:
+                    output += f"\n{model.upper()} Model Topics:\n"
+                    output += "-" * 40 + "\n"
+                    current_model = model
+
+                import json
+                top_words = json.loads(top_words_json)
+                words_str = ', '.join(top_words[:5])
+                output += f"Topic {topic_num} (prob={prob:.3f}): {words_str}\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting document topics: {str(e)}")]
+
+    elif name == "cluster_documents_kmeans":
+        num_clusters = arguments.get("num_clusters", 10)
+        random_state = arguments.get("random_state", 42)
+
+        try:
+            result = kb.cluster_documents_kmeans(num_clusters, random_state)
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"K-Means Clustering Complete\n{'='*60}\n\n"
+            output += f"Algorithm: {result['algorithm']}\n"
+            output += f"Clusters: {result['num_clusters']}\n"
+            output += f"Documents: {result['num_documents']}\n"
+            output += f"Assignments: {result['num_assignments']}\n"
+            output += f"Silhouette Score: {result['silhouette_score']:.3f}\n\n"
+
+            output += "Clustering quality:\n"
+            if result['silhouette_score'] > 0.5:
+                output += "  Excellent - Strong cluster separation\n"
+            elif result['silhouette_score'] > 0.3:
+                output += "  Good - Reasonable cluster structure\n"
+            elif result['silhouette_score'] > 0.0:
+                output += "  Fair - Weak but present structure\n"
+            else:
+                output += "  Poor - Overlapping clusters\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error clustering with K-Means: {str(e)}")]
+
+    elif name == "cluster_documents_dbscan":
+        eps = arguments.get("eps", 0.5)
+        min_samples = arguments.get("min_samples", 5)
+
+        try:
+            result = kb.cluster_documents_dbscan(eps, min_samples)
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"DBSCAN Clustering Complete\n{'='*60}\n\n"
+            output += f"Algorithm: {result['algorithm']}\n"
+            output += f"Clusters Found: {result['num_clusters']}\n"
+            output += f"Documents: {result['num_documents']}\n"
+            output += f"Assignments: {result['num_assignments']}\n"
+            output += f"Outliers: {result['num_outliers']} ({result['num_outliers']/result['num_documents']*100:.1f}%)\n"
+            output += f"Silhouette Score: {result['silhouette_score']:.3f}\n\n"
+
+            output += "Note: DBSCAN automatically discovers clusters without\n"
+            output += "specifying K. Outliers are documents that don't fit\n"
+            output += "well into any cluster.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error clustering with DBSCAN: {str(e)}")]
+
+    elif name == "cluster_documents_hdbscan":
+        min_cluster_size = arguments.get("min_cluster_size", 5)
+        min_samples = arguments.get("min_samples")
+
+        try:
+            result = kb.cluster_documents_hdbscan(min_cluster_size, min_samples)
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"HDBSCAN Clustering Complete\n{'='*60}\n\n"
+            output += f"Algorithm: {result['algorithm']}\n"
+            output += f"Clusters Found: {result['num_clusters']}\n"
+            output += f"Documents: {result['num_documents']}\n"
+            output += f"Assignments: {result['num_assignments']}\n"
+            output += f"Outliers: {result['num_outliers']} ({result['num_outliers']/result['num_documents']*100:.1f}%)\n\n"
+
+            output += "Note: HDBSCAN is hierarchical and handles varying\n"
+            output += "densities better than DBSCAN. More conservative with\n"
+            output += "cluster assignment, resulting in higher quality clusters.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error clustering with HDBSCAN: {str(e)}")]
+
+    elif name == "get_cluster_documents":
+        cluster_id = arguments.get("cluster_id")
+        algorithm = arguments.get("algorithm")
+        max_results = arguments.get("max_results", 50)
+
+        try:
+            cursor = kb.db_conn.cursor()
+
+            # Build query
+            if algorithm:
+                query = """
+                    SELECT d.doc_id, d.title, d.filename, dc.distance, c.algorithm
+                    FROM document_clusters dc
+                    JOIN documents d ON dc.doc_id = d.doc_id
+                    JOIN clusters c ON dc.cluster_id = c.cluster_id
+                    WHERE dc.cluster_id = ? AND c.algorithm = ?
+                    ORDER BY dc.distance ASC
+                    LIMIT ?
+                """
+                results = cursor.execute(query, (cluster_id, algorithm, max_results)).fetchall()
+            else:
+                query = """
+                    SELECT d.doc_id, d.title, d.filename, dc.distance, c.algorithm
+                    FROM document_clusters dc
+                    JOIN documents d ON dc.doc_id = d.doc_id
+                    JOIN clusters c ON dc.cluster_id = c.cluster_id
+                    WHERE dc.cluster_id = ?
+                    ORDER BY dc.distance ASC
+                    LIMIT ?
+                """
+                results = cursor.execute(query, (cluster_id, max_results)).fetchall()
+
+            if not results:
+                return [TextContent(type="text", text=f"No documents found in cluster: {cluster_id}")]
+
+            # Get cluster info
+            cluster_info = cursor.execute("""
+                SELECT algorithm, cluster_number
+                FROM clusters
+                WHERE cluster_id = ?
+            """, (cluster_id,)).fetchone()
+
+            if not cluster_info:
+                return [TextContent(type="text", text=f"Cluster not found: {cluster_id}")]
+
+            algo, cluster_num = cluster_info
+
+            output = f"Documents in Cluster {cluster_num} ({algo.upper()})\n{'='*60}\n\n"
+            output += f"Cluster ID: {cluster_id}\n"
+            output += f"Total Documents: {len(results)}\n\n"
+
+            for doc_id, title, filename, distance, _ in results[:20]:  # Show first 20
+                output += f"- {title}\n"
+                output += f"  File: {filename}\n"
+                output += f"  Distance: {distance:.4f}\n\n"
+
+            if len(results) > 20:
+                output += f"... and {len(results) - 20} more documents\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting cluster documents: {str(e)}")]
+
+    # Phase 2: Visualization Tools
+    elif name == "generate_topic_wordcloud":
+        topic_id = arguments.get("topic_id")
+        output_path = arguments.get("output_path")
+        width = arguments.get("width", 800)
+        height = arguments.get("height", 400)
+        background_color = arguments.get("background_color", "white")
+
+        try:
+            result = kb.generate_topic_wordcloud(
+                topic_id=topic_id,
+                output_path=output_path,
+                width=width,
+                height=height,
+                background_color=background_color
+            )
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"Topic Word Cloud Generated\n{'='*60}\n\n"
+            output += f"Topic: {result['topic_number']} ({result['model_type'].upper()})\n"
+            output += f"Output File: {result['output_path']}\n"
+            output += f"Image Size: {width}x{height}px\n"
+            output += f"Words Visualized: {result['num_words']}\n\n"
+            output += "The word cloud has been saved. Larger words indicate higher importance in the topic.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error generating word cloud: {str(e)}")]
+
+    elif name == "visualize_cluster_scatter":
+        algorithm = arguments.get("algorithm")
+        output_path = arguments.get("output_path")
+        width = arguments.get("width", 1200)
+        height = arguments.get("height", 800)
+        n_neighbors = arguments.get("n_neighbors", 15)
+        min_dist = arguments.get("min_dist", 0.1)
+
+        try:
+            result = kb.visualize_cluster_scatter(
+                algorithm=algorithm,
+                output_path=output_path,
+                width=width,
+                height=height,
+                n_neighbors=n_neighbors,
+                min_dist=min_dist
+            )
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"Cluster Scatter Plot Generated\n{'='*60}\n\n"
+            output += f"Algorithm: {result['algorithm'].upper()}\n"
+            output += f"Clusters Visualized: {result['num_clusters']}\n"
+            output += f"Documents Plotted: {result['num_documents']}\n"
+            output += f"Output File: {result['output_path']}\n"
+            output += f"Image Size: {width}x{height}px\n\n"
+            output += "The scatter plot shows document clusters in 2D space using UMAP projection.\n"
+            output += "Documents in the same cluster appear closer together in the visualization.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error generating scatter plot: {str(e)}")]
+
+    elif name == "generate_topic_heatmap":
+        model_type = arguments.get("model_type")
+        output_path = arguments.get("output_path")
+        max_topics = arguments.get("max_topics", 20)
+        max_documents = arguments.get("max_documents", 50)
+
+        try:
+            result = kb.generate_topic_heatmap(
+                model_type=model_type,
+                output_path=output_path,
+                max_topics=max_topics,
+                max_documents=max_documents
+            )
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"Topic Heatmap Generated\n{'='*60}\n\n"
+            output += f"Model Type: {result['model_type'].upper()}\n"
+            output += f"Topics: {result['num_topics']}\n"
+            output += f"Documents: {result['num_documents']}\n"
+            output += f"Output File: {result['output_path']}\n\n"
+            output += "The heatmap shows topic-document probability matrix.\n"
+            output += "Brighter colors indicate higher topic probability for a document.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error generating heatmap: {str(e)}")]
+
+    elif name == "visualize_cluster_distribution":
+        algorithm = arguments.get("algorithm")
+        output_path = arguments.get("output_path")
+        width = arguments.get("width", 1000)
+        height = arguments.get("height", 600)
+
+        try:
+            result = kb.visualize_cluster_distribution(
+                algorithm=algorithm,
+                output_path=output_path,
+                width=width,
+                height=height
+            )
+
+            if 'error' in result:
+                return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+            output = f"Cluster Distribution Chart Generated\n{'='*60}\n\n"
+            output += f"Algorithm: {result['algorithm'].upper()}\n"
+            output += f"Clusters: {result['num_clusters']}\n"
+            output += f"Output File: {result['output_path']}\n\n"
+            output += "Cluster Sizes:\n"
+
+            # Show cluster sizes
+            for cluster_name, size in sorted(result['cluster_sizes'].items()):
+                if cluster_name == 'outliers':
+                    output += f"  Outliers: {size} documents\n"
+                else:
+                    cluster_num = cluster_name.replace('cluster_', '')
+                    output += f"  Cluster {cluster_num}: {size} documents\n"
+
+            output += "\nThe bar chart shows the distribution of documents across clusters.\n"
+
+            return [TextContent(type="text", text=output)]
+
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error generating distribution chart: {str(e)}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

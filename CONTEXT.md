@@ -15,12 +15,12 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 
 **Architecture:**
 - MCP Server (Python, stdio transport) + optional REST API (FastAPI, 27 endpoints)
-- SQLite database (12+ tables, FTS5 full-text search)
+- SQLite database (16 tables, FTS5 full-text search)
 - Multi-format ingestion: PDF, text, Markdown, HTML, Excel, web scraping
 - Search: FTS5 (480x faster), semantic (FAISS), hybrid, fuzzy, RAG
-- AI: Entity extraction, relationship mapping, anomaly detection, question answering
+- AI: Entity extraction, relationship mapping, topic modeling, clustering, anomaly detection, question answering
 
-## Current Status - v2.23.1
+## Current Status - v2.23.14
 
 **Development Phase:**
 - ✅ Phase 1: AI-Powered Intelligence (v2.13-v2.22.0) - Complete
@@ -32,7 +32,12 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 - ✅ Phase 3: Content Intelligence (v2.15-v2.22.0) - Complete
   - Entity extraction, relationship mapping
   - Version tracking, anomaly detection
-- 🎯 **Current Focus:** Production stability, maintenance, feature refinement
+- ✅ **Knowledge Extraction Phase 2: Topical Analysis (v2.23.14) - Complete**
+  - Topic modeling (LDA, NMF, BERTopic)
+  - Document clustering (K-Means, DBSCAN, HDBSCAN)
+  - Visualizations (word clouds, distribution charts, 2D plots, dendrograms)
+  - 8 new MCP tools for topics and clusters
+- 🎯 **Current Focus:** Knowledge Extraction Phase 3 (Temporal Analysis)
 
 ## Key Stats & Performance
 
@@ -54,11 +59,12 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 
 ## MCP Tools Summary
 
-**50+ tools organized by category:**
+**58 tools organized by category:**
 - Search (11): search_docs, semantic_search, hybrid_search, fuzzy_search, search_within_results, answer_question, translate_query, search_tables, search_code, find_similar, faceted_search
 - Documents (6): add_document, add_documents_bulk, remove_document, remove_documents_bulk, list_docs, get_document, get_chunk, check_updates
 - URL Scraping (3): scrape_url, rescrape_document, check_url_updates
 - AI & Analytics (14): extract_entities, get_entities, search_entities, entity_stats, extract_entities_bulk, extract_entity_relationships, get_entity_relationships, find_related_entities, search_entity_pair, extract_relationships_bulk, get_entity_analytics, compare_documents, suggest_tags, add_tags_to_document, get_tags_by_category
+- **Topics & Clustering (8):** train_lda_topics, train_nmf_topics, train_bertopic, get_document_topics, cluster_documents_kmeans, cluster_documents_dbscan, cluster_documents_hdbscan, get_cluster_documents
 - Export (3): export_entities, export_relationships, export_documents_bulk
 - System (2): kb_stats, health_check
 
@@ -91,7 +97,15 @@ See README.md for complete list.
 
 ## Recent Version Highlights
 
-**v2.23.0-v2.23.1** - RAG Question Answering & Advanced Search (Phase 2 Complete)
+**v2.23.14** - Topical Analysis & Document Clustering (Knowledge Extraction Phase 2 Complete)
+- Topic modeling: LDA, NMF, BERTopic with database storage
+- Document clustering: K-Means, DBSCAN, HDBSCAN algorithms
+- Visualizations: Word clouds, distribution charts, 2D plots, dendrograms
+- 8 new MCP tools for topics and clusters
+- Comprehensive test suite with 90%+ coverage
+- See docs/PHASE2_COMPLETION_SUMMARY.md for full details
+
+**v2.23.0-v2.23.1** - RAG Question Answering & Advanced Search
 - RAG-based answer_question with citations, confidence scoring
 - Fuzzy search (rapidfuzz) with typo tolerance
 - Progressive search refinement (search_within_results)

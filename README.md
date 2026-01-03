@@ -55,6 +55,8 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup.
 - **Document comparison** - Side-by-side analysis with similarity scores
 - **Natural language query translation** - Parse queries into structured search parameters
 - **Anomaly detection** - ML-based baseline learning for URL-sourced content (3400+ docs/second)
+- **Temporal analysis** - Event detection, timeline construction, historical context (5 event types, 8 date formats)
+- **Advanced visualizations** - 3D knowledge graphs, hierarchical bundling, Sankey flow diagrams
 
 ### REST API (Optional)
 - **27 endpoints** - Full CRUD, search, analytics, export
@@ -189,9 +191,78 @@ Automatic with `USE_OCR=1`:
 - Install: `pip install pytesseract pdf2image Pillow` + Tesseract binary
 - ~1-2 seconds per page
 
+## Temporal Analysis & Visualizations
+
+Extract events, construct timelines, and visualize knowledge graphs.
+
+### Event Detection
+
+Automatically detect significant events in documents:
+- **5 Event Types** - Product releases, company milestones, technical innovations, cultural events, version updates
+- **8 Date Formats** - Full dates, month-year, year ranges, decades, parenthetical dates
+- **Confidence Scoring** - Pattern matching with proximity-based confidence (0.0-1.0)
+- **Entity Association** - Automatically link entities to events
+
+```python
+# Extract events from a document
+result = kb.extract_document_events('doc_id', min_confidence=0.7)
+# Returns: event_count, filtered_count, stored_count, events list
+```
+
+### Timeline Construction
+
+Build chronological timelines with flexible querying:
+- **Automatic Timeline Building** - Chronologically sorted by date (YYYYMMDD integer sort)
+- **Category Organization** - Group by decade-type combinations (e.g., "1980s-release")
+- **Importance Levels** - 1-5 scale based on confidence
+- **Date Range Filtering** - Query events by year range, type, importance
+
+```python
+# Build timeline from events
+timeline_result = kb.build_timeline(min_confidence=0.5)
+
+# Query timeline
+timeline = kb.get_timeline(start_year=1980, end_year=1989, min_importance=3)
+
+# Get historical context
+context = kb.get_historical_context(year=1982, context_years=2)
+```
+
+### Interactive Visualizations
+
+Generate interactive HTML visualizations with Plotly and NetworkX:
+
+**Timeline Visualizations:**
+- **Interactive Timeline** - Horizontal timeline with zoom/pan, color-coded by event type
+- **Event Network** - Spring layout showing event relationships
+- **Trend Charts** - Multi-subplot dashboard (bar chart, stacked area, cumulative line)
+
+**Advanced Graph Visualizations:**
+- **3D Knowledge Graph** - Interactive 3D entity-relationship graph with rotation controls
+- **Hierarchical Bundling** - Circular layout with curved edges bundled through center
+- **Sankey Diagrams** - Topic flow over time (decade or year grouping)
+
+```python
+# Generate visualizations
+kb.visualize_timeline(start_year=1980, end_year=1990, output_path="timeline.html")
+kb.visualize_knowledge_graph_3d(max_entities=50, output_path="graph_3d.html")
+kb.visualize_hierarchical_bundling(max_entities=30, output_path="bundling.html")
+kb.visualize_topic_flow_sankey(time_period='decade', output_path="flow.html")
+```
+
+### MCP Tools for Timeline
+
+4 timeline-specific MCP tools:
+- `extract_document_events` - Extract and store events from documents
+- `get_timeline` - Query chronological timeline with filters
+- `search_events_by_date` - Search events by date range and type
+- `get_historical_context` - Get events around a specific year
+
+See [PHASE3_TEMPORAL_ANALYSIS.md](PHASE3_TEMPORAL_ANALYSIS.md) for complete documentation.
+
 ## Tools
 
-50+ MCP tools organized by category. Key tools listed below.
+62 MCP tools organized by category. Key tools listed below.
 
 ### Search Tools
 

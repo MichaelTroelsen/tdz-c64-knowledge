@@ -1,0 +1,63 @@
+{
+  "_comment": "Example configuration for TDZ C64 Knowledge Base monitoring",
+  "_instructions": "Copy this file to monitor_config.json and customize with your settings",
+
+  "data_dir": "~/.tdz-c64-knowledge",
+
+  "notifications": {
+    "_comment": "Master switch for all notifications",
+    "enabled": false,
+
+    "discord": {
+      "_comment": "Discord webhook notifications - Rich embeds with color coding",
+      "enabled": false,
+      "webhook_url": "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN",
+      "username": "TDZ C64 Monitor"
+    },
+
+    "slack": {
+      "_comment": "Slack webhook notifications - Block Kit formatting",
+      "enabled": false,
+      "webhook_url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+      "username": "TDZ C64 Monitor",
+      "icon_emoji": ":robot_face:"
+    },
+
+    "webhook": {
+      "_comment": "Generic webhook for custom integrations (IFTTT, Zapier, n8n, etc.)",
+      "enabled": false,
+      "url": "https://your-server.com/webhook-endpoint",
+      "headers": {
+        "Authorization": "Bearer YOUR_SECRET_TOKEN",
+        "X-Custom-Header": "custom-value"
+      }
+    },
+
+    "email": {
+      "_comment": "Email notifications via SMTP - HTML + plain text format",
+      "enabled": false,
+      "smtp_server": "smtp.gmail.com",
+      "smtp_port": 587,
+      "from_address": "your-monitoring@gmail.com",
+      "to_address": "admin@example.com",
+      "username": "your-monitoring@gmail.com",
+      "password": "your-16-char-app-password"
+    }
+  },
+
+  "_examples": {
+    "gmail": {
+      "smtp_server": "smtp.gmail.com",
+      "smtp_port": 587,
+      "_note": "Use App Password from https://myaccount.google.com/apppasswords"
+    },
+    "outlook": {
+      "smtp_server": "smtp.office365.com",
+      "smtp_port": 587
+    },
+    "yahoo": {
+      "smtp_server": "smtp.mail.yahoo.com",
+      "smtp_port": 587
+    }
+  }
+}

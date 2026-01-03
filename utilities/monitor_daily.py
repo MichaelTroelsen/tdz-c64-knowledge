@@ -25,12 +25,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from server import KnowledgeBase
+from notifications import NotificationManager
 
 
 def send_notification(results, config):
-    """Send notification about check results (placeholder for future implementation)."""
-    # TODO: Implement email/Slack/webhook notifications
-    # For now, just print to stdout
+    """Send notification about check results via configured channels."""
+    # Print summary to stdout
     print("\n" + "=" * 60)
     print("NOTIFICATION SUMMARY")
     print("=" * 60)
@@ -49,6 +49,20 @@ def send_notification(results, config):
             print(f"  - {doc['title']}: {doc['error']}")
         if len(results['failed']) > 3:
             print(f"  ... and {len(results['failed']) - 3} more")
+
+    # Send via configured notification channels
+    if config.get('notifications', {}).get('enabled'):
+        print("\n[*] Sending notifications...")
+        try:
+            manager = NotificationManager(config)
+            status = manager.send_monitoring_alert(results, "daily")
+
+            for channel, success in status.items():
+                if channel != "status":
+                    status_str = "✓" if success else "✗"
+                    print(f"  {status_str} {channel}")
+        except Exception as e:
+            print(f"[ERROR] Notification delivery failed: {e}")
 
 
 def main():

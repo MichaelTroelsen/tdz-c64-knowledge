@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.15] - 2026-01-03
+
+### Changed
+- **Major Documentation Consolidation and Enhancement** - Comprehensive documentation improvements
+  - **Version Consistency**: Updated all documentation to v2.23.1
+    - CONTEXT.md: Updated from v2.23.0 to v2.23.1
+    - QUICKSTART.md: Updated from v2.18.0 to v2.23.1
+  - **Documentation Cleanup**: Archived 5 cleanup/report files to `archive/cleanup-reports/`
+    - CLEANUP_SUMMARY.md, COMPARISON_REPORT.md, FILE_INVENTORY.md
+    - FINAL_CLEANUP_REPORT.md, TEST_REPORT.md
+    - Root directory reduced from 11 to 6 markdown files (-45% cleanup)
+  - **New Documentation Index**: Created `docs/README.md` (141 lines)
+    - Complete documentation index with full navigation
+    - Organized by topic: Quick Start, Development, API & Integration, Features, Setup, Operations, Planning
+    - Cross-references to all 20+ documentation files
+    - Quick links and topic-based organization
+  - **New Comprehensive Guides** (6 new files, 3,210 lines total):
+    1. **docs/MCP_TOOLS_REFERENCE.md** (817 lines) - Complete reference for all 50+ MCP tools
+       - Tools organized into 6 categories with JSON examples
+       - Search Tools (11), Document Management (6), URL Scraping (3)
+       - AI & Analytics (14), Export Tools (3), System Tools (2), Advanced Tools (14)
+       - Performance tips and best practices
+    2. **docs/TROUBLESHOOTING.md** (635 lines) - Comprehensive troubleshooting guide
+       - Installation issues, MCP integration problems, search troubleshooting
+       - Document processing errors, performance optimization
+       - Database issues, API problems, advanced debugging
+    3. **docs/MCP_INTEGRATION.md** (580 lines) - Complete Claude Code/Desktop integration guide
+       - Step-by-step setup for Claude Code and Claude Desktop
+       - All configuration options and environment variables
+       - Testing & verification procedures
+       - Troubleshooting MCP-specific issues, advanced configurations
+    4. **docs/SECURITY.md** (558 lines) - Production security best practices
+       - Path traversal protection, API security (authentication, CORS, HTTPS)
+       - Database security, LLM API key management
+       - Production deployment checklist, security auditing procedures
+    5. **docs/MIGRATION.md** (479 lines) - Version upgrade guide
+       - Version compatibility matrix for all versions
+       - Upgrade procedures with step-by-step instructions
+       - Breaking changes documentation, rollback procedures
+       - Pre/post-migration checklists, troubleshooting migration issues
+    6. **docs/README.md** (141 lines) - Documentation index (already mentioned above)
+  - **Documentation Structure Improvements**:
+    - Clean separation: 6 core docs in root (README, QUICKSTART, ARCHITECTURE, CONTEXT, CLAUDE, CHANGELOG)
+    - 21 specialized docs in docs/ folder (6 new, 15 existing)
+    - 26 historical files properly archived in archive/
+    - Professional organization: user docs vs developer docs vs reference docs
+  - **Impact**:
+    - Easier onboarding for new users with clear navigation
+    - Complete reference for all features and tools
+    - Production-ready security and deployment documentation
+    - Clear troubleshooting guidance for common issues
+    - Smooth upgrade path between versions with migration guide
+  - Commit: 137d634 "docs: Consolidate and enhance documentation (v2.23.1)"
+
 ### Added
 - **AI Suggestions Regenerate with Exclusions** (v2.23.14) - Smart recommendation regeneration
   - Implemented "Regenerate" button that excludes files already in knowledge base

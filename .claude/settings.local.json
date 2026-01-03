@@ -232,7 +232,16 @@
       "Bash(move profile_anomaly.py archiveutilities )",
       "Bash(move run_full_url_check.py archiveutilities )",
       "Bash(move run_quick_url_check.py archiveutilities )",
-      "Bash(move monitor_config_validator.py archiveutilities )"
+      "Bash(move monitor_config_validator.py archiveutilities )",
+      "Bash(ping:*)",
+      "WebSearch",
+      "Bash(\".venv/Scripts/pip\" install internetarchive)",
+      "Bash(if not exist \"archive\\\\cleanup-reports\" mkdir archivecleanup-reports)",
+      "Bash(move CLEANUP_SUMMARY.md archivecleanup-reports )",
+      "Bash(move COMPARISON_REPORT.md archivecleanup-reports )",
+      "Bash(move FILE_INVENTORY.md archivecleanup-reports )",
+      "Bash(move FINAL_CLEANUP_REPORT.md archivecleanup-reports )",
+      "Bash(move TEST_REPORT.md archivecleanup-reports)"
     ]
   }
 }

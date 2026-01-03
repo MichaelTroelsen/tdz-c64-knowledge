@@ -20,11 +20,11 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 - Search: FTS5 (480x faster), semantic (FAISS), hybrid, fuzzy, RAG
 - AI: Entity extraction, relationship mapping, anomaly detection, question answering
 
-## Current Status - v2.23.0
+## Current Status - v2.23.1
 
 **Development Phase:**
 - ✅ Phase 1: AI-Powered Intelligence (v2.13-v2.22.0) - Complete
-- ✅ Phase 2: Advanced Search & Discovery (v2.23.0) - Complete
+- ✅ Phase 2: Advanced Search & Discovery (v2.23.0-v2.23.1) - Complete
   - RAG question answering with citations
   - Fuzzy search with typo tolerance
   - Progressive search refinement
@@ -91,7 +91,7 @@ See README.md for complete list.
 
 ## Recent Version Highlights
 
-**v2.23.0** - RAG Question Answering & Advanced Search (Phase 2 Complete)
+**v2.23.0-v2.23.1** - RAG Question Answering & Advanced Search (Phase 2 Complete)
 - RAG-based answer_question with citations, confidence scoring
 - Fuzzy search (rapidfuzz) with typo tolerance
 - Progressive search refinement (search_within_results)

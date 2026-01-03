@@ -265,4 +265,4 @@ Start asking Claude Code about your C64 documentation. The knowledge base will h
 
 Happy retro computing! 🎮
 
-**Version:** 2.18.0 (2025-12-21)
+**Version:** 2.23.1 (2026-01-03)

@@ -499,6 +499,10 @@ class WikiExporter:
                 </div>
             </section>
 
+            <section id="popular-articles" class="popular-articles-section">
+                <!-- Will be populated by JavaScript from articles.json -->
+            </section>
+
             <section class="recent-docs">
                 <h2>Browse Documents</h2>
                 <div class="doc-grid" id="doc-list">
@@ -2818,6 +2822,246 @@ html {
         right: 20px;
     }
 }
+
+/* ===== AUTO TABLE OF CONTENTS ===== */
+.auto-toc {
+    background: var(--bg-color);
+    border: 2px solid var(--border-color);
+    border-left: 4px solid var(--accent-color);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 30px 0;
+    max-width: 100%;
+}
+
+.toc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.toc-header h3 {
+    margin: 0;
+    color: var(--text-color);
+    font-size: 1.2em;
+}
+
+.toc-toggle {
+    background: none;
+    border: none;
+    font-size: 1.5em;
+    color: var(--primary-color);
+    cursor: pointer;
+    padding: 5px 10px;
+    transition: all 0.3s;
+}
+
+.toc-toggle:hover {
+    color: var(--accent-color);
+}
+
+.auto-toc.collapsed .toc-nav {
+    display: none;
+}
+
+.auto-toc.collapsed .toc-toggle::before {
+    content: '+';
+}
+
+.toc-nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.toc-nav li {
+    padding: 8px 0;
+    border-left: 3px solid transparent;
+    padding-left: 15px;
+    transition: all 0.3s;
+}
+
+.toc-nav li.toc-h3 {
+    padding-left: 30px;
+    font-size: 0.95em;
+}
+
+.toc-nav li.active {
+    border-left-color: var(--accent-color);
+    background: var(--bg-color);
+    margin-left: -5px;
+    padding-left: 20px;
+}
+
+.toc-nav a {
+    color: var(--text-color);
+    text-decoration: none;
+    transition: all 0.3s;
+}
+
+.toc-nav a:hover {
+    color: var(--accent-color);
+}
+
+.toc-highlight {
+    animation: highlightSection 2s;
+}
+
+@keyframes highlightSection {
+    0%, 100% { background: transparent; }
+    50% { background: var(--accent-color); opacity: 0.1; }
+}
+
+/* ===== SEARCH AUTOCOMPLETE ===== */
+.search-autocomplete {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--card-bg);
+    border: 2px solid var(--border-color);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+.autocomplete-item {
+    padding: 12px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-color);
+    transition: all 0.2s;
+}
+
+.autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.active {
+    background: var(--accent-color);
+    color: white;
+}
+
+.autocomplete-item strong {
+    font-weight: bold;
+    color: inherit;
+}
+
+/* Make search input container relative for autocomplete positioning */
+.search-section {
+    position: relative;
+}
+
+/* ===== POPULAR ARTICLES SECTION ===== */
+.popular-articles-section {
+    margin: 40px 0;
+}
+
+.popular-articles-section h2 {
+    color: var(--text-color);
+    font-size: 1.8em;
+    margin-bottom: 25px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.popular-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.popular-card {
+    background: var(--card-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    transition: all 0.3s;
+    overflow: hidden;
+}
+
+.popular-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    border-color: var(--accent-color);
+}
+
+.popular-rank {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    background: var(--accent-color);
+    color: white;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.2em;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.popular-card h3 {
+    margin: 0 0 15px 0;
+    font-size: 1.3em;
+}
+
+.popular-card h3 a {
+    color: var(--text-color);
+    text-decoration: none;
+    transition: color 0.3s;
+}
+
+.popular-card h3 a:hover {
+    color: var(--accent-color);
+}
+
+.popular-meta {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    font-size: 0.9em;
+    color: var(--primary-color);
+    margin-top: 10px;
+}
+
+.popular-meta span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.doc-count {
+    font-weight: 600;
+}
+
+.related-count {
+    opacity: 0.8;
+}
+
+/* Popular articles responsiveness */
+@media (max-width: 768px) {
+    .popular-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .popular-rank {
+        width: 40px;
+        height: 40px;
+        font-size: 1em;
+    }
+}
 """
         css_path = self.assets_dir / "css" / "style.css"
         with open(css_path, 'w', encoding='utf-8') as f:
@@ -4010,6 +4254,241 @@ function highlightSyntax() {
     });
 }
 
+// ===== AUTO-GENERATED TABLE OF CONTENTS =====
+function generateTableOfContents() {
+    // Only generate TOC for article pages or long documents
+    const article = document.querySelector('.article-content, main');
+    if (!article) return;
+
+    // Find all headings
+    const headings = article.querySelectorAll('h2, h3');
+    if (headings.length < 3) return; // Skip if too few headings
+
+    // Create TOC container
+    const toc = document.createElement('div');
+    toc.className = 'auto-toc';
+    toc.innerHTML = `
+        <div class="toc-header">
+            <h3>📑 Table of Contents</h3>
+            <button class="toc-toggle" onclick="this.parentElement.parentElement.classList.toggle('collapsed')">−</button>
+        </div>
+        <nav class="toc-nav"></nav>
+    `;
+
+    const nav = toc.querySelector('.toc-nav');
+    const tocList = document.createElement('ul');
+
+    // Generate TOC entries
+    headings.forEach((heading, index) => {
+        // Create unique ID for heading
+        const id = heading.id || `toc-section-${index}`;
+        heading.id = id;
+
+        // Create TOC item
+        const li = document.createElement('li');
+        li.className = `toc-${heading.tagName.toLowerCase()}`;
+
+        const link = document.createElement('a');
+        link.href = `#${id}`;
+        link.textContent = heading.textContent;
+        link.onclick = (e) => {
+            e.preventDefault();
+            heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Highlight the clicked section temporarily
+            heading.classList.add('toc-highlight');
+            setTimeout(() => heading.classList.remove('toc-highlight'), 2000);
+        };
+
+        li.appendChild(link);
+        tocList.appendChild(li);
+    });
+
+    nav.appendChild(tocList);
+
+    // Insert TOC at the beginning of the article
+    const insertPoint = article.querySelector('h1, .article-meta');
+    if (insertPoint && insertPoint.nextSibling) {
+        insertPoint.parentNode.insertBefore(toc, insertPoint.nextSibling);
+    } else {
+        article.insertBefore(toc, article.firstChild);
+    }
+
+    // Add active section highlighting on scroll
+    window.addEventListener('scroll', () => updateActiveTocSection(headings, tocList));
+}
+
+function updateActiveTocSection(headings, tocList) {
+    const scrollPos = window.pageYOffset + 100;
+
+    let activeIndex = 0;
+    headings.forEach((heading, index) => {
+        if (heading.offsetTop <= scrollPos) {
+            activeIndex = index;
+        }
+    });
+
+    // Update active class
+    const tocItems = tocList.querySelectorAll('li');
+    tocItems.forEach((item, index) => {
+        item.classList.toggle('active', index === activeIndex);
+    });
+}
+
+// ===== SEARCH AUTOCOMPLETE =====
+function setupSearchAutocomplete() {
+    const searchInput = document.getElementById('search-input');
+    if (!searchInput) return;
+
+    // Create suggestions container
+    const suggestions = document.createElement('div');
+    suggestions.className = 'search-autocomplete';
+    suggestions.id = 'search-autocomplete';
+    searchInput.parentElement.appendChild(suggestions);
+
+    // Popular/common search terms
+    const popularSearches = [
+        'SID chip', 'VIC-II', 'VIC-II registers', 'sprites', 'sprite multiplexing',
+        'raster interrupts', 'raster bars', 'music tracker', 'music editor',
+        '6502 assembly', '6510 assembly', 'memory map', 'zero page',
+        'CIA timer', 'CIA chip', 'joystick input', 'keyboard input',
+        'screen RAM', 'color RAM', 'character set', 'bitmap mode',
+        'sound effects', 'SID music', 'border color', 'background color',
+        'BASIC programming', 'machine code', 'assembler', 'VICE emulator'
+    ];
+
+    let currentFocus = -1;
+
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim().toLowerCase();
+        suggestions.innerHTML = '';
+        currentFocus = -1;
+
+        if (query.length < 2) {
+            suggestions.style.display = 'none';
+            return;
+        }
+
+        // Filter matching suggestions
+        const matches = popularSearches
+            .filter(term => term.toLowerCase().includes(query))
+            .slice(0, 8);
+
+        if (matches.length === 0) {
+            suggestions.style.display = 'none';
+            return;
+        }
+
+        // Display suggestions
+        matches.forEach((term, index) => {
+            const div = document.createElement('div');
+            div.className = 'autocomplete-item';
+            div.setAttribute('data-index', index);
+
+            // Highlight matching part
+            const termLower = term.toLowerCase();
+            const startIdx = termLower.indexOf(query);
+            const endIdx = startIdx + query.length;
+
+            const before = term.substring(0, startIdx);
+            const match = term.substring(startIdx, endIdx);
+            const after = term.substring(endIdx);
+
+            div.innerHTML = `${before}<strong>${match}</strong>${after}`;
+
+            div.onclick = () => selectSuggestion(term);
+            suggestions.appendChild(div);
+        });
+
+        suggestions.style.display = 'block';
+    });
+
+    function selectSuggestion(term) {
+        searchInput.value = term;
+        suggestions.style.display = 'none';
+        // Trigger search
+        const event = new KeyboardEvent('keyup', { key: 'Enter' });
+        searchInput.dispatchEvent(event);
+    }
+
+    // Keyboard navigation
+    searchInput.addEventListener('keydown', (e) => {
+        const items = suggestions.querySelectorAll('.autocomplete-item');
+        if (items.length === 0) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            currentFocus++;
+            if (currentFocus >= items.length) currentFocus = 0;
+            setActive(items);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            currentFocus--;
+            if (currentFocus < 0) currentFocus = items.length - 1;
+            setActive(items);
+        } else if (e.key === 'Enter' && currentFocus > -1) {
+            e.preventDefault();
+            items[currentFocus].click();
+        } else if (e.key === 'Escape') {
+            suggestions.style.display = 'none';
+            currentFocus = -1;
+        }
+    });
+
+    function setActive(items) {
+        items.forEach((item, index) => {
+            item.classList.toggle('active', index === currentFocus);
+        });
+        if (currentFocus >= 0) {
+            searchInput.value = items[currentFocus].textContent;
+        }
+    }
+
+    // Close suggestions when clicking outside
+    document.addEventListener('click', (e) => {
+        if (e.target !== searchInput) {
+            suggestions.style.display = 'none';
+        }
+    });
+}
+
+// ===== POPULAR ARTICLES SECTION =====
+function displayPopularArticles() {
+    const popularContainer = document.getElementById('popular-articles');
+    if (!popularContainer) return;
+
+    // This data should be generated by wiki_export.py
+    // For now, we'll use the articles.json if available
+    fetch('articles.json')
+        .then(response => response.json())
+        .then(data => {
+            if (!data || !data.articles) return;
+
+            // Sort by doc_count (most referenced)
+            const popular = data.articles
+                .sort((a, b) => b.doc_count - a.doc_count)
+                .slice(0, 6);
+
+            popularContainer.innerHTML = `
+                <h2>🔥 Most Referenced Topics</h2>
+                <div class="popular-grid">
+                    ${popular.map((article, index) => `
+                        <div class="popular-card">
+                            <div class="popular-rank">#${index + 1}</div>
+                            <h3><a href="articles/${article.filename}">${article.title}</a></h3>
+                            <div class="popular-meta">
+                                <span class="doc-count">📚 ${article.doc_count} references</span>
+                                <span class="related-count">🔗 ${article.related_count || 0} related</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        })
+        .catch(err => {
+            console.error('Failed to load popular articles:', err);
+        });
+}
+
 // ===== BOOKMARKS SYSTEM =====
 class BookmarkManager {
     constructor() {
@@ -4560,6 +5039,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // NEW FEATURES
     highlightSyntax();  // Syntax highlighting for code blocks
+    generateTableOfContents();  // Auto TOC for articles
+    setupSearchAutocomplete();  // Search suggestions
+    displayPopularArticles();  // Popular articles on homepage
     bookmarkManager = new BookmarkManager();  // Bookmarks system
     chatbot = new AIChatbot();  // AI chatbot
 

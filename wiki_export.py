@@ -26,6 +26,9 @@ from datetime import datetime
 from typing import Dict, List, Any
 import html
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
+import multiprocessing
 
 
 class WikiExporter:
@@ -423,7 +426,7 @@ class WikiExporter:
         print(f"  Saved: {filename}")
 
     def _generate_html_pages(self, documents: List[Dict]):
-        """Generate HTML pages for all documents."""
+        """Generate HTML pages for all documents (parallelized)."""
         # Generate index page
         self._generate_index_html()
 
@@ -431,9 +434,24 @@ class WikiExporter:
         self._generate_documents_browser_html()
         self._generate_chunks_browser_html()
 
-        # Generate document pages
-        for doc in documents:
-            self._generate_doc_html(doc)
+        # Generate document pages in parallel
+        print(f"  Generating {len(documents)} document pages in parallel...")
+        max_workers = min(multiprocessing.cpu_count() * 2, 8)  # Limit to 8 workers
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all document generation tasks
+            futures = [executor.submit(self._generate_doc_html, doc) for doc in documents]
+
+            # Wait for completion and show progress
+            completed = 0
+            for future in as_completed(futures):
+                try:
+                    future.result()  # Raise any exceptions
+                    completed += 1
+                    if completed % 10 == 0 or completed == len(documents):
+                        print(f"    Progress: {completed}/{len(documents)} documents")
+                except Exception as e:
+                    print(f"    Error generating document: {e}")
 
         # Generate entity pages
         self._generate_entities_html()
@@ -582,6 +600,14 @@ class WikiExporter:
             <a href="../entities.html">Entities</a>
             <a href="../topics.html">Topics</a>
             <a href="../timeline.html">Timeline</a>
+        </nav>
+
+        <nav class="breadcrumbs">
+            <a href="../index.html">🏠 Home</a>
+            <span class="separator">›</span>
+            <a href="../documents.html">Documents</a>
+            <span class="separator">›</span>
+            <span class="current">{title_escaped}</span>
         </nav>
 
         <main>
@@ -3062,6 +3088,255 @@ html {
         font-size: 1em;
     }
 }
+
+/* ===============================================
+   BREADCRUMBS NAVIGATION
+   =============================================== */
+
+.breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    margin: 20px 0;
+    font-size: 0.9em;
+    color: var(--primary-color);
+    flex-wrap: wrap;
+}
+
+.breadcrumbs a {
+    color: var(--accent-color);
+    text-decoration: none;
+    transition: color 0.3s;
+}
+
+.breadcrumbs a:hover {
+    color: var(--secondary-color);
+    text-decoration: underline;
+}
+
+.breadcrumbs .separator {
+    color: var(--border-color);
+    user-select: none;
+}
+
+.breadcrumbs .current {
+    color: var(--text-color);
+    font-weight: 500;
+}
+
+/* ===============================================
+   PRINT-FRIENDLY STYLES
+   =============================================== */
+
+@media print {
+    /* Reset colors for print */
+    * {
+        background: white !important;
+        color: black !important;
+        box-shadow: none !important;
+        text-shadow: none !important;
+    }
+
+    /* Hide interactive elements */
+    .main-nav,
+    .search-section,
+    .theme-switcher,
+    .dark-mode-toggle,
+    .copy-button,
+    .back-to-top,
+    .bookmark-btn,
+    .chatbot-widget,
+    .chatbot-button,
+    footer,
+    button,
+    .search-autocomplete,
+    .popular-articles-section {
+        display: none !important;
+    }
+
+    /* Optimize layout */
+    body {
+        font-size: 12pt;
+        line-height: 1.5;
+        margin: 0;
+        padding: 0;
+    }
+
+    .container {
+        max-width: 100%;
+        margin: 0;
+        padding: 0;
+    }
+
+    /* Header styling */
+    header {
+        border-bottom: 2px solid #000;
+        padding: 10px 0;
+        margin-bottom: 20px;
+    }
+
+    header h1 {
+        font-size: 18pt;
+        margin: 0;
+    }
+
+    .subtitle {
+        font-size: 10pt;
+    }
+
+    /* Breadcrumbs for print */
+    .breadcrumbs {
+        font-size: 9pt;
+        margin: 10px 0;
+        padding: 5px 0;
+        border-bottom: 1px solid #ccc;
+    }
+
+    /* Article content */
+    article, main {
+        page-break-inside: avoid;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        page-break-after: avoid;
+        page-break-inside: avoid;
+    }
+
+    h1 {
+        font-size: 16pt;
+    }
+
+    h2 {
+        font-size: 14pt;
+        margin-top: 12pt;
+    }
+
+    h3 {
+        font-size: 12pt;
+        margin-top: 10pt;
+    }
+
+    /* Code blocks */
+    pre, code {
+        border: 1px solid #ccc;
+        background: #f5f5f5 !important;
+        page-break-inside: avoid;
+        font-family: 'Courier New', monospace;
+        font-size: 9pt;
+    }
+
+    pre {
+        padding: 10px;
+        margin: 10px 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    /* Links */
+    a {
+        text-decoration: underline;
+        color: #000 !important;
+    }
+
+    a[href]:after {
+        content: " (" attr(href) ")";
+        font-size: 8pt;
+        color: #666 !important;
+    }
+
+    /* Don't show URLs for internal links */
+    a[href^="#"]:after,
+    a[href^="javascript:"]:after {
+        content: "";
+    }
+
+    /* Tables */
+    table {
+        border-collapse: collapse;
+        width: 100%;
+        page-break-inside: avoid;
+    }
+
+    th, td {
+        border: 1px solid #000;
+        padding: 4px 8px;
+        text-align: left;
+    }
+
+    th {
+        background: #e0e0e0 !important;
+        font-weight: bold;
+    }
+
+    /* Images */
+    img {
+        max-width: 100%;
+        page-break-inside: avoid;
+    }
+
+    /* Chunks */
+    .chunk {
+        page-break-inside: avoid;
+        border: 1px solid #ccc;
+        padding: 10px;
+        margin: 10px 0;
+    }
+
+    .chunk-header {
+        font-weight: bold;
+        border-bottom: 1px solid #000;
+        padding-bottom: 5px;
+        margin-bottom: 10px;
+    }
+
+    /* Cards */
+    .doc-card, .entity-card, .topic-card {
+        border: 1px solid #ccc;
+        padding: 10px;
+        margin: 10px 0;
+        page-break-inside: avoid;
+    }
+
+    /* Stats grid */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        page-break-inside: avoid;
+    }
+
+    .stat-card {
+        border: 1px solid #000;
+        padding: 10px;
+        text-align: center;
+    }
+
+    /* Page breaks */
+    .page-break {
+        page-break-before: always;
+    }
+
+    /* Print URL and date */
+    @page {
+        margin: 2cm;
+        @bottom-right {
+            content: "Page " counter(page) " of " counter(pages);
+        }
+    }
+
+    /* TOC for print */
+    .auto-toc {
+        border: 2px solid #000;
+        padding: 10px;
+        margin: 20px 0;
+        page-break-inside: avoid;
+    }
+
+    .toc-toggle {
+        display: none !important;
+    }
+}
 """
         css_path = self.assets_dir / "css" / "style.css"
         with open(css_path, 'w', encoding='utf-8') as f:
@@ -5139,7 +5414,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
                 f.write(fallback)
 
     def _generate_articles(self, entities_data: Dict):
-        """Generate articles for major entities and topics."""
+        """Generate articles for major entities and topics (parallelized)."""
         print("\n[10/10] Generating articles...")
 
         # Create articles directory
@@ -5155,19 +5430,38 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             'TOOLS': ['Assembler', 'Editor', 'Debugger', 'Monitor', 'Emulator']
         }
 
-        articles_generated = []
-
-        # Generate articles for each category
+        # Collect all article tasks
+        article_tasks = []
         for category, keywords in article_topics.items():
             for keyword in keywords:
-                # Find matching entities
-                matching_entities = self._find_entities_for_article(entities_data, keyword)
+                article_tasks.append((keyword, category))
 
-                if matching_entities:
-                    article = self._create_article(keyword, category, matching_entities, entities_data)
+        articles_generated = []
+        max_workers = min(multiprocessing.cpu_count() * 2, 8)
+
+        print(f"  Generating {len(article_tasks)} articles in parallel with {max_workers} workers...")
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Create partial function with entities_data
+            create_func = partial(self._generate_single_article, entities_data=entities_data)
+
+            # Submit all article generation tasks
+            futures = {executor.submit(create_func, keyword, category): (keyword, category)
+                      for keyword, category in article_tasks}
+
+            # Wait for completion and collect results
+            completed = 0
+            for future in as_completed(futures):
+                try:
+                    article = future.result()
                     if article:
                         articles_generated.append(article)
-                        print(f"  Generated: {article['title']}")
+                        completed += 1
+                        if completed % 5 == 0 or completed == len(article_tasks):
+                            print(f"    Progress: {completed}/{len(article_tasks)} articles")
+                except Exception as e:
+                    keyword, category = futures[future]
+                    print(f"    Error generating article '{keyword}': {e}")
 
         # Generate articles browser page
         self._generate_articles_browser_html(articles_generated)
@@ -5180,6 +5474,15 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
 
         self.stats['articles'] = len(articles_generated)
         return articles_generated
+
+    def _generate_single_article(self, keyword: str, category: str, entities_data: Dict) -> Dict:
+        """Generate a single article (helper for parallel processing)."""
+        # Find matching entities
+        matching_entities = self._find_entities_for_article(entities_data, keyword)
+
+        if matching_entities:
+            return self._create_article(keyword, category, matching_entities, entities_data)
+        return None
 
     def _find_entities_for_article(self, entities_data: Dict, keyword: str) -> List[Dict]:
         """Find entities matching a keyword for article generation."""
@@ -5445,6 +5748,14 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             <a href="../entities.html">Entities</a>
             <a href="../topics.html">Topics</a>
             <a href="../timeline.html">Timeline</a>
+        </nav>
+
+        <nav class="breadcrumbs">
+            <a href="../index.html">🏠 Home</a>
+            <span class="separator">›</span>
+            <a href="../articles.html">Articles</a>
+            <span class="separator">›</span>
+            <span class="current">{title_escaped}</span>
         </nav>
 
         <main>

@@ -101,8 +101,11 @@ class WikiExporter:
         self._generate_html_pages(documents_data)
 
         # Copy PDFs
-        print("[9/9] Copying PDF files...")
+        print("[9/10] Copying PDF files...")
         self._copy_pdfs(documents_data)
+
+        # Generate articles
+        articles_data = self._generate_articles(entities_data)
 
         # Copy static assets
         print("\nCopying static assets...")
@@ -119,6 +122,7 @@ class WikiExporter:
         print(f"  Topics: {self.stats['topics']}")
         print(f"  Clusters: {self.stats['clusters']}")
         print(f"  Events: {self.stats['events']}")
+        print(f"  Articles: {self.stats.get('articles', 0)}")
         print(f"\nWiki location: {self.output_dir.absolute()}")
         print(f"Open: {(self.output_dir / 'index.html').absolute()}")
         print("\n" + "=" * 60)
@@ -462,6 +466,7 @@ class WikiExporter:
 
         <nav class="main-nav">
             <a href="index.html" class="active">Home</a>
+            <a href="articles.html">Articles</a>
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
@@ -566,6 +571,7 @@ class WikiExporter:
 
         <nav class="main-nav">
             <a href="../index.html">Home</a>
+            <a href="../articles.html">Articles</a>
             <a href="../documents.html">Documents</a>
             <a href="../chunks.html">Chunks</a>
             <a href="../entities.html">Entities</a>
@@ -624,6 +630,7 @@ class WikiExporter:
 
         <nav class="main-nav">
             <a href="index.html">Home</a>
+            <a href="articles.html">Articles</a>
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html" class="active">Entities</a>
@@ -704,6 +711,7 @@ class WikiExporter:
 
         <nav class="main-nav">
             <a href="index.html">Home</a>
+            <a href="articles.html">Articles</a>
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
@@ -760,6 +768,7 @@ class WikiExporter:
 
         <nav class="main-nav">
             <a href="index.html">Home</a>
+            <a href="articles.html">Articles</a>
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
@@ -877,6 +886,7 @@ class WikiExporter:
 
         <nav class="main-nav">
             <a href="index.html">Home</a>
+            <a href="articles.html">Articles</a>
             <a href="documents.html">Documents</a>
             <a href="chunks.html" class="active">Chunks</a>
             <a href="entities.html">Entities</a>
@@ -974,6 +984,7 @@ class WikiExporter:
 
         <nav class="main-nav">
             <a href="index.html">Home</a>
+            <a href="articles.html">Articles</a>
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
@@ -3199,6 +3210,451 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
 """
             with open(pdf_path, 'w', encoding='utf-8') as f:
                 f.write(fallback)
+
+    def _generate_articles(self, entities_data: Dict):
+        """Generate articles for major entities and topics."""
+        print("\n[10/10] Generating articles...")
+
+        # Create articles directory
+        articles_dir = self.output_dir / "articles"
+        articles_dir.mkdir(exist_ok=True)
+
+        # Define major topics to generate articles for
+        article_topics = {
+            'HARDWARE': ['SID', 'VIC-II', 'VIC', 'CIA', '6510', '6502', '1541'],
+            'MUSIC': ['Music', 'Sound', 'Composer', 'Editor', 'Tracker'],
+            'GRAPHICS': ['Sprite', 'Bitmap', 'Graphics', 'Color', 'Screen'],
+            'PROGRAMMING': ['Assembly', 'BASIC', 'Kernal', 'ROM', 'Memory'],
+            'TOOLS': ['Assembler', 'Editor', 'Debugger', 'Monitor', 'Emulator']
+        }
+
+        articles_generated = []
+
+        # Generate articles for each category
+        for category, keywords in article_topics.items():
+            for keyword in keywords:
+                # Find matching entities
+                matching_entities = self._find_entities_for_article(entities_data, keyword)
+
+                if matching_entities:
+                    article = self._create_article(keyword, category, matching_entities, entities_data)
+                    if article:
+                        articles_generated.append(article)
+                        print(f"  Generated: {article['title']}")
+
+        # Generate articles browser page
+        self._generate_articles_browser_html(articles_generated)
+
+        # Save articles index
+        articles_index_path = self.data_dir / "articles.json"
+        with open(articles_index_path, 'w', encoding='utf-8') as f:
+            json.dump(articles_generated, f, indent=2)
+        print(f"  Saved: articles.json ({len(articles_generated)} articles)")
+
+        self.stats['articles'] = len(articles_generated)
+        return articles_generated
+
+    def _find_entities_for_article(self, entities_data: Dict, keyword: str) -> List[Dict]:
+        """Find entities matching a keyword for article generation."""
+        matching = []
+
+        for entity_type, entities in entities_data.items():
+            for entity in entities:
+                # Case-insensitive partial match
+                if keyword.lower() in entity['text'].lower():
+                    matching.append({
+                        'type': entity_type,
+                        'text': entity['text'],
+                        'doc_count': entity['doc_count'],
+                        'confidence': entity['confidence'],
+                        'documents': entity['documents']
+                    })
+
+        # Sort by document count (most referenced first)
+        matching.sort(key=lambda x: x['doc_count'], reverse=True)
+        return matching
+
+    def _create_article(self, keyword: str, category: str, entities: List[Dict], all_entities: Dict) -> Dict:
+        """Create an article from entity data."""
+        if not entities:
+            return None
+
+        # Get main entity (highest doc count)
+        main_entity = entities[0]
+
+        # Generate article filename
+        safe_keyword = re.sub(r'[^\w\-]', '_', keyword.lower())
+        filename = f"{safe_keyword}.html"
+        filepath = self.output_dir / "articles" / filename
+
+        # Gather related content
+        related_entities = self._find_related_entities(main_entity, all_entities)
+        code_examples = self._extract_code_examples(main_entity)
+
+        # Generate article HTML
+        html_content = self._generate_article_html(
+            keyword, category, main_entity, entities, related_entities, code_examples
+        )
+
+        # Write article file
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+        return {
+            'title': keyword,
+            'category': category,
+            'filename': filename,
+            'entity_count': len(entities),
+            'doc_count': main_entity['doc_count'],
+            'related_count': len(related_entities)
+        }
+
+    def _find_related_entities(self, entity: Dict, all_entities: Dict, max_related: int = 10) -> List[Dict]:
+        """Find entities related to the main entity (appear in same documents)."""
+        # Get document IDs for main entity
+        main_doc_ids = set(doc['id'] for doc in entity['documents'])
+
+        related = []
+        for entity_type, entities in all_entities.items():
+            for ent in entities:
+                if ent['text'] == entity['text']:
+                    continue  # Skip self
+
+                # Check for document overlap
+                ent_doc_ids = set(doc['id'] for doc in ent['documents'])
+                overlap = main_doc_ids & ent_doc_ids
+
+                if overlap:
+                    related.append({
+                        'type': entity_type,
+                        'text': ent['text'],
+                        'doc_count': ent['doc_count'],
+                        'overlap_count': len(overlap),
+                        'overlap_ratio': len(overlap) / len(main_doc_ids)
+                    })
+
+        # Sort by overlap ratio
+        related.sort(key=lambda x: (x['overlap_ratio'], x['doc_count']), reverse=True)
+        return related[:max_related]
+
+    def _extract_code_examples(self, entity: Dict, max_examples: int = 5) -> List[Dict]:
+        """Extract code examples from documents mentioning this entity."""
+        examples = []
+
+        # Get chunks from documents
+        for doc in entity['documents'][:max_examples]:
+            # Fetch chunks for this document
+            cursor = self.kb.db_conn.cursor()
+            chunks = cursor.execute("""
+                SELECT content, page
+                FROM chunks
+                WHERE doc_id = ?
+                ORDER BY chunk_id
+                LIMIT 3
+            """, (doc['id'],)).fetchall()
+
+            for content, page in chunks:
+                # Look for code-like patterns
+                if any(indicator in content.lower() for indicator in ['$', 'lda', 'sta', 'jsr', 'rts', 'register']):
+                    examples.append({
+                        'doc_title': doc['title'],
+                        'doc_id': doc['id'],
+                        'doc_filename': doc['filename'],
+                        'content': content[:500] + '...' if len(content) > 500 else content,
+                        'page': page
+                    })
+                    break  # One example per document
+
+        return examples
+
+    def _generate_article_html(self, title: str, category: str, main_entity: Dict,
+                               all_matches: List[Dict], related: List[Dict],
+                               code_examples: List[Dict]) -> str:
+        """Generate HTML for an article page."""
+        title_escaped = html.escape(title)
+
+        # Build overview section
+        overview_html = f"""
+        <div class="article-overview">
+            <h2>Overview</h2>
+            <p><strong>Category:</strong> {html.escape(category)}</p>
+            <p><strong>Referenced in:</strong> {main_entity['doc_count']} documents</p>
+            <p><strong>Entity Type:</strong> {html.escape(main_entity['type'])}</p>
+            <p><strong>Confidence:</strong> {(main_entity['confidence'] * 100):.0f}%</p>
+        </div>
+        """
+
+        # Build entities section
+        entities_html = '<div class="article-section"><h2>Related Entities</h2><ul class="entity-list-article">'
+        for entity in all_matches[:10]:
+            entities_html += f'<li><strong>{html.escape(entity["text"])}</strong> ({entity["type"]}) - {entity["doc_count"]} docs</li>'
+        entities_html += '</ul></div>'
+
+        # Build related topics section
+        related_html = ''
+        if related:
+            related_html = '<div class="article-section"><h2>Related Topics</h2><ul class="related-list">'
+            for rel in related:
+                related_html += f'<li><strong>{html.escape(rel["text"])}</strong> ({rel["type"]}) - appears in {rel["overlap_count"]} common documents</li>'
+            related_html += '</ul></div>'
+
+        # Build code examples section
+        code_html = ''
+        if code_examples:
+            code_html = '<div class="article-section"><h2>Code Examples & Technical Details</h2>'
+            for i, example in enumerate(code_examples, 1):
+                code_html += f"""
+                <div class="code-example">
+                    <h3>Example {i} - from <a href="../docs/{example['doc_filename']}">{html.escape(example['doc_title'])}</a></h3>
+                    <pre><code>{html.escape(example['content'])}</code></pre>
+                </div>
+                """
+            code_html += '</div>'
+
+        # Build documents section
+        docs_html = '<div class="article-section"><h2>Source Documents</h2><ul class="doc-list-article">'
+        for doc in main_entity['documents'][:20]:
+            docs_html += f'<li><a href="../docs/{doc["filename"]}">{html.escape(doc["title"])}</a></li>'
+        if len(main_entity['documents']) > 20:
+            docs_html += f'<li><em>...and {len(main_entity["documents"]) - 20} more documents</em></li>'
+        docs_html += '</ul></div>'
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title_escaped} - TDZ C64 Knowledge Base</title>
+    <link rel="stylesheet" href="../assets/css/style.css">
+    <style>
+        .article-overview {{
+            background: var(--bg-color);
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid var(--accent-color);
+        }}
+        .article-section {{
+            margin: 30px 0;
+        }}
+        .article-section h2 {{
+            color: var(--secondary-color);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }}
+        .entity-list-article, .related-list, .doc-list-article {{
+            list-style: none;
+            padding: 0;
+        }}
+        .entity-list-article li, .related-list li, .doc-list-article li {{
+            padding: 10px;
+            margin: 5px 0;
+            background: var(--card-bg);
+            border-radius: 5px;
+        }}
+        .code-example {{
+            margin: 20px 0;
+            padding: 15px;
+            background: var(--bg-color);
+            border-radius: 8px;
+            border-left: 4px solid var(--primary-color);
+        }}
+        .code-example h3 {{
+            margin-top: 0;
+            color: var(--primary-color);
+        }}
+        .code-example pre {{
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }}
+        .article-category {{
+            display: inline-block;
+            padding: 5px 15px;
+            background: var(--accent-color);
+            color: white;
+            border-radius: 20px;
+            font-size: 0.9em;
+            margin-bottom: 20px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 TDZ C64 Knowledge Base</h1>
+            <p class="subtitle"><a href="../index.html">← Back to Home</a> | <a href="../articles.html">← Back to Articles</a></p>
+        </header>
+
+        <nav class="main-nav">
+            <a href="../index.html">Home</a>
+            <a href="../articles.html">Articles</a>
+            <a href="../documents.html">Documents</a>
+            <a href="../chunks.html">Chunks</a>
+            <a href="../entities.html">Entities</a>
+            <a href="../topics.html">Topics</a>
+            <a href="../timeline.html">Timeline</a>
+        </nav>
+
+        <main>
+            <article class="article-content">
+                <span class="article-category">{html.escape(category)}</span>
+                <h1>{title_escaped}</h1>
+
+                {overview_html}
+                {entities_html}
+                {related_html}
+                {code_html}
+                {docs_html}
+            </article>
+        </main>
+
+        <footer>
+            <p>TDZ C64 Knowledge Base v2.23.15</p>
+        </footer>
+    </div>
+</body>
+</html>
+"""
+        return html_content
+
+    def _generate_articles_browser_html(self, articles: List[Dict]):
+        """Generate articles browser page."""
+        # Group articles by category
+        by_category = {}
+        for article in articles:
+            cat = article['category']
+            if cat not in by_category:
+                by_category[cat] = []
+            by_category[cat].append(article)
+
+        # Sort each category by doc count
+        for cat in by_category:
+            by_category[cat].sort(key=lambda x: x['doc_count'], reverse=True)
+
+        # Build category sections
+        categories_html = ''
+        for category in sorted(by_category.keys()):
+            articles_in_cat = by_category[category]
+            categories_html += f"""
+            <div class="article-category-section">
+                <h2>{html.escape(category)}</h2>
+                <div class="articles-grid">
+            """
+
+            for article in articles_in_cat:
+                categories_html += f"""
+                <div class="article-card">
+                    <h3><a href="articles/{article['filename']}">{html.escape(article['title'])}</a></h3>
+                    <div class="article-meta">
+                        <span>📚 {article['doc_count']} documents</span>
+                        <span>🔗 {article['related_count']} related topics</span>
+                    </div>
+                </div>
+                """
+
+            categories_html += '</div></div>'
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Articles - TDZ C64 Knowledge Base</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        .article-category-section {{
+            margin: 40px 0;
+        }}
+        .article-category-section h2 {{
+            color: var(--secondary-color);
+            border-bottom: 3px solid var(--accent-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }}
+        .articles-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }}
+        .article-card {{
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid var(--accent-color);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: all 0.3s;
+        }}
+        .article-card:hover {{
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }}
+        .article-card h3 {{
+            margin: 0 0 10px 0;
+        }}
+        .article-card h3 a {{
+            color: var(--secondary-color);
+            text-decoration: none;
+        }}
+        .article-card h3 a:hover {{
+            color: var(--accent-color);
+        }}
+        .article-meta {{
+            display: flex;
+            gap: 15px;
+            font-size: 0.9em;
+            color: var(--primary-color);
+            margin-top: 10px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 TDZ C64 Knowledge Base</h1>
+            <p class="subtitle">Articles & Guides</p>
+        </header>
+
+        <nav class="main-nav">
+            <a href="index.html">Home</a>
+            <a href="articles.html" class="active">Articles</a>
+            <a href="documents.html">Documents</a>
+            <a href="chunks.html">Chunks</a>
+            <a href="entities.html">Entities</a>
+            <a href="topics.html">Topics</a>
+            <a href="timeline.html">Timeline</a>
+        </nav>
+
+        <main>
+            <section class="intro">
+                <h2>Knowledge Base Articles</h2>
+                <p>Automatically generated articles based on entity extraction and document analysis.
+                   Each article aggregates information from multiple sources to provide comprehensive coverage
+                   of key Commodore 64 topics.</p>
+                <p><strong>Total Articles:</strong> {len(articles)}</p>
+            </section>
+
+            {categories_html}
+        </main>
+
+        <footer>
+            <p>TDZ C64 Knowledge Base v2.23.15</p>
+        </footer>
+    </div>
+</body>
+</html>
+"""
+        filepath = self.output_dir / "articles.html"
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"  Generated: articles.html")
 
 
 def main():

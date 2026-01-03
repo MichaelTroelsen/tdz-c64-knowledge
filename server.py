@@ -223,17 +223,23 @@ class KnowledgeBase:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Setup logging
+        # Setup logging with UTF-8 encoding to handle Unicode characters
         log_file = self.data_dir / "server.log"
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_file),
+                logging.FileHandler(log_file, encoding='utf-8'),
                 logging.StreamHandler(sys.stderr)
             ]
         )
         self.logger = logging.getLogger(__name__)
+
+        # Configure StreamHandler encoding for Windows console compatibility
+        for handler in logging.getLogger().handlers:
+            if isinstance(handler, logging.StreamHandler) and handler.stream == sys.stderr:
+                # Set UTF-8 encoding, with error handling for Windows console
+                handler.stream.reconfigure(encoding='utf-8', errors='replace') if hasattr(handler.stream, 'reconfigure') else None
         self.logger.info("=" * 60)
         self.logger.info(f"{get_full_version_string()}")
         self.logger.info(f"Build Date: {__build_date__}")

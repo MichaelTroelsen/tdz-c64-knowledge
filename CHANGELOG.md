@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.17] - 2026-01-03
+
+### Improved
+- **Website Scraping Progress Feedback** - Real-time progress tracking with visual feedback and timeout detection
+  - **Server-Side Improvements** (`server.py` - `scrape_url()` method)
+    - Replaced blocking `subprocess.run()` with streaming `subprocess.Popen()`
+    - Real-time output parsing to extract current URL being scraped
+    - Background threads for non-blocking stdout/stderr reading
+    - **Per-Page Timeout Detection**: Warns if a single page takes > 60 seconds
+    - **Progress Updates**: Callback triggered for each page scraped with current URL and count
+    - **Console Logging**: Server logs show "[X/Y] Scraping: <url>" for each page
+    - **Completion Summary**: Shows total pages scraped on success (e.g., "✓ Scraping completed successfully (15 pages)")
+    - Regex pattern matching for mdscrape output: `(?:Scraping|Processing|Fetching)[:\s]+(\S+)`
+    - Graceful error handling with image-error filtering (unchanged)
+  - **Streamlit GUI Improvements** (`admin_gui.py`)
+    - **Real-Time Progress Bar**: Updates as each page is scraped (0-100%)
+    - **Status Messages**: Shows "Scraping page X/Y" with live updates
+    - **Current URL Display**: Shows which page is currently being processed
+    - **Timeout Warnings**: Displays "⚠️ Page taking longer than 60s..." if stuck
+    - Progress callback updates three UI elements:
+      - Progress bar (visual percentage)
+      - Status info box (current operation)
+      - URL display (current page path, truncated to 80 chars)
+    - Proper cleanup of all progress widgets on completion/error
+  - **User Experience**:
+    - No more "hanging" UI - users see exactly what's happening
+    - Clear indication of scraping progress (X/Y pages)
+    - Early warning if a page is slow (60s timeout alert)
+    - Server console shows detailed progress for debugging
+    - All existing functionality preserved (follow_links, max_pages, depth, etc.)
+
 ## [2.24.0] - In Planning
 
 ### Planning

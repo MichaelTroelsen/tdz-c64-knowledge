@@ -1201,6 +1201,9 @@ elif page == "🌐 Web Scraping":
             else:
                 # Show centered loading indicator
                 loading_container = st.empty()
+                progress_container = st.empty()
+                status_container = st.empty()
+                url_container = st.empty()
 
                 with loading_container.container():
                     col1, col2, col3 = st.columns([1, 2, 1])
@@ -1234,22 +1237,62 @@ elif page == "🌐 Web Scraping":
                                 font-size: 3rem;
                                 animation: pulse 2s ease-in-out infinite;
                             }
+                            .current-url {
+                                font-size: 0.9rem;
+                                color: rgba(255,255,255,0.8);
+                                margin-top: 0.5rem;
+                                font-family: monospace;
+                                word-break: break-all;
+                            }
                             </style>
                             <div class="scraping-container">
                                 <div class="scraping-icon">🌐</div>
                                 <div class="scraping-text">Scraping Website</div>
-                                <div class="scraping-subtext">Please wait while we fetch and process the content...</div>
+                                <div id="scraping-status" class="scraping-subtext">Initializing scraper...</div>
+                                <div id="current-url" class="current-url"></div>
                             </div>
                         """, unsafe_allow_html=True)
 
-                        st.markdown(f"**URL:** {url_input}")
-                        progress_bar = st.progress(0)
+                # Progress tracking
+                progress_bar = progress_container.progress(0)
+
+                # Progress callback for real-time updates
+                def update_progress(progress_update):
+                    """Update Streamlit UI with scraping progress."""
+                    try:
+                        # Calculate progress percentage
+                        if progress_update.total > 0:
+                            progress_pct = min(1.0, progress_update.current / progress_update.total)
+                        else:
+                            progress_pct = 0.0
+
+                        # Update progress bar
+                        progress_bar.progress(progress_pct)
+
+                        # Update status message
+                        status_msg = progress_update.message
+                        if "⚠️" in status_msg:
+                            status_container.warning(status_msg)
+                        else:
+                            status_container.info(status_msg)
+
+                        # Update current URL
+                        if progress_update.item and progress_update.item != url_input:
+                            # Truncate long URLs for display
+                            display_url = progress_update.item
+                            if len(display_url) > 80:
+                                display_url = display_url[:77] + "..."
+                            url_container.markdown(f"**Current page:** `{display_url}`")
+
+                    except Exception as e:
+                        # Silently ignore UI update errors (race conditions in Streamlit)
+                        pass
 
                 try:
                     # Parse tags
                     tags = [t.strip() for t in scrape_tags.split(',') if t.strip()]
 
-                    # Start scraping
+                    # Start scraping with progress callback
                     result = kb.scrape_url(
                         url=url_input,
                         title=scrape_title or None,
@@ -1261,11 +1304,15 @@ elif page == "🌐 Web Scraping":
                         limit=scrape_limit or None,
                         threads=scrape_threads,
                         delay=scrape_delay,
-                        selector=scrape_selector or None
+                        selector=scrape_selector or None,
+                        progress_callback=update_progress
                     )
 
-                    # Clear loading indicator
+                    # Clear loading indicator and progress widgets
                     loading_container.empty()
+                    progress_container.empty()
+                    status_container.empty()
+                    url_container.empty()
 
                     if result['status'] == 'success':
                         st.success(f"✅ **Scraping complete!**\n\n"
@@ -1292,8 +1339,10 @@ elif page == "🌐 Web Scraping":
                         st.error(f"❌ **Scraping failed**\n\n{result.get('error', 'Unknown error')}")
 
                 except Exception as e:
-                    progress_bar.empty()
-                    status_text.empty()
+                    loading_container.empty()
+                    progress_container.empty()
+                    status_container.empty()
+                    url_container.empty()
                     st.error(f"❌ **Error during scraping:**\n\n{str(e)}")
 
     st.markdown("---")

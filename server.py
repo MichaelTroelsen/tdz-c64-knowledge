@@ -3453,32 +3453,154 @@ class KnowledgeBase:
             ))
 
         try:
-            result = subprocess.run(
+            # Execute with real-time output streaming
+            import time
+            import re
+            from threading import Thread, Event
+            from queue import Queue, Empty
+
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=3600  # 1 hour timeout
+                bufsize=1  # Line buffered
             )
 
+            # Queues for capturing output
+            stdout_queue = Queue()
+            stderr_queue = Queue()
+
+            # Helper to read output in background thread
+            def enqueue_output(stream, queue, stop_event):
+                try:
+                    for line in iter(stream.readline, ''):
+                        if stop_event.is_set():
+                            break
+                        queue.put(line)
+                except Exception:
+                    pass
+                finally:
+                    stream.close()
+
+            stop_event = Event()
+            stdout_thread = Thread(target=enqueue_output, args=(process.stdout, stdout_queue, stop_event))
+            stderr_thread = Thread(target=enqueue_output, args=(process.stderr, stderr_queue, stop_event))
+            stdout_thread.daemon = True
+            stderr_thread.daemon = True
+            stdout_thread.start()
+            stderr_thread.start()
+
+            # Track progress
+            pages_scraped = 0
+            current_url = None
+            last_update_time = time.time()
+            timeout_warned = False
+            stdout_lines = []
+            stderr_lines = []
+
+            # Process output in real-time
+            while process.poll() is None:
+                # Check stdout
+                try:
+                    line = stdout_queue.get(timeout=0.1)
+                    stdout_lines.append(line)
+
+                    # Parse mdscrape output for current URL
+                    # mdscrape typically outputs: "Scraping: https://example.com/page"
+                    url_match = re.search(r'(?:Scraping|Processing|Fetching)[:\s]+(\S+)', line, re.IGNORECASE)
+                    if url_match:
+                        current_url = url_match.group(1)
+                        pages_scraped += 1
+                        last_update_time = time.time()
+                        timeout_warned = False
+
+                        # Update progress
+                        self.logger.info(f"[{pages_scraped}/{max_pages}] Scraping: {current_url}")
+
+                        if progress_callback:
+                            progress_callback(ProgressUpdate(
+                                operation="scrape_url",
+                                current=min(pages_scraped, max_pages),
+                                total=max_pages,
+                                message=f"Scraping page {pages_scraped}/{max_pages}",
+                                item=current_url
+                            ))
+
+                except Empty:
+                    pass
+
+                # Check stderr
+                try:
+                    line = stderr_queue.get_nowait()
+                    stderr_lines.append(line)
+                    # Log errors but don't stop
+                    if 'error' in line.lower() and 'image' not in line.lower():
+                        self.logger.warning(f"Scrape warning: {line.strip()}")
+                except Empty:
+                    pass
+
+                # Check for timeout on individual page (60 seconds)
+                time_since_update = time.time() - last_update_time
+                if time_since_update > 60 and not timeout_warned:
+                    timeout_warned = True
+                    warning_msg = f"⚠️ No progress for {int(time_since_update)} seconds"
+                    if current_url:
+                        warning_msg += f" (current: {current_url})"
+                    self.logger.warning(warning_msg)
+
+                    if progress_callback:
+                        progress_callback(ProgressUpdate(
+                            operation="scrape_url",
+                            current=pages_scraped,
+                            total=max_pages,
+                            message=f"⚠️ Page taking longer than 60s...",
+                            item=current_url or "unknown"
+                        ))
+
+            # Wait for process to complete
+            process.wait(timeout=60)
+
+            # Stop background threads
+            stop_event.set()
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+
+            # Collect remaining output
+            while not stdout_queue.empty():
+                try:
+                    stdout_lines.append(stdout_queue.get_nowait())
+                except Empty:
+                    break
+
+            while not stderr_queue.empty():
+                try:
+                    stderr_lines.append(stderr_queue.get_nowait())
+                except Empty:
+                    break
+
             # Check for errors but don't fail if files were scraped
-            if result.returncode != 0:
-                error_msg = result.stderr or result.stdout or "Unknown error"
+            stdout_output = ''.join(stdout_lines)
+            stderr_output = ''.join(stderr_lines)
+
+            if process.returncode != 0:
+                error_msg = stderr_output or stdout_output or "Unknown error"
 
                 # Count image-related errors (not critical failures)
                 image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.ico']
                 error_lines = error_msg.split('\n')
                 image_errors = sum(1 for line in error_lines
                                  if any(ext in line.lower() for ext in image_extensions))
-                total_errors = len([line for line in error_lines if 'Error:' in line])
+                total_errors = len([line for line in error_lines if 'Error:' in line or 'error' in line.lower()])
 
                 # If all errors are image-related, treat as warning not failure
-                if image_errors > 0 and image_errors == total_errors:
+                if image_errors > 0 and total_errors > 0 and image_errors == total_errors:
                     self.logger.warning(f"Scraping completed with {image_errors} image-related errors (expected)")
                 else:
                     # Log full error but continue - we'll check if any files were scraped
                     self.logger.warning(f"Scraping completed with errors: {error_msg[:500]}...")
             else:
-                self.logger.info("Scraping completed successfully")
+                self.logger.info(f"✓ Scraping completed successfully ({pages_scraped} pages)")
 
         except subprocess.TimeoutExpired:
             self.logger.error("Scraping timeout (>1 hour)")

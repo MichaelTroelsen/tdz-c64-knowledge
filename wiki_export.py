@@ -3337,6 +3337,451 @@ html {
         display: none !important;
     }
 }
+
+/* ===============================================
+   MOBILE RESPONSIVENESS
+   =============================================== */
+
+/* Tablet and below (768px) */
+@media (max-width: 768px) {
+    /* Base layout */
+    .container {
+        padding: 10px;
+    }
+
+    /* Header */
+    header h1 {
+        font-size: 1.8em;
+    }
+
+    .subtitle {
+        font-size: 1em;
+    }
+
+    /* Navigation */
+    .main-nav {
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .main-nav a {
+        width: 100%;
+        text-align: center;
+        padding: 12px;
+    }
+
+    /* Breadcrumbs */
+    .breadcrumbs {
+        font-size: 0.85em;
+        padding: 8px 0;
+    }
+
+    /* Search */
+    .search-section {
+        margin: 15px 0;
+    }
+
+    #search-input {
+        font-size: 16px; /* Prevent zoom on iOS */
+        padding: 12px;
+    }
+
+    /* Stats grid */
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+
+    .stat-card {
+        padding: 15px 10px;
+    }
+
+    .stat-card h3 {
+        font-size: 1.5em;
+    }
+
+    /* Document cards */
+    .doc-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .doc-card {
+        padding: 15px;
+    }
+
+    /* Category grid */
+    .category-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Article content */
+    .article-content h1 {
+        font-size: 1.8em;
+    }
+
+    .article-content h2 {
+        font-size: 1.4em;
+    }
+
+    .article-content h3 {
+        font-size: 1.2em;
+    }
+
+    /* Code blocks */
+    pre {
+        font-size: 0.85em;
+        padding: 10px;
+        overflow-x: auto;
+    }
+
+    /* Tables */
+    table {
+        font-size: 0.9em;
+    }
+
+    th, td {
+        padding: 8px 4px;
+    }
+
+    /* Chatbot */
+    .chatbot-button {
+        bottom: 15px;
+        right: 15px;
+        width: 50px;
+        height: 50px;
+        font-size: 1.3em;
+    }
+
+    .chatbot-widget {
+        width: 100%;
+        height: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+        bottom: 0;
+        right: 0;
+    }
+
+    .chatbot-header {
+        border-radius: 0;
+    }
+
+    /* Auto TOC */
+    .auto-toc {
+        padding: 15px;
+        margin: 15px 0;
+    }
+
+    .toc-nav ul {
+        font-size: 0.9em;
+    }
+
+    /* Entity cards */
+    .entity-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Topic cards */
+    .topic-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Timeline */
+    .timeline-event {
+        padding: 15px;
+    }
+
+    /* Bookmark button */
+    .bookmark-btn {
+        padding: 6px 10px;
+        font-size: 0.9em;
+    }
+
+    /* Reading progress */
+    .reading-progress-container {
+        height: 4px;
+    }
+
+    /* Popular articles */
+    .popular-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Search results */
+    .search-results {
+        max-height: 60vh;
+    }
+
+    .result-card {
+        padding: 12px;
+    }
+}
+
+/* Mobile phones (480px) */
+@media (max-width: 480px) {
+    /* Header */
+    header {
+        padding: 20px 0 10px;
+    }
+
+    header h1 {
+        font-size: 1.5em;
+    }
+
+    .subtitle {
+        font-size: 0.9em;
+    }
+
+    /* Stats grid - single column on small phones */
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* Navigation */
+    .main-nav a {
+        padding: 10px;
+        font-size: 0.95em;
+    }
+
+    /* Breadcrumbs */
+    .breadcrumbs {
+        font-size: 0.8em;
+        gap: 5px;
+    }
+
+    .breadcrumbs .separator {
+        font-size: 0.9em;
+    }
+
+    /* Article meta */
+    .article-meta,
+    .doc-meta {
+        flex-direction: column;
+        gap: 5px;
+        font-size: 0.85em;
+    }
+
+    /* Code blocks - smaller on phones */
+    pre {
+        font-size: 0.75em;
+        padding: 8px;
+    }
+
+    /* Chunks */
+    .chunk {
+        padding: 10px;
+    }
+
+    .chunk-header {
+        font-size: 0.9em;
+    }
+
+    /* Tags */
+    .tag {
+        font-size: 0.75em;
+        padding: 3px 8px;
+    }
+
+    /* Search autocomplete */
+    .autocomplete-item {
+        padding: 10px;
+        font-size: 0.9em;
+    }
+
+    /* Copy button */
+    .copy-button {
+        padding: 4px 8px;
+        font-size: 0.8em;
+        top: 5px;
+        right: 5px;
+    }
+
+    /* Chatbot - full screen on phones */
+    .chatbot-messages {
+        max-height: calc(100vh - 180px);
+    }
+
+    /* Back to top button */
+    .back-to-top {
+        bottom: 15px;
+        right: 15px;
+        width: 45px;
+        height: 45px;
+        font-size: 1.2em;
+    }
+
+    /* Popular article rank badges */
+    .popular-rank {
+        width: 35px;
+        height: 35px;
+        font-size: 0.9em;
+        top: -8px;
+        right: -8px;
+    }
+}
+
+/* Large screens (1200px+) */
+@media (min-width: 1200px) {
+    .container {
+        max-width: 1400px;
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 20px;
+    }
+
+    .doc-grid,
+    .category-grid,
+    .entity-grid,
+    .topic-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .popular-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+    /* Larger tap targets for touch */
+    a, button, .clickable {
+        min-height: 44px;
+        min-width: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .main-nav a {
+        padding: 14px;
+    }
+
+    /* Remove hover effects on touch devices */
+    .doc-card:hover,
+    .entity-card:hover,
+    .topic-card:hover,
+    .category-card:hover {
+        transform: none;
+    }
+
+    /* Highlight on tap instead */
+    .doc-card:active,
+    .entity-card:active,
+    .topic-card:active,
+    .category-card:active {
+        transform: scale(0.98);
+        opacity: 0.9;
+    }
+
+    /* Disable smooth scroll on touch for better performance */
+    html {
+        scroll-behavior: auto;
+    }
+
+    /* Larger scroll bars for touch */
+    ::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
+    }
+}
+
+/* Landscape orientation on phones */
+@media (max-width: 768px) and (orientation: landscape) {
+    .chatbot-widget {
+        max-height: 90vh;
+    }
+
+    .search-results {
+        max-height: 50vh;
+    }
+
+    header h1 {
+        font-size: 1.6em;
+    }
+}
+
+/* High DPI screens */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    /* Sharper borders and text */
+    * {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+}
+
+/* Reduced motion for accessibility */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    html {
+        scroll-behavior: auto !important;
+    }
+}
+
+/* Dark mode preference detection */
+@media (prefers-color-scheme: dark) {
+    /* Auto dark mode if user hasn't set preference */
+    body:not([data-theme]) {
+        --primary-color: #cbd5e0;
+        --secondary-color: #e2e8f0;
+        --accent-color: #63b3ed;
+        --bg-color: #1a202c;
+        --text-color: #f7fafc;
+        --border-color: #4a5568;
+        --card-bg: #2d3748;
+        --code-bg: #1a202c;
+        --code-color: #68d391;
+    }
+}
+
+/* ===============================================
+   LAZY LOADING IMAGES
+   =============================================== */
+
+img[loading="lazy"] {
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+img[loading="lazy"].loaded {
+    opacity: 1;
+}
+
+/* Placeholder for lazy images */
+.lazy-placeholder {
+    background: linear-gradient(
+        90deg,
+        var(--border-color) 0%,
+        var(--bg-color) 50%,
+        var(--border-color) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    min-height: 200px;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Ensure images don't break layout while loading */
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
 """
         css_path = self.assets_dir / "css" / "style.css"
         with open(css_path, 'w', encoding='utf-8') as f:
@@ -4764,6 +5209,128 @@ function displayPopularArticles() {
         });
 }
 
+// ===== LAZY LOADING IMAGES =====
+function setupLazyLoading() {
+    // Check if IntersectionObserver is supported
+    if ('IntersectionObserver' in window) {
+        setupIntersectionObserver();
+    } else {
+        // Fallback for older browsers - load all images immediately
+        loadAllImages();
+    }
+}
+
+function setupIntersectionObserver() {
+    const imageObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                loadImage(img);
+                observer.unobserve(img);
+            }
+        });
+    }, {
+        // Start loading when image is 50px from viewport
+        rootMargin: '50px',
+        threshold: 0.01
+    });
+
+    // Find all images with loading="lazy" attribute
+    const lazyImages = document.querySelectorAll('img[loading="lazy"]');
+    lazyImages.forEach(img => {
+        imageObserver.observe(img);
+    });
+
+    // Also observe dynamically added images
+    const mutationObserver = new MutationObserver(mutations => {
+        mutations.forEach(mutation => {
+            mutation.addedNodes.forEach(node => {
+                if (node.nodeName === 'IMG' && node.getAttribute('loading') === 'lazy') {
+                    imageObserver.observe(node);
+                } else if (node.querySelectorAll) {
+                    const lazyImgs = node.querySelectorAll('img[loading="lazy"]');
+                    lazyImgs.forEach(img => imageObserver.observe(img));
+                }
+            });
+        });
+    });
+
+    mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    console.log(`🖼️ Lazy loading enabled for ${lazyImages.length} images`);
+}
+
+function loadImage(img) {
+    // Check if we have a data-src attribute (common lazy loading pattern)
+    const src = img.getAttribute('data-src') || img.getAttribute('src');
+
+    if (!src) return;
+
+    // Create a new image to preload
+    const tempImg = new Image();
+
+    tempImg.onload = () => {
+        img.src = src;
+        img.classList.add('loaded');
+
+        // Remove placeholder if it exists
+        const placeholder = img.previousElementSibling;
+        if (placeholder && placeholder.classList.contains('lazy-placeholder')) {
+            placeholder.remove();
+        }
+    };
+
+    tempImg.onerror = () => {
+        console.error('Failed to load image:', src);
+        img.classList.add('error');
+    };
+
+    // Start loading
+    if (img.getAttribute('data-src')) {
+        tempImg.src = img.getAttribute('data-src');
+    } else {
+        tempImg.src = src;
+    }
+}
+
+function loadAllImages() {
+    // Fallback for browsers without IntersectionObserver
+    const lazyImages = document.querySelectorAll('img[loading="lazy"]');
+    lazyImages.forEach(img => {
+        const src = img.getAttribute('data-src') || img.getAttribute('src');
+        if (src) {
+            img.src = src;
+            img.classList.add('loaded');
+        }
+    });
+
+    console.log(`🖼️ Loaded ${lazyImages.length} images (fallback mode)`);
+}
+
+// Helper function to add lazy loading to dynamically created images
+function makeLazyImage(src, alt = '', className = '') {
+    const img = document.createElement('img');
+    img.setAttribute('data-src', src);
+    img.setAttribute('loading', 'lazy');
+    img.alt = alt;
+    if (className) img.className = className;
+
+    // Add placeholder
+    const placeholder = document.createElement('div');
+    placeholder.className = 'lazy-placeholder';
+
+    return { placeholder, img };
+}
+
+// Export for use in other scripts
+window.lazyLoadingUtils = {
+    makeLazyImage,
+    loadImage
+};
+
 // ===== BOOKMARKS SYSTEM =====
 class BookmarkManager {
     constructor() {
@@ -5319,6 +5886,7 @@ document.addEventListener('DOMContentLoaded', () => {
     displayPopularArticles();  // Popular articles on homepage
     bookmarkManager = new BookmarkManager();  // Bookmarks system
     chatbot = new AIChatbot();  // AI chatbot
+    setupLazyLoading();  // Lazy load images for performance
 
     console.log('✅ Wiki enhancements loaded');
     console.log('💡 Keyboard shortcuts:');

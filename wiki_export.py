@@ -523,6 +523,7 @@ class WikiExporter:
     <script src="lib/fuse.min.js"></script>
     <script src="assets/js/search.js"></script>
     <script src="assets/js/main.js"></script>
+    <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -604,6 +605,7 @@ class WikiExporter:
     </div>
 
     <script src="../assets/js/main.js"></script>
+    <script src="../assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -684,6 +686,7 @@ class WikiExporter:
     </div>
 
     <script src="assets/js/entities.js"></script>
+    <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -741,6 +744,7 @@ class WikiExporter:
     </div>
 
     <script src="assets/js/topics.js"></script>
+    <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -788,6 +792,7 @@ class WikiExporter:
     </div>
 
     <script src="assets/js/timeline.js"></script>
+    <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -859,6 +864,7 @@ class WikiExporter:
     </div>
 
     <script src="assets/js/documents.js"></script>
+    <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -920,6 +926,7 @@ class WikiExporter:
     </div>
 
     <script src="assets/js/chunks.js"></script>
+    <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -1014,6 +1021,7 @@ class WikiExporter:
 
     <script src="lib/pdf.min.js"></script>
     <script src="assets/js/pdf-viewer.js"></script>
+    <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -1065,6 +1073,37 @@ class WikiExporter:
     --card-bg: #ffffff;
     --code-bg: #2d3748;
     --code-color: #68d391;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+    --primary-color: #cbd5e0;
+    --secondary-color: #e2e8f0;
+    --accent-color: #63b3ed;
+    --bg-color: #1a202c;
+    --text-color: #f7fafc;
+    --border-color: #4a5568;
+    --card-bg: #2d3748;
+    --code-bg: #1a202c;
+    --code-color: #68d391;
+}
+
+/* C64 Classic Theme */
+[data-theme="c64"] {
+    --primary-color: #c5cae9;
+    --secondary-color: #e8eaf6;
+    --accent-color: #ffc107;
+    --bg-color: #3f51b5;
+    --text-color: #e8eaf6;
+    --border-color: #7986cb;
+    --card-bg: #5c6bc0;
+    --code-bg: #283593;
+    --code-color: #00e676;
+}
+
+/* Theme transition */
+* {
+    transition: background-color 0.3s, color 0.3s, border-color 0.3s;
 }
 
 * {
@@ -2133,6 +2172,144 @@ footer {
         width: 100%;
     }
 }
+
+/* Theme Toggle Button */
+.theme-toggle {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 1000;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 12px 18px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 1.3em;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: all 0.3s;
+}
+
+.theme-toggle:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
+
+/* Code Block Enhancements */
+.code-block-wrapper {
+    position: relative;
+    margin: 20px 0;
+}
+
+.copy-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.85em;
+    opacity: 0.8;
+    transition: all 0.3s;
+    z-index: 10;
+}
+
+.copy-button:hover {
+    opacity: 1;
+    transform: translateY(-2px);
+}
+
+.copy-button.copied {
+    background: #48bb78;
+}
+
+/* Reading Progress Bar */
+.reading-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0%;
+    height: 4px;
+    background: linear-gradient(90deg, var(--accent-color), var(--secondary-color));
+    z-index: 9999;
+    transition: width 0.1s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Search Highlighting */
+.highlight {
+    background-color: #ffc107;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-weight: bold;
+    color: #000;
+}
+
+[data-theme="dark"] .highlight {
+    background-color: #ff9800;
+}
+
+[data-theme="c64"] .highlight {
+    background-color: #ffeb3b;
+}
+
+/* Article Meta (Reading Time) */
+.article-meta {
+    display: flex;
+    gap: 15px;
+    padding: 15px;
+    background: var(--bg-color);
+    border-radius: 8px;
+    margin: 20px 0;
+    font-size: 0.9em;
+    color: var(--primary-color);
+    border: 1px solid var(--border-color);
+}
+
+.article-meta span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Enhanced Back to Top */
+.back-to-top {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1.5em;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s;
+    z-index: 999;
+}
+
+.back-to-top.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.back-to-top:hover {
+    background: var(--secondary-color);
+    transform: translateY(-5px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+}
+
+/* Smooth Scroll */
+html {
+    scroll-behavior: smooth;
+}
 """
         css_path = self.assets_dir / "css" / "style.css"
         with open(css_path, 'w', encoding='utf-8') as f:
@@ -3135,6 +3312,199 @@ document.addEventListener('keydown', function(e) {
 });
 """
 
+        # Enhancements JS - Theme switcher, copy buttons, progress bar, etc.
+        enhancements_js = """// Wiki Enhancements - UX Improvements
+// Theme switcher, copy buttons, reading progress, back-to-top
+
+// ===== THEME SWITCHER =====
+const themes = ['light', 'dark', 'c64'];
+let currentTheme = localStorage.getItem('theme') || 'light';
+
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    currentTheme = theme;
+    updateThemeIcon();
+}
+
+function cycleTheme() {
+    const currentIndex = themes.indexOf(currentTheme);
+    const nextIndex = (currentIndex + 1) % themes.length;
+    setTheme(themes[nextIndex]);
+}
+
+function updateThemeIcon() {
+    const button = document.getElementById('theme-toggle');
+    if (button) {
+        const icons = { 'light': '☀️', 'dark': '🌙', 'c64': '💙' };
+        const labels = { 'light': 'Light Theme', 'dark': 'Dark Theme', 'c64': 'C64 Classic' };
+        button.textContent = icons[currentTheme];
+        button.title = labels[currentTheme];
+    }
+}
+
+// ===== COPY BUTTONS =====
+function addCopyButtons() {
+    document.querySelectorAll('pre code').forEach(block => {
+        // Skip if already wrapped
+        if (block.parentNode.classList.contains('code-block-wrapper')) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block-wrapper';
+
+        const button = document.createElement('button');
+        button.className = 'copy-button';
+        button.textContent = '📋 Copy';
+        button.title = 'Copy code to clipboard';
+
+        button.onclick = async () => {
+            try {
+                await navigator.clipboard.writeText(block.textContent);
+                button.textContent = '✅ Copied!';
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.textContent = '📋 Copy';
+                    button.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+                button.textContent = '❌ Failed';
+                setTimeout(() => {
+                    button.textContent = '📋 Copy';
+                }, 2000);
+            }
+        };
+
+        const pre = block.parentNode;
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(pre);
+        wrapper.appendChild(button);
+    });
+}
+
+// ===== READING PROGRESS =====
+function addReadingProgress() {
+    const progress = document.createElement('div');
+    progress.className = 'reading-progress';
+    document.body.appendChild(progress);
+
+    function updateProgress() {
+        const scrolled = window.pageYOffset;
+        const height = document.documentElement.scrollHeight - window.innerHeight;
+        const percent = height > 0 ? (scrolled / height) * 100 : 0;
+        progress.style.width = percent + '%';
+    }
+
+    window.addEventListener('scroll', updateProgress);
+    updateProgress();
+}
+
+// ===== BACK TO TOP =====
+function addBackToTop() {
+    const button = document.createElement('button');
+    button.className = 'back-to-top';
+    button.textContent = '↑';
+    button.title = 'Back to top';
+    button.onclick = () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    document.body.appendChild(button);
+
+    function updateBackToTop() {
+        if (window.pageYOffset > 300) {
+            button.classList.add('visible');
+        } else {
+            button.classList.remove('visible');
+        }
+    }
+
+    window.addEventListener('scroll', updateBackToTop);
+    updateBackToTop();
+}
+
+// ===== THEME TOGGLE BUTTON =====
+function addThemeToggle() {
+    const button = document.createElement('button');
+    button.id = 'theme-toggle';
+    button.className = 'theme-toggle';
+    button.onclick = cycleTheme;
+    document.body.appendChild(button);
+    updateThemeIcon();
+}
+
+// ===== SEARCH HIGHLIGHTING =====
+function highlightSearchTerms() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const query = urlParams.get('q');
+    if (!query) return;
+
+    const terms = query.toLowerCase().split(/\\s+/).filter(t => t.length >= 3);
+    if (terms.length === 0) return;
+
+    // Highlight in paragraphs, list items, and table cells
+    document.querySelectorAll('main p, main li, main td, .chunk-content').forEach(element => {
+        let html = element.innerHTML;
+        let modified = false;
+
+        terms.forEach(term => {
+            const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
+            if (regex.test(html)) {
+                html = html.replace(regex, '<mark class="highlight">$1</mark>');
+                modified = true;
+            }
+        });
+
+        if (modified) {
+            element.innerHTML = html;
+        }
+    });
+}
+
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+}
+
+// ===== KEYBOARD SHORTCUTS =====
+function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Alt+T = Toggle theme
+        if (e.altKey && e.key === 't') {
+            e.preventDefault();
+            cycleTheme();
+        }
+        // Alt+H = Go to home
+        if (e.altKey && e.key === 'h') {
+            e.preventDefault();
+            window.location.href = '/';
+        }
+    });
+}
+
+// ===== INITIALIZE ALL =====
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize theme first (before anything renders)
+    setTheme(currentTheme);
+
+    // Add all enhancements
+    addThemeToggle();
+    addCopyButtons();
+    addReadingProgress();
+    addBackToTop();
+    highlightSearchTerms();
+    setupKeyboardShortcuts();
+
+    console.log('✅ Wiki enhancements loaded');
+    console.log('💡 Keyboard shortcuts: Alt+T (theme), Alt+H (home)');
+});
+
+// Export for use in other scripts
+window.wikiEnhancements = {
+    setTheme,
+    cycleTheme,
+    addCopyButtons
+};
+"""
+
         # Save all JavaScript files
         js_dir = self.assets_dir / "js"
 
@@ -3146,7 +3516,8 @@ document.addEventListener('keydown', function(e) {
             'timeline.js': timeline_js,
             'documents.js': documents_js,
             'chunks.js': chunks_js,
-            'pdf-viewer.js': pdf_viewer_js
+            'pdf-viewer.js': pdf_viewer_js,
+            'enhancements.js': enhancements_js
         }
 
         for filename, content in files.items():
@@ -3367,11 +3738,29 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
 
         return examples
 
+    def _calculate_reading_time(self, content: str) -> int:
+        """Calculate estimated reading time in minutes."""
+        words = len(content.split())
+        # Average reading speed: 200 words per minute
+        minutes = max(1, round(words / 200))
+        return minutes
+
     def _generate_article_html(self, title: str, category: str, main_entity: Dict,
                                all_matches: List[Dict], related: List[Dict],
                                code_examples: List[Dict]) -> str:
         """Generate HTML for an article page."""
         title_escaped = html.escape(title)
+
+        # Calculate reading time (count words from all sections)
+        total_words = 0
+        for entity in all_matches[:10]:
+            total_words += len(entity['text'].split())
+        for rel in related:
+            total_words += len(rel['text'].split())
+        for example in code_examples:
+            total_words += len(example['content'].split())
+        reading_time = self._calculate_reading_time(' ' * total_words)
+        word_count = total_words
 
         # Build overview section
         overview_html = f"""
@@ -3507,6 +3896,12 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
                 <span class="article-category">{html.escape(category)}</span>
                 <h1>{title_escaped}</h1>
 
+                <div class="article-meta">
+                    <span class="reading-time">⏱️ {reading_time} min read</span>
+                    <span class="word-count">📄 ~{word_count} words</span>
+                    <span class="doc-count">📚 {main_entity['doc_count']} documents</span>
+                </div>
+
                 {overview_html}
                 {entities_html}
                 {related_html}
@@ -3519,6 +3914,8 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             <p>TDZ C64 Knowledge Base v2.23.15</p>
         </footer>
     </div>
+
+    <script src="../assets/js/enhancements.js"></script>
 </body>
 </html>
 """
@@ -3648,6 +4045,8 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             <p>TDZ C64 Knowledge Base v2.23.15</p>
         </footer>
     </div>
+
+    <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """

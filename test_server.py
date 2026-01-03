@@ -2034,5 +2034,99 @@ def test_backup_with_empty_kb(tmpdir):
     restore_kb.close()
 
 
+def test_scrape_c64_wiki(tmpdir):
+    """Test scraping C64 Wiki main page."""
+    import pytest
+
+    # Check if mdscrape is available
+    mdscrape_path = os.environ.get('MDSCRAPE_PATH')
+    if not mdscrape_path or not Path(mdscrape_path).exists():
+        pytest.skip("mdscrape not found - set MDSCRAPE_PATH environment variable")
+
+    kb = KnowledgeBase(str(tmpdir))
+
+    # Test URL
+    test_url = "https://www.c64-wiki.com/wiki/Main_Page"
+
+    # Progress tracking
+    progress_updates = []
+
+    def track_progress(update):
+        """Track progress updates for verification."""
+        progress_updates.append({
+            'operation': update.operation,
+            'current': update.current,
+            'total': update.total,
+            'message': update.message,
+            'item': update.item
+        })
+        print(f"Progress: [{update.current}/{update.total}] {update.message} - {update.item}")
+
+    # Scrape single page only (no link following)
+    print(f"\nScraping C64 Wiki main page: {test_url}")
+    result = kb.scrape_url(
+        url=test_url,
+        title="C64 Wiki Main Page",
+        tags=["c64-wiki", "test"],
+        follow_links=False,  # Single page only
+        depth=1,
+        max_pages=1,
+        threads=1,
+        delay=1000,  # Be respectful: 1 second delay
+        progress_callback=track_progress
+    )
+
+    # Verify results
+    print(f"\nScraping result: {result['status']}")
+    assert result['status'] in ['success', 'partial'], f"Scraping failed: {result.get('error', 'Unknown error')}"
+    assert 'files_scraped' in result
+    assert 'docs_added' in result
+
+    # Should have scraped at least 1 file
+    assert result['files_scraped'] >= 1, "No files were scraped"
+
+    # Should have added at least 1 document
+    assert result['docs_added'] >= 1, f"No documents added (files: {result['files_scraped']})"
+
+    # Verify progress callbacks were called
+    assert len(progress_updates) > 0, "No progress updates received"
+
+    # Verify progress update structure
+    for update in progress_updates:
+        assert 'operation' in update
+        assert 'message' in update
+        print(f"  - {update['message']}")
+
+    # Verify document was added
+    docs = kb.list_documents()
+    assert len(docs) >= 1, "Document not found in knowledge base"
+
+    # Verify document metadata
+    doc = docs[0]
+    assert doc.source_url == test_url
+    assert 'c64-wiki' in doc.tags
+    assert 'test' in doc.tags
+
+    # Verify document has content
+    chunks = kb._get_chunks_db(doc.doc_id)
+    assert len(chunks) > 0, "Document has no chunks"
+
+    # Verify content is not empty
+    total_chars = sum(len(chunk.content) for chunk in chunks)
+    assert total_chars > 100, f"Document content too short: {total_chars} chars"
+
+    print(f"\n[OK] Scraping test successful:")
+    print(f"  - Files scraped: {result['files_scraped']}")
+    print(f"  - Documents added: {result['docs_added']}")
+    print(f"  - Document ID: {doc.doc_id[:12]}...")
+    print(f"  - Title: {doc.title}")
+    print(f"  - URL: {doc.source_url}")
+    print(f"  - Chunks: {len(chunks)}")
+    print(f"  - Total chars: {total_chars:,}")
+    print(f"  - Progress updates: {len(progress_updates)}")
+
+    kb.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

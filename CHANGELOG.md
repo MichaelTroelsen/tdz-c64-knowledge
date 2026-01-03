@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.18] - 2026-01-03
+
+### Fixed
+- **Unicode Encoding Errors in Logging** - Fixed Windows console (cp1252) encoding errors
+  - Replaced Unicode checkmark character (✓) with ASCII "[OK]" in logger calls
+  - Changed `logger.warning()` to `logger.debug()` for frame detection failures
+  - Frame detection failures are now logged at DEBUG level (less noisy)
+  - All Unicode characters in MCP tool output preserved (JSON handles Unicode)
+- **Frame Detection Timeout** - Improved timeout handling and error messages
+  - Increased timeout from 10 to 30 seconds for slow connections
+  - Separate exception handling for `requests.exceptions.Timeout`
+  - More informative debug messages: "(will use mdscrape instead)"
+  - Frame detection failures no longer clutter logs with WARNING level
+- **Web Scraping Unit Test** - Added comprehensive test for C64 Wiki scraping
+  - New test: `test_scrape_c64_wiki()` in `test_server.py`
+  - Tests single-page scraping with progress tracking
+  - Verifies progress callbacks, document metadata, and content
+  - Includes detailed assertions and progress verification
+  - Skips gracefully if mdscrape not available
+
 ## [2.23.17] - 2026-01-03
 
 ### Improved

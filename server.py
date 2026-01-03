@@ -3200,8 +3200,8 @@ class KnowledgeBase:
         import requests
 
         try:
-            # Fetch the HTML content
-            response = requests.get(url, timeout=10)
+            # Fetch the HTML content with longer timeout
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             html_content = response.text
 
@@ -3233,8 +3233,11 @@ class KnowledgeBase:
 
             return frame_urls
 
+        except requests.exceptions.Timeout:
+            self.logger.debug(f"Timeout detecting frames at {url} (will use mdscrape instead)")
+            return []
         except Exception as e:
-            self.logger.warning(f"Failed to detect frames at {url}: {e}")
+            self.logger.debug(f"Could not detect frames at {url}: {e} (will use mdscrape instead)")
             return []
 
     def scrape_url(self, url: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
@@ -3600,7 +3603,7 @@ class KnowledgeBase:
                     # Log full error but continue - we'll check if any files were scraped
                     self.logger.warning(f"Scraping completed with errors: {error_msg[:500]}...")
             else:
-                self.logger.info(f"✓ Scraping completed successfully ({pages_scraped} pages)")
+                self.logger.info(f"[OK] Scraping completed successfully ({pages_scraped} pages)")
 
         except subprocess.TimeoutExpired:
             self.logger.error("Scraping timeout (>1 hour)")

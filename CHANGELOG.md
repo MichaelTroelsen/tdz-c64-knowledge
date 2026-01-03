@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.16] - 2026-01-03
+
+### Added
+- **Webhook Notifications for URL Monitoring** - Comprehensive multi-channel notification system for monitoring scripts
+  - **New Notification Module** (`utilities/notifications.py` - 552 lines)
+    - `NotificationManager` class with support for 4 notification channels
+    - Error handling with per-channel status reporting
+    - Automatic retry logic for failed deliveries
+  - **Supported Channels**:
+    1. **Discord Webhooks** - Rich embed notifications with color coding
+       - Green (all good), Orange (attention needed), Red (errors)
+       - Clickable document links in embedded fields
+       - Customizable bot username
+       - Automatic timestamp and footer
+    2. **Slack Webhooks** - Block Kit formatted messages
+       - Professional block-based layout with fields
+       - Clickable document links with Slack markdown
+       - Custom username and emoji icon
+       - Summary statistics in structured format
+    3. **Generic Webhooks** - JSON POST for custom integrations
+       - Full monitoring results in structured JSON
+       - Custom HTTP headers (Authorization, etc.)
+       - Compatible with IFTTT, Zapier, n8n, Home Assistant
+       - First 10 items from each category (changed, new, missing, failed)
+    4. **Email Notifications** - SMTP with HTML + plain text
+       - Professional HTML email with color-coded header
+       - Statistics dashboard in email body
+       - Plain text fallback for compatibility
+       - Support for Gmail, Outlook, Yahoo, custom SMTP
+  - **Updated Monitoring Scripts**:
+    - `utilities/monitor_daily.py` - Integrated NotificationManager
+    - `utilities/monitor_weekly.py` - Integrated NotificationManager
+    - Removed TODO placeholders (lines 32)
+    - Added real-time channel status display (✓/✗ indicators)
+    - Graceful error handling with informative error messages
+  - **Comprehensive Documentation** (`utilities/NOTIFICATIONS_SETUP.md` - 400+ lines)
+    - Complete setup guide for all 4 notification channels
+    - Discord: Webhook creation, configuration, example messages
+    - Slack: App setup, webhook configuration, Block Kit examples
+    - Email: SMTP configuration for Gmail, Outlook, Yahoo with app passwords
+    - Generic Webhook: Integration examples for IFTTT, Zapier, n8n
+    - Configuration reference table with all options
+    - Testing procedures and test notification functionality
+    - Troubleshooting guide for common issues
+    - Security best practices (webhook URL protection, password management)
+  - **Example Configuration** (`utilities/monitor_config.example.json`)
+    - Complete example with all notification options
+    - Inline comments explaining each field
+    - SMTP server examples for common providers
+    - Security notes and best practices
+  - **Notification Features**:
+    - Selective channel enable/disable
+    - Rich formatting for changed documents, new pages, missing pages
+    - Summary statistics (unchanged, changed, new, missing, failed)
+    - Weekly-specific notifications (new page discovery, missing pages)
+    - Grouped results (e.g., new pages grouped by site)
+    - Customizable thresholds (notify only on changes)
+  - **Usage**:
+    ```bash
+    # Enable notifications in monitor_config.json
+    python utilities/monitor_daily.py --notify
+    python utilities/monitor_weekly.py --notify
+
+    # Test notifications
+    python utilities/notifications.py
+    ```
+  - **Configuration Options**:
+    - `notifications.enabled` - Master switch for all notifications
+    - Channel-specific enable flags (discord, slack, webhook, email)
+    - Webhook URLs and custom headers
+    - SMTP server settings and credentials
+    - Customizable usernames and display settings
+  - Closes TODOs in monitor_daily.py:32 and monitor_weekly.py:32
+  - Enables automated alerting for URL monitoring in scheduled tasks
+  - Commit: 64cc46b "Feature: Webhook Notifications for URL Monitoring (v2.23.16)"
+
 ## [2.23.15] - 2026-01-03
 
 ### Changed

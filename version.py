@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.17"
-__version_info__ = (2, 23, 17)
+__version__ = "2.23.18"
+__version_info__ = (2, 23, 18)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,36 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.18 (2026-01-04)
+  ✨ ENHANCEMENT: Page-Specific About Boxes
+
+  User Feedback:
+  - "the about box should have information about the area chosen - not a generic one. please correct."
+  - Generic unified about box replaced with context-specific information for each page
+
+  Changes:
+  - Modified _get_unified_about_box() to accept 'page' parameter
+  - Created 10 different about box texts for different pages:
+    * home: Overview of knowledge base with total counts
+    * documents: Document browsing features and filtering options
+    * chunks: Text chunk segmentation and search capabilities
+    * entities: Entity extraction and identification details
+    * knowledge-graph: Interactive graph visualization explanation
+    * similarity-map: Document similarity and clustering info
+    * topics: Machine learning topic discovery description
+    * timeline: Chronological event tracking explanation
+    * articles: Auto-generated article overview
+    * viewer: File viewing capabilities
+  - Updated all function calls to pass correct page parameter
+  - Fixed topics.html and chunks.html using wrong about box content
+
+  Impact:
+  - Each page now explains its specific purpose and features
+  - Improved user understanding of page functionality
+  - Better contextual help throughout the wiki
+
+  Files modified: wiki_export.py (lines 57-178, 2740, 3663)
+
 v2.23.17 (2026-01-04)
   🐛 BUG FIX: Wiki Export Template String Interpolation
 

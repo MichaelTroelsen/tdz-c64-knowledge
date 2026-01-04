@@ -54,25 +54,126 @@ class WikiExporter:
             'export_date': datetime.now().isoformat()
         }
 
-    def _get_unified_about_box(self) -> str:
-        """Generate unified about box HTML for all pages."""
-        return """
-            <div class="explanation-box">
+    def _get_unified_about_box(self, page: str = 'home') -> str:
+        """Generate page-specific about box HTML."""
+        about_content = {
+            'home': """
                 <h3>📚 About This Knowledge Base</h3>
                 <p>
-                    The <strong>TDZ C64 Knowledge Base</strong> is a comprehensive collection of Commodore 64 documentation,
-                    tutorials, technical references, and historical information. All content has been processed and indexed
-                    for easy searching and exploration.
+                    The <strong>TDZ C64 Knowledge Base</strong> contains {stats[documents]} documents, {stats[chunks]} text chunks,
+                    and {stats[entities]} extracted entities. All content is searchable and interconnected for easy exploration.
                 </p>
                 <p>
-                    <strong>Features:</strong> Full-text search across all documents • Entity extraction (chips, hardware, software) •
-                    Interactive knowledge graph • Topic modeling and clustering • Timeline of C64 history • AI-powered Q&A •
-                    Automatic article generation from extracted knowledge
+                    <strong>Quick Start:</strong> Use the search bar above, browse documents below, or explore entities,
+                    topics, and visualizations through the navigation menu.
+                </p>
+            """,
+            'documents': """
+                <h3>📄 About Documents</h3>
+                <p>
+                    Browse all {stats[documents]} documents in the knowledge base. Each document has been processed to extract
+                    text, identify entities, and generate searchable chunks. Click any document to view its full content,
+                    metadata, and extracted information.
                 </p>
                 <p>
-                    <strong>Navigation:</strong> Use the menu above to explore different views of the knowledge base. Click the 🤖 Ask AI
-                    button (bottom right) to ask questions about any C64 topic.
+                    <strong>Features:</strong> Filter by tags • Sort by date or title • View source files •
+                    See related entities and topics
                 </p>
+            """,
+            'chunks': """
+                <h3>📝 About Text Chunks</h3>
+                <p>
+                    This page displays all {stats[chunks]} text chunks extracted from documents. Chunks are searchable
+                    segments of text (typically 1500 words with 200-word overlap) that enable precise content discovery.
+                </p>
+                <p>
+                    <strong>Use Cases:</strong> Find specific technical details • Locate code examples •
+                    Search across document boundaries
+                </p>
+            """,
+            'entities': """
+                <h3>🏷️ About Entities</h3>
+                <p>
+                    The knowledge base has identified {stats[entities]} entities across documents, including hardware
+                    components (VIC-II, SID, CIA), memory addresses, instructions, and concepts. Each entity links
+                    to all documents where it appears.
+                </p>
+                <p>
+                    <strong>Entity Types:</strong> Hardware • Memory Addresses • Instructions • People • Companies •
+                    Products • Concepts
+                </p>
+            """,
+            'knowledge-graph': """
+                <h3>🕸️ About Knowledge Graph</h3>
+                <p>
+                    This interactive graph visualizes relationships between entities in the knowledge base.
+                    Nodes represent entities, and edges show their connections based on co-occurrence in documents.
+                </p>
+                <p>
+                    <strong>Interactions:</strong> Drag nodes to explore • Click to see details •
+                    Search for specific entities • Filter by entity type
+                </p>
+            """,
+            'similarity-map': """
+                <h3>🗺️ About Similarity Map</h3>
+                <p>
+                    This 2D visualization maps documents in semantic space based on their content similarity.
+                    Documents positioned close together share related topics and concepts.
+                </p>
+                <p>
+                    <strong>Interactions:</strong> Hover over points to see document details • Click to navigate •
+                    Zoom and pan to explore • Filter by cluster or file type
+                </p>
+            """,
+            'topics': """
+                <h3>📊 About Topics</h3>
+                <p>
+                    Automatically discovered topics and document clusters from the knowledge base. Topics are identified
+                    using machine learning algorithms (LDA, NMF, BERTopic) to find common themes across documents.
+                </p>
+                <p>
+                    <strong>Features:</strong> View topic keywords • See documents per topic •
+                    Explore clustering results • Understand knowledge base structure
+                </p>
+            """,
+            'timeline': """
+                <h3>📅 About Timeline</h3>
+                <p>
+                    A chronological view of C64 history and documentation events. Events are automatically extracted
+                    from documents based on dates and historical references.
+                </p>
+                <p>
+                    <strong>Features:</strong> Filter by date range • View event details •
+                    See related documents • Explore historical context
+                </p>
+            """,
+            'articles': """
+                <h3>📰 About Articles</h3>
+                <p>
+                    AI-generated articles based on extracted entities and document analysis. Each article aggregates
+                    information from multiple sources to provide comprehensive coverage of C64 topics.
+                </p>
+                <p>
+                    <strong>Categories:</strong> Hardware components • Programming concepts • Memory addresses •
+                    Software tools • Historical context
+                </p>
+            """,
+            'viewer': """
+                <h3>👁️ About File Viewer</h3>
+                <p>
+                    View source documents in their original format. Supports PDF (browser native), HTML (iframe),
+                    Markdown (rendered), and plain text files.
+                </p>
+                <p>
+                    <strong>Supported Formats:</strong> PDF • HTML • Markdown • Plain Text
+                </p>
+            """
+        }
+
+        content = about_content.get(page, about_content['home'])
+        return f"""
+            <div class="explanation-box">
+                {content.format(stats=self.stats)}
             </div>
 """
 
@@ -888,7 +989,7 @@ class WikiExporter:
         </div>
 
         <main>
-{self._get_unified_about_box()}
+{self._get_unified_about_box("home")}
 
             <section class="stats-grid">
                 <div class="stat-card">
@@ -1127,7 +1228,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace('{NAV}', self._get_main_nav('entities'))
-        html_content = html_content.replace('{ABOUT}', self._get_unified_about_box())
+        html_content = html_content.replace('{ABOUT}', self._get_unified_about_box('entities'))
 
         filepath = self.output_dir / "entities.html"
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -1927,7 +2028,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace('{NAV}', self._get_main_nav('knowledge-graph'))
-        html_content = html_content.replace('{ABOUT}', self._get_unified_about_box())
+        html_content = html_content.replace('{ABOUT}', self._get_unified_about_box('knowledge-graph'))
 
         filepath = self.output_dir / "knowledge-graph.html"
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -2580,7 +2681,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace("{NAV}", self._get_main_nav("similarity-map"))
-        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box("entities"))
 
         filepath = self.output_dir / "similarity-map.html"
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -2636,7 +2737,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace("{NAV}", self._get_main_nav("topics"))
-        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box("topics"))
 
         filepath = self.output_dir / "topics.html"
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -3428,7 +3529,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace("{NAV}", self._get_main_nav("timeline"))
-        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box("entities"))
 
         filepath = self.output_dir / "timeline.html"
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -3499,7 +3600,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace("{NAV}", self._get_main_nav("documents"))
-        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box("documents"))
 
         filepath = self.output_dir / "documents.html"
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -3559,7 +3660,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace("{NAV}", self._get_main_nav("chunks"))
-        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box("chunks"))
 
         filepath = self.output_dir / "chunks.html"
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -3752,7 +3853,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace("{NAV}", self._get_main_nav())
-        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box("entities"))
 
         filepath = self.output_dir / "viewer.html"
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -9815,7 +9916,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
 
 {self._get_main_nav('articles')}
 
-{self._get_unified_about_box()}
+{self._get_unified_about_box("home")}
 
         <main>
             <section class="intro">

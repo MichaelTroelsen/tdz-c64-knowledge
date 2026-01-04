@@ -81,3 +81,7 @@ htmlcov/
 
 # Logs
 *.log
+
+# Generated wiki output
+wiki/
+wiki_test/

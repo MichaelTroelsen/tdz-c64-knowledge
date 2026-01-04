@@ -69,6 +69,7 @@ class WikiExporter:
 
         print("[3/7] Exporting entities...")
         entities_data = self._export_entities()
+        graph_data = self._export_graph()
 
         print("[4/7] Exporting topics and clusters...")
         topics_data = self._export_topics()
@@ -91,6 +92,7 @@ class WikiExporter:
         print("\nSaving data files...")
         self._save_json('documents.json', documents_data)
         self._save_json('entities.json', entities_data)
+        self._save_json('graph.json', graph_data)
         self._save_json('topics.json', topics_data)
         self._save_json('clusters.json', clusters_data)
         self._save_json('events.json', events_data)
@@ -239,6 +241,73 @@ class WikiExporter:
             self.stats['entities'] += len(entities)
 
         return entities_by_type
+
+    def _export_graph(self) -> Dict:
+        """Export entity graph data for visualization."""
+        cursor = self.kb.db_conn.cursor()
+
+        # Build nodes from all entities with their counts
+        nodes_dict = {}
+
+        # Get all entities with document counts
+        entities_query = """
+            SELECT entity_text, entity_type, COUNT(DISTINCT doc_id) as doc_count
+            FROM document_entities
+            GROUP BY entity_text, entity_type
+            HAVING doc_count >= 2
+            ORDER BY doc_count DESC
+        """
+
+        entities = cursor.execute(entities_query).fetchall()
+
+        for entity_text, entity_type, doc_count in entities:
+            nodes_dict[entity_text] = {
+                'id': entity_text,
+                'label': entity_text,
+                'type': entity_type or 'UNKNOWN',
+                'count': doc_count,
+                'value': doc_count  # For node sizing
+            }
+
+        # Get relationships (edges)
+        relationships_query = """
+            SELECT entity1_text, entity2_text, relationship_type,
+                   strength, doc_count
+            FROM entity_relationships
+            WHERE strength >= 0.3
+            ORDER BY strength DESC
+            LIMIT 5000
+        """
+
+        relationships = cursor.execute(relationships_query).fetchall()
+
+        edges = []
+        for e1, e2, rel_type, strength, doc_count in relationships:
+            # Only include edges between nodes we have
+            if e1 in nodes_dict and e2 in nodes_dict:
+                edges.append({
+                    'source': e1,
+                    'target': e2,
+                    'type': rel_type,
+                    'weight': round(strength, 2),
+                    'doc_count': doc_count,
+                    'value': doc_count  # For edge thickness
+                })
+
+        # Convert nodes dict to list
+        nodes = list(nodes_dict.values())
+
+        print(f"  Graph: {len(nodes)} nodes, {len(edges)} edges")
+
+        return {
+            'nodes': nodes,
+            'edges': edges,
+            'stats': {
+                'total_nodes': len(nodes),
+                'total_edges': len(edges),
+                'node_types': len(set(n['type'] for n in nodes))
+            }
+        }
 
     def _export_topics(self) -> Dict:
         """Export topic models."""
@@ -550,6 +619,9 @@ class WikiExporter:
         # Generate entity pages
         self._generate_entities_html()
 
+        # Generate knowledge graph page
+        self._generate_knowledge_graph_html()
+
         # Generate topics page
         self._generate_topics_html()
 
@@ -582,6 +654,7 @@ class WikiExporter:
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
+            <a href="knowledge-graph.html">Knowledge Graph</a>
             <a href="topics.html">Topics</a>
             <a href="timeline.html">Timeline</a>
         </nav>
@@ -778,6 +851,7 @@ class WikiExporter:
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html" class="active">Entities</a>
+            <a href="knowledge-graph.html">Knowledge Graph</a>
             <a href="topics.html">Topics</a>
             <a href="timeline.html">Timeline</a>
         </nav>
@@ -836,6 +910,814 @@ class WikiExporter:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
         print(f"  Generated: entities.html")
+
+    def _generate_knowledge_graph_html(self):
+        """Generate knowledge graph visualization page."""
+        html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Graph - TDZ C64 Knowledge Base</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        .graph-container {
+            display: grid;
+            grid-template-columns: 250px 1fr 300px;
+            gap: 20px;
+            margin: 20px 0;
+            height: calc(100vh - 200px);
+        }
+
+        .graph-controls {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .graph-controls h3 {
+            margin-top: 0;
+            color: var(--secondary-color);
+            font-size: 1.2em;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .control-group {
+            margin: 20px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-color);
+        }
+
+        .control-group input[type="text"],
+        .control-group input[type="range"] {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            font-family: inherit;
+        }
+
+        .control-group input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        .filter-checkboxes {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .filter-checkboxes label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: normal;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .filter-checkboxes label:hover {
+            background: var(--bg-color);
+        }
+
+        .filter-checkboxes input[type="checkbox"] {
+            cursor: pointer;
+        }
+
+        .type-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+        }
+
+        #graph-canvas {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #graph-svg {
+            width: 100%;
+            height: 100%;
+            cursor: move;
+        }
+
+        .graph-info {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .graph-info h3 {
+            margin-top: 0;
+            color: var(--secondary-color);
+            font-size: 1.2em;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .info-empty {
+            color: var(--text-muted);
+            font-style: italic;
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .node-info {
+            animation: fadeIn 0.3s;
+        }
+
+        .node-info h4 {
+            color: var(--accent-color);
+            margin: 0 0 10px 0;
+            font-size: 1.3em;
+        }
+
+        .node-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .stat-item {
+            background: var(--bg-color);
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: var(--accent-color);
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .connections-list {
+            margin-top: 15px;
+        }
+
+        .connections-list h5 {
+            margin: 10px 0;
+            color: var(--secondary-color);
+        }
+
+        .connection-item {
+            padding: 8px;
+            margin: 5px 0;
+            background: var(--bg-color);
+            border-radius: 6px;
+            border-left: 3px solid var(--accent-color);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .connection-item:hover {
+            background: var(--border-color);
+            transform: translateX(4px);
+        }
+
+        .connection-name {
+            font-weight: 600;
+            color: var(--text-color);
+        }
+
+        .connection-strength {
+            font-size: 0.85em;
+            color: var(--text-muted);
+        }
+
+        .graph-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .graph-stat-card {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .graph-stat-card .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: var(--accent-color);
+        }
+
+        .graph-stat-card .stat-label {
+            font-size: 0.9em;
+            color: var(--text-muted);
+            margin-top: 8px;
+        }
+
+        .loading-message {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-muted);
+            font-size: 1.2em;
+        }
+
+        .zoom-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        .zoom-btn {
+            width: 40px;
+            height: 40px;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-color);
+            font-size: 1.5em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .zoom-btn:hover {
+            background: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }
+
+        /* Node and edge styles */
+        .node {
+            stroke: #fff;
+            stroke-width: 2px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .node:hover {
+            stroke-width: 3px;
+            filter: brightness(1.2);
+        }
+
+        .node.highlighted {
+            stroke: var(--accent-color);
+            stroke-width: 4px;
+        }
+
+        .node.dimmed {
+            opacity: 0.3;
+        }
+
+        .link {
+            stroke: var(--border-color);
+            stroke-opacity: 0.6;
+            transition: all 0.3s;
+        }
+
+        .link.highlighted {
+            stroke: var(--accent-color);
+            stroke-width: 3px;
+            stroke-opacity: 1;
+        }
+
+        .link.dimmed {
+            opacity: 0.1;
+        }
+
+        .node-label {
+            font-size: 11px;
+            pointer-events: none;
+            text-anchor: middle;
+            fill: var(--text-color);
+            font-weight: 600;
+        }
+
+        .node-label.hidden {
+            display: none;
+        }
+
+        @media (max-width: 1200px) {
+            .graph-container {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+
+            .graph-info {
+                order: -1;
+            }
+
+            #graph-canvas {
+                height: 600px;
+            }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <nav class="main-nav">
+        <div class="nav-left">
+            <a href="index.html" class="nav-logo">📚 TDZ C64 KB</a>
+        </div>
+        <div class="nav-center">
+            <a href="documents.html">Documents</a>
+            <a href="entities.html">Entities</a>
+            <a href="knowledge-graph.html" class="active">Knowledge Graph</a>
+            <a href="topics.html">Topics</a>
+            <a href="timeline.html">Timeline</a>
+        </div>
+        <div class="nav-right">
+            <button class="theme-switcher" id="theme-toggle" aria-label="Toggle theme">🌙</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header>
+            <h1>🕸️ Knowledge Graph</h1>
+            <p class="subtitle">Explore entity relationships and connections</p>
+        </header>
+
+        <div class="graph-stats" id="graph-stats">
+            <div class="graph-stat-card">
+                <div class="stat-value" id="total-nodes">-</div>
+                <div class="stat-label">Entities</div>
+            </div>
+            <div class="graph-stat-card">
+                <div class="stat-value" id="total-edges">-</div>
+                <div class="stat-label">Connections</div>
+            </div>
+            <div class="graph-stat-card">
+                <div class="stat-value" id="total-types">-</div>
+                <div class="stat-label">Entity Types</div>
+            </div>
+        </div>
+
+        <div class="graph-container">
+            <div class="graph-controls">
+                <h3>Controls</h3>
+
+                <div class="control-group">
+                    <label for="search-node">🔍 Search Entity</label>
+                    <input type="text" id="search-node" placeholder="Type entity name...">
+                </div>
+
+                <div class="control-group">
+                    <label>🎨 Filter by Type</label>
+                    <div class="filter-checkboxes" id="type-filters"></div>
+                </div>
+
+                <div class="control-group">
+                    <label for="min-connections">Minimum Connections: <span id="min-connections-value">0</span></label>
+                    <input type="range" id="min-connections" min="0" max="20" value="0" step="1">
+                </div>
+
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="show-labels" checked> Show Labels
+                    </label>
+                </div>
+
+                <div class="control-group">
+                    <h3>Legend</h3>
+                    <div class="type-legend" id="type-legend"></div>
+                </div>
+            </div>
+
+            <div id="graph-canvas">
+                <div class="loading-message">Loading knowledge graph...</div>
+                <div class="zoom-controls">
+                    <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
+                    <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
+                    <button class="zoom-btn" id="zoom-reset" title="Reset View">⟲</button>
+                </div>
+                <svg id="graph-svg"></svg>
+            </div>
+
+            <div class="graph-info">
+                <h3>Node Details</h3>
+                <div class="info-empty" id="info-empty">
+                    Click on a node to view details
+                </div>
+                <div class="node-info" id="node-info" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="assets/js/enhancements.js"></script>
+    <script>
+        // Knowledge Graph Visualization using D3.js
+        let graphData = null;
+        let simulation = null;
+        let currentTransform = d3.zoomIdentity;
+        let selectedNode = null;
+
+        // Color scheme for entity types
+        const typeColors = {
+            'HARDWARE': '#e74c3c',
+            'SOFTWARE': '#3498db',
+            'PERSON': '#2ecc71',
+            'ORGANIZATION': '#f39c12',
+            'CONCEPT': '#9b59b6',
+            'MUSIC': '#1abc9c',
+            'GRAPHICS': '#e67e22',
+            'GAME': '#16a085',
+            'UNKNOWN': '#95a5a6'
+        };
+
+        async function loadGraph() {
+            try {
+                const response = await fetch('assets/data/graph.json');
+                graphData = await response.json();
+
+                // Update stats
+                document.getElementById('total-nodes').textContent = graphData.stats.total_nodes.toLocaleString();
+                document.getElementById('total-edges').textContent = graphData.stats.total_edges.toLocaleString();
+                document.getElementById('total-types').textContent = graphData.stats.node_types;
+
+                // Build type filters
+                const types = [...new Set(graphData.nodes.map(n => n.type))].sort();
+                buildTypeFilters(types);
+                buildTypeLegend(types);
+
+                // Initialize graph
+                initializeGraph();
+            } catch (error) {
+                console.error('Error loading graph:', error);
+                document.querySelector('.loading-message').textContent = 'Error loading graph data';
+            }
+        }
+
+        function buildTypeFilters(types) {
+            const container = document.getElementById('type-filters');
+            container.innerHTML = types.map(type => `
+                <label>
+                    <input type="checkbox" class="type-filter" value="${type}" checked>
+                    <span style="color: ${typeColors[type] || typeColors.UNKNOWN}">${type}</span>
+                </label>
+            `).join('');
+
+            // Add event listeners
+            container.querySelectorAll('.type-filter').forEach(checkbox => {
+                checkbox.addEventListener('change', updateGraph);
+            });
+        }
+
+        function buildTypeLegend(types) {
+            const container = document.getElementById('type-legend');
+            container.innerHTML = types.map(type => `
+                <div class="legend-item">
+                    <div class="legend-color" style="background: ${typeColors[type] || typeColors.UNKNOWN}"></div>
+                    <span>${type}</span>
+                </div>
+            `).join('');
+        }
+
+        function initializeGraph() {
+            const svg = d3.select('#graph-svg');
+            const container = document.getElementById('graph-canvas');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            svg.attr('width', width).attr('height', height);
+
+            // Clear loading message
+            document.querySelector('.loading-message').style.display = 'none';
+
+            // Create zoom behavior
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 10])
+                .on('zoom', (event) => {
+                    currentTransform = event.transform;
+                    g.attr('transform', currentTransform);
+                });
+
+            svg.call(zoom);
+
+            // Create container group
+            const g = svg.append('g');
+
+            // Create force simulation
+            simulation = d3.forceSimulation(graphData.nodes)
+                .force('link', d3.forceLink(graphData.edges)
+                    .id(d => d.id)
+                    .distance(d => 100 / (d.weight || 1)))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(d => Math.sqrt(d.value) * 3 + 10));
+
+            // Draw edges
+            const link = g.append('g')
+                .selectAll('line')
+                .data(graphData.edges)
+                .join('line')
+                .attr('class', 'link')
+                .attr('stroke-width', d => Math.sqrt(d.value || 1));
+
+            // Draw nodes
+            const node = g.append('g')
+                .selectAll('circle')
+                .data(graphData.nodes)
+                .join('circle')
+                .attr('class', 'node')
+                .attr('r', d => Math.sqrt(d.value) * 3 + 5)
+                .attr('fill', d => typeColors[d.type] || typeColors.UNKNOWN)
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended))
+                .on('click', (event, d) => {
+                    event.stopPropagation();
+                    selectNode(d, node, link);
+                })
+                .on('mouseover', function(event, d) {
+                    d3.select(this).style('cursor', 'pointer');
+                });
+
+            // Add labels
+            const labels = g.append('g')
+                .selectAll('text')
+                .data(graphData.nodes)
+                .join('text')
+                .attr('class', 'node-label')
+                .attr('dy', -15)
+                .text(d => d.label);
+
+            // Update positions on each tick
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+
+                node
+                    .attr('cx', d => d.x)
+                    .attr('cy', d => d.y);
+
+                labels
+                    .attr('x', d => d.x)
+                    .attr('y', d => d.y);
+            });
+
+            // Store references for updates
+            window.graphElements = { node, link, labels, g, svg, zoom };
+
+            // Setup controls
+            setupControls();
+        }
+
+        function selectNode(d, nodeSelection, linkSelection) {
+            selectedNode = d;
+
+            // Highlight connected nodes
+            const connectedNodeIds = new Set();
+            connectedNodeIds.add(d.id);
+
+            const connectedEdges = graphData.edges.filter(e =>
+                e.source.id === d.id || e.target.id === d.id
+            );
+
+            connectedEdges.forEach(e => {
+                connectedNodeIds.add(e.source.id);
+                connectedNodeIds.add(e.target.id);
+            });
+
+            // Update node styles
+            nodeSelection
+                .classed('highlighted', n => n.id === d.id)
+                .classed('dimmed', n => !connectedNodeIds.has(n.id));
+
+            // Update link styles
+            linkSelection
+                .classed('highlighted', e => e.source.id === d.id || e.target.id === d.id)
+                .classed('dimmed', e => e.source.id !== d.id && e.target.id !== d.id);
+
+            // Show node info
+            showNodeInfo(d, connectedEdges);
+        }
+
+        function showNodeInfo(node, edges) {
+            document.getElementById('info-empty').style.display = 'none';
+            const infoDiv = document.getElementById('node-info');
+            infoDiv.style.display = 'block';
+
+            const connections = edges.map(e => ({
+                node: e.source.id === node.id ? e.target : e.source,
+                weight: e.weight,
+                doc_count: e.doc_count
+            })).sort((a, b) => b.weight - a.weight);
+
+            infoDiv.innerHTML = `
+                <h4>${escapeHtml(node.label)}</h4>
+                <p style="color: ${typeColors[node.type]}; font-weight: 600;">${node.type}</p>
+
+                <div class="node-stats">
+                    <div class="stat-item">
+                        <div class="stat-value">${node.count}</div>
+                        <div class="stat-label">Documents</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${connections.length}</div>
+                        <div class="stat-label">Connections</div>
+                    </div>
+                </div>
+
+                ${connections.length > 0 ? `
+                    <div class="connections-list">
+                        <h5>Connected Entities</h5>
+                        ${connections.slice(0, 10).map(c => `
+                            <div class="connection-item" onclick="focusOnNode('${c.node.id}')">
+                                <div class="connection-name">${escapeHtml(c.node.label)}</div>
+                                <div class="connection-strength">Strength: ${c.weight} • ${c.doc_count} shared docs</div>
+                            </div>
+                        `).join('')}
+                        ${connections.length > 10 ? `<p style="text-align: center; color: var(--text-muted); margin-top: 10px;">... and ${connections.length - 10} more</p>` : ''}
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function focusOnNode(nodeId) {
+            const node = graphData.nodes.find(n => n.id === nodeId);
+            if (node) {
+                selectNode(node, window.graphElements.node, window.graphElements.link);
+
+                // Center on node
+                const svg = window.graphElements.svg;
+                const g = window.graphElements.g;
+                const zoom = window.graphElements.zoom;
+
+                const width = svg.node().clientWidth;
+                const height = svg.node().clientHeight;
+
+                const scale = 1.5;
+                const x = -node.x * scale + width / 2;
+                const y = -node.y * scale + height / 2;
+
+                svg.transition()
+                    .duration(750)
+                    .call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
+            }
+        }
+
+        function updateGraph() {
+            const activeTypes = Array.from(document.querySelectorAll('.type-filter:checked'))
+                .map(cb => cb.value);
+
+            const minConnections = parseInt(document.getElementById('min-connections').value);
+            const showLabels = document.getElementById('show-labels').checked;
+
+            const { node, link, labels } = window.graphElements;
+
+            // Filter nodes
+            node.style('display', d => {
+                const connections = graphData.edges.filter(e =>
+                    e.source.id === d.id || e.target.id === d.id
+                ).length;
+
+                return activeTypes.includes(d.type) && connections >= minConnections ? null : 'none';
+            });
+
+            // Filter links
+            link.style('display', d => {
+                const sourceVisible = activeTypes.includes(d.source.type);
+                const targetVisible = activeTypes.includes(d.target.type);
+                return sourceVisible && targetVisible ? null : 'none';
+            });
+
+            // Toggle labels
+            labels.classed('hidden', !showLabels);
+        }
+
+        function setupControls() {
+            // Search
+            document.getElementById('search-node').addEventListener('input', (e) => {
+                const query = e.target.value.toLowerCase();
+                if (query.length < 2) return;
+
+                const matches = graphData.nodes.filter(n =>
+                    n.label.toLowerCase().includes(query)
+                );
+
+                if (matches.length > 0) {
+                    focusOnNode(matches[0].id);
+                }
+            });
+
+            // Min connections slider
+            document.getElementById('min-connections').addEventListener('input', (e) => {
+                document.getElementById('min-connections-value').textContent = e.target.value;
+                updateGraph();
+            });
+
+            // Show labels toggle
+            document.getElementById('show-labels').addEventListener('change', updateGraph);
+
+            // Zoom controls
+            const { svg, zoom } = window.graphElements;
+
+            document.getElementById('zoom-in').addEventListener('click', () => {
+                svg.transition().call(zoom.scaleBy, 1.3);
+            });
+
+            document.getElementById('zoom-out').addEventListener('click', () => {
+                svg.transition().call(zoom.scaleBy, 0.7);
+            });
+
+            document.getElementById('zoom-reset').addEventListener('click', () => {
+                svg.transition().call(zoom.transform, d3.zoomIdentity);
+            });
+
+            // Click background to deselect
+            svg.on('click', () => {
+                window.graphElements.node.classed('highlighted', false).classed('dimmed', false);
+                window.graphElements.link.classed('highlighted', false).classed('dimmed', false);
+                document.getElementById('node-info').style.display = 'none';
+                document.getElementById('info-empty').style.display = 'block';
+            });
+        }
+
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initialize on load
+        loadGraph();
+    </script>
+</body>
+</html>
+"""
+        filepath = self.output_dir / "knowledge-graph.html"
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"  Generated: knowledge-graph.html")
 
     def _generate_topics_html(self):
         """Generate topics browser page."""
@@ -918,6 +1800,7 @@ class WikiExporter:
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
+            <a href="knowledge-graph.html">Knowledge Graph</a>
             <a href="topics.html">Topics</a>
             <a href="timeline.html" class="active">Timeline</a>
         </nav>
@@ -965,6 +1848,7 @@ class WikiExporter:
             <a href="documents.html" class="active">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
+            <a href="knowledge-graph.html">Knowledge Graph</a>
             <a href="topics.html">Topics</a>
             <a href="timeline.html">Timeline</a>
         </nav>
@@ -1038,6 +1922,7 @@ class WikiExporter:
             <a href="documents.html">Documents</a>
             <a href="chunks.html" class="active">Chunks</a>
             <a href="entities.html">Entities</a>
+            <a href="knowledge-graph.html">Knowledge Graph</a>
             <a href="topics.html">Topics</a>
             <a href="timeline.html">Timeline</a>
         </nav>
@@ -1137,6 +2022,7 @@ class WikiExporter:
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
+            <a href="knowledge-graph.html">Knowledge Graph</a>
             <a href="topics.html">Topics</a>
             <a href="timeline.html">Timeline</a>
         </nav>
@@ -7139,6 +8025,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             <a href="documents.html">Documents</a>
             <a href="chunks.html">Chunks</a>
             <a href="entities.html">Entities</a>
+            <a href="knowledge-graph.html">Knowledge Graph</a>
             <a href="topics.html">Topics</a>
             <a href="timeline.html">Timeline</a>
         </nav>

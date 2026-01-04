@@ -75,6 +75,37 @@ class WikiExporter:
             </div>
 """
 
+    def _get_main_nav(self, active_page: str = '') -> str:
+        """Generate consistent main navigation HTML with logo and theme switcher."""
+        pages = [
+            ('articles', 'Articles'),
+            ('documents', 'Documents'),
+            ('chunks', 'Chunks'),
+            ('entities', 'Entities'),
+            ('knowledge-graph', 'Knowledge Graph'),
+            ('similarity-map', 'Similarity Map'),
+            ('topics', 'Topics'),
+            ('timeline', 'Timeline')
+        ]
+
+        nav_items = []
+        for page_key, display_name in pages:
+            active_class = ' class="active"' if page_key == active_page else ''
+            page_file = page_key + '.html'
+            nav_items.append(f'            <a href="{page_file}"{active_class}>{display_name}</a>')
+
+        return f"""    <nav class="main-nav">
+        <div class="nav-left">
+            <a href="index.html" class="nav-logo">📚 TDZ C64 KB</a>
+        </div>
+        <div class="nav-center">
+{chr(10).join(nav_items)}
+        </div>
+        <div class="nav-right">
+            <button class="theme-switcher" id="theme-toggle" aria-label="Toggle theme">🌙</button>
+        </div>
+    </nav>"""
+
     def export(self):
         """Main export function."""
         print("=" * 60)
@@ -847,16 +878,7 @@ class WikiExporter:
             <p class="subtitle">Comprehensive Commodore 64 Documentation</p>
         </header>
 
-        <nav class="main-nav">
-            <a href="index.html" class="active">Home</a>
-            <a href="articles.html">Articles</a>
-            <a href="documents.html">Documents</a>
-            <a href="chunks.html">Chunks</a>
-            <a href="entities.html">Entities</a>
-            <a href="knowledge-graph.html">Knowledge Graph</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </nav>
+{self._get_main_nav('home')}
 
         <div class="search-section">
             <input type="text" id="search-input" placeholder="Search the knowledge base..." autocomplete="off">
@@ -1047,16 +1069,7 @@ class WikiExporter:
             <p class="subtitle">Entity Browser - Click any entity to see related documents</p>
         </header>
 
-        <nav class="main-nav">
-            <a href="index.html">Home</a>
-            <a href="articles.html">Articles</a>
-            <a href="documents.html">Documents</a>
-            <a href="chunks.html">Chunks</a>
-            <a href="entities.html" class="active">Entities</a>
-            <a href="knowledge-graph.html">Knowledge Graph</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </nav>
+{self._get_main_nav('entities')}
 
         <main>
 {self._get_unified_about_box()}
@@ -1466,27 +1479,13 @@ class WikiExporter:
     </style>
 </head>
 <body>
-    <nav class="main-nav">
-        <div class="nav-left">
-            <a href="index.html" class="nav-logo">📚 TDZ C64 KB</a>
-        </div>
-        <div class="nav-center">
-            <a href="documents.html">Documents</a>
-            <a href="entities.html">Entities</a>
-            <a href="knowledge-graph.html" class="active">Knowledge Graph</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </div>
-        <div class="nav-right">
-            <button class="theme-switcher" id="theme-toggle" aria-label="Toggle theme">🌙</button>
-        </div>
-    </nav>
-
     <div class="container">
         <header>
             <h1>🕸️ Knowledge Graph</h1>
             <p class="subtitle">Explore entity relationships and connections</p>
         </header>
+
+{self._get_main_nav('knowledge-graph')}
 
 {self._get_unified_about_box()}
 
@@ -2193,28 +2192,13 @@ class WikiExporter:
     </style>
 </head>
 <body>
-    <nav class="main-nav">
-        <div class="nav-left">
-            <a href="index.html" class="nav-logo">📚 TDZ C64 KB</a>
-        </div>
-        <div class="nav-center">
-            <a href="documents.html">Documents</a>
-            <a href="entities.html">Entities</a>
-            <a href="knowledge-graph.html">Knowledge Graph</a>
-            <a href="similarity-map.html" class="active">Similarity Map</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </div>
-        <div class="nav-right">
-            <button class="theme-switcher" id="theme-toggle" aria-label="Toggle theme">🌙</button>
-        </div>
-    </nav>
-
     <div class="container">
         <header>
             <h1>🗺️ Document Similarity Map</h1>
             <p class="subtitle">Explore documents in 2D semantic space</p>
         </header>
+
+{self._get_main_nav('similarity-map')}
 
         <div class="map-stats">
             <div class="stat-card">
@@ -2604,15 +2588,7 @@ class WikiExporter:
             <p class="subtitle">Topics & Clusters</p>
         </header>
 
-        <nav class="main-nav">
-            <a href="index.html">Home</a>
-            <a href="articles.html">Articles</a>
-            <a href="documents.html">Documents</a>
-            <a href="chunks.html">Chunks</a>
-            <a href="entities.html">Entities</a>
-            <a href="topics.html" class="active">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </nav>
+{self._get_main_nav('topics')}
 
         <main>
 {self._get_unified_about_box()}
@@ -3129,27 +3105,13 @@ class WikiExporter:
     </style>
 </head>
 <body>
-    <nav class="main-nav">
-        <div class="nav-left">
-            <a href="index.html" class="nav-logo">📚 TDZ C64 KB</a>
-        </div>
-        <div class="nav-center">
-            <a href="documents.html">Documents</a>
-            <a href="entities.html">Entities</a>
-            <a href="knowledge-graph.html">Knowledge Graph</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html" class="active">Timeline</a>
-        </div>
-        <div class="nav-right">
-            <button class="theme-switcher" id="theme-toggle" aria-label="Toggle theme">🌙</button>
-        </div>
-    </nav>
-
     <div class="container">
         <header>
             <h1>📅 Interactive Timeline</h1>
             <p class="subtitle">Explore Commodore 64 history chronologically</p>
         </header>
+
+{self._get_main_nav('timeline')}
 
 {self._get_unified_about_box()}
 
@@ -3466,15 +3428,7 @@ class WikiExporter:
             <p class="subtitle">Browse All Documents</p>
         </header>
 
-        <nav class="main-nav">
-            <a href="index.html">Home</a>
-            <a href="documents.html" class="active">Documents</a>
-            <a href="chunks.html">Chunks</a>
-            <a href="entities.html">Entities</a>
-            <a href="knowledge-graph.html">Knowledge Graph</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </nav>
+{self._get_main_nav('documents')}
 
         <main>
 {self._get_unified_about_box()}
@@ -3541,16 +3495,7 @@ class WikiExporter:
             <p class="subtitle">Browse Text Chunks</p>
         </header>
 
-        <nav class="main-nav">
-            <a href="index.html">Home</a>
-            <a href="articles.html">Articles</a>
-            <a href="documents.html">Documents</a>
-            <a href="chunks.html" class="active">Chunks</a>
-            <a href="entities.html">Entities</a>
-            <a href="knowledge-graph.html">Knowledge Graph</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </nav>
+{self._get_main_nav('chunks')}
 
         <main>
 {self._get_unified_about_box()}
@@ -3688,16 +3633,7 @@ class WikiExporter:
             <p class="subtitle"><a href="documents.html">← Back to Documents</a></p>
         </header>
 
-        <nav class="main-nav">
-            <a href="index.html">Home</a>
-            <a href="articles.html">Articles</a>
-            <a href="documents.html">Documents</a>
-            <a href="chunks.html">Chunks</a>
-            <a href="entities.html">Entities</a>
-            <a href="knowledge-graph.html">Knowledge Graph</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </nav>
+{self._get_main_nav()}
 
         <main>
             <div class="viewer-controls">
@@ -9839,16 +9775,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             <p class="subtitle">Articles & Guides</p>
         </header>
 
-        <nav class="main-nav">
-            <a href="index.html">Home</a>
-            <a href="articles.html" class="active">Articles</a>
-            <a href="documents.html">Documents</a>
-            <a href="chunks.html">Chunks</a>
-            <a href="entities.html">Entities</a>
-            <a href="knowledge-graph.html">Knowledge Graph</a>
-            <a href="topics.html">Topics</a>
-            <a href="timeline.html">Timeline</a>
-        </nav>
+{self._get_main_nav('articles')}
 
         <main>
             <section class="intro">

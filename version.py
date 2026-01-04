@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.14"
-__version_info__ = (2, 23, 14)
+__version__ = "2.23.16"
+__version_info__ = (2, 23, 16)
 
 # Build information
-__build_date__ = "2026-01-03"
+__build_date__ = "2026-01-04"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"
@@ -75,6 +75,40 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.16 (2026-01-04)
+  📚 RELEASE: Wiki Export Enhancements - Unified About Box & Standard File Viewer
+
+  Unified About Box:
+  - Same explanation box on all pages (home, documents, chunks, entities, knowledge graph, topics, timeline)
+  - Describes overall knowledge base features and navigation
+  - Consistent user experience across all pages
+  - Removed page-specific explanation boxes for uniformity
+
+  Standard File Viewer:
+  - Universal file viewer using standard HTML5 components
+  - Supports PDF (browser native viewer), HTML (iframe), Markdown (rendered with marked.js), and plain text
+  - Replaces complex PDF.js implementation with simpler, more reliable solution
+  - File viewer at viewer.html with URL parameters (file, name, type)
+  - "View Source File" buttons on document pages link to actual source files
+
+  File Export to Wiki:
+  - Automatic copying of source files to wiki/files/ directory
+  - 49 source files exported in test run (PDF, MD, TXT, HTML)
+  - Files accessible for direct viewing without regeneration
+  - Preserves original file extensions and content
+
+  TOC Removal:
+  - Disabled automatic Table of Contents generation on home page
+  - Cleaner, simpler home page layout
+  - TOC function still available but not called (commented out in enhancements.js)
+
+  Impact:
+  - Consistent about box across all 7 main pages
+  - Reliable file viewing with standard browser components
+  - Direct access to original source files
+  - Cleaner home page without auto-generated TOC
+  - Better user experience with unified navigation and explanations
+
 v2.23.0 (2025-12-23)
   🚀 MAJOR RELEASE: Phase 2 Complete - RAG Question Answering & Advanced Search
 

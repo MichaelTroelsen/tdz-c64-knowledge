@@ -40,6 +40,7 @@ class WikiExporter:
         self.docs_dir = self.output_dir / "docs"
         self.assets_dir = self.output_dir / "assets"
         self.data_dir = self.assets_dir / "data"
+        self.files_dir = self.output_dir / "files"  # Directory for actual source files
 
         # Statistics
         self.stats = {
@@ -51,6 +52,28 @@ class WikiExporter:
             'events': 0,
             'export_date': datetime.now().isoformat()
         }
+
+    def _get_unified_about_box(self) -> str:
+        """Generate unified about box HTML for all pages."""
+        return """
+            <div class="explanation-box">
+                <h3>📚 About This Knowledge Base</h3>
+                <p>
+                    The <strong>TDZ C64 Knowledge Base</strong> is a comprehensive collection of Commodore 64 documentation,
+                    tutorials, technical references, and historical information. All content has been processed and indexed
+                    for easy searching and exploration.
+                </p>
+                <p>
+                    <strong>Features:</strong> Full-text search across all documents • Entity extraction (chips, hardware, software) •
+                    Interactive knowledge graph • Topic modeling and clustering • Timeline of C64 history • AI-powered Q&A •
+                    Automatic article generation from extracted knowledge
+                </p>
+                <p>
+                    <strong>Navigation:</strong> Use the menu above to explore different views of the knowledge base. Click the 🤖 Ask AI
+                    button (bottom right) to ask questions about any C64 topic.
+                </p>
+            </div>
+"""
 
     def export(self):
         """Main export function."""
@@ -66,6 +89,7 @@ class WikiExporter:
         # Export data
         print("[2/7] Exporting documents...")
         documents_data = self._export_documents()
+        self._copy_source_files(documents_data)
 
         print("[3/7] Exporting entities...")
         entities_data = self._export_entities()
@@ -151,6 +175,7 @@ class WikiExporter:
         (self.assets_dir / "js").mkdir(exist_ok=True)
         self.data_dir.mkdir(exist_ok=True)
         (self.output_dir / "lib").mkdir(exist_ok=True)
+        self.files_dir.mkdir(exist_ok=True)  # For actual source files
 
     def _export_documents(self) -> List[Dict]:
         """Export all documents with metadata."""
@@ -176,10 +201,14 @@ class WikiExporter:
                 elif filename_lower.endswith('.md') or filename_lower.endswith('.markdown'):
                     file_type = 'markdown'
 
+            # Get file path if available
+            filepath = getattr(doc_meta, 'filepath', None)
+
             doc_data = {
                 'id': doc_id,
                 'title': doc_meta.title,
                 'filename': doc_meta.filename,
+                'filepath': filepath,
                 'file_type': file_type,
                 'total_pages': doc_meta.total_pages,
                 'total_chunks': len(chunks),
@@ -204,6 +233,32 @@ class WikiExporter:
         documents.sort(key=lambda d: d['title'].lower())
 
         return documents
+
+    def _copy_source_files(self, documents_data: List[Dict]):
+        """Copy source files to the files directory for direct viewing."""
+        print("  Copying source files to wiki...")
+        copied_count = 0
+
+        for doc in documents_data:
+            filepath = doc.get('filepath')
+            if not filepath or not os.path.exists(filepath):
+                continue
+
+            # Create a safe filename
+            doc_id = doc['id']
+            file_ext = Path(filepath).suffix
+            safe_filename = re.sub(r'[^\w\-]', '_', doc_id) + file_ext
+            dest_path = self.files_dir / safe_filename
+
+            try:
+                shutil.copy2(filepath, dest_path)
+                # Store the relative path for linking
+                doc['file_path_in_wiki'] = f"files/{safe_filename}"
+                copied_count += 1
+            except Exception as e:
+                print(f"    Warning: Could not copy {filepath}: {e}")
+
+        print(f"  Copied {copied_count} source files")
 
     def _export_entities(self) -> Dict:
         """Export entities grouped by type with document mappings."""
@@ -772,8 +827,8 @@ class WikiExporter:
         # Generate timeline page
         self._generate_timeline_html()
 
-        # Generate PDF viewer page
-        self._generate_pdf_viewer_html()
+        # Generate file viewer page
+        self._generate_file_viewer_html()
 
     def _generate_index_html(self):
         """Generate main index page."""
@@ -809,6 +864,8 @@ class WikiExporter:
         </div>
 
         <main>
+{self._get_unified_about_box()}
+
             <section class="stats-grid">
                 <div class="stat-card">
                     <h3>{self.stats['documents']}</h3>
@@ -862,7 +919,7 @@ class WikiExporter:
 
         <footer>
             <p>Exported: {self.stats['export_date']}</p>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 
@@ -945,6 +1002,7 @@ class WikiExporter:
                     </div>
                     {f'<div class="doc-tags">{tags_html}</div>' if tags_html else ''}
                     {f'<div class="doc-url"><a href="{html.escape(doc["source_url"])}" target="_blank">🔗 Source URL</a></div>' if doc.get('source_url') else ''}
+                    {f'<div class="doc-url"><a href="../viewer.html?file={doc["file_path_in_wiki"]}&name={html.escape(doc["filename"])}&type={doc["file_type"]}" target="_blank" style="background: var(--accent-color); color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; display: inline-block; margin-top: 10px;">📄 View Source File</a></div>' if doc.get('file_path_in_wiki') else ''}
                 </div>
 
                 <div class="chunks-container">
@@ -959,7 +1017,7 @@ class WikiExporter:
         </main>
 
         <footer>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 
@@ -1001,6 +1059,8 @@ class WikiExporter:
         </nav>
 
         <main>
+{self._get_unified_about_box()}
+
             <!-- Filter and Navigation Controls -->
             <div class="entity-controls">
                 <div class="filter-section">
@@ -1041,7 +1101,7 @@ class WikiExporter:
         </div>
 
         <footer>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 
@@ -1427,6 +1487,8 @@ class WikiExporter:
             <h1>🕸️ Knowledge Graph</h1>
             <p class="subtitle">Explore entity relationships and connections</p>
         </header>
+
+{self._get_unified_about_box()}
 
         <div class="graph-stats" id="graph-stats">
             <div class="graph-stat-card">
@@ -2553,17 +2615,7 @@ class WikiExporter:
         </nav>
 
         <main>
-            <div class="explanation-box">
-                <h3>🔍 About Topics & Clusters</h3>
-                <p>
-                    <strong>Topic Models:</strong> Automatically discovered themes in the documents using LDA (Latent Dirichlet Allocation).
-                    Each topic shows the most representative words and related documents.
-                </p>
-                <p>
-                    <strong>Document Clusters:</strong> Groups of similar documents identified using k-means clustering on document embeddings.
-                    Click on any document in a cluster to view its content.
-                </p>
-            </div>
+{self._get_unified_about_box()}
 
             <section>
                 <h2>Topic Models</h2>
@@ -2581,7 +2633,7 @@ class WikiExporter:
         </main>
 
         <footer>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 
@@ -3099,6 +3151,8 @@ class WikiExporter:
             <p class="subtitle">Explore Commodore 64 history chronologically</p>
         </header>
 
+{self._get_unified_about_box()}
+
         <div class="timeline-stats" id="timeline-stats">
             <div class="stat-card">
                 <div class="value" id="total-events">-</div>
@@ -3423,17 +3477,7 @@ class WikiExporter:
         </nav>
 
         <main>
-            <div class="explanation-box">
-                <h3>📚 About Documents</h3>
-                <p>
-                    This page shows all documents in the knowledge base. Each document represents a source of C64 information
-                    that has been processed and indexed for searching.
-                </p>
-                <p>
-                    <strong>Features:</strong> Search by title or tags • Filter by file type (PDF, HTML, Markdown, Text) •
-                    Sort by various criteria • Click any document to view its content and chunks
-                </p>
-            </div>
+{self._get_unified_about_box()}
 
             <div class="browser-controls">
                 <input type="text" id="doc-search" placeholder="🔍 Search documents..." autocomplete="off">
@@ -3466,7 +3510,7 @@ class WikiExporter:
         </main>
 
         <footer>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 
@@ -3509,17 +3553,7 @@ class WikiExporter:
         </nav>
 
         <main>
-            <div class="explanation-box">
-                <h3>🧩 About Chunks</h3>
-                <p>
-                    Documents are automatically split into smaller "chunks" for better search and analysis. Each chunk is typically
-                    1500 words with 200-word overlap to maintain context across boundaries.
-                </p>
-                <p>
-                    <strong>Why chunks?</strong> Breaking documents into smaller pieces improves search precision, enables semantic
-                    analysis, and makes it easier to find specific information within large documents.
-                </p>
-            </div>
+{self._get_unified_about_box()}
 
             <div class="browser-controls">
                 <input type="text" id="chunk-search" placeholder="🔍 Search chunks..." autocomplete="off">
@@ -3541,7 +3575,7 @@ class WikiExporter:
         </main>
 
         <footer>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 
@@ -3555,50 +3589,95 @@ class WikiExporter:
             f.write(html_content)
         print(f"  Generated: chunks.html")
 
-    def _generate_pdf_viewer_html(self):
-        """Generate PDF viewer page."""
+    def _generate_file_viewer_html(self):
+        """Generate universal file viewer page using standard HTML5 components."""
         html_content = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Viewer - TDZ C64 Knowledge Base</title>
+    <title>File Viewer - TDZ C64 Knowledge Base</title>
     <link rel="stylesheet" href="assets/css/style.css">
     <style>
-        #pdf-container {
+        .viewer-container {
             width: 100%;
-            height: calc(100vh - 200px);
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
+            height: calc(100vh - 250px);
+            min-height: 600px;
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            background: white;
             overflow: auto;
+            margin: 20px 0;
         }
-        #pdf-canvas {
-            display: block;
-            margin: 20px auto;
+        .viewer-container iframe,
+        .viewer-container embed,
+        .viewer-container object {
+            width: 100%;
+            height: 100%;
+            border: none;
         }
-        .pdf-controls {
+        .text-viewer {
+            padding: 30px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: #2d3748;
+            background: white;
+        }
+        .markdown-viewer {
+            padding: 30px;
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            color: #2d3748;
+            line-height: 1.6;
+        }
+        .html-viewer {
+            width: 100%;
+            height: 100%;
+        }
+        .viewer-controls {
             display: flex;
-            gap: 10px;
-            justify-content: center;
+            gap: 15px;
             padding: 20px;
-            background: var(--bg-color);
-            border-radius: 10px;
+            background: var(--card-bg);
+            border-radius: 12px;
             margin-bottom: 20px;
+            align-items: center;
+            justify-content: space-between;
         }
-        .pdf-controls button {
+        .viewer-controls .file-info {
+            flex: 1;
+        }
+        .viewer-controls .file-name {
+            font-weight: 600;
+            color: var(--text-color);
+            font-size: 1.1em;
+        }
+        .viewer-controls .file-type {
+            color: var(--text-muted);
+            font-size: 0.9em;
+            margin-top: 4px;
+        }
+        .download-btn {
             padding: 10px 20px;
             background: var(--accent-color);
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 6px;
             cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: background 0.3s;
         }
-        .pdf-controls button:hover {
+        .download-btn:hover {
             background: var(--secondary-color);
         }
-        .pdf-controls button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
+        .error-message {
+            padding: 40px;
+            text-align: center;
+            color: #e53e3e;
+            font-size: 1.1em;
         }
     </style>
 </head>
@@ -3606,7 +3685,7 @@ class WikiExporter:
     <div class="container">
         <header>
             <h1>🎮 TDZ C64 Knowledge Base</h1>
-            <p class="subtitle" id="pdf-title">PDF Viewer</p>
+            <p class="subtitle"><a href="documents.html">← Back to Documents</a></p>
         </header>
 
         <nav class="main-nav">
@@ -3621,35 +3700,90 @@ class WikiExporter:
         </nav>
 
         <main>
-            <div class="pdf-controls">
-                <button id="prev-page">← Previous</button>
-                <span id="page-info">Page 1 of 1</span>
-                <button id="next-page">Next →</button>
-                <button id="zoom-in">Zoom In</button>
-                <button id="zoom-out">Zoom Out</button>
-                <a id="download-link" href="#" download style="padding: 10px 20px; background: var(--primary-color); color: white; border-radius: 5px; text-decoration: none;">Download PDF</a>
+            <div class="viewer-controls">
+                <div class="file-info">
+                    <div class="file-name" id="file-name">Loading...</div>
+                    <div class="file-type" id="file-type"></div>
+                </div>
+                <a id="download-link" href="#" download class="download-btn">Download File</a>
             </div>
 
-            <div id="pdf-container">
-                <canvas id="pdf-canvas"></canvas>
+            <div class="viewer-container" id="viewer-container">
+                <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+                    Loading file...
+                </div>
             </div>
         </main>
 
         <footer>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 
-    <script src="lib/pdf.min.js"></script>
-    <script src="assets/js/pdf-viewer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.0/marked.min.js"></script>
+    <script>
+        // Get file path from URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const filePath = urlParams.get('file');
+        const fileName = urlParams.get('name') || 'Document';
+        const fileType = urlParams.get('type') || 'unknown';
+
+        // Update UI
+        document.getElementById('file-name').textContent = fileName;
+        document.getElementById('file-type').textContent = `Type: ${fileType.toUpperCase()}`;
+
+        if (filePath) {
+            document.getElementById('download-link').href = filePath;
+            document.getElementById('download-link').download = fileName;
+
+            const container = document.getElementById('viewer-container');
+
+            // Display based on file type
+            if (fileType === 'pdf') {
+                // Use browser's native PDF viewer via iframe or embed
+                container.innerHTML = `
+                    <iframe src="${filePath}" type="application/pdf"></iframe>
+                `;
+            } else if (fileType === 'html') {
+                // Display HTML in iframe
+                container.innerHTML = `
+                    <iframe src="${filePath}" class="html-viewer"></iframe>
+                `;
+            } else if (fileType === 'markdown' || fileType === 'md') {
+                // Fetch and render markdown
+                fetch(filePath)
+                    .then(response => response.text())
+                    .then(text => {
+                        container.innerHTML = `<div class="markdown-viewer">${marked.parse(text)}</div>`;
+                    })
+                    .catch(error => {
+                        container.innerHTML = `<div class="error-message">Error loading markdown file: ${error.message}</div>`;
+                    });
+            } else {
+                // Display as text
+                fetch(filePath)
+                    .then(response => response.text())
+                    .then(text => {
+                        const escaped = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        container.innerHTML = `<div class="text-viewer">${escaped}</div>`;
+                    })
+                    .catch(error => {
+                        container.innerHTML = `<div class="error-message">Error loading file: ${error.message}</div>`;
+                    });
+            }
+        } else {
+            document.getElementById('viewer-container').innerHTML =
+                '<div class="error-message">No file specified</div>';
+        }
+    </script>
     <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
 """
-        filepath = self.output_dir / "pdf-viewer.html"
+        filepath = self.output_dir / "viewer.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
-        print(f"  Generated: pdf-viewer.html")
+        print(f"  Generated: viewer.html")
 
     def _copy_pdfs(self, documents: List[Dict]):
         """Copy PDF files to wiki directory."""
@@ -9131,7 +9265,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // NEW FEATURES
     highlightSyntax();  // Syntax highlighting for code blocks
-    generateTableOfContents();  // Auto TOC for articles
+    // generateTableOfContents();  // Auto TOC for articles - DISABLED per user request
     setupSearchAutocomplete();  // Search suggestions
     displayPopularArticles();  // Popular articles on homepage
     bookmarkManager = new BookmarkManager();  // Bookmarks system
@@ -9597,7 +9731,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         </main>
 
         <footer>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 
@@ -9729,7 +9863,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         </main>
 
         <footer>
-            <p>TDZ C64 Knowledge Base v2.23.15</p>
+            <p>TDZ C64 Knowledge Base v2.23.16</p>
         </footer>
     </div>
 

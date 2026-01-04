@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.26"
-__version_info__ = (2, 23, 26)
+__version__ = "2.23.27"
+__version_info__ = (2, 23, 27)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,59 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.27 (2026-01-04)
+  ✨ ENHANCEMENT: 6502 Processor Status Register Diagram
+
+  User Request:
+  - "add diagrams for 6502 and 1541"
+
+  Implementation:
+
+  **6502 Processor Status Register Diagram**
+  - Visual representation of the 8-bit status register
+  - Color-coded flag bits (N, V, -, B, D, I, Z, C)
+  - Bit positions labeled (Bit 7 down to Bit 0)
+  - Flag explanations in legend below diagram
+  - Professional appearance with rounded boxes and clear labeling
+
+  **1541 Disk Drive Track/Sector Layout Diagram**
+  - Code implemented for 4-zone track layout visualization
+  - Shows variable sectors per track (21, 19, 18, 17)
+  - Capacity breakdown and summary statistics
+  - Note: Diagram not yet generated due to article generation issue
+
+  Visual Features:
+  - 8 color-coded boxes for each processor flag
+  - Bit numbers displayed above each flag
+  - Flag names displayed below each box
+  - Detailed explanations: N (Negative), V (Overflow), B (Break), D (Decimal), I (Interrupt), Z (Zero), C (Carry)
+  - Unused bit (bit 5) shown in gray
+
+  Technical Details:
+  - wiki_export.py:10365-10444 - 6502 status register diagram generator
+  - wiki_export.py:10446-10506 - 1541 disk layout diagram generator (ready)
+  - 12×6 figure size for optimal flag display
+  - Explanations arranged in 2-column layout
+
+  Results:
+  - 6502 diagram created: 6502_status_register.png (63K)
+  - Integrated into 6502 article with proper gallery display
+  - Clear visual reference for assembly language programmers
+  - Shows all processor flags at a glance
+
+  Known Issue:
+  - 1541 article generation fails with ParseException during AI description
+  - Diagram code is implemented but not yet executing
+  - Will be addressed in future update
+
+  Impact:
+  - Programmers can quickly reference processor status flags
+  - Visual aid for understanding 6502/6510 CPU state
+  - Complements existing SID, VIC-II, CIA, and Sprite diagrams
+  - Enhances educational value for assembly language learning
+
+  Files modified: wiki_export.py (lines 10365-10506), version.py
+
 v2.23.26 (2026-01-04)
   ✨ NEW FEATURE: Programmatic Memory Map Diagram Generation
 

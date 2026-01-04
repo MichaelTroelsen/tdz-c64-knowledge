@@ -10362,6 +10362,149 @@ Write ONLY the article content, no title or introduction phrase."""
                 'description': 'Register layout for the 6526 Complex Interface Adapter'
             })
 
+        # 6502 Processor Status Register
+        if '6502' in title_upper or '6510' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 8)
+            ax.axis('off')
+
+            ax.text(6, 7.5, '6502/6510 Processor Status Register',
+                   ha='center', fontsize=16, fontweight='bold')
+
+            # Draw the 8-bit register
+            bit_width = 1.2
+            start_x = 1.8
+            y_pos = 5
+
+            flags = [
+                ('7', 'N', 'Negative', '#E63946'),
+                ('6', 'V', 'Overflow', '#F4A261'),
+                ('5', '-', 'Unused', '#CCCCCC'),
+                ('4', 'B', 'Break', '#4A90E2'),
+                ('3', 'D', 'Decimal', '#50C878'),
+                ('2', 'I', 'Interrupt', '#9D4EDD'),
+                ('1', 'Z', 'Zero', '#2A9D8F'),
+                ('0', 'C', 'Carry', '#E76F51'),
+            ]
+
+            for i, (bit, flag, name, color) in enumerate(flags):
+                x = start_x + i * bit_width
+
+                # Draw bit box
+                rect = FancyBboxPatch((x, y_pos), bit_width-0.1, 0.8,
+                                     boxstyle="round,pad=0.02",
+                                     facecolor=color, edgecolor='black', linewidth=2)
+                ax.add_patch(rect)
+
+                # Bit number at top
+                ax.text(x + bit_width/2 - 0.05, y_pos + 1.1, f'Bit {bit}',
+                       ha='center', fontsize=8, fontweight='bold')
+
+                # Flag letter
+                ax.text(x + bit_width/2 - 0.05, y_pos + 0.4, flag,
+                       ha='center', va='center', fontsize=20, fontweight='bold', color='white')
+
+                # Flag name below
+                ax.text(x + bit_width/2 - 0.05, y_pos - 0.5, name,
+                       ha='center', fontsize=9)
+
+            # Add legend
+            legend_y = 2.5
+            ax.text(6, legend_y + 0.5, 'Status Flags Explained:', ha='center', fontsize=11, fontweight='bold')
+
+            explanations = [
+                'N: Set if result is negative (bit 7 = 1)',
+                'V: Set on signed overflow',
+                'B: Set when BRK instruction executed',
+                'D: Decimal mode flag (BCD arithmetic)',
+                'I: Interrupt disable flag',
+                'Z: Set if result is zero',
+                'C: Carry/borrow flag',
+            ]
+
+            for i, exp in enumerate(explanations):
+                row = i // 2
+                col = i % 2
+                x = 2 if col == 0 else 7
+                y = legend_y - 0.3 - (row * 0.35)
+                ax.text(x, y, f'• {exp}', fontsize=8.5, ha='left')
+
+            filename = '6502_status_register.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': '6502 Processor Status Register',
+                'description': 'The 8-bit status register showing all processor flags'
+            })
+
+        # 1541 Disk Drive Track/Sector Layout
+        if '1541' in title_upper:
+            fig, ax = plt.subplots(figsize=(11, 8))
+            ax.set_xlim(0, 11)
+            ax.set_ylim(0, 10)
+            ax.axis('off')
+
+            ax.text(5.5, 9.5, '1541 Disk Drive Track/Sector Layout',
+                   ha='center', fontsize=16, fontweight='bold')
+
+            # Track zones with different sector counts
+            zones = [
+                (1, 17, 21, '#4A90E2', 'Tracks 1-17: 21 sectors/track'),
+                (18, 24, 19, '#50C878', 'Tracks 18-24: 19 sectors/track'),
+                (25, 30, 18, '#F4A261', 'Tracks 25-30: 18 sectors/track'),
+                (31, 35, 17, '#E76F51', 'Tracks 31-35: 17 sectors/track'),
+            ]
+
+            y_start = 7.5
+            for zone_idx, (start_track, end_track, sectors, color, label) in enumerate(zones):
+                y = y_start - (zone_idx * 1.5)
+
+                # Zone header
+                rect = FancyBboxPatch((1, y), 9, 0.8,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=2)
+                ax.add_patch(rect)
+                ax.text(5.5, y + 0.4, label, ha='center', va='center',
+                       fontsize=11, fontweight='bold', color='white')
+
+                # Show track range
+                ax.text(1.5, y - 0.35, f'{end_track - start_track + 1} tracks × {sectors} sectors = {(end_track - start_track + 1) * sectors} sectors',
+                       fontsize=9, style='italic')
+
+            # Summary box
+            summary_y = 1.5
+            total_sectors = (17*21) + (7*19) + (6*18) + (5*17)
+
+            summary_rect = FancyBboxPatch((1.5, summary_y - 1), 8, 1.2,
+                                         boxstyle="round,pad=0.1",
+                                         facecolor='#E8E8E8', edgecolor='black', linewidth=2)
+            ax.add_patch(summary_rect)
+
+            ax.text(5.5, summary_y - 0.2, 'Disk Capacity Summary', ha='center', fontsize=12, fontweight='bold')
+            ax.text(3, summary_y - 0.6, f'• Total Tracks: 35', fontsize=10, ha='left')
+            ax.text(3, summary_y - 0.9, f'• Total Sectors: {total_sectors}', fontsize=10, ha='left')
+            ax.text(6.5, summary_y - 0.6, f'• Bytes/Sector: 256', fontsize=10, ha='left')
+            ax.text(6.5, summary_y - 0.9, f'• Total Capacity: ~170 KB', fontsize=10, ha='left')
+
+            filename = '1541_disk_layout.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': '1541 Disk Track/Sector Layout',
+                'description': 'Zone-based track organization and disk capacity breakdown'
+            })
+
         return diagrams
 
     def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:

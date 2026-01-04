@@ -878,7 +878,7 @@ class WikiExporter:
             <p class="subtitle">Comprehensive Commodore 64 Documentation</p>
         </header>
 
-{self._get_main_nav('home')}
+{self._get_main_nav()}
 
         <div class="search-section">
             <input type="text" id="search-input" placeholder="Search the knowledge base..." autocomplete="off">
@@ -1054,7 +1054,7 @@ class WikiExporter:
 
     def _generate_entities_html(self):
         """Generate entities browser page."""
-        html_content = f"""<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1069,10 +1069,10 @@ class WikiExporter:
             <p class="subtitle">Entity Browser - Click any entity to see related documents</p>
         </header>
 
-{self._get_main_nav('entities')}
+{NAV}
 
         <main>
-{self._get_unified_about_box()}
+{ABOUT}
 
             <!-- Filter and Navigation Controls -->
             <div class="entity-controls">
@@ -1123,6 +1123,10 @@ class WikiExporter:
 </body>
 </html>
 """
+        # Replace template placeholders with actual content
+        html_content = html_template.replace('{NAV}', self._get_main_nav('entities'))
+        html_content = html_content.replace('{ABOUT}', self._get_unified_about_box())
+
         filepath = self.output_dir / "entities.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -1130,7 +1134,7 @@ class WikiExporter:
 
     def _generate_knowledge_graph_html(self):
         """Generate knowledge graph visualization page."""
-        html_content = """<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1485,9 +1489,9 @@ class WikiExporter:
             <p class="subtitle">Explore entity relationships and connections</p>
         </header>
 
-{self._get_main_nav('knowledge-graph')}
+{NAV}
 
-{self._get_unified_about_box()}
+{ABOUT}
 
         <div class="graph-stats" id="graph-stats">
             <div class="graph-stat-card">
@@ -1919,6 +1923,10 @@ class WikiExporter:
 </body>
 </html>
 """
+        # Replace template placeholders with actual content
+        html_content = html_template.replace('{NAV}', self._get_main_nav('knowledge-graph'))
+        html_content = html_content.replace('{ABOUT}', self._get_unified_about_box())
+
         filepath = self.output_dir / "knowledge-graph.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -1926,7 +1934,7 @@ class WikiExporter:
 
     def _generate_similarity_map_html(self):
         """Generate document similarity map visualization page."""
-        html_content = """<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -2198,7 +2206,9 @@ class WikiExporter:
             <p class="subtitle">Explore documents in 2D semantic space</p>
         </header>
 
-{self._get_main_nav('similarity-map')}
+{NAV}
+
+{ABOUT}
 
         <div class="map-stats">
             <div class="stat-card">
@@ -2566,6 +2576,10 @@ class WikiExporter:
 </body>
 </html>
 """
+        # Replace template placeholders with actual content
+        html_content = html_template.replace("{NAV}", self._get_main_nav("similarity-map"))
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+
         filepath = self.output_dir / "similarity-map.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -2573,7 +2587,7 @@ class WikiExporter:
 
     def _generate_topics_html(self):
         """Generate topics browser page."""
-        html_content = f"""<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -2588,10 +2602,10 @@ class WikiExporter:
             <p class="subtitle">Topics & Clusters</p>
         </header>
 
-{self._get_main_nav('topics')}
+{NAV}
 
         <main>
-{self._get_unified_about_box()}
+{ABOUT}
 
             <section>
                 <h2>Topic Models</h2>
@@ -2618,6 +2632,10 @@ class WikiExporter:
 </body>
 </html>
 """
+        # Replace template placeholders with actual content
+        html_content = html_template.replace("{NAV}", self._get_main_nav("topics"))
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+
         filepath = self.output_dir / "topics.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -2625,7 +2643,7 @@ class WikiExporter:
 
     def _generate_timeline_html(self):
         """Generate interactive timeline page."""
-        html_content = """<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -3111,9 +3129,9 @@ class WikiExporter:
             <p class="subtitle">Explore Commodore 64 history chronologically</p>
         </header>
 
-{self._get_main_nav('timeline')}
+{NAV}
 
-{self._get_unified_about_box()}
+{ABOUT}
 
         <div class="timeline-stats" id="timeline-stats">
             <div class="stat-card">
@@ -3406,6 +3424,10 @@ class WikiExporter:
 </body>
 </html>
 """
+        # Replace template placeholders with actual content
+        html_content = html_template.replace("{NAV}", self._get_main_nav("timeline"))
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+
         filepath = self.output_dir / "timeline.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -3413,7 +3435,7 @@ class WikiExporter:
 
     def _generate_documents_browser_html(self):
         """Generate documents browser page."""
-        html_content = """<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -3428,10 +3450,10 @@ class WikiExporter:
             <p class="subtitle">Browse All Documents</p>
         </header>
 
-{self._get_main_nav('documents')}
+{NAV}
 
         <main>
-{self._get_unified_about_box()}
+{ABOUT}
 
             <div class="browser-controls">
                 <input type="text" id="doc-search" placeholder="🔍 Search documents..." autocomplete="off">
@@ -3473,6 +3495,10 @@ class WikiExporter:
 </body>
 </html>
 """
+        # Replace template placeholders with actual content
+        html_content = html_template.replace("{NAV}", self._get_main_nav("documents"))
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+
         filepath = self.output_dir / "documents.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -3480,7 +3506,7 @@ class WikiExporter:
 
     def _generate_chunks_browser_html(self):
         """Generate chunks browser page."""
-        html_content = """<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -3495,10 +3521,10 @@ class WikiExporter:
             <p class="subtitle">Browse Text Chunks</p>
         </header>
 
-{self._get_main_nav('chunks')}
+{NAV}
 
         <main>
-{self._get_unified_about_box()}
+{ABOUT}
 
             <div class="browser-controls">
                 <input type="text" id="chunk-search" placeholder="🔍 Search chunks..." autocomplete="off">
@@ -3529,6 +3555,10 @@ class WikiExporter:
 </body>
 </html>
 """
+        # Replace template placeholders with actual content
+        html_content = html_template.replace("{NAV}", self._get_main_nav("chunks"))
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+
         filepath = self.output_dir / "chunks.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -3536,7 +3566,7 @@ class WikiExporter:
 
     def _generate_file_viewer_html(self):
         """Generate universal file viewer page using standard HTML5 components."""
-        html_content = """<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -3633,7 +3663,9 @@ class WikiExporter:
             <p class="subtitle"><a href="documents.html">← Back to Documents</a></p>
         </header>
 
-{self._get_main_nav()}
+{NAV}
+
+{ABOUT}
 
         <main>
             <div class="viewer-controls">
@@ -3716,6 +3748,10 @@ class WikiExporter:
 </body>
 </html>
 """
+        # Replace template placeholders with actual content
+        html_content = html_template.replace("{NAV}", self._get_main_nav())
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box())
+
         filepath = self.output_dir / "viewer.html"
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -9556,7 +9592,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             docs_html += f'<li><em>...and {len(main_entity["documents"]) - 20} more documents</em></li>'
         docs_html += '</ul></div>'
 
-        html_content = f"""<!DOCTYPE html>
+        html_template = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -9776,6 +9812,8 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         </header>
 
 {self._get_main_nav('articles')}
+
+{self._get_unified_about_box()}
 
         <main>
             <section class="intro">

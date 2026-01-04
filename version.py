@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.16"
-__version_info__ = (2, 23, 16)
+__version__ = "2.23.17"
+__version_info__ = (2, 23, 17)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,37 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.17 (2026-01-04)
+  🐛 BUG FIX: Wiki Export Template String Interpolation
+
+  Fixed Issue:
+  - Navigation and about boxes showing as literal Python code in HTML output
+  - Template strings like {self._get_main_nav('documents')} appearing as text instead of rendered HTML
+  - Caused by f-string vs template string mismatch after v2.23.16 refactoring
+
+  Changes:
+  - Converted browser page templates to use placeholders and string replacement
+  - Functions now use html_template with {NAV} and {ABOUT} placeholders
+  - Replacement logic added before file write: .replace('{NAV}', self._get_main_nav(...))
+  - Functions with variable interpolation keep f-strings and call methods directly
+  - Fixed 10 HTML generation functions:
+    - _generate_index_html, _generate_entities_html, _generate_knowledge_graph_html
+    - _generate_similarity_map_html, _generate_topics_html, _generate_timeline_html
+    - _generate_documents_browser_html, _generate_chunks_browser_html
+    - _generate_file_viewer_html, _generate_articles_browser_html
+
+  Testing:
+  - Wiki export completed successfully (215 docs, 6107 chunks, 1181 entities)
+  - Verified navigation (nav-center class) and about box (explanation-box) render correctly
+  - No broken placeholders remaining in output HTML
+  - Tested on documents.html, entities.html, knowledge-graph.html, timeline.html
+
+  Impact:
+  - Wiki pages now display proper navigation and about boxes
+  - Consistent three-section navigation across all pages
+  - Unified about box appears correctly on all pages
+  - User-reported template rendering bug fully resolved
+
 v2.23.16 (2026-01-04)
   📚 RELEASE: Wiki Export Enhancements - Unified About Box & Standard File Viewer
 

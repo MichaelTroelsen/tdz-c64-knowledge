@@ -1,0 +1,1159 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+  <key id="d5" for="edge" attr.name="co_occurrences" attr.type="long" />
+  <key id="d4" for="edge" attr.name="weight" attr.type="double" />
+  <key id="d3" for="node" attr.name="pagerank" attr.type="double" />
+  <key id="d2" for="node" attr.name="weight" attr.type="long" />
+  <key id="d1" for="node" attr.name="occurrences" attr.type="long" />
+  <key id="d0" for="node" attr.name="type" attr.type="string" />
+  <graph edgedefault="undirected">
+    <node id="Commodore">
+      <data key="d0">company</data>
+      <data key="d1">113</data>
+      <data key="d2">113</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="sprite">
+      <data key="d0">concept</data>
+      <data key="d1">101</data>
+      <data key="d2">101</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="DMA">
+      <data key="d0">concept</data>
+      <data key="d1">99</data>
+      <data key="d2">99</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="raster interrupt">
+      <data key="d0">concept</data>
+      <data key="d1">99</data>
+      <data key="d2">99</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="IRQ">
+      <data key="d0">concept</data>
+      <data key="d1">98</data>
+      <data key="d2">98</data>
+      <data key="d3">0.009284043910248058</data>
+    </node>
+    <node id="LDA">
+      <data key="d0">instruction</data>
+      <data key="d1">95</data>
+      <data key="d2">95</data>
+      <data key="d3">0.027866909394724842</data>
+    </node>
+    <node id="STA">
+      <data key="d0">instruction</data>
+      <data key="d1">92</data>
+      <data key="d2">92</data>
+      <data key="d3">0.08651099321075703</data>
+    </node>
+    <node id="SID">
+      <data key="d0">hardware</data>
+      <data key="d1">91</data>
+      <data key="d2">91</data>
+      <data key="d3">0.026344178347244118</data>
+    </node>
+    <node id="VIC-20">
+      <data key="d0">hardware</data>
+      <data key="d1">7</data>
+      <data key="d2">7</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="JMP">
+      <data key="d0">instruction</data>
+      <data key="d1">86</data>
+      <data key="d2">86</data>
+      <data key="d3">0.02162825798985784</data>
+    </node>
+    <node id="1541">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="MOS Technology">
+      <data key="d0">company</data>
+      <data key="d1">83</data>
+      <data key="d2">83</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="6502">
+      <data key="d0">hardware</data>
+      <data key="d1">79</data>
+      <data key="d2">79</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Commodore 64">
+      <data key="d0">product</data>
+      <data key="d1">77</data>
+      <data key="d2">77</data>
+      <data key="d3">0.052017756467805085</data>
+    </node>
+    <node id="6581">
+      <data key="d0">hardware</data>
+      <data key="d1">74</data>
+      <data key="d2">74</data>
+      <data key="d3">0.010223566878239</data>
+    </node>
+    <node id="C128">
+      <data key="d0">hardware</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="6526">
+      <data key="d0">hardware</data>
+      <data key="d1">72</data>
+      <data key="d2">72</data>
+      <data key="d3">0.014990792185359581</data>
+    </node>
+    <node id="JSR">
+      <data key="d0">instruction</data>
+      <data key="d1">72</data>
+      <data key="d2">72</data>
+      <data key="d3">0.02743839211182131</data>
+    </node>
+    <node id="RTS">
+      <data key="d0">instruction</data>
+      <data key="d1">70</data>
+      <data key="d2">70</data>
+      <data key="d3">0.011181193509390237</data>
+    </node>
+    <node id="BRK">
+      <data key="d0">instruction</data>
+      <data key="d1">68</data>
+      <data key="d2">68</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="VIC-II">
+      <data key="d0">hardware</data>
+      <data key="d1">58</data>
+      <data key="d2">58</data>
+      <data key="d3">0.014823215101872698</data>
+    </node>
+    <node id="$D000">
+      <data key="d0">memory_address</data>
+      <data key="d1">56</data>
+      <data key="d2">56</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$D020">
+      <data key="d0">memory_address</data>
+      <data key="d1">50</data>
+      <data key="d2">50</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="CIA">
+      <data key="d0">hardware</data>
+      <data key="d1">45</data>
+      <data key="d2">45</data>
+      <data key="d3">0.022588203799907565</data>
+    </node>
+    <node id="Jack Tramiel">
+      <data key="d0">person</data>
+      <data key="d1">43</data>
+      <data key="d2">43</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Bob Yannes">
+      <data key="d0">person</data>
+      <data key="d1">41</data>
+      <data key="d2">41</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Commodore 128">
+      <data key="d0">product</data>
+      <data key="d1">27</data>
+      <data key="d2">27</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="AND">
+      <data key="d0">instruction</data>
+      <data key="d1">24</data>
+      <data key="d2">24</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="C64">
+      <data key="d0">product</data>
+      <data key="d1">16</data>
+      <data key="d2">16</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="6510">
+      <data key="d0">hardware</data>
+      <data key="d1">16</data>
+      <data key="d2">16</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="INC">
+      <data key="d0">instruction</data>
+      <data key="d1">15</data>
+      <data key="d2">15</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Commodore Electronics Limited">
+      <data key="d0">company</data>
+      <data key="d1">13</data>
+      <data key="d2">13</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Sheldon Leemon">
+      <data key="d0">person</data>
+      <data key="d1">10</data>
+      <data key="d2">10</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Craig Taylor">
+      <data key="d0">person</data>
+      <data key="d1">9</data>
+      <data key="d2">9</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="COMPUTE! Publications, Inc.">
+      <data key="d0">company</data>
+      <data key="d1">8</data>
+      <data key="d2">8</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Stefano Tognon">
+      <data key="d0">person</data>
+      <data key="d1">8</data>
+      <data key="d2">8</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$D021">
+      <data key="d0">memory_address</data>
+      <data key="d1">7</data>
+      <data key="d2">7</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="53280">
+      <data key="d0">memory_address</data>
+      <data key="d1">7</data>
+      <data key="d2">7</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="ABC Consumer Magazines, Inc.">
+      <data key="d0">company</data>
+      <data key="d1">6</data>
+      <data key="d2">6</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Atari">
+      <data key="d0">product</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="SID Factory II">
+      <data key="d0">product</data>
+      <data key="d1">6</data>
+      <data key="d2">6</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="8502">
+      <data key="d0">hardware</data>
+      <data key="d1">5</data>
+      <data key="d2">5</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="C-64">
+      <data key="d0">product</data>
+      <data key="d1">5</data>
+      <data key="d2">5</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="COMPUTE!">
+      <data key="d0">company</data>
+      <data key="d1">5</data>
+      <data key="d2">5</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Jim Butterfield">
+      <data key="d0">person</data>
+      <data key="d1">5</data>
+      <data key="d2">5</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="1571">
+      <data key="d0">product</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="7501">
+      <data key="d0">hardware</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="ABC Publishing Companies">
+      <data key="d0">company</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="ADSR">
+      <data key="d0">concept</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="BASIC">
+      <data key="d0">concept</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="CN2">
+      <data key="d0">hardware</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Charles Brannon">
+      <data key="d0">person</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Commodore Business Machines">
+      <data key="d0">company</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Commodore Business Machines, Inc.">
+      <data key="d0">company</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Craig Bruce">
+      <data key="d0">person</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Dan Heeb">
+      <data key="d0">person</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Howard W. Sams &amp; Co.">
+      <data key="d0">company</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Jim Brain">
+      <data key="d0">person</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="LOAD">
+      <data key="d0">instruction</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Ottis R. Cowper">
+      <data key="d0">person</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="SW1">
+      <data key="d0">hardware</data>
+      <data key="d1">4</data>
+      <data key="d2">4</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="0xD020">
+      <data key="d0">memory_address</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="1581">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="6509">
+      <data key="d0">hardware</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="8500">
+      <data key="d0">hardware</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="8563">
+      <data key="d0">hardware</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Abacus Software">
+      <data key="d0">company</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Amiga">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="BIT">
+      <data key="d0">instruction</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Brain Innovations Inc.">
+      <data key="d0">company</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="COMPUTE! Publications">
+      <data key="d0">company</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="CP/M">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Chris Metcalf">
+      <data key="d0">person</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Commodore Hacking">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Commodore64">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Craig Chamberlain">
+      <data key="d0">person</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Gideon Zweijtzer">
+      <data key="d0">person</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Gregg Peele">
+      <data key="d0">person</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="IBM">
+      <data key="d0">company</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="IBM PC">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="IBM PCjr">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="PEEK">
+      <data key="d0">instruction</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="PIA">
+      <data key="d0">hardware</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="POKE">
+      <data key="d0">instruction</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="SAVE">
+      <data key="d0">instruction</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Sidplayer">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="TI-99/4A">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="U4">
+      <data key="d0">hardware</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="VIA">
+      <data key="d0">hardware</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="VIC-1541">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="WordPro">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="WordPro Plus">
+      <data key="d0">product</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Z80">
+      <data key="d0">hardware</data>
+      <data key="d1">3</data>
+      <data key="d2">3</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$00">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$01">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$0381">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$8000">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$9FFF">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$BFFF">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$DE00">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$DF00">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="$FFFC">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="1541 Ultimate-II">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="6567">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="6581 SID">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="65816">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Albert">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Apple">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Apple II">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Art Margolis">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Banana">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="C=128">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="C=64">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="C=Hacking">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="CCS64">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="CN1">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="CN3">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="CN7">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Chris Abbott">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Commodore Electronics Ltd.">
+      <data key="d0">company</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Data Becker">
+      <data key="d0">company</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="EOR">
+      <data key="d0">instruction</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="ESCOM GmbH">
+      <data key="d0">company</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="F5">
+      <data key="d0">instruction</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="FPGASID">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Franklin">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="GETIN">
+      <data key="d0">instruction</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="GIMP">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="GW Basic">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="HTML">
+      <data key="d0">concept</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="HVSC">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="High-Resolution Sketchpad">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Intel">
+      <data key="d0">company</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Jim Lawless">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="John Heilborn">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Kaypro">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Kevin Martin">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Leading Edge Word Processing">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="MS-DOS">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Mark Lawrence">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Martin Galway">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Matt Gray">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Mini-Filer">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="NMI">
+      <data key="d0">concept</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="NMOS 6510">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Ninjatracker">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="OPEN 15,8,15,&quot;I&quot;:CLOSE 15">
+      <data key="d0">instruction</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="PHP">
+      <data key="d0">instruction</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="PRINT">
+      <data key="d0">instruction</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Pasi 'Albert' Ojala">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Pasi Ojala">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Paul F. Schatz">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Plus/Term">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Professional Software">
+      <data key="d0">company</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Professional Software Inc.">
+      <data key="d0">company</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="REU">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="RUN">
+      <data key="d0">instruction</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Raeto Collin West">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Rana 1000">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Richard Cini">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Richard T. Cunningham">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Robin Harbron">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="S. Judd">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="STX">
+      <data key="d0">instruction</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="SpeedCalc">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="SpeedScript">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Stephen Judd">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="TRS-80">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Tiny Sid 2">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="U1">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="U2">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="U7">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="VDC">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="VIC">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="VIC20">
+      <data key="d0">product</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="VR1">
+      <data key="d0">hardware</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="Ward Shrake">
+      <data key="d0">person</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <node id="a000">
+      <data key="d0">memory_address</data>
+      <data key="d1">2</data>
+      <data key="d2">2</data>
+      <data key="d3">0.004066882512607057</data>
+    </node>
+    <edge source="IRQ" target="STA">
+      <data key="d4">0.3055555555555556</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="LDA" target="STA">
+      <data key="d4">0.3888888888888889</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="LDA" target="Commodore 64">
+      <data key="d4">0.3611111111111111</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="LDA" target="JSR">
+      <data key="d4">0.3333333333333333</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="LDA" target="JMP">
+      <data key="d4">0.3055555555555556</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="STA" target="Commodore 64">
+      <data key="d4">1.0</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="STA" target="SID">
+      <data key="d4">0.4722222222222222</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="STA" target="RTS">
+      <data key="d4">0.4166666666666667</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="STA" target="JSR">
+      <data key="d4">0.3611111111111111</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="STA" target="JMP">
+      <data key="d4">0.3611111111111111</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="STA" target="CIA">
+      <data key="d4">0.3611111111111111</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="STA" target="VIC-II">
+      <data key="d4">0.3333333333333333</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="STA" target="6526">
+      <data key="d4">0.3055555555555556</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="SID" target="Commodore 64">
+      <data key="d4">0.3333333333333333</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="SID" target="6581">
+      <data key="d4">0.3055555555555556</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="JMP" target="JSR">
+      <data key="d4">0.3611111111111111</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="Commodore 64" target="CIA">
+      <data key="d4">0.3611111111111111</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="Commodore 64" target="JSR">
+      <data key="d4">0.3055555555555556</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="Commodore 64" target="VIC-II">
+      <data key="d4">0.3055555555555556</data>
+      <data key="d5">1</data>
+    </edge>
+    <edge source="6526" target="CIA">
+      <data key="d4">0.3055555555555556</data>
+      <data key="d5">1</data>
+    </edge>
+  </graph>
+</graphml>

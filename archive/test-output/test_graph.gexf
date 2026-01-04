@@ -1,0 +1,1545 @@
+<?xml version='1.0' encoding='utf-8'?>
+<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd" version="1.2">
+  <meta lastmodifieddate="2026-01-03">
+    <creator>NetworkX 3.6.1</creator>
+  </meta>
+  <graph defaultedgetype="undirected" mode="static" name="">
+    <attributes mode="static" class="edge">
+      <attribute id="4" title="co_occurrences" type="long" />
+    </attributes>
+    <attributes mode="static" class="node">
+      <attribute id="0" title="type" type="string" />
+      <attribute id="1" title="occurrences" type="long" />
+      <attribute id="2" title="weight" type="long" />
+      <attribute id="3" title="pagerank" type="double" />
+    </attributes>
+    <nodes>
+      <node id="Commodore" label="Commodore">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="113" />
+          <attvalue for="2" value="113" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="sprite" label="sprite">
+        <attvalues>
+          <attvalue for="0" value="concept" />
+          <attvalue for="1" value="101" />
+          <attvalue for="2" value="101" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="DMA" label="DMA">
+        <attvalues>
+          <attvalue for="0" value="concept" />
+          <attvalue for="1" value="99" />
+          <attvalue for="2" value="99" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="raster interrupt" label="raster interrupt">
+        <attvalues>
+          <attvalue for="0" value="concept" />
+          <attvalue for="1" value="99" />
+          <attvalue for="2" value="99" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="IRQ" label="IRQ">
+        <attvalues>
+          <attvalue for="0" value="concept" />
+          <attvalue for="1" value="98" />
+          <attvalue for="2" value="98" />
+          <attvalue for="3" value="0.009284043910248058" />
+        </attvalues>
+      </node>
+      <node id="LDA" label="LDA">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="95" />
+          <attvalue for="2" value="95" />
+          <attvalue for="3" value="0.027866909394724842" />
+        </attvalues>
+      </node>
+      <node id="STA" label="STA">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="92" />
+          <attvalue for="2" value="92" />
+          <attvalue for="3" value="0.08651099321075703" />
+        </attvalues>
+      </node>
+      <node id="SID" label="SID">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="91" />
+          <attvalue for="2" value="91" />
+          <attvalue for="3" value="0.026344178347244118" />
+        </attvalues>
+      </node>
+      <node id="VIC-20" label="VIC-20">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="7" />
+          <attvalue for="2" value="7" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="JMP" label="JMP">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="86" />
+          <attvalue for="2" value="86" />
+          <attvalue for="3" value="0.02162825798985784" />
+        </attvalues>
+      </node>
+      <node id="1541" label="1541">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="MOS Technology" label="MOS Technology">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="83" />
+          <attvalue for="2" value="83" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="6502" label="6502">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="79" />
+          <attvalue for="2" value="79" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Commodore 64" label="Commodore 64">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="77" />
+          <attvalue for="2" value="77" />
+          <attvalue for="3" value="0.052017756467805085" />
+        </attvalues>
+      </node>
+      <node id="6581" label="6581">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="74" />
+          <attvalue for="2" value="74" />
+          <attvalue for="3" value="0.010223566878239" />
+        </attvalues>
+      </node>
+      <node id="C128" label="C128">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="6526" label="6526">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="72" />
+          <attvalue for="2" value="72" />
+          <attvalue for="3" value="0.014990792185359581" />
+        </attvalues>
+      </node>
+      <node id="JSR" label="JSR">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="72" />
+          <attvalue for="2" value="72" />
+          <attvalue for="3" value="0.02743839211182131" />
+        </attvalues>
+      </node>
+      <node id="RTS" label="RTS">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="70" />
+          <attvalue for="2" value="70" />
+          <attvalue for="3" value="0.011181193509390237" />
+        </attvalues>
+      </node>
+      <node id="BRK" label="BRK">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="68" />
+          <attvalue for="2" value="68" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="VIC-II" label="VIC-II">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="58" />
+          <attvalue for="2" value="58" />
+          <attvalue for="3" value="0.014823215101872698" />
+        </attvalues>
+      </node>
+      <node id="$D000" label="$D000">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="56" />
+          <attvalue for="2" value="56" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$D020" label="$D020">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="50" />
+          <attvalue for="2" value="50" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="CIA" label="CIA">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="45" />
+          <attvalue for="2" value="45" />
+          <attvalue for="3" value="0.022588203799907565" />
+        </attvalues>
+      </node>
+      <node id="Jack Tramiel" label="Jack Tramiel">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="43" />
+          <attvalue for="2" value="43" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Bob Yannes" label="Bob Yannes">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="41" />
+          <attvalue for="2" value="41" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Commodore 128" label="Commodore 128">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="27" />
+          <attvalue for="2" value="27" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="AND" label="AND">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="24" />
+          <attvalue for="2" value="24" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="C64" label="C64">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="16" />
+          <attvalue for="2" value="16" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="6510" label="6510">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="16" />
+          <attvalue for="2" value="16" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="INC" label="INC">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="15" />
+          <attvalue for="2" value="15" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Commodore Electronics Limited" label="Commodore Electronics Limited">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="13" />
+          <attvalue for="2" value="13" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Sheldon Leemon" label="Sheldon Leemon">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="10" />
+          <attvalue for="2" value="10" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Craig Taylor" label="Craig Taylor">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="9" />
+          <attvalue for="2" value="9" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="COMPUTE! Publications, Inc." label="COMPUTE! Publications, Inc.">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="8" />
+          <attvalue for="2" value="8" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Stefano Tognon" label="Stefano Tognon">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="8" />
+          <attvalue for="2" value="8" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$D021" label="$D021">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="7" />
+          <attvalue for="2" value="7" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="53280" label="53280">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="7" />
+          <attvalue for="2" value="7" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="ABC Consumer Magazines, Inc." label="ABC Consumer Magazines, Inc.">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="6" />
+          <attvalue for="2" value="6" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Atari" label="Atari">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="SID Factory II" label="SID Factory II">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="6" />
+          <attvalue for="2" value="6" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="8502" label="8502">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="5" />
+          <attvalue for="2" value="5" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="C-64" label="C-64">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="5" />
+          <attvalue for="2" value="5" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="COMPUTE!" label="COMPUTE!">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="5" />
+          <attvalue for="2" value="5" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Jim Butterfield" label="Jim Butterfield">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="5" />
+          <attvalue for="2" value="5" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="1571" label="1571">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="7501" label="7501">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="ABC Publishing Companies" label="ABC Publishing Companies">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="ADSR" label="ADSR">
+        <attvalues>
+          <attvalue for="0" value="concept" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="BASIC" label="BASIC">
+        <attvalues>
+          <attvalue for="0" value="concept" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="CN2" label="CN2">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Charles Brannon" label="Charles Brannon">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Commodore Business Machines" label="Commodore Business Machines">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Commodore Business Machines, Inc." label="Commodore Business Machines, Inc.">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Craig Bruce" label="Craig Bruce">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Dan Heeb" label="Dan Heeb">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Howard W. Sams &amp; Co." label="Howard W. Sams &amp; Co.">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Jim Brain" label="Jim Brain">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="LOAD" label="LOAD">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Ottis R. Cowper" label="Ottis R. Cowper">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="SW1" label="SW1">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="4" />
+          <attvalue for="2" value="4" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="0xD020" label="0xD020">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="1581" label="1581">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="6509" label="6509">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="8500" label="8500">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="8563" label="8563">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Abacus Software" label="Abacus Software">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Amiga" label="Amiga">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="BIT" label="BIT">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Brain Innovations Inc." label="Brain Innovations Inc.">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="COMPUTE! Publications" label="COMPUTE! Publications">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="CP/M" label="CP/M">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Chris Metcalf" label="Chris Metcalf">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Commodore Hacking" label="Commodore Hacking">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Commodore64" label="Commodore64">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Craig Chamberlain" label="Craig Chamberlain">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Gideon Zweijtzer" label="Gideon Zweijtzer">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Gregg Peele" label="Gregg Peele">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="IBM" label="IBM">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="IBM PC" label="IBM PC">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="IBM PCjr" label="IBM PCjr">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="PEEK" label="PEEK">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="PIA" label="PIA">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="POKE" label="POKE">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="SAVE" label="SAVE">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Sidplayer" label="Sidplayer">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="TI-99/4A" label="TI-99/4A">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="U4" label="U4">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="VIA" label="VIA">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="VIC-1541" label="VIC-1541">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="WordPro" label="WordPro">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="WordPro Plus" label="WordPro Plus">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Z80" label="Z80">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="3" />
+          <attvalue for="2" value="3" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$00" label="$00">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$01" label="$01">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$0381" label="$0381">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$8000" label="$8000">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$9FFF" label="$9FFF">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$BFFF" label="$BFFF">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$DE00" label="$DE00">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$DF00" label="$DF00">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="$FFFC" label="$FFFC">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="1541 Ultimate-II" label="1541 Ultimate-II">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="6567" label="6567">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="6581 SID" label="6581 SID">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="65816" label="65816">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Albert" label="Albert">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Apple" label="Apple">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Apple II" label="Apple II">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Art Margolis" label="Art Margolis">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Banana" label="Banana">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="C=128" label="C=128">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="C=64" label="C=64">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="C=Hacking" label="C=Hacking">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="CCS64" label="CCS64">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="CN1" label="CN1">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="CN3" label="CN3">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="CN7" label="CN7">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Chris Abbott" label="Chris Abbott">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Commodore Electronics Ltd." label="Commodore Electronics Ltd.">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Data Becker" label="Data Becker">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="EOR" label="EOR">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="ESCOM GmbH" label="ESCOM GmbH">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="F5" label="F5">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="FPGASID" label="FPGASID">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Franklin" label="Franklin">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="GETIN" label="GETIN">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="GIMP" label="GIMP">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="GW Basic" label="GW Basic">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="HTML" label="HTML">
+        <attvalues>
+          <attvalue for="0" value="concept" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="HVSC" label="HVSC">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="High-Resolution Sketchpad" label="High-Resolution Sketchpad">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Intel" label="Intel">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Jim Lawless" label="Jim Lawless">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="John Heilborn" label="John Heilborn">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Kaypro" label="Kaypro">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Kevin Martin" label="Kevin Martin">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Leading Edge Word Processing" label="Leading Edge Word Processing">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="MS-DOS" label="MS-DOS">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Mark Lawrence" label="Mark Lawrence">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Martin Galway" label="Martin Galway">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Matt Gray" label="Matt Gray">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Mini-Filer" label="Mini-Filer">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="NMI" label="NMI">
+        <attvalues>
+          <attvalue for="0" value="concept" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="NMOS 6510" label="NMOS 6510">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Ninjatracker" label="Ninjatracker">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="OPEN 15,8,15,&quot;I&quot;:CLOSE 15" label="OPEN 15,8,15,&quot;I&quot;:CLOSE 15">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="PHP" label="PHP">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="PRINT" label="PRINT">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Pasi 'Albert' Ojala" label="Pasi 'Albert' Ojala">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Pasi Ojala" label="Pasi Ojala">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Paul F. Schatz" label="Paul F. Schatz">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Plus/Term" label="Plus/Term">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Professional Software" label="Professional Software">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Professional Software Inc." label="Professional Software Inc.">
+        <attvalues>
+          <attvalue for="0" value="company" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="REU" label="REU">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="RUN" label="RUN">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Raeto Collin West" label="Raeto Collin West">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Rana 1000" label="Rana 1000">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Richard Cini" label="Richard Cini">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Richard T. Cunningham" label="Richard T. Cunningham">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Robin Harbron" label="Robin Harbron">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="S. Judd" label="S. Judd">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="STX" label="STX">
+        <attvalues>
+          <attvalue for="0" value="instruction" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="SpeedCalc" label="SpeedCalc">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="SpeedScript" label="SpeedScript">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Stephen Judd" label="Stephen Judd">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="TRS-80" label="TRS-80">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Tiny Sid 2" label="Tiny Sid 2">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="U1" label="U1">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="U2" label="U2">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="U7" label="U7">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="VDC" label="VDC">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="VIC" label="VIC">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="VIC20" label="VIC20">
+        <attvalues>
+          <attvalue for="0" value="product" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="VR1" label="VR1">
+        <attvalues>
+          <attvalue for="0" value="hardware" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="Ward Shrake" label="Ward Shrake">
+        <attvalues>
+          <attvalue for="0" value="person" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+      <node id="a000" label="a000">
+        <attvalues>
+          <attvalue for="0" value="memory_address" />
+          <attvalue for="1" value="2" />
+          <attvalue for="2" value="2" />
+          <attvalue for="3" value="0.004066882512607057" />
+        </attvalues>
+      </node>
+    </nodes>
+    <edges>
+      <edge source="IRQ" target="STA" id="0" weight="0.3055555555555556">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="LDA" target="STA" id="1" weight="0.3888888888888889">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="LDA" target="Commodore 64" id="2" weight="0.3611111111111111">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="LDA" target="JSR" id="3" weight="0.3333333333333333">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="LDA" target="JMP" id="4" weight="0.3055555555555556">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="STA" target="Commodore 64" id="5" weight="1.0">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="STA" target="SID" id="6" weight="0.4722222222222222">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="STA" target="RTS" id="7" weight="0.4166666666666667">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="STA" target="JSR" id="8" weight="0.3611111111111111">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="STA" target="JMP" id="9" weight="0.3611111111111111">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="STA" target="CIA" id="10" weight="0.3611111111111111">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="STA" target="VIC-II" id="11" weight="0.3333333333333333">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="STA" target="6526" id="12" weight="0.3055555555555556">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="SID" target="Commodore 64" id="13" weight="0.3333333333333333">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="SID" target="6581" id="14" weight="0.3055555555555556">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="JMP" target="JSR" id="15" weight="0.3611111111111111">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="Commodore 64" target="CIA" id="16" weight="0.3611111111111111">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="Commodore 64" target="JSR" id="17" weight="0.3055555555555556">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="Commodore 64" target="VIC-II" id="18" weight="0.3055555555555556">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+      <edge source="6526" target="CIA" id="19" weight="0.3055555555555556">
+        <attvalues>
+          <attvalue for="4" value="1" />
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

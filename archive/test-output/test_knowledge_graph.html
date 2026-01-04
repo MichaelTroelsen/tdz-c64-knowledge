@@ -1,0 +1,163 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script src="lib/bindings/utils.js"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 750px;
+                 background-color: #222222;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": "#3498db", "font": {"color": "white"}, "id": "STA", "label": "STA", "shape": "dot", "size": 50, "title": "\u003cb\u003eSTA\u003c/b\u003e\u003cbr\u003eType: instruction\u003cbr\u003eOccurrences: 92\u003cbr\u003ePageRank: 0.086511"}, {"color": "#9b59b6", "font": {"color": "white"}, "id": "Jim Butterfield", "label": "Jim Butterfield", "shape": "dot", "size": 10, "title": "\u003cb\u003eJim Butterfield\u003c/b\u003e\u003cbr\u003eType: person\u003cbr\u003eOccurrences: 5\u003cbr\u003ePageRank: 0.004067"}, {"color": "#3498db", "font": {"color": "white"}, "id": "INC", "label": "INC", "shape": "dot", "size": 10, "title": "\u003cb\u003eINC\u003c/b\u003e\u003cbr\u003eType: instruction\u003cbr\u003eOccurrences: 15\u003cbr\u003ePageRank: 0.004067"}, {"color": "#9b59b6", "font": {"color": "white"}, "id": "Bob Yannes", "label": "Bob Yannes", "shape": "dot", "size": 10, "title": "\u003cb\u003eBob Yannes\u003c/b\u003e\u003cbr\u003eType: person\u003cbr\u003eOccurrences: 41\u003cbr\u003ePageRank: 0.004067"}, {"color": "#3498db", "font": {"color": "white"}, "id": "JSR", "label": "JSR", "shape": "dot", "size": 27.43839211182131, "title": "\u003cb\u003eJSR\u003c/b\u003e\u003cbr\u003eType: instruction\u003cbr\u003eOccurrences: 72\u003cbr\u003ePageRank: 0.027438"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "6581", "label": "6581", "shape": "dot", "size": 10.223566878239, "title": "\u003cb\u003e6581\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 74\u003cbr\u003ePageRank: 0.010224"}, {"color": "#9b59b6", "font": {"color": "white"}, "id": "Jack Tramiel", "label": "Jack Tramiel", "shape": "dot", "size": 10, "title": "\u003cb\u003eJack Tramiel\u003c/b\u003e\u003cbr\u003eType: person\u003cbr\u003eOccurrences: 43\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e67e22", "font": {"color": "white"}, "id": "Commodore 128", "label": "Commodore 128", "shape": "dot", "size": 10, "title": "\u003cb\u003eCommodore 128\u003c/b\u003e\u003cbr\u003eType: product\u003cbr\u003eOccurrences: 27\u003cbr\u003ePageRank: 0.004067"}, {"color": "#1abc9c", "font": {"color": "white"}, "id": "ABC Consumer Magazines, Inc.", "label": "ABC Consumer Magazines, Inc.", "shape": "dot", "size": 10, "title": "\u003cb\u003eABC Consumer Magazines, Inc.\u003c/b\u003e\u003cbr\u003eType: company\u003cbr\u003eOccurrences: 6\u003cbr\u003ePageRank: 0.004067"}, {"color": "#1abc9c", "font": {"color": "white"}, "id": "Commodore Electronics Limited", "label": "Commodore Electronics Limited", "shape": "dot", "size": 10, "title": "\u003cb\u003eCommodore Electronics Limited\u003c/b\u003e\u003cbr\u003eType: company\u003cbr\u003eOccurrences: 13\u003cbr\u003ePageRank: 0.004067"}, {"color": "#1abc9c", "font": {"color": "white"}, "id": "COMPUTE! Publications, Inc.", "label": "COMPUTE! Publications, Inc.", "shape": "dot", "size": 10, "title": "\u003cb\u003eCOMPUTE! Publications, Inc.\u003c/b\u003e\u003cbr\u003eType: company\u003cbr\u003eOccurrences: 8\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e67e22", "font": {"color": "white"}, "id": "SID Factory II", "label": "SID Factory II", "shape": "dot", "size": 10, "title": "\u003cb\u003eSID Factory II\u003c/b\u003e\u003cbr\u003eType: product\u003cbr\u003eOccurrences: 6\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "6502", "label": "6502", "shape": "dot", "size": 10, "title": "\u003cb\u003e6502\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 79\u003cbr\u003ePageRank: 0.004067"}, {"color": "#3498db", "font": {"color": "white"}, "id": "LDA", "label": "LDA", "shape": "dot", "size": 27.866909394724843, "title": "\u003cb\u003eLDA\u003c/b\u003e\u003cbr\u003eType: instruction\u003cbr\u003eOccurrences: 95\u003cbr\u003ePageRank: 0.027867"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "8502", "label": "8502", "shape": "dot", "size": 10, "title": "\u003cb\u003e8502\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 5\u003cbr\u003ePageRank: 0.004067"}, {"color": "#97c2fc", "font": {"color": "white"}, "id": "DMA", "label": "DMA", "shape": "dot", "size": 10, "title": "\u003cb\u003eDMA\u003c/b\u003e\u003cbr\u003eType: concept\u003cbr\u003eOccurrences: 99\u003cbr\u003ePageRank: 0.004067"}, {"color": "#3498db", "font": {"color": "white"}, "id": "AND", "label": "AND", "shape": "dot", "size": 10, "title": "\u003cb\u003eAND\u003c/b\u003e\u003cbr\u003eType: instruction\u003cbr\u003eOccurrences: 24\u003cbr\u003ePageRank: 0.004067"}, {"color": "#f39c12", "font": {"color": "white"}, "id": "$D021", "label": "$D021", "shape": "dot", "size": 10, "title": "\u003cb\u003e$D021\u003c/b\u003e\u003cbr\u003eType: memory_address\u003cbr\u003eOccurrences: 7\u003cbr\u003ePageRank: 0.004067"}, {"color": "#f39c12", "font": {"color": "white"}, "id": "$D020", "label": "$D020", "shape": "dot", "size": 10, "title": "\u003cb\u003e$D020\u003c/b\u003e\u003cbr\u003eType: memory_address\u003cbr\u003eOccurrences: 50\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "C128", "label": "C128", "shape": "dot", "size": 10, "title": "\u003cb\u003eC128\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 3\u003cbr\u003ePageRank: 0.004067"}, {"color": "#97c2fc", "font": {"color": "white"}, "id": "raster interrupt", "label": "raster interrupt", "shape": "dot", "size": 10, "title": "\u003cb\u003eraster interrupt\u003c/b\u003e\u003cbr\u003eType: concept\u003cbr\u003eOccurrences: 99\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "VIC-20", "label": "VIC-20", "shape": "dot", "size": 10, "title": "\u003cb\u003eVIC-20\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 7\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "6526", "label": "6526", "shape": "dot", "size": 14.990792185359581, "title": "\u003cb\u003e6526\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 72\u003cbr\u003ePageRank: 0.014991"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "7501", "label": "7501", "shape": "dot", "size": 10, "title": "\u003cb\u003e7501\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 4\u003cbr\u003ePageRank: 0.004067"}, {"color": "#3498db", "font": {"color": "white"}, "id": "RTS", "label": "RTS", "shape": "dot", "size": 11.181193509390237, "title": "\u003cb\u003eRTS\u003c/b\u003e\u003cbr\u003eType: instruction\u003cbr\u003eOccurrences: 70\u003cbr\u003ePageRank: 0.011181"}, {"color": "#e67e22", "font": {"color": "white"}, "id": "C64", "label": "C64", "shape": "dot", "size": 10, "title": "\u003cb\u003eC64\u003c/b\u003e\u003cbr\u003eType: product\u003cbr\u003eOccurrences: 16\u003cbr\u003ePageRank: 0.004067"}, {"color": "#f39c12", "font": {"color": "white"}, "id": "$D000", "label": "$D000", "shape": "dot", "size": 10, "title": "\u003cb\u003e$D000\u003c/b\u003e\u003cbr\u003eType: memory_address\u003cbr\u003eOccurrences: 56\u003cbr\u003ePageRank: 0.004067"}, {"color": "#9b59b6", "font": {"color": "white"}, "id": "Stefano Tognon", "label": "Stefano Tognon", "shape": "dot", "size": 10, "title": "\u003cb\u003eStefano Tognon\u003c/b\u003e\u003cbr\u003eType: person\u003cbr\u003eOccurrences: 8\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "1541", "label": "1541", "shape": "dot", "size": 10, "title": "\u003cb\u003e1541\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 2\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "6510", "label": "6510", "shape": "dot", "size": 10, "title": "\u003cb\u003e6510\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 16\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "SID", "label": "SID", "shape": "dot", "size": 26.344178347244117, "title": "\u003cb\u003eSID\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 91\u003cbr\u003ePageRank: 0.026344"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "CIA", "label": "CIA", "shape": "dot", "size": 22.588203799907564, "title": "\u003cb\u003eCIA\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 45\u003cbr\u003ePageRank: 0.022588"}, {"color": "#f39c12", "font": {"color": "white"}, "id": "53280", "label": "53280", "shape": "dot", "size": 10, "title": "\u003cb\u003e53280\u003c/b\u003e\u003cbr\u003eType: memory_address\u003cbr\u003eOccurrences: 7\u003cbr\u003ePageRank: 0.004067"}, {"color": "#3498db", "font": {"color": "white"}, "id": "JMP", "label": "JMP", "shape": "dot", "size": 21.62825798985784, "title": "\u003cb\u003eJMP\u003c/b\u003e\u003cbr\u003eType: instruction\u003cbr\u003eOccurrences: 86\u003cbr\u003ePageRank: 0.021628"}, {"color": "#97c2fc", "font": {"color": "white"}, "id": "ADSR", "label": "ADSR", "shape": "dot", "size": 10, "title": "\u003cb\u003eADSR\u003c/b\u003e\u003cbr\u003eType: concept\u003cbr\u003eOccurrences: 4\u003cbr\u003ePageRank: 0.004067"}, {"color": "#97c2fc", "font": {"color": "white"}, "id": "sprite", "label": "sprite", "shape": "dot", "size": 10, "title": "\u003cb\u003esprite\u003c/b\u003e\u003cbr\u003eType: concept\u003cbr\u003eOccurrences: 101\u003cbr\u003ePageRank: 0.004067"}, {"color": "#9b59b6", "font": {"color": "white"}, "id": "Sheldon Leemon", "label": "Sheldon Leemon", "shape": "dot", "size": 10, "title": "\u003cb\u003eSheldon Leemon\u003c/b\u003e\u003cbr\u003eType: person\u003cbr\u003eOccurrences: 10\u003cbr\u003ePageRank: 0.004067"}, {"color": "#97c2fc", "font": {"color": "white"}, "id": "IRQ", "label": "IRQ", "shape": "dot", "size": 10, "title": "\u003cb\u003eIRQ\u003c/b\u003e\u003cbr\u003eType: concept\u003cbr\u003eOccurrences: 98\u003cbr\u003ePageRank: 0.009284"}, {"color": "#1abc9c", "font": {"color": "white"}, "id": "ABC Publishing Companies", "label": "ABC Publishing Companies", "shape": "dot", "size": 10, "title": "\u003cb\u003eABC Publishing Companies\u003c/b\u003e\u003cbr\u003eType: company\u003cbr\u003eOccurrences: 4\u003cbr\u003ePageRank: 0.004067"}, {"color": "#3498db", "font": {"color": "white"}, "id": "BRK", "label": "BRK", "shape": "dot", "size": 10, "title": "\u003cb\u003eBRK\u003c/b\u003e\u003cbr\u003eType: instruction\u003cbr\u003eOccurrences: 68\u003cbr\u003ePageRank: 0.004067"}, {"color": "#97c2fc", "font": {"color": "white"}, "id": "BASIC", "label": "BASIC", "shape": "dot", "size": 10, "title": "\u003cb\u003eBASIC\u003c/b\u003e\u003cbr\u003eType: concept\u003cbr\u003eOccurrences: 4\u003cbr\u003ePageRank: 0.004067"}, {"color": "#1abc9c", "font": {"color": "white"}, "id": "Commodore", "label": "Commodore", "shape": "dot", "size": 10, "title": "\u003cb\u003eCommodore\u003c/b\u003e\u003cbr\u003eType: company\u003cbr\u003eOccurrences: 113\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e67e22", "font": {"color": "white"}, "id": "C-64", "label": "C-64", "shape": "dot", "size": 10, "title": "\u003cb\u003eC-64\u003c/b\u003e\u003cbr\u003eType: product\u003cbr\u003eOccurrences: 5\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e67e22", "font": {"color": "white"}, "id": "Atari", "label": "Atari", "shape": "dot", "size": 10, "title": "\u003cb\u003eAtari\u003c/b\u003e\u003cbr\u003eType: product\u003cbr\u003eOccurrences: 4\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e67e22", "font": {"color": "white"}, "id": "Commodore 64", "label": "Commodore 64", "shape": "dot", "size": 50, "title": "\u003cb\u003eCommodore 64\u003c/b\u003e\u003cbr\u003eType: product\u003cbr\u003eOccurrences: 77\u003cbr\u003ePageRank: 0.052018"}, {"color": "#1abc9c", "font": {"color": "white"}, "id": "MOS Technology", "label": "MOS Technology", "shape": "dot", "size": 10, "title": "\u003cb\u003eMOS Technology\u003c/b\u003e\u003cbr\u003eType: company\u003cbr\u003eOccurrences: 83\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e67e22", "font": {"color": "white"}, "id": "1571", "label": "1571", "shape": "dot", "size": 10, "title": "\u003cb\u003e1571\u003c/b\u003e\u003cbr\u003eType: product\u003cbr\u003eOccurrences: 4\u003cbr\u003ePageRank: 0.004067"}, {"color": "#1abc9c", "font": {"color": "white"}, "id": "COMPUTE!", "label": "COMPUTE!", "shape": "dot", "size": 10, "title": "\u003cb\u003eCOMPUTE!\u003c/b\u003e\u003cbr\u003eType: company\u003cbr\u003eOccurrences: 5\u003cbr\u003ePageRank: 0.004067"}, {"color": "#9b59b6", "font": {"color": "white"}, "id": "Craig Taylor", "label": "Craig Taylor", "shape": "dot", "size": 10, "title": "\u003cb\u003eCraig Taylor\u003c/b\u003e\u003cbr\u003eType: person\u003cbr\u003eOccurrences: 9\u003cbr\u003ePageRank: 0.004067"}, {"color": "#e74c3c", "font": {"color": "white"}, "id": "VIC-II", "label": "VIC-II", "shape": "dot", "size": 14.823215101872698, "title": "\u003cb\u003eVIC-II\u003c/b\u003e\u003cbr\u003eType: hardware\u003cbr\u003eOccurrences: 58\u003cbr\u003ePageRank: 0.014823"}]);
+                  edges = new vis.DataSet([{"from": "STA", "title": "Strength: 1.00, Co-occurrences: 1", "to": "Commodore 64", "value": 5.0}, {"from": "STA", "title": "Strength: 0.47, Co-occurrences: 1", "to": "SID", "value": 2.361111111111111}, {"from": "STA", "title": "Strength: 0.42, Co-occurrences: 1", "to": "RTS", "value": 2.0833333333333335}, {"from": "STA", "title": "Strength: 0.39, Co-occurrences: 1", "to": "LDA", "value": 1.9444444444444444}, {"from": "STA", "title": "Strength: 0.36, Co-occurrences: 1", "to": "JSR", "value": 1.8055555555555556}, {"from": "STA", "title": "Strength: 0.36, Co-occurrences: 1", "to": "JMP", "value": 1.8055555555555556}, {"from": "STA", "title": "Strength: 0.36, Co-occurrences: 1", "to": "CIA", "value": 1.8055555555555556}, {"from": "STA", "title": "Strength: 0.33, Co-occurrences: 1", "to": "VIC-II", "value": 1.6666666666666665}, {"from": "STA", "title": "Strength: 0.31, Co-occurrences: 1", "to": "IRQ", "value": 1.527777777777778}, {"from": "STA", "title": "Strength: 0.31, Co-occurrences: 1", "to": "6526", "value": 1.527777777777778}, {"from": "JSR", "title": "Strength: 0.36, Co-occurrences: 1", "to": "JMP", "value": 1.8055555555555556}, {"from": "JSR", "title": "Strength: 0.33, Co-occurrences: 1", "to": "LDA", "value": 1.6666666666666665}, {"from": "JSR", "title": "Strength: 0.31, Co-occurrences: 1", "to": "Commodore 64", "value": 1.527777777777778}, {"from": "6581", "title": "Strength: 0.31, Co-occurrences: 1", "to": "SID", "value": 1.527777777777778}, {"from": "LDA", "title": "Strength: 0.36, Co-occurrences: 1", "to": "Commodore 64", "value": 1.8055555555555556}, {"from": "LDA", "title": "Strength: 0.31, Co-occurrences: 1", "to": "JMP", "value": 1.527777777777778}, {"from": "6526", "title": "Strength: 0.31, Co-occurrences: 1", "to": "CIA", "value": 1.527777777777778}, {"from": "SID", "title": "Strength: 0.33, Co-occurrences: 1", "to": "Commodore 64", "value": 1.6666666666666665}, {"from": "CIA", "title": "Strength: 0.36, Co-occurrences: 1", "to": "Commodore 64", "value": 1.8055555555555556}, {"from": "Commodore 64", "title": "Strength: 0.31, Co-occurrences: 1", "to": "VIC-II", "value": 1.527777777777778}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": true,
+            "type": "dynamic"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "barnesHut": {
+            "avoidOverlap": 0,
+            "centralGravity": 0.3,
+            "damping": 0.09,
+            "gravitationalConstant": -80000,
+            "springConstant": 0.001,
+            "springLength": 250
+        },
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    </body>
+</html>

@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.30"
-__version_info__ = (2, 23, 30)
+__version__ = "2.23.31"
+__version_info__ = (2, 23, 31)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,67 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.31 (2026-01-04)
+  ✨ ENHANCEMENT: C64 Memory Map Diagram - Complete Address Space Layout
+
+  User Request:
+  - "add C64 memory map diagram"
+
+  New Diagram:
+
+  **C64 Memory Map (201K)**
+  - Complete 64KB address space visualization ($0000-$FFFF)
+  - 14 color-coded memory regions showing:
+    * Zero Page ($0000-$00FF) - 256 bytes (red)
+    * Stack ($0100-$01FF) - 256 bytes (orange)
+    * BASIC/KERNAL Variables ($0200-$03FF) - 512 bytes
+    * Screen RAM default ($0400-$07FF) - 1 KB (blue)
+    * BASIC Program RAM ($0800-$9FFF) - 38 KB (green)
+    * BASIC ROM ($A000-$BFFF) - 8 KB (purple)
+    * RAM under BASIC ROM ($C000-$CFFF) - 4 KB
+    * VIC-II Registers ($D000-$D3FF) - 1 KB
+    * SID Registers ($D400-$D7FF) - 1 KB
+    * Color RAM ($D800-$DBFF) - 1 KB
+    * CIA1 Registers ($DC00-$DCFF) - 256 bytes
+    * CIA2 Registers ($DD00-$DDFF) - 256 bytes
+    * I/O Expansion ($DE00-$DFFF) - 512 bytes
+    * KERNAL ROM ($E000-$FFFF) - 8 KB
+
+  Memory Banking Information:
+  - Yellow note box explaining ROM/RAM switching
+  - BASIC ROM ($A000-$BFFF) switchable to RAM
+  - KERNAL ROM ($E000-$FFFF) switchable to RAM
+  - I/O area ($D000-$DFFF) switchable to Character ROM or RAM
+  - Bank switching controlled via 6510 port at $0001
+  - Total: 64 KB addressable with banking
+
+  Visual Features:
+  - Color-coded address ranges for easy identification
+  - Memory sizes displayed for each region
+  - Comprehensive banking notes in highlighted box
+  - Professional layout showing entire address space
+  - Essential reference for C64 programmers
+
+  Impact:
+  - Complete C64 memory architecture visualization
+  - Critical for understanding memory banking
+  - Shows relationship between ROM, RAM, and I/O areas
+  - Essential tool for assembly language programming
+  - Complements individual chip diagrams (VIC-II, SID, CIA)
+
+  Complete Diagram Suite (9 total):
+  1. SID - Sound chip (125K) ✅
+  2. VIC-II - C64 graphics (13K) ✅
+  3. VIC - VIC-20 video (5.0K) ✅
+  4. CIA - I/O and timers (75K) ✅
+  5. Sprite - Specifications (57K) ✅
+  6. 6502 - Status flags (150K) ✅
+  7. 6510 - I/O ports (79K) ✅
+  8. 1541 - Disk layout (6.9K) ✅
+  9. C64 Memory Map - Address space (201K) ✅ NEW
+
+  Files modified: wiki_export.py (lines 10641-10726), version.py
+
 v2.23.30 (2026-01-04)
   ✨ ENHANCEMENT: Complete Hardware Diagram Suite - 6510 & VIC Added
 

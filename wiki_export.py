@@ -10638,6 +10638,91 @@ Write ONLY the article content, no title or introduction phrase."""
                 'description': 'Register layout for the VIC-20 Video Interface Chip'
             })
 
+        # C64 Memory Map
+        if 'MEMORY' in title_upper or title_upper in ['C64', 'COMMODORE 64', 'COMMODORE-64']:
+            fig, ax = plt.subplots(figsize=(14, 12))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 20)
+            ax.axis('off')
+
+            ax.text(7, 19.5, 'Commodore 64 Memory Map',
+                   ha='center', fontsize=18, fontweight='bold')
+            ax.text(7, 19, '64 KB Address Space ($0000-$FFFF)',
+                   ha='center', fontsize=12, style='italic', color='#666666')
+
+            # Memory regions with addresses, names, sizes, and colors
+            y_start = 17.5
+            regions = [
+                ('$0000-$00FF', 'Zero Page', '256 bytes', '#E63946'),
+                ('$0100-$01FF', 'Stack', '256 bytes', '#E76F51'),
+                ('$0200-$03FF', 'BASIC/KERNAL Variables', '512 bytes', '#F4A261'),
+                ('$0400-$07FF', 'Screen RAM (default)', '1 KB', '#4A90E2'),
+                ('$0800-$9FFF', 'BASIC Program RAM', '38 KB', '#50C878'),
+                ('$A000-$BFFF', 'BASIC ROM', '8 KB', '#9D4EDD'),
+                ('$C000-$CFFF', 'RAM (under BASIC ROM)', '4 KB', '#50C878'),
+                ('$D000-$D3FF', 'VIC-II Registers', '1 KB', '#4A90E2'),
+                ('$D400-$D7FF', 'SID Registers', '1 KB', '#E63946'),
+                ('$D800-$DBFF', 'Color RAM', '1 KB', '#F4A261'),
+                ('$DC00-$DCFF', 'CIA1 Registers', '256 bytes', '#2A9D8F'),
+                ('$DD00-$DDFF', 'CIA2 Registers', '256 bytes', '#2A9D8F'),
+                ('$DE00-$DFFF', 'I/O Expansion', '512 bytes', '#CCCCCC'),
+                ('$E000-$FFFF', 'KERNAL ROM', '8 KB', '#9D4EDD'),
+            ]
+
+            bar_height = 0.7
+            for i, (addr, name, size, color) in enumerate(regions):
+                y = y_start - (i * 0.95)
+
+                # Address box
+                addr_rect = FancyBboxPatch((0.5, y-0.35), 3.5, bar_height,
+                                          boxstyle="round,pad=0.05",
+                                          facecolor=color, edgecolor='black', linewidth=2)
+                ax.add_patch(addr_rect)
+                ax.text(2.25, y, addr, ha='center', va='center',
+                       fontsize=10, fontweight='bold', color='white')
+
+                # Region name
+                ax.text(4.5, y, name, va='center', fontsize=11, fontweight='bold')
+
+                # Size
+                ax.text(10, y, size, va='center', fontsize=9,
+                       ha='right', style='italic', color='#666666')
+
+            # Add memory banking note
+            note_y = 2.5
+            note_rect = FancyBboxPatch((0.5, note_y - 1.2), 13, 2,
+                                      boxstyle="round,pad=0.15",
+                                      facecolor='#FFF3CD', edgecolor='#856404', linewidth=2)
+            ax.add_patch(note_rect)
+
+            ax.text(7, note_y + 0.5, 'Memory Banking Notes:', ha='center',
+                   fontsize=11, fontweight='bold')
+
+            notes = [
+                '• BASIC ROM ($A000-$BFFF) can be switched out to access RAM',
+                '• KERNAL ROM ($E000-$FFFF) can be switched out to access RAM',
+                '• I/O area ($D000-$DFFF) can be switched to Character ROM or RAM',
+                '• Bank switching controlled via 6510 port at $0001',
+                '• Total: 64 KB addressable, with banking for ROM/RAM switching',
+            ]
+
+            for i, note in enumerate(notes):
+                y = note_y + 0.1 - (i * 0.35)
+                ax.text(7, y, note, ha='center', fontsize=8.5)
+
+            filename = 'c64_memory_map.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'C64 Memory Map',
+                'description': 'Complete 64KB address space layout with ROM, RAM, and I/O regions'
+            })
+
         return diagrams
 
     def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:

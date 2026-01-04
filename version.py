@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.27"
-__version_info__ = (2, 23, 27)
+__version__ = "2.23.28"
+__version_info__ = (2, 23, 28)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,46 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.28 (2026-01-04)
+  🐛 BUG FIX: Article Generation ParseException - 1541 Diagram Now Working
+
+  User Request:
+  - "fix the 1541 article generation issue"
+
+  Issue Fixed:
+  - ParseException errors prevented diagram generation for 1541, SID, VIC-II articles
+  - Matplotlib was trying to parse '$' symbols as LaTeX math delimiters
+  - Articles failed during diagram generation before content could be created
+
+  Root Cause:
+  - plt.rcParams['text.usetex'] was set inside _generate_memory_map_diagrams() method
+  - Matplotlib needs this configuration set globally before any operations
+  - Parallel article generation caused timing issues with per-method configuration
+
+  Solution:
+  - Moved matplotlib.rcParams['text.usetex'] = False to module level (line 37)
+  - Set immediately after matplotlib.use('Agg') in imports
+  - Global configuration ensures all matplotlib operations respect setting
+
+  Results:
+  - Articles increased from 20 to 23 (1541, SID, VIC-II now working)
+  - 1541 diagram successfully generated: 1541_disk_layout.png (87K)
+  - SID diagram regenerated: sid_memory_map.png (120K)
+  - VIC-II diagram regenerated: vic-ii_memory_map.png (4.7K)
+  - All diagrams now display memory addresses with $ symbols correctly
+
+  Impact:
+  - 1541 article now includes professional disk layout diagram
+  - Shows 4-zone track organization with color coding
+  - Displays capacity breakdown (35 tracks, 683 sectors, ~170 KB)
+  - Complements other hardware diagrams in wiki
+
+  Known Issue:
+  - CIA article still has ParseException (separate issue, not diagram-related)
+  - Will investigate CIA-specific problem separately
+
+  Files modified: wiki_export.py (line 37), version.py
+
 v2.23.27 (2026-01-04)
   ✨ ENHANCEMENT: 6502 Processor Status Register Diagram
 

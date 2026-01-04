@@ -34,6 +34,7 @@ import io
 import hashlib
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
+matplotlib.rcParams['text.usetex'] = False  # Disable LaTeX rendering to allow $ symbols
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Rectangle, FancyBboxPatch

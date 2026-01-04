@@ -28,6 +28,10 @@ from typing import Dict, List, Any
 import html
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import fitz  # PyMuPDF for PDF image extraction
+from PIL import Image
+import io
+import hashlib
 from functools import partial
 import multiprocessing
 
@@ -10031,6 +10035,90 @@ Write ONLY the article content, no title or introduction phrase."""
 
         return specs_html
 
+    def _extract_images_from_pdfs(self, title: str, entity: Dict, max_images: int = 6) -> List[Dict]:
+        """Extract relevant images from PDF documents for this entity."""
+        images = []
+        images_dir = self.output_dir / "assets" / "images" / "articles"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get PDF documents for this entity
+        pdf_docs = [doc for doc in entity['documents'][:10] if doc.get('file_path', '').lower().endswith('.pdf')]
+
+        for doc in pdf_docs:
+            if len(images) >= max_images:
+                break
+
+            try:
+                file_path = Path(doc['file_path'])
+                if not file_path.exists():
+                    continue
+
+                # Open PDF
+                pdf_document = fitz.open(str(file_path))
+
+                # Extract images from first 10 pages
+                for page_num in range(min(10, len(pdf_document))):
+                    if len(images) >= max_images:
+                        break
+
+                    page = pdf_document[page_num]
+                    image_list = page.get_images(full=True)
+
+                    for img_index, img in enumerate(image_list):
+                        if len(images) >= max_images:
+                            break
+
+                        try:
+                            xref = img[0]
+                            base_image = pdf_document.extract_image(xref)
+                            image_bytes = base_image["image"]
+                            image_ext = base_image["ext"]
+
+                            # Open with PIL to check size
+                            pil_image = Image.open(io.BytesIO(image_bytes))
+
+                            # Skip very small images (likely icons or decorations)
+                            if pil_image.width < 100 or pil_image.height < 100:
+                                continue
+
+                            # Skip very large images (likely full page scans)
+                            if pil_image.width > 2000 or pil_image.height > 2000:
+                                # Resize large images
+                                pil_image.thumbnail((800, 800), Image.Resampling.LANCZOS)
+
+                            # Generate unique filename
+                            img_hash = hashlib.md5(image_bytes).hexdigest()[:12]
+                            image_filename = f"{title.lower().replace(' ', '-')}_{img_hash}.{image_ext}"
+                            image_path = images_dir / image_filename
+
+                            # Save image
+                            if not image_path.exists():
+                                if pil_image.width > 800 or pil_image.height > 800:
+                                    pil_image.save(str(image_path), quality=85, optimize=True)
+                                else:
+                                    pil_image.save(str(image_path))
+
+                            images.append({
+                                'filename': image_filename,
+                                'path': f"../assets/images/articles/{image_filename}",
+                                'width': pil_image.width,
+                                'height': pil_image.height,
+                                'source_doc': doc['title'],
+                                'source_page': page_num + 1
+                            })
+
+                        except Exception as e:
+                            print(f"    Warning: Could not extract image {img_index} from page {page_num}: {e}")
+                            continue
+
+                pdf_document.close()
+
+            except Exception as e:
+                print(f"    Warning: Could not process PDF {doc.get('title', 'unknown')}: {e}")
+                continue
+
+        return images
+
     def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:
         """Generate a basic description when AI is not available."""
         entity_type = entity.get('entity_type', 'component')
@@ -10171,6 +10259,30 @@ Write ONLY the article content, no title or introduction phrase."""
 
         # Generate technical specifications section
         tech_specs_html = self._generate_technical_specs(title, category, main_entity, code_examples)
+
+        # Extract images from PDFs
+        print(f"    Extracting images for {title}...")
+        images = self._extract_images_from_pdfs(title, main_entity, max_images=6)
+
+        # Build image gallery section
+        images_html = ''
+        if images:
+            images_html = '<div class="article-section image-gallery-section">'
+            images_html += '<h2>Images & Diagrams</h2>'
+            images_html += '<div class="image-gallery">'
+            for img in images:
+                images_html += f'''
+                <div class="gallery-item">
+                    <a href="{img['path']}" target="_blank">
+                        <img src="{img['path']}" alt="{html.escape(title)}" loading="lazy">
+                    </a>
+                    <div class="image-caption">
+                        From: {html.escape(img['source_doc'])}<br>
+                        <small>Page {img['source_page']} • {img['width']}×{img['height']}px</small>
+                    </div>
+                </div>
+                '''
+            images_html += '</div></div>'
 
         # Build entities section
         entities_html = '<div class="article-section"><h2>Related Entities</h2><ul class="entity-list-article">'
@@ -10354,6 +10466,48 @@ Write ONLY the article content, no title or introduction phrase."""
             font-weight: bold;
             font-size: 1.2em;
         }}
+        .image-gallery-section {{
+            margin: 30px 0;
+        }}
+        .image-gallery {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }}
+        .gallery-item {{
+            background: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }}
+        .gallery-item:hover {{
+            transform: translateY(-5px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+        }}
+        .gallery-item a {{
+            display: block;
+            text-decoration: none;
+        }}
+        .gallery-item img {{
+            width: 100%;
+            height: 200px;
+            object-fit: contain;
+            background: white;
+            padding: 10px;
+        }}
+        .image-caption {{
+            padding: 12px;
+            font-size: 0.85em;
+            color: var(--text-color);
+            border-top: 1px solid var(--border-color);
+            line-height: 1.4;
+        }}
+        .image-caption small {{
+            color: var(--text-muted);
+            font-size: 0.9em;
+        }}
     </style>
 </head>
 <body>
@@ -10394,6 +10548,7 @@ Write ONLY the article content, no title or introduction phrase."""
 
                 {overview_html}
                 {tech_specs_html}
+                {images_html}
                 {entities_html}
                 {related_html}
                 {code_html}

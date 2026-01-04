@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.19"
-__version_info__ = (2, 23, 19)
+__version__ = "2.23.20"
+__version_info__ = (2, 23, 20)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,36 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.20 (2026-01-04)
+  🐛 BUG FIX + ✨ ENHANCEMENT: PDF Viewer and Source File Viewing
+
+  User Issues:
+  - "Error loading PDF: Missing PDF" when trying to view PDFs
+  - PDFs not being copied to wiki directory (0 PDFs → 9 PDFs)
+  - Request: "i want view source on front the same way as view PDF"
+
+  Root Causes:
+  - _copy_pdfs() used wrong attribute: 'filename' instead of 'filepath'
+  - No tracking of which PDFs were successfully copied
+  - "View PDF" links shown for all PDFs, even missing ones
+  - No "View Source" buttons on document cards
+
+  Changes:
+  - Fixed PDF copying: doc_meta.filename → doc_meta.filepath
+  - Added pdf_available flag to track successfully copied PDFs
+  - Reordered export to copy PDFs before saving documents.json
+  - Updated documents.js to only show "View PDF" for available PDFs
+  - Added "View Source" buttons for all document types
+  - Added CSS styling for action buttons (.doc-actions, .view-source-btn)
+
+  Features:
+  - 📄 View PDF: Only shown for PDFs that exist (9/140 PDFs)
+  - 📁 View Source: Shown for all documents with source files
+  - Green "View Source" button next to blue "View PDF" button
+  - Both buttons use unified viewer.html with file type detection
+
+  Files: wiki_export.py (7 sections), version.py
+
 v2.23.19 (2026-01-04)
   🐛 BUG FIX: Article Generation in Wiki Export
 

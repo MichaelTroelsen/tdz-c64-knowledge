@@ -248,7 +248,14 @@ class WikiExporter:
         print("[8/9] Exporting chunks...")
         chunks_data = self._export_chunks()
 
-        # Save data files
+        # Copy PDFs before saving documents.json (so we know which PDFs are available)
+        print("[9/10] Copying PDF files...")
+        copied_pdf_ids = self._copy_pdfs(documents_data)
+
+        # Add PDF availability info to documents data
+        for doc in documents_data:
+            doc['pdf_available'] = doc['id'] in copied_pdf_ids if doc['file_type'].lower() == 'pdf' else False
+
         # Save data files
         print("\nSaving data files...")
         self._save_json('documents.json', documents_data)
@@ -268,13 +275,9 @@ class WikiExporter:
         similarities = self._calculate_document_similarities(documents_data, entities_data)
         self._save_json('similarities.json', similarities)
 
-        # Generate HTML pages
+        # Generate HTML pages (with PDF availability info already set)
         print("\nGenerating HTML pages...")
         self._generate_html_pages(documents_data)
-
-        # Copy PDFs
-        print("[9/10] Copying PDF files...")
-        self._copy_pdfs(documents_data)
 
         # Generate articles
         articles_data = self._generate_articles(entities_data)
@@ -3860,28 +3863,36 @@ class WikiExporter:
             f.write(html_content)
         print(f"  Generated: viewer.html")
 
-    def _copy_pdfs(self, documents: List[Dict]):
-        """Copy PDF files to wiki directory."""
+    def _copy_pdfs(self, documents: List[Dict]) -> set:
+        """Copy PDF files to wiki directory.
+
+        Returns:
+            set: Set of document IDs for PDFs that were successfully copied
+        """
         pdfs_dir = self.output_dir / "pdfs"
         pdfs_dir.mkdir(exist_ok=True)
 
         pdf_count = 0
+        copied_pdf_ids = set()
+
         for doc in documents:
             if doc['file_type'].lower() == 'pdf':
                 # Try to find the original PDF file
                 doc_meta = self.kb.documents.get(doc['id'])
-                if doc_meta and hasattr(doc_meta, 'filename'):
-                    source_path = Path(doc_meta.filename)
+                if doc_meta and hasattr(doc_meta, 'filepath'):
+                    source_path = Path(doc_meta.filepath)
                     if source_path.exists() and source_path.suffix.lower() == '.pdf':
                         dest_filename = re.sub(r'[^\w\-]', '_', doc['id']) + '.pdf'
                         dest_path = pdfs_dir / dest_filename
                         try:
                             shutil.copy2(source_path, dest_path)
                             pdf_count += 1
+                            copied_pdf_ids.add(doc['id'])
                         except Exception as e:
                             print(f"  Warning: Could not copy {source_path.name}: {e}")
 
         print(f"  Copied {pdf_count} PDF files")
+        return copied_pdf_ids
 
     def _copy_static_assets(self):
         """Copy CSS, JS, and library files."""
@@ -4768,21 +4779,39 @@ footer {
     gap: 5px;
 }
 
-.view-pdf-btn {
+.doc-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.view-btn {
     display: inline-block;
-    margin-top: 10px;
     padding: 8px 16px;
-    background: var(--accent-color);
     color: white;
-    border-radius: 5px;
     text-decoration: none;
+    border-radius: 5px;
     font-size: 0.9em;
     transition: all 0.3s;
 }
 
+.view-pdf-btn {
+    background: var(--accent-color);
+}
+
 .view-pdf-btn:hover {
     background: var(--secondary-color);
-    transform: translateX(5px);
+    transform: translateY(-2px);
+}
+
+.view-source-btn {
+    background: #48bb78;
+}
+
+.view-source-btn:hover {
+    background: #38a169;
+    transform: translateY(-2px);
 }
 
 /* Chunks List */
@@ -7857,6 +7886,9 @@ function createDocCard(doc) {
     const isPDF = doc.file_type.toLowerCase() === 'pdf';
     const tags = doc.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
 
+    // Determine if source file viewing is available
+    const hasSourceFile = doc.file_path_in_wiki && doc.file_path_in_wiki.length > 0;
+
     card.innerHTML = `
         <h3><a href="docs/${safeFilename}">${escapeHtml(doc.title)}</a></h3>
         <div class="doc-card-meta">
@@ -7864,7 +7896,10 @@ function createDocCard(doc) {
             ${doc.total_pages ? ` • ${doc.total_pages} pages` : ''}
         </div>
         <div class="doc-tags">${tags}</div>
-        ${isPDF ? `<a href="pdf-viewer.html?file=${doc.id.replace(/[^\\w\\-]/g, '_')}.pdf" class="view-pdf-btn">📄 View PDF</a>` : ''}
+        <div class="doc-actions">
+            ${isPDF && doc.pdf_available ? `<a href="viewer.html?file=pdfs/${doc.id.replace(/[^\\w\\-]/g, '_')}.pdf&name=${escapeHtml(doc.filename)}&type=pdf" class="view-btn view-pdf-btn">📄 View PDF</a>` : ''}
+            ${hasSourceFile ? `<a href="viewer.html?file=${doc.file_path_in_wiki}&name=${escapeHtml(doc.filename)}&type=${doc.file_type}" class="view-btn view-source-btn">📁 View Source</a>` : ''}
+        </div>
     `;
 
     return card;

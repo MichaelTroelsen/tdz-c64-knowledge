@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.22"
-__version_info__ = (2, 23, 22)
+__version__ = "2.23.23"
+__version_info__ = (2, 23, 23)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,52 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.23 (2026-01-04)
+  ✨ NEW FEATURES: Settings Page + AI Article Descriptions
+
+  User Request:
+  - "add article descriptions with AI"
+  - "please make a settings page for showing the path to documents, json file and other stuff"
+
+  New Features:
+
+  **1. Settings Page (wiki_export.py:3879-4109)**
+  - New settings.html page showing comprehensive configuration information
+  - Displays: Knowledge base statistics (documents, chunks, entities, DB size, wiki size)
+  - Shows: All file paths (data dir, database, wiki dir, JSON files)
+  - Lists: Environment variables (TDZ_DATA_DIR, USE_FTS5, USE_SEMANTIC_SEARCH, LLM_PROVIDER)
+  - Features: Version number and export timestamp
+  - Styled with responsive grid layout for statistics cards
+  - Accessible via main navigation menu
+
+  **2. AI-Powered Article Descriptions (wiki_export.py:9880-9939)**
+  - New _generate_article_description() method using LLM to generate technical descriptions
+  - Creates 2-3 paragraph descriptions explaining C64 concepts for each article
+  - Smart fallback: Template-based descriptions when LLM unavailable
+  - Category-specific fallback templates (HARDWARE, MUSIC, GRAPHICS, PROGRAMMING, TOOLS)
+  - Integrated into article pages with prominent styling (green border, larger font)
+  - Displays after overview section, before related entities
+
+  **3. WikiExporter Init Enhancement (wiki_export.py:38-50)**
+  - Added self.version attribute (imported from version.py)
+  - Added self.export_time attribute (formatted timestamp)
+  - Enables settings page to display version and export time
+
+  Technical Details:
+  - LLM integration uses kb._call_llm() with 300 token limit
+  - Fallback descriptions reference entity type, category, and doc count
+  - Settings page shows real-time statistics and absolute file paths
+  - Environment variables displayed with actual values or "Not set" status
+  - CSS styling uses CSS variables for theme compatibility
+
+  Results:
+  - Settings page provides complete visibility into wiki configuration
+  - Article descriptions improve content quality and context
+  - Graceful degradation when LLM unavailable (template-based fallbacks)
+  - Better user experience with comprehensive documentation
+
+  Files modified: wiki_export.py (lines 38-50, 3879-4109, 9880-9939, 10047-10062, 10114-10126), version.py
+
 v2.23.22 (2026-01-04)
   🐛 BUG FIX + ✨ ENHANCEMENT: View Source for All Documents & Better Code Examples
 

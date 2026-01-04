@@ -36,12 +36,18 @@ class WikiExporter:
     """Exports knowledge base to static HTML wiki."""
 
     def __init__(self, kb: KnowledgeBase, output_dir: str):
+        from version import __version__
+
         self.kb = kb
         self.output_dir = Path(output_dir)
         self.docs_dir = self.output_dir / "docs"
         self.assets_dir = self.output_dir / "assets"
         self.data_dir = self.assets_dir / "data"
         self.files_dir = self.output_dir / "files"  # Directory for actual source files
+
+        # Version and export time
+        self.version = __version__
+        self.export_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
         # Statistics
         self.stats = {
@@ -965,6 +971,9 @@ class WikiExporter:
 
         # Generate file viewer page
         self._generate_file_viewer_html()
+
+        # Generate settings page
+        self._generate_settings_html()
 
     def _generate_index_html(self):
         """Generate main index page."""
@@ -3872,6 +3881,238 @@ class WikiExporter:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(html_content)
         print(f"  Generated: viewer.html")
+
+    def _generate_settings_html(self):
+        """Generate settings/configuration information page."""
+        import os
+        from pathlib import Path
+
+        # Get paths and configuration
+        data_dir = Path(self.kb.data_dir).resolve()
+        db_file = Path(self.kb.db_file).resolve()
+        wiki_dir = Path(self.output_dir).resolve()
+
+        # Get database size
+        db_size_mb = db_file.stat().st_size / (1024 * 1024) if db_file.exists() else 0
+
+        # Get wiki directory size
+        wiki_size_mb = sum(f.stat().st_size for f in wiki_dir.rglob('*') if f.is_file()) / (1024 * 1024)
+
+        # Environment variables
+        env_vars = {
+            'TDZ_DATA_DIR': os.getenv('TDZ_DATA_DIR', 'Not set (using default)'),
+            'USE_FTS5': os.getenv('USE_FTS5', 'Not set'),
+            'USE_SEMANTIC_SEARCH': os.getenv('USE_SEMANTIC_SEARCH', 'Not set'),
+            'LLM_PROVIDER': os.getenv('LLM_PROVIDER', 'Not set'),
+        }
+
+        # Build environment variables HTML
+        env_html = '\n'.join([
+            f'<tr><td class="setting-key">{key}</td><td class="setting-value">{value}</td></tr>'
+            for key, value in env_vars.items()
+        ])
+
+        html_template = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - TDZ C64 Knowledge Base</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        .settings-section {{
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border-left: 4px solid var(--accent-color);
+        }}
+        .settings-section h2 {{
+            margin-top: 0;
+            color: var(--secondary-color);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }}
+        .settings-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }}
+        .settings-table td {{
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }}
+        .setting-key {{
+            font-weight: 600;
+            color: var(--text-color);
+            width: 30%;
+        }}
+        .setting-value {{
+            font-family: 'Courier New', monospace;
+            color: var(--text-muted);
+            word-break: break-all;
+        }}
+        .path-link {{
+            color: var(--accent-color);
+            text-decoration: none;
+        }}
+        .path-link:hover {{
+            text-decoration: underline;
+        }}
+        .stat-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }}
+        .stat-card {{
+            background: var(--bg-color);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }}
+        .stat-value {{
+            font-size: 2em;
+            font-weight: bold;
+            color: var(--accent-color);
+        }}
+        .stat-label {{
+            color: var(--text-muted);
+            font-size: 0.9em;
+            margin-top: 5px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 TDZ C64 Knowledge Base</h1>
+            <p class="subtitle">Settings & Configuration</p>
+        </header>
+
+        {{NAV}}
+
+        <main>
+            <div class="settings-section">
+                <h2>📊 Knowledge Base Statistics</h2>
+                <div class="stat-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">{self.stats['documents']}</div>
+                        <div class="stat-label">Documents</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{self.stats['chunks']}</div>
+                        <div class="stat-label">Chunks</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{self.stats['entities']}</div>
+                        <div class="stat-label">Entities</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{db_size_mb:.1f} MB</div>
+                        <div class="stat-label">Database Size</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{wiki_size_mb:.1f} MB</div>
+                        <div class="stat-label">Wiki Size</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h2>📁 File Paths</h2>
+                <table class="settings-table">
+                    <tr>
+                        <td class="setting-key">Data Directory</td>
+                        <td class="setting-value">{html.escape(str(data_dir))}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Database File</td>
+                        <td class="setting-value">{html.escape(str(db_file))}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Wiki Directory</td>
+                        <td class="setting-value">{html.escape(str(wiki_dir))}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Documents JSON</td>
+                        <td class="setting-value">{html.escape(str(wiki_dir / 'assets' / 'data' / 'documents.json'))}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Entities JSON</td>
+                        <td class="setting-value">{html.escape(str(wiki_dir / 'assets' / 'data' / 'entities.json'))}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Articles JSON</td>
+                        <td class="setting-value">{html.escape(str(wiki_dir / 'assets' / 'data' / 'articles.json'))}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="settings-section">
+                <h2>⚙️ Environment Variables</h2>
+                <table class="settings-table">
+                    {env_html}
+                </table>
+            </div>
+
+            <div class="settings-section">
+                <h2>🔧 Wiki Export Information</h2>
+                <table class="settings-table">
+                    <tr>
+                        <td class="setting-key">Export Version</td>
+                        <td class="setting-value">v{self.version}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Export Date</td>
+                        <td class="setting-value">{self.export_time}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Python Version</td>
+                        <td class="setting-value">{os.sys.version.split()[0]}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="settings-section">
+                <h2>📚 Features Enabled</h2>
+                <table class="settings-table">
+                    <tr>
+                        <td class="setting-key">FTS5 Search</td>
+                        <td class="setting-value">{'✅ Enabled' if os.getenv('USE_FTS5') == '1' else '❌ Disabled'}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Semantic Search</td>
+                        <td class="setting-value">{'✅ Enabled' if os.getenv('USE_SEMANTIC_SEARCH') == '1' else '❌ Disabled'}</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Entity Extraction</td>
+                        <td class="setting-value">✅ Enabled</td>
+                    </tr>
+                    <tr>
+                        <td class="setting-key">Article Generation</td>
+                        <td class="setting-value">✅ Enabled</td>
+                    </tr>
+                </table>
+            </div>
+        </main>
+
+        <footer>
+            <p>TDZ C64 Knowledge Base v{self.version}</p>
+        </footer>
+    </div>
+
+    <script src="assets/js/enhancements.js"></script>
+</body>
+</html>
+"""
+        # Replace template placeholders with actual content
+        html_content = html_template.replace("{NAV}", self._get_main_nav())
+
+        filepath = self.output_dir / "settings.html"
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"  Generated: settings.html")
 
     def _copy_pdfs(self, documents: List[Dict]) -> set:
         """Copy PDF files to wiki directory.
@@ -9642,6 +9883,67 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         related.sort(key=lambda x: (x['overlap_ratio'], x['doc_count']), reverse=True)
         return related[:max_related]
 
+    def _generate_article_description(self, title: str, category: str, entity: Dict, related_topics: List[Dict]) -> str:
+        """Generate AI-powered article description."""
+        try:
+            # Build context from entity and related topics
+            context_parts = [
+                f"Entity: {title}",
+                f"Category: {category}",
+                f"Type: {entity.get('entity_type', 'unknown')}",
+                f"Appears in {entity['doc_count']} documents",
+            ]
+
+            # Add related topics for context
+            if related_topics:
+                related_names = [r['text'] for r in related_topics[:5]]
+                context_parts.append(f"Related topics: {', '.join(related_names)}")
+
+            context = '\n'.join(context_parts)
+
+            # Create prompt for article description
+            prompt = f"""Write a concise 2-3 paragraph technical description for a Commodore 64 knowledge base article about "{title}".
+
+Context:
+{context}
+
+The description should:
+1. Explain what {title} is in the context of the Commodore 64
+2. Describe its main features, capabilities, or uses
+3. Mention its technical significance or common applications
+4. Be written for programmers and C64 enthusiasts
+5. Be factual and technical, not promotional
+
+Write ONLY the description paragraphs, no title or introduction."""
+
+            # Try to use LLM if available
+            description = self.kb._call_llm(prompt, max_tokens=300)
+
+            if description and len(description.strip()) > 50:
+                return description.strip()
+            else:
+                # Fallback description
+                return self._generate_fallback_description(title, category, entity)
+
+        except Exception as e:
+            print(f"  Warning: Could not generate AI description for {title}: {e}")
+            return self._generate_fallback_description(title, category, entity)
+
+    def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:
+        """Generate a basic description when AI is not available."""
+        entity_type = entity.get('entity_type', 'component')
+        doc_count = entity['doc_count']
+
+        descriptions = {
+            'HARDWARE': f"{title} is a hardware component of the Commodore 64 computer system. This {entity_type} is referenced in {doc_count} documents in the knowledge base, indicating its importance in C64 programming and hardware documentation.",
+            'MUSIC': f"{title} relates to music and sound capabilities of the Commodore 64. This {entity_type} appears in {doc_count} documents covering SID chip programming, music composition tools, and audio features.",
+            'GRAPHICS': f"{title} is related to the graphics capabilities of the Commodore 64. This {entity_type} is documented in {doc_count} sources covering VIC-II programming, display modes, and visual effects.",
+            'PROGRAMMING': f"{title} is a programming concept or tool for the Commodore 64. This {entity_type} appears in {doc_count} documents covering assembly language, BASIC programming, and system routines.",
+            'TOOLS': f"{title} is a development tool or utility for Commodore 64 programming. This {entity_type} is referenced in {doc_count} documents covering development environments, assemblers, and productivity tools.",
+        }
+
+        return descriptions.get(category, f"{title} is documented in {doc_count} sources in the C64 knowledge base.")
+
     def _extract_code_examples(self, entity: Dict, max_examples: int = 5) -> List[Dict]:
         """Extract code examples from documents mentioning this entity."""
         examples = []
@@ -9748,6 +10050,9 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         word_count = total_words
 
         # Build overview section
+        # Generate AI description
+        ai_description = self._generate_article_description(title, category, main_entity, related)
+
         overview_html = f"""
         <div class="article-overview">
             <h2>Overview</h2>
@@ -9755,6 +10060,10 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             <p><strong>Referenced in:</strong> {main_entity['doc_count']} documents</p>
             <p><strong>Entity Type:</strong> {html.escape(main_entity['type'])}</p>
             <p><strong>Confidence:</strong> {(main_entity['confidence'] * 100):.0f}%</p>
+        </div>
+
+        <div class="article-description">
+            {html.escape(ai_description).replace(chr(10), '<br><br>')}
         </div>
         """
 
@@ -9807,6 +10116,19 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             border-radius: 8px;
             margin: 20px 0;
             border-left: 4px solid var(--accent-color);
+        }}
+        .article-description {{
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 8px;
+            margin: 20px 0;
+            line-height: 1.8;
+            font-size: 1.05em;
+            color: var(--text-color);
+            border-left: 4px solid var(--secondary-color);
+        }}
+        .article-description p {{
+            margin: 15px 0;
         }}
         .article-section {{
             margin: 30px 0;

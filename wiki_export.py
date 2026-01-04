@@ -3826,23 +3826,33 @@ class WikiExporter:
             } else if (fileType === 'markdown' || fileType === 'md') {
                 // Fetch and render markdown
                 fetch(filePath)
-                    .then(response => response.text())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        return response.text();
+                    })
                     .then(text => {
                         container.innerHTML = `<div class="markdown-viewer">${marked.parse(text)}</div>`;
                     })
                     .catch(error => {
-                        container.innerHTML = `<div class="error-message">Error loading markdown file: ${error.message}</div>`;
+                        container.innerHTML = `<div class="error-message">Error loading markdown file from "${filePath}": ${error.message}</div>`;
                     });
             } else {
                 // Display as text
                 fetch(filePath)
-                    .then(response => response.text())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        return response.text();
+                    })
                     .then(text => {
                         const escaped = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
                         container.innerHTML = `<div class="text-viewer">${escaped}</div>`;
                     })
                     .catch(error => {
-                        container.innerHTML = `<div class="error-message">Error loading file: ${error.message}</div>`;
+                        container.innerHTML = `<div class="error-message">Error loading file from "${filePath}": ${error.message}</div>`;
                     });
             }
         } else {
@@ -3856,7 +3866,7 @@ class WikiExporter:
 """
         # Replace template placeholders with actual content
         html_content = html_template.replace("{NAV}", self._get_main_nav())
-        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box("entities"))
+        html_content = html_content.replace("{ABOUT}", self._get_unified_about_box("viewer"))
 
         filepath = self.output_dir / "viewer.html"
         with open(filepath, 'w', encoding='utf-8') as f:

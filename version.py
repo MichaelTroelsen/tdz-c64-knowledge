@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.20"
-__version_info__ = (2, 23, 20)
+__version__ = "2.23.21"
+__version_info__ = (2, 23, 21)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,34 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.21 (2026-01-04)
+  🐛 BUG FIX: File Viewer Error Handling & About Box
+
+  Issues Fixed:
+  - "Failed to fetch" errors when viewing markdown/text files in viewer.html
+  - Wrong about box displayed (showed "About Entities" instead of "About File Viewer")
+  - Fetch errors didn't provide file path context for debugging
+
+  Changes:
+  - Added HTTP response validation: Check response.ok before parsing
+  - Better error messages: Now shows file path in error (e.g., "Error loading file from 'files/xyz.md'")
+  - Fixed about box: Changed from "entities" to "viewer" parameter
+  - Enhanced error handling: Throws descriptive errors for HTTP 404/500 responses
+
+  Technical Details:
+  - fetch(filePath).then(response => response.text()) - No validation before
+  - Now: fetch(filePath).then(response => { if (!response.ok) throw new Error(...) })
+  - Error messages now include actual filePath for troubleshooting
+  - About box now correctly describes file viewer capabilities
+
+  Impact:
+  - Better error visibility when files are missing or inaccessible
+  - Correct about box showing "About File Viewer" with format support info
+  - Easier debugging with file paths in error messages
+  - Proper HTTP status code handling (404, 500, etc.)
+
+  Files modified: wiki_export.py (lines 3828-3856, 3869)
+
 v2.23.20 (2026-01-04)
   🐛 BUG FIX + ✨ ENHANCEMENT: PDF Viewer and Source File Viewing
 

@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.23"
-__version_info__ = (2, 23, 23)
+__version__ = "2.23.24"
+__version_info__ = (2, 23, 24)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,78 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.24 (2026-01-04)
+  ✨ ENHANCEMENT: Extended Articles with Technical Specifications & Visual Content
+
+  User Request:
+  - "show me a few more articles. Please add way more text and some pictures."
+
+  Enhancements:
+
+  **1. Extended AI Descriptions (3x more content)**
+  - Increased from 2-3 paragraphs (~150 words) to 5-6 comprehensive paragraphs (~400+ words)
+  - Structured prompt with specific sections:
+    * Introduction: Define entity, manufacturer/origin, primary purpose
+    * Technical Architecture: Design, components, registers, memory mapping
+    * Features and Capabilities: Main features, use cases, programming techniques
+    * Historical Context: Importance, common applications, significance
+  - Increased max_tokens from 300 to 1000
+  - Increased temperature from 0.3 to 0.5 for more detailed responses
+  - Now includes specific technical details (memory addresses, register names, specifications)
+
+  **2. Technical Specifications Section**
+  - New _generate_technical_specs() method with hardware-specific content
+  - Professional memory map tables (register addresses and functions)
+  - Feature lists with visual checkmarks
+  - Category-aware content for SID, VIC-II, Sprite, and other hardware
+  - Responsive 2-column grid layout
+
+  **3. Professional Visual Design**
+  - Specification cards with colored borders and backgrounds
+  - Tables with styled headers and alternating row colors
+  - Checkmark bullet lists for feature lists
+  - Responsive grid layout (auto-fits 350px+ cards)
+  - Theme-compatible CSS using CSS variables
+
+  Example - SID Article Content:
+
+  **Before (v2.23.23):**
+  - 2-3 paragraphs describing SID basics
+  - ~150 words total
+  - No specifications
+
+  **After (v2.23.24):**
+  - Paragraph 1: Introduction - MOS Technology, 1982, revolutionary audio capabilities
+  - Paragraph 2: Architecture - Memory mapping $D400-$D41F, 3 voices, 4-bit DAC
+  - Paragraph 3: Features - Oscillators, waveforms, ADSR, filters, ring mod, sync
+  - Paragraph 4: Capabilities - Programming techniques, modulation, sound synthesis
+  - Paragraph 5: History - Chiptune genre, demoscene, iconic game soundtracks
+  - Paragraph 6: Legacy - Modern preservation, continued exploration
+  - Memory Map Table: Voice 1 registers ($D400-$D406 with functions)
+  - Audio Features: 3 voices, 4 waveforms, ADSR, multi-mode filter, ring mod, sync
+  - ~400+ words with professional specifications
+
+  Technical Details:
+  - wiki_export.py:9905-9925 - Enhanced AI description generation
+  - wiki_export.py:9937-10032 - Technical specifications generator
+  - wiki_export.py:10287-10356 - Professional CSS styling
+  - wiki_export.py:10173, 10326 - Integration into article HTML
+
+  Results:
+  - 3x more content per article
+  - Professional technical documentation quality
+  - Visual specification tables and feature lists
+  - Comprehensive coverage: architecture, features, history, legacy
+  - Better educational and reference value
+
+  Impact:
+  - Articles transformed from basic wiki pages to professional technical documentation
+  - Specific technical details (memory addresses, register layouts, feature specs)
+  - Visual elements improve readability and usability
+  - Suitable for serious C64 programming reference
+
+  Files modified: wiki_export.py (lines 9905-9925, 9937-10032, 10173, 10287-10356, 10326), version.py
+
 v2.23.23 (2026-01-04)
   ✨ NEW FEATURES: Settings Page + AI Article Descriptions
 

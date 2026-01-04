@@ -11141,6 +11141,740 @@ Write ONLY the article content, no title or introduction phrase."""
                 'description': 'ROM character sets and custom font configuration'
             })
 
+        # ADSR Envelope Diagram
+        if 'ADSR' in title_upper or ('SOUND' in title_upper and 'ENVELOPE' in title_upper):
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'SID ADSR Envelope',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'Attack - Decay - Sustain - Release',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Draw ADSR envelope shape
+            import numpy as np
+
+            # Time points for ADSR phases
+            attack_time = 2
+            decay_time = 1.5
+            sustain_time = 3
+            release_time = 2
+
+            # Amplitude values
+            peak_level = 7
+            sustain_level = 5
+
+            # Create envelope curve
+            x_vals = []
+            y_vals = []
+
+            # Attack phase (0 to peak)
+            for i in range(20):
+                t = i / 20 * attack_time
+                x_vals.append(1 + t)
+                y_vals.append(3 + (i / 20) * peak_level)
+
+            # Decay phase (peak to sustain)
+            for i in range(15):
+                t = i / 15 * decay_time
+                x_vals.append(1 + attack_time + t)
+                y_vals.append(3 + peak_level - (i / 15) * (peak_level - sustain_level))
+
+            # Sustain phase (hold at sustain level)
+            for i in range(30):
+                t = i / 30 * sustain_time
+                x_vals.append(1 + attack_time + decay_time + t)
+                y_vals.append(3 + sustain_level)
+
+            # Release phase (sustain to 0)
+            for i in range(20):
+                t = i / 20 * release_time
+                x_vals.append(1 + attack_time + decay_time + sustain_time + t)
+                y_vals.append(3 + sustain_level - (i / 20) * sustain_level)
+
+            # Plot envelope
+            ax.plot(x_vals, y_vals, color='#4A90E2', linewidth=3)
+            ax.fill_between(x_vals, 3, y_vals, alpha=0.3, color='#4A90E2')
+
+            # Label phases
+            phase_labels = [
+                (1 + attack_time/2, 10.5, 'ATTACK', '#E63946'),
+                (1 + attack_time + decay_time/2, 10.5, 'DECAY', '#F4A261'),
+                (1 + attack_time + decay_time + sustain_time/2, 10.5, 'SUSTAIN', '#50C878'),
+                (1 + attack_time + decay_time + sustain_time + release_time/2, 10.5, 'RELEASE', '#9D4EDD'),
+            ]
+
+            for x, y, label, color in phase_labels:
+                ax.text(x, y, label, ha='center', fontsize=10, fontweight='bold', color=color)
+                ax.axvline(x, ymin=0.25, ymax=0.87, linestyle='--', alpha=0.3, color=color)
+
+            # SID registers
+            y_reg = 1.5
+            ax.text(7, y_reg + 0.5, 'SID ADSR Control Registers:', ha='center', fontsize=11, fontweight='bold')
+
+            registers = [
+                ('$D405/$D40C/$D413', 'Attack/Decay', 'High nibble = Attack, Low nibble = Decay'),
+                ('$D406/$D40D/$D414', 'Sustain/Release', 'High nibble = Sustain, Low nibble = Release'),
+            ]
+
+            for i, (addr, name, desc) in enumerate(registers):
+                y = y_reg - (i * 0.4)
+                ax.text(7, y, f'{addr}: {name} - {desc}', ha='center', fontsize=9, family='monospace')
+
+            filename = 'adsr_envelope.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'ADSR Envelope',
+                'description': 'SID sound envelope visualization with Attack, Decay, Sustain, Release phases'
+            })
+
+        # Bitmap Mode Memory Layout
+        if 'BITMAP' in title_upper or 'HIRES' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'C64 Bitmap Mode Memory Layout',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, 'Hi-Resolution 320x200 (8000 bytes bitmap + 1000 bytes color)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Bitmap memory
+            y_start = 11
+            bitmap_sections = [
+                ('Bitmap Data', '8000 bytes', '$2000-$3FFF (typical)', '#4A90E2'),
+                ('320 x 200 pixels', '40 x 25 chars', '8 bytes per character', '#4A90E2'),
+            ]
+
+            rect = FancyBboxPatch((1, y_start - 0.8), 10, 1.5,
+                                 boxstyle="round,pad=0.1",
+                                 facecolor='#4A90E2', edgecolor='black', linewidth=2)
+            ax.add_patch(rect)
+            ax.text(6, y_start - 0.2, 'Bitmap Data (8000 bytes)', ha='center', va='center',
+                   fontsize=12, fontweight='bold', color='white')
+            ax.text(6, y_start - 0.6, '$2000-$3FFF (typical location)', ha='center', va='center',
+                   fontsize=10, color='white')
+
+            # Color RAM
+            y_color = 8.5
+            rect = FancyBboxPatch((1, y_color - 0.5), 10, 0.9,
+                                 boxstyle="round,pad=0.1",
+                                 facecolor='#50C878', edgecolor='black', linewidth=2)
+            ax.add_patch(rect)
+            ax.text(6, y_color, 'Screen RAM (1000 bytes) - $0400-$07E7', ha='center', va='center',
+                   fontsize=11, fontweight='bold', color='white')
+            ax.text(6, y_color - 0.3, 'High nibble = foreground color, Low nibble = background color',
+                   ha='center', va='center', fontsize=9, color='white')
+
+            # Pixel format
+            y_pixel = 6.5
+            ax.text(6, y_pixel + 0.5, 'Pixel Format (Each Character Cell = 8x8 pixels):', ha='center', fontsize=11, fontweight='bold')
+
+            pixel_info = [
+                'Each byte = 8 pixels (1 bit per pixel)',
+                'Bit 7 = leftmost pixel, Bit 0 = rightmost pixel',
+                '1 = foreground color, 0 = background color',
+                'Total: 40 chars wide x 25 chars high = 1000 character cells',
+            ]
+
+            for i, info in enumerate(pixel_info):
+                y = y_pixel - (i * 0.4)
+                ax.text(6, y, f'• {info}', ha='center', fontsize=9)
+
+            # VIC-II configuration
+            note_y = 3.5
+            note_rect = FancyBboxPatch((1, note_y - 1.2), 10, 2.2,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.7, 'Enabling Bitmap Mode:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y + 0.3, 'LDA $D011 : ORA #$20 : STA $D011  ; Set bit 5 = bitmap mode',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.1, 'LDA $D018 : ORA #$08 : STA $D018  ; Set bitmap at $2000',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.5, 'BASIC: POKE 53265,PEEK(53265) OR 32',
+                   ha='center', fontsize=9, style='italic')
+            ax.text(6, note_y - 0.9, 'BASIC: POKE 53272,PEEK(53272) OR 8',
+                   ha='center', fontsize=9, style='italic')
+
+            filename = 'bitmap_mode.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Bitmap Mode Layout',
+                'description': 'Hi-res bitmap mode memory organization and VIC-II configuration'
+            })
+
+        # Screen Memory Layout
+        if 'SCREEN' in title_upper and 'BITMAP' not in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'C64 Screen Memory Layout',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, 'Character Mode (40x25 = 1000 bytes)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Screen RAM
+            y_start = 11
+            rect = FancyBboxPatch((1, y_start - 0.8), 10, 1.5,
+                                 boxstyle="round,pad=0.1",
+                                 facecolor='#4A90E2', edgecolor='black', linewidth=2)
+            ax.add_patch(rect)
+            ax.text(6, y_start - 0.2, 'Screen RAM (1000 bytes)', ha='center', va='center',
+                   fontsize=12, fontweight='bold', color='white')
+            ax.text(6, y_start - 0.6, '$0400-$07E7 (default)', ha='center', va='center',
+                   fontsize=10, color='white')
+
+            # Color RAM
+            y_color = 8.8
+            rect = FancyBboxPatch((1, y_color - 0.5), 10, 0.9,
+                                 boxstyle="round,pad=0.1",
+                                 facecolor='#50C878', edgecolor='black', linewidth=2)
+            ax.add_patch(rect)
+            ax.text(6, y_color, 'Color RAM (1000 bytes) - $D800-$DBE7', ha='center', va='center',
+                   fontsize=11, fontweight='bold', color='white')
+            ax.text(6, y_color - 0.3, 'Character color (low nibble only, 0-15)',
+                   ha='center', va='center', fontsize=9, color='white')
+
+            # Screen layout
+            y_layout = 7
+            ax.text(6, y_layout + 0.5, 'Screen Organization:', ha='center', fontsize=11, fontweight='bold')
+
+            layout_info = [
+                '40 columns x 25 rows = 1000 character positions',
+                'Each byte = character code (0-255)',
+                'Row 0: $0400-$0427 (bytes 0-39)',
+                'Row 1: $0428-$044F (bytes 40-79)',
+                '...',
+                'Row 24: $07C0-$07E7 (bytes 960-999)',
+            ]
+
+            for i, info in enumerate(layout_info):
+                y = y_layout - (i * 0.35)
+                ax.text(6, y, info, ha='center', fontsize=9)
+
+            # Addressing formula
+            note_y = 3
+            note_rect = FancyBboxPatch((1, note_y - 1), 10, 1.8,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.5, 'Screen Position Formula:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y + 0.1, 'Address = $0400 + (Row * 40) + Column',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.3, 'Example: Row 5, Column 10 = $0400 + (5*40) + 10 = $04CA',
+                   ha='center', fontsize=9, style='italic')
+            ax.text(6, note_y - 0.7, 'BASIC: POKE 1024 + (Row*40) + Column, CharCode',
+                   ha='center', fontsize=9, style='italic')
+
+            filename = 'screen_layout.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Screen Memory Layout',
+                'description': 'Character mode screen and color RAM organization with addressing'
+            })
+
+        # Raster Beam Timing Diagram
+        if 'RASTER' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'C64 Raster Beam Timing',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'VIC-II Raster Scan: 312 lines (PAL) / 263 lines (NTSC)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Draw raster lines representation
+            y_start = 9.5
+
+            # Visible area
+            visible_rect = FancyBboxPatch((2, y_start - 4), 10, 3.5,
+                                         boxstyle="round,pad=0.05",
+                                         facecolor='#E8F4F8', edgecolor='#4A90E2', linewidth=2)
+            ax.add_patch(visible_rect)
+            ax.text(7, y_start - 2.2, 'Visible Area', ha='center', fontsize=12, fontweight='bold', color='#4A90E2')
+            ax.text(7, y_start - 2.6, '200 raster lines (lines 51-250 PAL)', ha='center', fontsize=9)
+
+            # Border areas
+            top_border = FancyBboxPatch((2, y_start - 0.8), 10, 0.7,
+                                       boxstyle="round,pad=0.05",
+                                       facecolor='#F0F0F0', edgecolor='#666666', linewidth=1)
+            ax.add_patch(top_border)
+            ax.text(7, y_start - 0.45, 'Top Border', ha='center', fontsize=9, color='#666666')
+
+            bottom_border = FancyBboxPatch((2, y_start - 4.8), 10, 0.7,
+                                          boxstyle="round,pad=0.05",
+                                          facecolor='#F0F0F0', edgecolor='#666666', linewidth=1)
+            ax.add_patch(bottom_border)
+            ax.text(7, y_start - 4.45, 'Bottom Border', ha='center', fontsize=9, color='#666666')
+
+            # Raster register info
+            y_reg = 4
+            ax.text(7, y_reg + 0.5, 'Raster Line Register ($D012):', ha='center', fontsize=11, fontweight='bold')
+
+            raster_info = [
+                'Read current raster line: LDA $D012',
+                'Set raster interrupt: STA $D012 (0-255)',
+                'Line 0 = top of screen (in border area)',
+                'Lines 51-250 = visible display area (PAL)',
+                'Use with $D011 bit 7 for lines 256-312',
+            ]
+
+            for i, info in enumerate(raster_info):
+                y = y_reg - (i * 0.35)
+                ax.text(7, y, f'• {info}', ha='center', fontsize=9)
+
+            # Raster interrupt example
+            note_y = 1.2
+            note_rect = FancyBboxPatch((1, note_y - 0.8), 12, 1.5,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(7, note_y + 0.3, 'Raster Split Example (change border color at line 128):', ha='center', fontsize=10, fontweight='bold')
+            ax.text(7, note_y - 0.1, 'LDA #128 : STA $D012  ; Trigger at line 128',
+                   ha='center', fontsize=8, family='monospace')
+            ax.text(7, note_y - 0.4, 'IRQ: INC $D020 : ASL $D019 : RTI  ; Change border, acknowledge, return',
+                   ha='center', fontsize=8, family='monospace')
+
+            filename = 'raster_timing.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Raster Beam Timing',
+                'description': 'VIC-II raster scan timing, line numbering, and interrupt usage'
+            })
+
+        # Multicolor Mode Pixel Layout
+        if 'MULTICOLOR' in title_upper or 'MULTI COLOR' in title_upper or 'MULTI-COLOR' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'C64 Multicolor Mode',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, 'Character Mode: 4 colors, 160x200 resolution (4x8 pixels per char)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Pixel bit pattern
+            y_start = 11
+            ax.text(6, y_start, 'Bit Pair Encoding (2 bits per pixel):', ha='center', fontsize=11, fontweight='bold')
+
+            # Create visual representation of bit pairs
+            bit_patterns = [
+                ('00', 'Background ($D021)', '#000000', 'white'),
+                ('01', 'Upper Color RAM', '#FF0000', 'white'),
+                ('10', 'Lower Color RAM', '#00FF00', 'black'),
+                ('11', 'Character Color', '#0000FF', 'white'),
+            ]
+
+            y_bits = y_start - 1
+            for i, (bits, desc, bg_color, text_color) in enumerate(bit_patterns):
+                y = y_bits - (i * 0.8)
+
+                # Bit pattern box
+                rect = FancyBboxPatch((2, y - 0.3), 2, 0.6,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor='#F0F0F0', edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(3, y, bits, ha='center', va='center',
+                       fontsize=11, fontweight='bold', family='monospace')
+
+                # Color preview
+                color_rect = FancyBboxPatch((4.5, y - 0.3), 1, 0.6,
+                                           boxstyle="round,pad=0.05",
+                                           facecolor=bg_color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(color_rect)
+
+                # Description
+                ax.text(6, y, f'→ {desc}', va='center', fontsize=9)
+
+            # Character layout
+            y_char = 6
+            ax.text(6, y_char + 0.5, 'Character Cell Layout:', ha='center', fontsize=11, fontweight='bold')
+
+            char_info = [
+                'Each byte = 4 pixels (2 bits per pixel)',
+                'Resolution: 4 pixels wide x 8 pixels high',
+                'Screen: 160x200 effective pixels',
+                'Characters appear "wider" than hi-res mode',
+            ]
+
+            for i, info in enumerate(char_info):
+                y = y_char - (i * 0.35)
+                ax.text(6, y, f'• {info}', ha='center', fontsize=9)
+
+            # Enabling multicolor
+            note_y = 3
+            note_rect = FancyBboxPatch((1, note_y - 1.2), 10, 2.2,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.7, 'Enabling Multicolor Character Mode:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y + 0.3, 'LDA $D016 : ORA #$10 : STA $D016  ; Enable multicolor mode',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.1, 'Set Color RAM high bit (>127) for each multicolor character',
+                   ha='center', fontsize=9, style='italic')
+            ax.text(6, note_y - 0.5, 'BASIC: POKE 53270,PEEK(53270) OR 16',
+                   ha='center', fontsize=9, style='italic')
+            ax.text(6, note_y - 0.9, 'BASIC: POKE 55296+POS,128+COLOR (for each multicolor char)',
+                   ha='center', fontsize=9, style='italic')
+
+            filename = 'multicolor_mode.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Multicolor Mode',
+                'description': 'Multicolor character mode pixel encoding and color sources'
+            })
+
+        # BASIC Memory Map
+        if title_upper == 'BASIC' or 'BASIC PROGRAM' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'BASIC Program Memory Layout',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, 'Commodore 64 BASIC V2',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Memory regions
+            y_start = 11
+            regions = [
+                ('$0800-$9FFF', 'BASIC Program Area', '38 KB', '#50C878'),
+                ('$0800-$0801', 'Start of BASIC (pointer)', '2 bytes', '#4A90E2'),
+                ('$002B-$002C', 'Start of Variables', 'pointer', '#F4A261'),
+                ('$002D-$002E', 'Start of Arrays', 'pointer', '#E76F51'),
+                ('$002F-$0030', 'End of Arrays', 'pointer', '#9D4EDD'),
+                ('$0031-$0032', 'String Storage', 'pointer', '#2A9D8F'),
+            ]
+
+            for i, (addr, name, size, color) in enumerate(regions):
+                y = y_start - (i * 0.9)
+
+                if i == 0:  # Main program area
+                    rect = FancyBboxPatch((1, y - 0.4), 10, 0.8,
+                                         boxstyle="round,pad=0.05",
+                                         facecolor=color, edgecolor='black', linewidth=2)
+                else:  # Pointers
+                    rect = FancyBboxPatch((1, y - 0.3), 10, 0.6,
+                                         boxstyle="round,pad=0.05",
+                                         facecolor=color, edgecolor='black', linewidth=1.5)
+
+                ax.add_patch(rect)
+                ax.text(6, y, f'{addr}: {name} ({size})', ha='center', va='center',
+                       fontsize=10 if i == 0 else 9, fontweight='bold', color='white')
+
+            # BASIC pointers
+            y_info = 4
+            ax.text(6, y_info + 0.5, 'Important BASIC Pointers:', ha='center', fontsize=11, fontweight='bold')
+
+            pointer_info = [
+                '$002B-$002C (43-44): Start of variables',
+                '$002D-$002E (45-46): Start of arrays',
+                '$0037-$0038 (55-56): Bottom of string space',
+                '$0039-$003A (57-58): Top of memory for BASIC',
+            ]
+
+            for i, info in enumerate(pointer_info):
+                y = y_info - (i * 0.35)
+                ax.text(6, y, info, ha='center', fontsize=9, family='monospace')
+
+            # BASIC commands
+            note_y = 1.5
+            note_rect = FancyBboxPatch((1, note_y - 0.8), 10, 1.5,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.3, 'Useful BASIC Commands:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y - 0.1, 'FRE(0) - Returns free memory in bytes',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.4, 'CLR - Clears all variables',
+                   ha='center', fontsize=9, family='monospace')
+
+            filename = 'basic_memory.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'BASIC Memory Layout',
+                'description': 'BASIC program area and variable storage pointers'
+            })
+
+        # Kernal Jump Table
+        if 'KERNAL' in title_upper or 'KERNEL' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 11))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 13)
+            ax.axis('off')
+
+            ax.text(7, 12.5, 'KERNAL Jump Table',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 12, 'ROM Routines ($FF81-$FFF5)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Common KERNAL routines
+            y_start = 11
+            routines = [
+                ('$FFD2', 'CHROUT', 'Output character to screen', '#4A90E2'),
+                ('$FFE4', 'GETIN', 'Get character from keyboard', '#50C878'),
+                ('$FFCF', 'CHRIN', 'Input character from channel', '#E76F51'),
+                ('$FFD5', 'LOAD', 'Load file from device', '#9D4EDD'),
+                ('$FFD8', 'SAVE', 'Save file to device', '#F4A261'),
+                ('$FFBA', 'SETLFS', 'Set logical file parameters', '#2A9D8F'),
+                ('$FFBD', 'SETNAM', 'Set filename parameters', '#4ECDC4'),
+                ('$FFC0', 'OPEN', 'Open logical file', '#E63946'),
+                ('$FFC3', 'CLOSE', 'Close logical file', '#E76F51'),
+                ('$FFC6', 'CHKIN', 'Set input channel', '#4A90E2'),
+                ('$FFC9', 'CHKOUT', 'Set output channel', '#50C878'),
+                ('$FFCC', 'CLRCHN', 'Clear I/O channels', '#9D4EDD'),
+            ]
+
+            for i, (addr, name, desc, color) in enumerate(routines):
+                row = i // 2
+                col = i % 2
+                x = 1.5 + (col * 5.5)
+                y = y_start - (row * 0.65)
+
+                rect = FancyBboxPatch((x, y - 0.25), 5, 0.5,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1)
+                ax.add_patch(rect)
+                ax.text(x + 0.8, y, addr, va='center',
+                       fontsize=9, fontweight='bold', color='white', family='monospace')
+                ax.text(x + 1.8, y, f'{name}:', va='center',
+                       fontsize=9, fontweight='bold', color='white')
+                ax.text(x + 2.5, y, desc, va='center',
+                       fontsize=8, color='white')
+
+            # Usage example
+            note_y = 2
+            note_rect = FancyBboxPatch((1, note_y - 1), 12, 1.8,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(7, note_y + 0.5, 'CHROUT Example (print "A" to screen):', ha='center', fontsize=10, fontweight='bold')
+            ax.text(7, note_y + 0.1, 'LDA #65   ; ASCII code for "A"',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(7, note_y - 0.3, 'JSR $FFD2 ; Call CHROUT',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(7, note_y - 0.7, 'BASIC equivalent: PRINT CHR$(65)',
+                   ha='center', fontsize=9, style='italic')
+
+            filename = 'kernal_jumptable.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'KERNAL Jump Table',
+                'description': 'Common KERNAL ROM routines for I/O and file operations'
+            })
+
+        # User Port Pinout
+        if 'USER PORT' in title_upper or 'USERPORT' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'C64 User Port Pinout',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, '24-pin Edge Connector (CIA2 + Serial Bus)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # User port pins
+            y_start = 11
+            pins = [
+                ('Pin 1', 'GND', 'Ground', '#666666'),
+                ('Pin 2', '+5V', 'Power (+5 volts)', '#E63946'),
+                ('Pin 3', '/RESET', 'Reset (active low)', '#F4A261'),
+                ('Pin 4-11', 'PB0-PB7', 'CIA2 Port B (Data)', '#4A90E2'),
+                ('Pin 12', 'GND', 'Ground', '#666666'),
+                ('Pin C', 'PB0', 'CIA2 Port B bit 0', '#4A90E2'),
+                ('Pin D', 'PB1', 'CIA2 Port B bit 1', '#4A90E2'),
+                ('Pin E', 'PB2', 'CIA2 Port B bit 2', '#4A90E2'),
+                ('Pin F', 'PB3', 'CIA2 Port B bit 3', '#4A90E2'),
+                ('Pin H', 'PB4', 'CIA2 Port B bit 4', '#4A90E2'),
+                ('Pin J', 'PB5', 'CIA2 Port B bit 5', '#4A90E2'),
+                ('Pin K', 'PB6', 'CIA2 Port B bit 6', '#4A90E2'),
+                ('Pin L', 'PB7', 'CIA2 Port B bit 7', '#4A90E2'),
+                ('Pin M', 'PA2', 'CIA2 Port A bit 2', '#50C878'),
+                ('Pin N', 'GND', 'Ground', '#666666'),
+            ]
+
+            # Show first 8 pins
+            for i in range(min(8, len(pins))):
+                pin, signal, desc, color = pins[i]
+                y = y_start - (i * 0.7)
+                rect = FancyBboxPatch((1, y - 0.3), 10, 0.55,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(6, y, f'{pin}: {signal} - {desc}', ha='center', va='center',
+                       fontsize=9, fontweight='bold', color='white')
+
+            # CIA2 registers
+            y_reg = 4.5
+            ax.text(6, y_reg + 0.5, 'CIA2 User Port Registers:', ha='center', fontsize=11, fontweight='bold')
+
+            reg_info = [
+                '$DD00 (56576): Port A data register',
+                '$DD01 (56577): Port B data register (8 data pins)',
+                '$DD02 (56578): Port A direction (0=input, 1=output)',
+                '$DD03 (56579): Port B direction (0=input, 1=output)',
+            ]
+
+            for i, info in enumerate(reg_info):
+                y = y_reg - (i * 0.35)
+                ax.text(6, y, info, ha='center', fontsize=9, family='monospace')
+
+            # Example
+            note_y = 1.8
+            note_rect = FancyBboxPatch((1, note_y - 0.8), 10, 1.5,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.3, 'Output Example (set all Port B pins high):', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y - 0.1, 'LDA #$FF : STA $DD03  ; Set Port B as output',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.4, 'LDA #$FF : STA $DD01  ; Set all pins high',
+                   ha='center', fontsize=9, family='monospace')
+
+            filename = 'user_port.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'User Port Pinout',
+                'description': '24-pin edge connector with CIA2 port access for expansion'
+            })
+
+        # Datasette Tape Format
+        if 'DATASETTE' in title_upper or 'TAPE' in title_upper or 'CASSETTE' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'C64 Datasette Tape Format',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, 'Cassette Data Storage',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Tape structure
+            y_start = 11
+            tape_sections = [
+                ('Leader Tone', '2 seconds', 'Constant signal for sync', '#4A90E2'),
+                ('Sync Pattern', '~9000 pulses', 'Synchronization bytes', '#50C878'),
+                ('Data Block', 'Variable', 'Program/data bytes', '#E76F51'),
+                ('Checksum', '1 byte', 'Data verification', '#F4A261'),
+                ('Trailer', 'Short pause', 'End of block marker', '#9D4EDD'),
+            ]
+
+            for i, (name, duration, desc, color) in enumerate(tape_sections):
+                y = y_start - (i * 0.9)
+                rect = FancyBboxPatch((1, y - 0.35), 10, 0.7,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(6, y + 0.1, name, ha='center', va='center',
+                       fontsize=10, fontweight='bold', color='white')
+                ax.text(6, y - 0.15, f'{duration} - {desc}', ha='center', va='center',
+                       fontsize=8, color='white')
+
+            # Data encoding
+            y_encode = 6.5
+            ax.text(6, y_encode + 0.5, 'Pulse Encoding:', ha='center', fontsize=11, fontweight='bold')
+
+            encode_info = [
+                'Short pulse (~296 µs) = 0 bit',
+                'Medium pulse (~440 µs) = 1 bit',
+                'Long pulse (~672 µs) = End marker',
+                'Tape speed: 300 baud (300 bits/second)',
+            ]
+
+            for i, info in enumerate(encode_info):
+                y = y_encode - (i * 0.35)
+                ax.text(6, y, f'• {info}', ha='center', fontsize=9)
+
+            # BASIC commands
+            note_y = 3.5
+            note_rect = FancyBboxPatch((1, note_y - 1.2), 10, 2.2,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.7, 'BASIC Tape Commands:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y + 0.3, 'LOAD - Load program from tape',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.1, 'SAVE "filename" - Save program to tape',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.5, 'VERIFY - Compare tape to memory',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.9, 'Control register: $01 (bit 5 = motor, bits 3-4 = read/write)',
+                   ha='center', fontsize=8, style='italic')
+
+            filename = 'datasette_format.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Datasette Tape Format',
+                'description': 'Cassette tape data structure and pulse encoding'
+            })
+
         return diagrams
 
     def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:

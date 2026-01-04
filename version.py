@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.32"
-__version_info__ = (2, 23, 32)
+__version__ = "2.23.33"
+__version_info__ = (2, 23, 33)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,126 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.33 (2026-01-04)
+  🎨 MAJOR ENHANCEMENT: 9 Additional Diagrams for Existing Articles
+
+  User Request:
+  - "add more diagrams to existing articles"
+
+  New Diagrams Created (9 comprehensive visualizations):
+
+  **1. ADSR Envelope (adsr_envelope.png - 156K)**
+  - Attack-Decay-Sustain-Release curve visualization
+  - Phase-by-phase breakdown with color coding
+  - SID register documentation ($D405-$D406 for 3 voices)
+  - Visual envelope shape showing amplitude over time
+
+  **2. Bitmap Mode Layout (bitmap_mode.png - 138K)**
+  - Hi-res 320x200 pixel mode (8000 bytes bitmap data)
+  - Screen RAM color configuration (1000 bytes)
+  - Pixel format documentation (8 pixels per byte)
+  - VIC-II setup code (assembly + BASIC)
+  - Memory location: $2000-$3FFF typical
+
+  **3. Screen Memory Layout (screen_layout.png - 129K)**
+  - Character mode 40x25 organization
+  - Screen RAM ($0400-$07E7) + Color RAM ($D800-$DBE7)
+  - Addressing formula: $0400 + (Row * 40) + Column
+  - Row-by-row memory map
+  - BASIC POKE examples
+
+  **4. Raster Beam Timing (raster_timing.png - 104K)**
+  - VIC-II raster scan: 312 lines (PAL) / 263 lines (NTSC)
+  - Visible area lines 51-250 (200 lines)
+  - Top/bottom border visualization
+  - Raster interrupt register ($D012)
+  - Raster split example code
+
+  **5. Multicolor Mode (multicolor_mode.png - 140K)**
+  - 160x200 resolution, 4 colors per character
+  - Bit pair encoding (00/01/10/11)
+  - Color source visualization
+  - Character cell layout (4x8 pixels)
+  - VIC-II enable code ($D016)
+
+  **6. BASIC Memory Map (basic_memory.png - 115K)**
+  - Program area $0800-$9FFF (38 KB)
+  - Variable storage pointers ($002B-$0032)
+  - Start of BASIC, variables, arrays, strings
+  - FRE(0) and CLR commands
+  - Complete memory organization
+
+  **7. KERNAL Jump Table (kernal_jumptable.png - 172K)**
+  - 12 common ROM routines ($FF81-$FFF5)
+  - CHROUT, GETIN, CHRIN, LOAD, SAVE
+  - File operations: OPEN, CLOSE, SETLFS, SETNAM
+  - Channel operations: CHKIN, CHKOUT, CLRCHN
+  - Usage example with assembly code
+
+  **8. User Port Pinout (user_port.png - 121K)**
+  - 24-pin edge connector layout
+  - CIA2 Port B (8 data pins PB0-PB7)
+  - Power (+5V), Ground, Reset pins
+  - Register addresses ($DD00-$DD03)
+  - I/O direction control examples
+
+  **9. Datasette Tape Format (datasette_format.png - 130K)**
+  - Tape structure: Leader/Sync/Data/Checksum/Trailer
+  - Pulse encoding (296µs/440µs/672µs)
+  - 300 baud data rate
+  - LOAD/SAVE/VERIFY commands
+  - Control register documentation
+
+  Code Infrastructure:
+  - wiki_export.py:11144-11878 - Added 9 diagram generators (734 lines)
+  - Comprehensive technical specifications for each
+  - Assembly code examples for programmers
+  - BASIC POKE examples for beginners
+  - Consistent FancyBboxPatch styling, 150 DPI output
+
+  Articles Enhanced (diagrams added):
+  - ADSR: Sound envelope visualization
+  - Bitmap: Hi-res mode memory layout
+  - Screen: Character mode organization
+  - Raster: Timing and interrupts
+  - Multicolor: Pixel encoding
+  - BASIC: Memory map and pointers
+  - Kernal: Jump table reference
+  - User Port: Hardware pinout
+  - Datasette: Tape format structure
+
+  Impact:
+  - Diagram types: 12 → 21 (+75% increase)
+  - All major C64 subsystems now have comprehensive diagrams
+  - Complete graphics mode documentation (char/multicolor/bitmap)
+  - Complete I/O documentation (ports, tape, disk)
+  - Professional hardware/software reference suite
+
+  Technical Depth:
+  - Memory-mapped register documentation
+  - Bit-level encoding specifications
+  - Assembly and BASIC code examples
+  - Timing diagrams for raster effects
+  - Complete pinout documentation
+
+  Files Modified:
+  - wiki_export.py (734 lines added for 9 new diagrams)
+  - version.py (this file, comprehensive changelog)
+
+  Diagram Files Created:
+  - adsr_envelope.png (156K)
+  - bitmap_mode.png (138K)
+  - screen_layout.png (129K)
+  - raster_timing.png (104K)
+  - multicolor_mode.png (140K)
+  - basic_memory.png (115K)
+  - kernal_jumptable.png (172K)
+  - user_port.png (121K)
+  - datasette_format.png (130K)
+
+  Total Wiki Diagrams: 21 types across 34 articles
+  Result: Most comprehensive C64 visual documentation suite
+
 v2.23.32 (2026-01-04)
   🎨 MAJOR ENHANCEMENT: Comprehensive Article Expansion - 10 New Articles + 6 New Diagram Types
 

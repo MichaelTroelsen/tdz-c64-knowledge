@@ -3898,6 +3898,8 @@ class WikiExporter:
                             shutil.copy2(source_path, dest_path)
                             pdf_count += 1
                             copied_pdf_ids.add(doc['id'])
+                            # Set file_path_in_wiki so "View Source" button appears
+                            doc['file_path_in_wiki'] = f"pdfs/{dest_filename}"
                         except Exception as e:
                             print(f"  Warning: Could not copy {source_path.name}: {e}")
 
@@ -9644,6 +9646,22 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         """Extract code examples from documents mentioning this entity."""
         examples = []
 
+        # Boilerplate patterns to skip (front matter, copyright pages)
+        skip_patterns = [
+            'copyright', 'page break', 'table of contents', 'all rights reserved',
+            'printed in', 'published by', 'library of congress', 'isbn',
+            'reproduction', 'permission', 'trademark'
+        ]
+
+        # Strong code indicators for C64 content
+        code_indicators = [
+            'lda', 'sta', 'ldx', 'stx', 'ldy', 'sty', 'jsr', 'jmp', 'rts', 'rti',
+            'and', 'ora', 'eor', 'asl', 'lsr', 'rol', 'ror', 'inc', 'dec',
+            'beq', 'bne', 'bcc', 'bcs', 'bmi', 'bpl', 'bvc', 'bvs',
+            '$d020', '$d021', '$d000', '$d400', '$dc00', '$dd00',
+            'vic-ii', 'sid chip', 'cia', '6510', '6502', 'kernal'
+        ]
+
         # Get chunks from documents
         # Use a separate connection for thread safety (articles are generated in parallel)
         import sqlite3
@@ -9651,27 +9669,55 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         try:
             cursor = conn.cursor()
 
-            for doc in entity['documents'][:max_examples]:
-                # Fetch chunks for this document
+            for doc in entity['documents'][:max_examples * 2]:  # Check more docs to find good examples
+                # Fetch chunks, skip first 3 (usually front matter in PDFs)
                 chunks = cursor.execute("""
-                    SELECT content, page
+                    SELECT content, page, chunk_id
                     FROM chunks
                     WHERE doc_id = ?
                     ORDER BY chunk_id
-                    LIMIT 3
                 """, (doc['id'],)).fetchall()
 
-                for content, page in chunks:
-                    # Look for code-like patterns
-                    if any(indicator in content.lower() for indicator in ['$', 'lda', 'sta', 'jsr', 'rts', 'register']):
-                        examples.append({
-                            'doc_title': doc['title'],
-                            'doc_id': doc['id'],
-                            'doc_filename': doc['filename'],
-                            'content': content[:500] + '...' if len(content) > 500 else content,
-                            'page': page
-                        })
-                        break  # One example per document
+                best_chunk = None
+                best_score = 0
+
+                for content, page, chunk_id in chunks:
+                    # Skip first 3 chunks (front matter)
+                    if chunk_id < 3:
+                        continue
+
+                    content_lower = content.lower()
+
+                    # Skip boilerplate content
+                    if any(pattern in content_lower for pattern in skip_patterns):
+                        continue
+
+                    # Score this chunk based on code density
+                    score = sum(1 for indicator in code_indicators if indicator in content_lower)
+
+                    # Boost score if chunk has hex addresses or assembly instructions
+                    if '$' in content and any(x in content_lower for x in ['lda', 'sta', 'jsr']):
+                        score += 5
+
+                    # Track best chunk for this document
+                    if score > best_score:
+                        best_score = score
+                        best_chunk = (content, page)
+
+                # Add best chunk if it's good enough (score > 2)
+                if best_chunk and best_score > 2:
+                    content, page = best_chunk
+                    examples.append({
+                        'doc_title': doc['title'],
+                        'doc_id': doc['id'],
+                        'doc_filename': doc['filename'],
+                        'content': content[:500] + '...' if len(content) > 500 else content,
+                        'page': page
+                    })
+
+                # Stop once we have enough good examples
+                if len(examples) >= max_examples:
+                    break
         finally:
             conn.close()
 

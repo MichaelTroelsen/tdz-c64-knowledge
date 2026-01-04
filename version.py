@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.21"
-__version_info__ = (2, 23, 21)
+__version__ = "2.23.22"
+__version_info__ = (2, 23, 22)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,51 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.22 (2026-01-04)
+  🐛 BUG FIX + ✨ ENHANCEMENT: View Source for All Documents & Better Code Examples
+
+  User Requests:
+  - "all documents should have a view source"
+  - "Fix code extraction" (articles showing copyright pages instead of actual code)
+
+  Issues Fixed:
+  1. Only 49/215 documents had "View Source" buttons (PDFs didn't have file_path_in_wiki)
+  2. Article code examples were garbage (copyright pages, book covers, front matter)
+  3. Code extraction took first 3 chunks which are always boilerplate in PDFs
+
+  Changes:
+
+  **1. View Source for PDFs (wiki_export.py:3902)**
+  - _copy_pdfs() now sets file_path_in_wiki for successfully copied PDFs
+  - PDFs now get "View Source" button pointing to pdfs/filename.pdf
+  - Before: 49 docs with source | After: 58 docs with source (9 PDFs added)
+
+  **2. Smart Code Extraction (wiki_export.py:9645-9724)**
+  - Skip first 3 chunks (front matter in PDFs)
+  - Filter out boilerplate: copyright, ISBN, table of contents, etc.
+  - Score chunks by code density (assembly instructions, hex addresses, C64 keywords)
+  - Boost score for chunks with $ hex addresses + assembly (LDA, STA, JSR)
+  - Only include chunks with score > 2 (real technical content)
+  - Search more documents (max_examples * 2) to find good examples
+
+  **Code Indicators Added:**
+  - Assembly: LDA, STA, LDX, STX, LDY, STY, JSR, JMP, RTS, RTI, AND, ORA, EOR
+  - Branches: BEQ, BNE, BCC, BCS, BMI, BPL, BVC, BVS
+  - Memory: $D020, $D021, $D000, $D400, $DC00, $DD00
+  - Hardware: VIC-II, SID chip, CIA, 6510, 6502, KERNAL
+
+  **Skip Patterns Added:**
+  - copyright, page break, table of contents, all rights reserved
+  - printed in, published by, library of congress, isbn, reproduction
+
+  Results:
+  - Before: "ASSEMBLYLANGUAGE FORKIDS COMMODORE64 by WILLIAMB.SANDERS"
+  - After: "Essential KERNAL Calls | $FFD2 CHROUT | $FFE4 GETIN | Memory banking..."
+  - Articles now show actual C64 programming code and technical specifications
+  - Much higher quality reference material in generated articles
+
+  Files modified: wiki_export.py (lines 3902, 9645-9724), version.py
+
 v2.23.21 (2026-01-04)
   🐛 BUG FIX: File Viewer Error Handling & About Box
 

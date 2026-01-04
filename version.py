@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.29"
-__version_info__ = (2, 23, 29)
+__version__ = "2.23.30"
+__version_info__ = (2, 23, 30)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,62 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.30 (2026-01-04)
+  ✨ ENHANCEMENT: Complete Hardware Diagram Suite - 6510 & VIC Added
+
+  User Request:
+  - "add diagrams for remaining hardware components"
+
+  New Diagrams Added:
+
+  **6510 I/O Port Registers (79K)**
+  - Shows memory locations $0000 (Data Direction) and $0001 (Data Port)
+  - Port bit functions for cassette control
+  - Bank switching capabilities (KERNAL ROM, BASIC ROM, I/O, Character ROM)
+  - 7 bit functions documented (Cassette Data/Write/Motor/Sense/Read, Bank Select, Memory Config)
+  - Yellow note box explaining memory banking control
+  - Unique to 6510 CPU (not present in standard 6502)
+
+  **VIC Chip Register Map (5.0K)**
+  - VIC-20 Video Interface Chip registers ($9000-$900F)
+  - 16 color-coded registers organized by function
+  - Display control (Horizontal/Vertical Center, Columns/Rows, Raster)
+  - Video memory configuration
+  - Light pen input (X/Y coordinates)
+  - Paddle input (X/Y)
+  - Sound registers (Bass, Alto, Soprano, Noise)
+  - Color and screen control
+
+  Visual Features:
+  - 6510: Two-register display with bit function reference
+  - 6510: Memory banking note in highlighted box
+  - VIC: 16 registers with color coding by category
+  - Professional appearance matching other hardware diagrams
+
+  Results:
+  - Complete hardware diagram coverage for all C64/VIC-20 components
+  - 6510 diagram: 6510_io_ports.png (79K)
+  - VIC diagram: vic_memory_map.png (5.0K)
+  - Articles remain at 24 (no errors)
+
+  Complete Hardware Diagram Suite (8 diagrams):
+  1. SID - Sound chip registers (125K) ✅
+  2. VIC-II - C64 graphics chip (13K) ✅
+  3. VIC - VIC-20 video chip (5.0K) ✅ NEW
+  4. CIA - I/O and timers (75K) ✅
+  5. Sprite - Pixel specifications (57K) ✅
+  6. 6502 - Processor status flags (150K) ✅
+  7. 6510 - I/O ports and banking (79K) ✅ NEW
+  8. 1541 - Disk drive layout (6.9K) ✅
+
+  Impact:
+  - Comprehensive hardware reference for both C64 and VIC-20
+  - 6510 banking documentation critical for advanced programming
+  - VIC chip reference for VIC-20 compatibility
+  - Professional technical documentation suite complete
+
+  Files modified: wiki_export.py (lines 10513-10640), version.py
+
 v2.23.29 (2026-01-04)
   🐛 BUG FIX: Complete ParseException Fix - All Diagrams Working
 

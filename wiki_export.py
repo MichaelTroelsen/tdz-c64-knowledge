@@ -10510,6 +10510,134 @@ Write ONLY the article content, no title or introduction phrase."""
                 'description': 'Zone-based track organization and disk capacity breakdown'
             })
 
+        # 6510 I/O Port Registers (unique to 6510, not in 6502)
+        if '6510' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 7))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 9)
+            ax.axis('off')
+
+            ax.text(6, 8.5, '6510 I/O Port Registers',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 8, 'Memory Locations $0000 and $0001',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Data Direction Register ($0000)
+            y = 6.5
+            rect = FancyBboxPatch((1, y-0.4), 4, 0.8,
+                                 boxstyle="round,pad=0.05",
+                                 facecolor='#4A90E2', edgecolor='black', linewidth=2)
+            ax.add_patch(rect)
+            ax.text(3, y, '$0000 - Data Direction Register',
+                   ha='center', va='center', fontsize=12, fontweight='bold', color='white')
+
+            # Data Port Register ($0001)
+            y = 5.3
+            rect = FancyBboxPatch((1, y-0.4), 4, 0.8,
+                                 boxstyle="round,pad=0.05",
+                                 facecolor='#50C878', edgecolor='black', linewidth=2)
+            ax.add_patch(rect)
+            ax.text(3, y, '$0001 - Data Port Register',
+                   ha='center', va='center', fontsize=12, fontweight='bold', color='white')
+
+            # Bit functions
+            functions_y = 3.5
+            ax.text(6, functions_y + 0.5, 'Port Bit Functions:', ha='center', fontsize=12, fontweight='bold')
+
+            bit_functions = [
+                'Bit 0: Cassette Data Output',
+                'Bit 1: Cassette Write',
+                'Bit 2: Cassette Motor (0=On)',
+                'Bit 3: Cassette Sense',
+                'Bit 4: Cassette Read',
+                'Bit 5: Bank Select (0=BASIC, 1=I/O)',
+                'Bits 0-2: Memory Configuration',
+            ]
+
+            for i, func in enumerate(bit_functions):
+                row = i // 2
+                col = i % 2
+                x = 2 if col == 0 else 7.5
+                y = functions_y - 0.4 - (row * 0.4)
+                ax.text(x, y, f'• {func}', fontsize=9, ha='left')
+
+            # Bank switching note
+            note_y = 0.8
+            note_rect = FancyBboxPatch((1.5, note_y - 0.5), 9, 0.8,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#FFF3CD', edgecolor='#856404', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y, 'Controls memory banking: KERNAL ROM, BASIC ROM, I/O, and Character ROM',
+                   ha='center', va='center', fontsize=9, style='italic')
+
+            filename = '6510_io_ports.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': '6510 I/O Port Registers',
+                'description': 'Memory banking and cassette control ports unique to the 6510 CPU'
+            })
+
+        # VIC Chip Register Map (VIC-20, different from VIC-II)
+        if title_upper == 'VIC' and 'VIC-II' not in title_upper:
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.set_xlim(0, 10)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(5, 13.5, 'VIC Chip Register Map',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(5, 13, 'VIC-20 Video Interface Chip ($9000-$900F)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            y_start = 11.5
+            registers = [
+                ('$9000', 'Horizontal Center', '#4A90E2'),
+                ('$9001', 'Vertical Center', '#4A90E2'),
+                ('$9002', 'Columns (bits 0-6)', '#50C878'),
+                ('$9003', 'Rows (bits 1-6)', '#50C878'),
+                ('$9004', 'Raster Value', '#E76F51'),
+                ('$9005', 'Video/Char Memory (bits 0-3)', '#F4A261'),
+                ('$9006', 'Light Pen Horizontal', '#9D4EDD'),
+                ('$9007', 'Light Pen Vertical', '#9D4EDD'),
+                ('$9008', 'Paddle X', '#2A9D8F'),
+                ('$9009', 'Paddle Y', '#2A9D8F'),
+                ('$900A', 'Bass Sound', '#E63946'),
+                ('$900B', 'Alto Sound', '#E63946'),
+                ('$900C', 'Soprano Sound', '#E63946'),
+                ('$900D', 'Noise Sound', '#E63946'),
+                ('$900E', 'Auxiliary Color', '#F4A261'),
+                ('$900F', 'Screen/Border/Reverse', '#4A90E2'),
+            ]
+
+            for i, (addr, desc, color) in enumerate(registers):
+                y = y_start - (i * 0.7)
+                rect = FancyBboxPatch((0.5, y-0.3), 3, 0.5,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(2, y, addr, ha='center', va='center',
+                       fontsize=9, fontweight='bold', color='white')
+                ax.text(4, y, desc, va='center', fontsize=8.5)
+
+            filename = 'vic_memory_map.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'VIC Chip Register Map',
+                'description': 'Register layout for the VIC-20 Video Interface Chip'
+            })
+
         return diagrams
 
     def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:

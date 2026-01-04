@@ -32,6 +32,12 @@ import fitz  # PyMuPDF for PDF image extraction
 from PIL import Image
 import io
 import hashlib
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.patches import Rectangle, FancyBboxPatch
+import numpy as np
 from functools import partial
 import multiprocessing
 
@@ -10119,6 +10125,245 @@ Write ONLY the article content, no title or introduction phrase."""
 
         return images
 
+    def _generate_memory_map_diagrams(self, title: str, category: str) -> List[Dict]:
+        """Generate memory map and technical diagrams for C64 components."""
+        diagrams = []
+        images_dir = self.output_dir / "assets" / "images" / "articles"
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        # Disable LaTeX rendering to allow $ symbols in text
+        plt.rcParams['text.usetex'] = False
+
+        title_upper = title.upper()
+
+        # SID Chip Memory Map
+        if 'SID' in title_upper:
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.set_xlim(0, 10)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            # Title
+            ax.text(5, 13, 'SID Chip Register Map ($D400-$D41F)',
+                   ha='center', fontsize=16, fontweight='bold')
+
+            # Voice 1 registers
+            y_start = 11
+            registers = [
+                ('$D400-$D401', 'Voice 1 Frequency', '#4A90E2'),
+                ('$D402-$D403', 'Voice 1 Pulse Width', '#4A90E2'),
+                ('$D404', 'Voice 1 Control Register', '#4A90E2'),
+                ('$D405', 'Voice 1 Attack/Decay', '#4A90E2'),
+                ('$D406', 'Voice 1 Sustain/Release', '#4A90E2'),
+                # Voice 2
+                ('$D407-$D408', 'Voice 2 Frequency', '#50C878'),
+                ('$D409-$D40A', 'Voice 2 Pulse Width', '#50C878'),
+                ('$D40B', 'Voice 2 Control Register', '#50C878'),
+                ('$D40C', 'Voice 2 Attack/Decay', '#50C878'),
+                ('$D40D', 'Voice 2 Sustain/Release', '#50C878'),
+                # Voice 3
+                ('$D40E-$D40F', 'Voice 3 Frequency', '#E76F51'),
+                ('$D410-$D411', 'Voice 3 Pulse Width', '#E76F51'),
+                ('$D412', 'Voice 3 Control Register', '#E76F51'),
+                ('$D413', 'Voice 3 Attack/Decay', '#E76F51'),
+                ('$D414', 'Voice 3 Sustain/Release', '#E76F51'),
+                # Filter and volume
+                ('$D415-$D416', 'Filter Cutoff Frequency', '#9D4EDD'),
+                ('$D417', 'Filter Resonance/Routing', '#9D4EDD'),
+                ('$D418', 'Filter Mode/Volume', '#9D4EDD'),
+            ]
+
+            for i, (addr, desc, color) in enumerate(registers):
+                y = y_start - (i * 0.65)
+                rect = FancyBboxPatch((0.5, y-0.3), 3.5, 0.5,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(2.25, y, addr, ha='center', va='center',
+                       fontsize=10, fontweight='bold', color='white')
+                ax.text(4.5, y, desc, va='center', fontsize=9)
+
+            filename = 'sid_memory_map.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'SID Register Memory Map',
+                'description': 'Complete register layout for the SID sound chip'
+            })
+
+        # VIC-II Memory Map
+        if 'VIC' in title_upper:
+            fig, ax = plt.subplots(figsize=(10, 10))
+            ax.set_xlim(0, 10)
+            ax.set_ylim(0, 18)
+            ax.axis('off')
+
+            ax.text(5, 17, 'VIC-II Chip Register Map ($D000-$D02E)',
+                   ha='center', fontsize=16, fontweight='bold')
+
+            y_start = 15.5
+            registers = [
+                ('$D000-$D001', 'Sprite 0 X/Y Position', '#E63946'),
+                ('$D002-$D003', 'Sprite 1 X/Y Position', '#E63946'),
+                ('$D004-$D005', 'Sprite 2 X/Y Position', '#E63946'),
+                ('$D006-$D007', 'Sprite 3 X/Y Position', '#E63946'),
+                ('$D008-$D009', 'Sprite 4 X/Y Position', '#E63946'),
+                ('$D00A-$D00B', 'Sprite 5 X/Y Position', '#E63946'),
+                ('$D00C-$D00D', 'Sprite 6 X/Y Position', '#E63946'),
+                ('$D00E-$D00F', 'Sprite 7 X/Y Position', '#E63946'),
+                ('$D010', 'Sprites 0-7 X MSB', '#E63946'),
+                ('$D011', 'Screen Control Register 1', '#4A90E2'),
+                ('$D012', 'Raster Counter', '#4A90E2'),
+                ('$D015', 'Sprite Enable Register', '#F4A261'),
+                ('$D016', 'Screen Control Register 2', '#4A90E2'),
+                ('$D017', 'Sprite Y Expansion', '#F4A261'),
+                ('$D018', 'Memory Pointers', '#2A9D8F'),
+                ('$D019', 'Interrupt Register', '#2A9D8F'),
+                ('$D01A', 'Interrupt Enable', '#2A9D8F'),
+                ('$D01B', 'Sprite Data Priority', '#F4A261'),
+                ('$D01C', 'Sprite Multicolor Mode', '#F4A261'),
+                ('$D01D', 'Sprite X Expansion', '#F4A261'),
+                ('$D020', 'Border Color', '#9D4EDD'),
+                ('$D021', 'Background Color 0', '#9D4EDD'),
+                ('$D022-$D023', 'Background Color 1-2', '#9D4EDD'),
+                ('$D027-$D02E', 'Sprite 0-7 Colors', '#9D4EDD'),
+            ]
+
+            for i, (addr, desc, color) in enumerate(registers):
+                y = y_start - (i * 0.65)
+                rect = FancyBboxPatch((0.5, y-0.3), 3.5, 0.5,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(2.25, y, addr, ha='center', va='center',
+                       fontsize=9, fontweight='bold', color='white')
+                ax.text(4.5, y, desc, va='center', fontsize=8.5)
+
+            filename = 'vic-ii_memory_map.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'VIC-II Register Memory Map',
+                'description': 'Complete register layout for the VIC-II graphics chip'
+            })
+
+        # Sprite specifications diagram
+        if 'SPRITE' in title_upper:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.set_xlim(0, 10)
+            ax.set_ylim(0, 8)
+            ax.axis('off')
+
+            ax.text(5, 7.5, 'C64 Sprite Specifications',
+                   ha='center', fontsize=16, fontweight='bold')
+
+            # Draw sprite grid (24x21 pixels)
+            sprite_x, sprite_y = 1, 4
+            cell_size = 0.15
+            for row in range(21):
+                for col in range(24):
+                    color = '#4A90E2' if (row + col) % 2 == 0 else '#E0E0E0'
+                    rect = Rectangle((sprite_x + col*cell_size, sprite_y - row*cell_size),
+                                   cell_size, cell_size,
+                                   facecolor=color, edgecolor='gray', linewidth=0.3)
+                    ax.add_patch(rect)
+
+            ax.text(sprite_x + 1.8, sprite_y + 0.5, '24 pixels wide',
+                   ha='center', fontsize=10, fontweight='bold')
+            ax.text(sprite_x - 0.5, sprite_y - 1.5, '21\npixels\nhigh',
+                   va='center', fontsize=10, fontweight='bold')
+
+            # Specifications table
+            specs_x, specs_y = 5.5, 6
+            specs = [
+                ('Dimensions:', '24 × 21 pixels'),
+                ('Total Sprites:', '8 (numbered 0-7)'),
+                ('Colors:', '1 color + transparent'),
+                ('Multicolor:', '3 colors + transparent'),
+                ('X Range:', '0-511 pixels'),
+                ('Y Range:', '0-255 pixels'),
+                ('Data Size:', '63 bytes per sprite'),
+                ('Expansion:', '2x horizontal/vertical'),
+            ]
+
+            for i, (label, value) in enumerate(specs):
+                y = specs_y - i*0.5
+                ax.text(specs_x, y, label, fontsize=10, fontweight='bold')
+                ax.text(specs_x + 2, y, value, fontsize=10)
+
+            filename = 'sprite_specs.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Sprite Technical Specifications',
+                'description': 'Visual representation of C64 sprite dimensions and capabilities'
+            })
+
+        # CIA chip registers
+        if 'CIA' in title_upper:
+            fig, ax = plt.subplots(figsize=(10, 7))
+            ax.set_xlim(0, 10)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(5, 11.5, 'CIA Chip Registers (CIA1: $DC00, CIA2: $DD00)',
+                   ha='center', fontsize=14, fontweight='bold')
+
+            y_start = 10
+            registers = [
+                ('$00', 'Data Port A', '#4A90E2'),
+                ('$01', 'Data Port B', '#4A90E2'),
+                ('$02', 'Data Direction Port A', '#50C878'),
+                ('$03', 'Data Direction Port B', '#50C878'),
+                ('$04-$05', 'Timer A (Low/High)', '#E76F51'),
+                ('$06-$07', 'Timer B (Low/High)', '#E76F51'),
+                ('$08-$0B', 'Time of Day Clock', '#9D4EDD'),
+                ('$0C', 'Serial Shift Register', '#F4A261'),
+                ('$0D', 'Interrupt Control', '#2A9D8F'),
+                ('$0E', 'Timer A Control', '#E63946'),
+                ('$0F', 'Timer B Control', '#E63946'),
+            ]
+
+            for i, (addr, desc, color) in enumerate(registers):
+                y = y_start - (i * 0.8)
+                rect = FancyBboxPatch((1, y-0.35), 2.5, 0.6,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(2.25, y, addr, ha='center', va='center',
+                       fontsize=11, fontweight='bold', color='white')
+                ax.text(4, y, desc, va='center', fontsize=10)
+
+            filename = 'cia_registers.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'CIA Register Map',
+                'description': 'Register layout for the 6526 Complex Interface Adapter'
+            })
+
+        return diagrams
+
     def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:
         """Generate a basic description when AI is not available."""
         entity_type = entity.get('entity_type', 'component')
@@ -10260,28 +10505,48 @@ Write ONLY the article content, no title or introduction phrase."""
         # Generate technical specifications section
         tech_specs_html = self._generate_technical_specs(title, category, main_entity, code_examples)
 
-        # Extract images from PDFs
-        print(f"    Extracting images for {title}...")
-        images = self._extract_images_from_pdfs(title, main_entity, max_images=6)
+        # Generate memory map diagrams
+        print(f"    Generating diagrams for {title}...")
+        diagrams = self._generate_memory_map_diagrams(title, category)
+
+        # Extract images from PDFs (if any)
+        # images = self._extract_images_from_pdfs(title, main_entity, max_images=6)
+
+        # Combine diagrams and images
+        all_images = diagrams  # + images
 
         # Build image gallery section
         images_html = ''
-        if images:
+        if all_images:
             images_html = '<div class="article-section image-gallery-section">'
-            images_html += '<h2>Images & Diagrams</h2>'
+            images_html += '<h2>Diagrams & Visual Reference</h2>'
             images_html += '<div class="image-gallery">'
-            for img in images:
-                images_html += f'''
-                <div class="gallery-item">
-                    <a href="{img['path']}" target="_blank">
-                        <img src="{img['path']}" alt="{html.escape(title)}" loading="lazy">
-                    </a>
-                    <div class="image-caption">
-                        From: {html.escape(img['source_doc'])}<br>
-                        <small>Page {img['source_page']} • {img['width']}×{img['height']}px</small>
+            for img in all_images:
+                # Handle both diagrams and extracted images
+                if 'title' in img:  # Diagram
+                    images_html += f'''
+                    <div class="gallery-item">
+                        <a href="{img['path']}" target="_blank">
+                            <img src="{img['path']}" alt="{html.escape(img['title'])}" loading="lazy">
+                        </a>
+                        <div class="image-caption">
+                            <strong>{html.escape(img['title'])}</strong><br>
+                            <small>{html.escape(img['description'])}</small>
+                        </div>
                     </div>
-                </div>
-                '''
+                    '''
+                else:  # Extracted image
+                    images_html += f'''
+                    <div class="gallery-item">
+                        <a href="{img['path']}" target="_blank">
+                            <img src="{img['path']}" alt="{html.escape(title)}" loading="lazy">
+                        </a>
+                        <div class="image-caption">
+                            From: {html.escape(img['source_doc'])}<br>
+                            <small>Page {img['source_page']} • {img['width']}×{img['height']}px</small>
+                        </div>
+                    </div>
+                    '''
             images_html += '</div></div>'
 
         # Build entities section

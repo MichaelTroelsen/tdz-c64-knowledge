@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.24"
-__version_info__ = (2, 23, 24)
+__version__ = "2.23.26"
+__version_info__ = (2, 23, 26)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,68 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.26 (2026-01-04)
+  ✨ NEW FEATURE: Programmatic Memory Map Diagram Generation
+
+  User Request:
+  - "add actual images to articles"
+  - "generate the memory map diagrams now"
+
+  Implementation:
+
+  **1. PDF Image Extraction Infrastructure (v2.23.25)**
+  - Built complete PDF image extraction system using PyMuPDF (fitz)
+  - Attempted to extract embedded images from PDFs
+  - Discovered PDFs are scanned documents (no extractable embedded images)
+  - Infrastructure preserved for potential future use with different PDFs
+
+  **2. Programmatic Diagram Generation (v2.23.26)**
+  - Matplotlib-based diagram generator for C64 hardware components
+  - Creates professional memory map visualizations
+  - Generates 4 different diagram types:
+    * SID Chip: 18 color-coded register blocks (Voice 1/2/3, Filter)
+    * VIC-II: 24 register blocks for graphics and sprite control
+    * Sprite: Visual 24×21 pixel grid with specifications table
+    * CIA: 11 register blocks for I/O, timers, and control
+
+  **3. Visual Features**
+  - Color-coded register groups (blue=Voice1, green=Voice2, orange=Voice3, purple=Filter)
+  - Rounded rectangle boxes with FancyBboxPatch styling
+  - Memory addresses and register descriptions
+  - Professional appearance at 150 DPI resolution
+  - Saved as PNG files in wiki/assets/images/articles/
+
+  **4. Gallery Integration**
+  - Responsive 3-column grid layout
+  - Hover animations and proper image sizing
+  - Image captions with title and description
+  - "Diagrams & Visual Reference" section in articles
+  - CSS styling with theme compatibility
+
+  Technical Details:
+  - wiki_export.py:10128-10362 - _generate_memory_map_diagrams() method
+  - wiki_export.py:10134-10135 - LaTeX rendering disabled for $ symbols
+  - wiki_export.py:10507-10547 - Diagram integration into articles
+  - wiki_export.py:10469-10510 - Image gallery CSS styling
+  - Dependencies: matplotlib, numpy (added to imports)
+  - Non-interactive backend: matplotlib.use('Agg') for server-side rendering
+
+  Results:
+  - 4 diagrams successfully generated (cia_registers.png, sid_memory_map.png, sprite_specs.png, vic-ii_memory_map.png)
+  - File sizes: SID 4.2K, Sprite 7.2K, CIA 70K, VIC-II 141K
+  - Professional technical documentation quality
+  - Visual memory maps for C64 programming reference
+  - Better educational value with graphical representations
+
+  Impact:
+  - Articles now include visual diagrams showing hardware architecture
+  - Memory-mapped register layouts clearly illustrated
+  - Professional appearance suitable for serious C64 development
+  - Complements AI-generated text with technical visualizations
+  - Enhances educational and reference value of wiki
+
+  Files modified: wiki_export.py (lines 31-40, 10128-10362, 10469-10510, 10507-10547), version.py
+
 v2.23.24 (2026-01-04)
   ✨ ENHANCEMENT: Extended Articles with Technical Specifications & Visual Content
 

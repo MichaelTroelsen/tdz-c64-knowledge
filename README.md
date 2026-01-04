@@ -1,6 +1,6 @@
 # TDZ C64 Knowledge
 
-[![Version](https://img.shields.io/badge/version-2.23.1-brightgreen.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge)
+[![Version](https://img.shields.io/badge/version-2.23.15-brightgreen.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge)
 [![CI/CD Pipeline](https://github.com/MichaelTroelsen/tdz-c64-knowledge/actions/workflows/ci.yml/badge.svg)](https://github.com/MichaelTroelsen/tdz-c64-knowledge/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -57,6 +57,17 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup.
 - **Anomaly detection** - ML-based baseline learning for URL-sourced content (3400+ docs/second)
 - **Temporal analysis** - Event detection, timeline construction, historical context (5 event types, 8 date formats)
 - **Advanced visualizations** - 3D knowledge graphs, hierarchical bundling, Sankey flow diagrams
+
+### Wiki Export (NEW in v2.23.15)
+- **Static HTML wiki** - Export entire knowledge base to browsable website
+- **Document similarity map** - 2D visualization using UMAP/t-SNE dimensionality reduction
+- **Interactive timeline** - Horizontal scrollable timeline with zoom levels and event filters
+- **Knowledge graph** - D3.js force-directed graph (178 entities, 20 relationships)
+- **Enhanced UI** - Explanation boxes, prominent ASK AI button, file type detection
+- **Clickable clusters** - Browse k-means clusters with linked documents
+- **No server required** - Pure client-side JavaScript, works offline
+- **Full-text search** - Fuse.js powered search across all content
+- See [WIKI_EXPORT_GUIDE.md](WIKI_EXPORT_GUIDE.md) for usage
 
 ### REST API (Optional)
 - **27 endpoints** - Full CRUD, search, analytics, export
@@ -481,9 +492,25 @@ Organize docs with consistent tags:
 
 ```cmd
 pip install -e ".[dev]"
-pytest test_server.py -v
+
+# Run all tests
+pytest test_server.py test_wiki_export.py -v
+
+# With coverage
 pytest test_server.py -v --cov=server --cov-report=term
+
+# Wiki export tests only
+pytest test_wiki_export.py -v
 ```
+
+**Test Coverage:**
+- `test_server.py` - Core server functionality (search, entities, RAG, etc.)
+- `test_wiki_export.py` - Wiki generation features (16 tests):
+  - Document coordinate export (UMAP/t-SNE)
+  - File type detection (HTML/MD)
+  - Cluster document export
+  - HTML generation with explanation boxes
+  - JavaScript generation for interactive features
 
 ### CI/CD
 

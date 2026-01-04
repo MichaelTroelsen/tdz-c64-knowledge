@@ -631,6 +631,201 @@ Currently supported formats:
 - Multi-language support beyond English
 - See FUTURE_IMPROVEMENTS.md for detailed roadmap
 
+## Wiki Export (v2.23.15)
+
+### Overview
+
+The wiki export system generates a static HTML wiki from the knowledge base, providing an offline-browsable interface with advanced visualizations. No server required - all functionality is client-side JavaScript.
+
+### Architecture
+
+**wiki_export.py** - Wiki generation orchestrator
+- `WikiExporter` class: Handles full export pipeline
+- Parallelized document page generation (ThreadPoolExecutor, 8 workers max)
+- JSON data exports for client-side rendering
+- CSS/JS asset generation with visualization libraries
+
+### Export Pipeline
+
+1. **Data Extraction** (Lines 50-125)
+   - `_export_documents()` - Document metadata with enhanced file type detection
+   - `_export_entities()` - Entity groupings by type
+   - `_export_graph()` - Graph nodes (178) and edges (20) for knowledge graph
+   - `_export_document_coordinates()` - 2D UMAP/t-SNE coordinates for similarity map
+   - `_export_topics()` - LDA topic models
+   - `_export_clusters()` - k-means clusters with document lists (limit 50)
+   - `_export_events()` - Timeline events (8 types)
+   - `_export_chunks()` - All text chunks with document references
+
+2. **JSON Data Files** (Lines 88-110)
+   - `documents.json` - Full document metadata
+   - `entities.json` - Grouped entities with occurrences
+   - `graph.json` - Knowledge graph structure
+   - `coordinates.json` - 2D document positions (UMAP/t-SNE)
+   - `clusters.json` - Cluster assignments with member documents
+   - `topics.json` - Topic models with top words
+   - `events.json` - Timeline events with metadata
+   - `chunks.json` - Full chunk data
+   - `search-index.json` - Fuse.js search index
+   - `similarities.json` - Document similarity matrix
+
+3. **HTML Generation** (Lines 713-758)
+   - `_generate_index_html()` - Home page with stats
+   - `_generate_documents_browser_html()` - Document list with filters
+   - `_generate_chunks_browser_html()` - Chunk browser with pagination
+   - `_generate_entities_html()` - Entity explorer by type
+   - `_generate_knowledge_graph_html()` - D3.js force-directed graph (887 lines)
+   - `_generate_similarity_map_html()` - Canvas 2D similarity map (660 lines)
+   - `_generate_topics_html()` - Topic/cluster browser
+   - `_generate_timeline_html()` - Interactive horizontal timeline (750 lines)
+   - `_generate_pdf_viewer_html()` - PDF.js viewer integration
+   - `_generate_doc_html()` - Individual document pages (parallelized)
+
+4. **Static Assets** (Lines 3622-9175)
+   - `_create_css()` - Complete stylesheet (~5500 lines)
+   - `_create_javascript()` - All JS modules (9 files, ~1650 lines total)
+   - `_download_libraries()` - Fuse.js, PDF.js from CDN
+
+### Enhanced File Type Detection (v2.23.15)
+
+Lines 170-177 in `_export_documents()`:
+```python
+# Detect file type from extension for better display
+file_type = doc_meta.file_type
+if file_type == 'text':
+    filename_lower = doc_meta.filename.lower()
+    if filename_lower.endswith('.html') or filename_lower.endswith('.htm'):
+        file_type = 'html'
+    elif filename_lower.endswith('.md') or filename_lower.endswith('.markdown'):
+        file_type = 'markdown'
+```
+
+Enables proper filtering on documents page (PDF, HTML, Markdown, Text separate).
+
+### Document Similarity Map
+
+**Implementation** (Lines 323-433):
+
+Uses dimensionality reduction to visualize document relationships in 2D:
+1. Loads document embeddings from FAISS index
+2. Reduces to 2D using UMAP (preferred) or t-SNE fallback
+3. Normalizes coordinates to 0-1000 range for canvas rendering
+4. Retrieves k-means cluster assignments from database
+5. Exports to `coordinates.json`
+
+**Visualization** (Lines 1838-2498):
+- Canvas-based rendering with pan/zoom
+- Color-coded by cluster (15 colors)
+- Hover tooltips show document details
+- Click navigation to document pages
+- Search and filter by cluster/file type
+- Stats dashboard: total docs, clusters, reduction method
+
+**Key Parameters:**
+- UMAP: `n_components=2`, `n_neighbors=15`, `min_dist=0.1`, `metric='cosine'`, `random_state=42`
+- t-SNE: `n_components=2`, `perplexity=min(30, n_docs-1)`, `random_state=42`
+
+### UI Enhancements (v2.23.15)
+
+**Explanation Boxes:**
+- Added to Documents, Chunks, Topics pages
+- Gradient background, left border accent
+- Explains page purpose and features
+- CSS class: `.explanation-box` (Lines 5415-5461)
+
+**ASK AI Button:**
+- Changed icon: 💬 → 🤖 with "Ask AI" label
+- Increased size: 60px → 85px
+- Gradient background
+- Pulse animation (2s, infinite)
+- Enhanced hover effects (scale 1.1, rotate 5deg)
+- CSS classes: `.chat-toggle`, `.bot-icon`, `.bot-label` (Lines 5095-5146)
+
+**Clickable Clusters:**
+- Topics page shows up to 10 documents per cluster
+- Clickable links to document pages
+- "...and N more" indicator for large clusters
+- JavaScript: `displayClusters()` function (Lines 7425-7468)
+
+**Timeline Viewport:**
+- Height: `calc(100vh - 400px)` with `min-height: 500px`
+- Better utilizes available browser space
+- CSS: `.timeline-container` (Lines 2668-2678)
+
+### Visualization Libraries
+
+**D3.js v7** - Force-directed knowledge graph
+- 178 nodes (entities) sized by document frequency
+- 20 edges (relationships) with strength visualization
+- Interactive zoom, pan, drag
+- Node highlighting on hover/click
+
+**UMAP/t-SNE** - Dimensionality reduction
+- UMAP via `umap-learn` package (preferred)
+- t-SNE via `sklearn.manifold.TSNE` (fallback)
+- Reduces high-dimensional embeddings to 2D
+
+**Canvas API** - Similarity map rendering
+- 2D context for drawing document points
+- Mouse interaction: drag to pan, wheel to zoom
+- Hover detection within 10px radius
+- Click navigation
+
+**Fuse.js** - Client-side search
+- Fuzzy search across all content
+- No server required
+- Configurable threshold and keys
+
+**PDF.js** - PDF viewing
+- Client-side PDF rendering
+- Page navigation, zoom controls
+- Download functionality
+
+### Testing (test_wiki_export.py)
+
+**16 unit tests** covering:
+1. **Document Coordinate Export** (3 tests)
+   - UMAP/t-SNE dimensionality reduction
+   - No embeddings fallback
+   - Insufficient data handling
+
+2. **File Type Detection** (4 tests)
+   - HTML file detection (.html, .htm)
+   - Markdown detection (.md, .markdown)
+   - PDF preservation
+   - Plain text preservation
+
+3. **Cluster Document Export** (2 tests)
+   - Document lists in clusters
+   - Bytes cluster number handling
+
+4. **HTML Generation** (6 tests)
+   - Explanation boxes (Documents, Chunks, Topics)
+   - Similarity map page
+   - Timeline viewport height
+   - ASK AI button styling
+
+5. **JavaScript Generation** (1 test)
+   - Clickable cluster documents in topics.js
+
+All tests use mocked `KnowledgeBase` to avoid database dependencies.
+
+### Performance Characteristics
+
+- **Export time**: ~30 seconds for 215 documents (parallel generation)
+- **Coordinate generation**: Depends on embeddings (UMAP ~5s for 200 docs)
+- **File size**: ~15MB total wiki (includes libraries, data, HTML)
+- **Load time**: <2s for index page, instant navigation
+- **Search**: Client-side Fuse.js, <100ms for most queries
+
+### Browser Compatibility
+
+- Modern browsers (Chrome 90+, Firefox 88+, Safari 14+, Edge 90+)
+- JavaScript ES6+ features required
+- Canvas API for similarity map
+- PDF.js for PDF viewing
+- No IE11 support
+
 ## Windows-Specific Notes
 
 - Uses Windows-style paths (`C:\Users\...`)

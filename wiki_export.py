@@ -9902,22 +9902,27 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             context = '\n'.join(context_parts)
 
             # Create prompt for article description
-            prompt = f"""Write a concise 2-3 paragraph technical description for a Commodore 64 knowledge base article about "{title}".
+            prompt = f"""Write a comprehensive 5-6 paragraph technical article for a Commodore 64 knowledge base about "{title}".
 
 Context:
 {context}
 
-The description should:
-1. Explain what {title} is in the context of the Commodore 64
-2. Describe its main features, capabilities, or uses
-3. Mention its technical significance or common applications
-4. Be written for programmers and C64 enthusiasts
-5. Be factual and technical, not promotional
+The article should include:
 
-Write ONLY the description paragraphs, no title or introduction."""
+1. **Introduction** (1 paragraph): Define what {title} is in the context of the Commodore 64, its manufacturer/origin, and its primary purpose.
+
+2. **Technical Architecture** (2 paragraphs): Describe the technical design, internal components, registers, memory mapping, or programming model. Include specific technical details like register addresses, bit layouts, or memory ranges where applicable.
+
+3. **Features and Capabilities** (1-2 paragraphs): Explain the main features, what it can do, common use cases, and programming techniques. Mention specific capabilities, modes, or special functions.
+
+4. **Historical Context and Significance** (1 paragraph): Discuss its importance in C64 development, common applications in games/demos/music, and why it matters to C64 programmers today.
+
+Write in a technical but accessible style for programmers and C64 enthusiasts. Include specific technical details like memory addresses (e.g., $D000-$D3FF), register names, and technical specifications. Be factual and comprehensive.
+
+Write ONLY the article content, no title or introduction phrase."""
 
             # Try to use LLM if available
-            description = self.kb._call_llm(prompt, max_tokens=300)
+            description = self.kb._call_llm(prompt, max_tokens=1000, temperature=0.5)
 
             if description and len(description.strip()) > 50:
                 return description.strip()
@@ -9928,6 +9933,103 @@ Write ONLY the description paragraphs, no title or introduction."""
         except Exception as e:
             print(f"  Warning: Could not generate AI description for {title}: {e}")
             return self._generate_fallback_description(title, category, entity)
+
+    def _generate_technical_specs(self, title: str, category: str, entity: Dict, code_examples: List[Dict]) -> str:
+        """Generate technical specifications section with tables and visual elements."""
+        specs_html = ""
+
+        # Add category-specific technical specifications
+        if category == 'HARDWARE':
+            # Try to extract technical specs from code examples
+            specs_html = """
+            <div class="tech-specs">
+                <h2>Technical Specifications</h2>
+                <div class="spec-grid">
+            """
+
+            # Add hardware-specific specs based on the entity
+            if 'SID' in title.upper():
+                specs_html += """
+                    <div class="spec-card">
+                        <h3>Memory Map</h3>
+                        <table class="specs-table">
+                            <tr><th>Register</th><th>Address</th><th>Function</th></tr>
+                            <tr><td>Voice 1 Frequency</td><td>$D400-$D401</td><td>16-bit frequency control</td></tr>
+                            <tr><td>Voice 1 Pulse Width</td><td>$D402-$D403</td><td>12-bit pulse width</td></tr>
+                            <tr><td>Voice 1 Control</td><td>$D404</td><td>Waveform and gate control</td></tr>
+                            <tr><td>Voice 1 Attack/Decay</td><td>$D405</td><td>Envelope timing</td></tr>
+                            <tr><td>Voice 1 Sustain/Release</td><td>$D406</td><td>Envelope levels</td></tr>
+                        </table>
+                    </div>
+                    <div class="spec-card">
+                        <h3>Audio Features</h3>
+                        <ul class="feature-list">
+                            <li>3 independent voices</li>
+                            <li>4 waveforms: Triangle, Sawtooth, Pulse, Noise</li>
+                            <li>ADSR envelope generator per voice</li>
+                            <li>Multi-mode filter (low-pass, high-pass, band-pass)</li>
+                            <li>Ring modulation</li>
+                            <li>Oscillator sync</li>
+                        </ul>
+                    </div>
+                """
+            elif 'VIC' in title.upper():
+                specs_html += """
+                    <div class="spec-card">
+                        <h3>Memory Map</h3>
+                        <table class="specs-table">
+                            <tr><th>Register</th><th>Address</th><th>Function</th></tr>
+                            <tr><td>Sprite 0 X</td><td>$D000</td><td>Horizontal position</td></tr>
+                            <tr><td>Sprite 0 Y</td><td>$D001</td><td>Vertical position</td></tr>
+                            <tr><td>Border Color</td><td>$D020</td><td>Border color register</td></tr>
+                            <tr><td>Background Color</td><td>$D021</td><td>Background color 0</td></tr>
+                            <tr><td>Sprite Enable</td><td>$D015</td><td>Enable sprites 0-7</td></tr>
+                        </table>
+                    </div>
+                    <div class="spec-card">
+                        <h3>Display Modes</h3>
+                        <ul class="feature-list">
+                            <li>Standard Text Mode: 40×25 characters</li>
+                            <li>Standard Bitmap Mode: 320×200 pixels</li>
+                            <li>Multicolor Text Mode: 40×25 with 4 colors per char</li>
+                            <li>Multicolor Bitmap Mode: 160×200 pixels, 4 colors</li>
+                            <li>8 hardware sprites (24×21 pixels each)</li>
+                            <li>16 colors</li>
+                        </ul>
+                    </div>
+                """
+            elif 'SPRITE' in title.upper():
+                specs_html += """
+                    <div class="spec-card">
+                        <h3>Sprite Specifications</h3>
+                        <table class="specs-table">
+                            <tr><th>Property</th><th>Value</th></tr>
+                            <tr><td>Dimensions</td><td>24×21 pixels</td></tr>
+                            <tr><td>Number Available</td><td>8 sprites (0-7)</td></tr>
+                            <tr><td>Colors</td><td>1 color + transparent (2 in multicolor mode)</td></tr>
+                            <tr><td>Position Range</td><td>0-511 horizontal, 0-255 vertical</td></tr>
+                            <tr><td>Sprite Data</td><td>63 bytes per sprite</td></tr>
+                        </table>
+                    </div>
+                    <div class="spec-card">
+                        <h3>Sprite Features</h3>
+                        <ul class="feature-list">
+                            <li>Individual enable/disable control</li>
+                            <li>Horizontal and vertical expansion (2x)</li>
+                            <li>Sprite-sprite collision detection</li>
+                            <li>Sprite-background collision detection</li>
+                            <li>Priority control (front/behind background)</li>
+                            <li>Multicolor mode (3 colors + transparent)</li>
+                        </ul>
+                    </div>
+                """
+
+            specs_html += """
+                </div>
+            </div>
+            """
+
+        return specs_html
 
     def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:
         """Generate a basic description when AI is not available."""
@@ -10067,6 +10169,9 @@ Write ONLY the description paragraphs, no title or introduction."""
         </div>
         """
 
+        # Generate technical specifications section
+        tech_specs_html = self._generate_technical_specs(title, category, main_entity, code_examples)
+
         # Build entities section
         entities_html = '<div class="article-section"><h2>Related Entities</h2><ul class="entity-list-article">'
         for entity in all_matches[:10]:
@@ -10179,6 +10284,76 @@ Write ONLY the description paragraphs, no title or introduction."""
             font-size: 0.9em;
             margin-bottom: 20px;
         }}
+        .tech-specs {{
+            margin: 30px 0;
+            padding: 25px;
+            background: var(--card-bg);
+            border-radius: 12px;
+            border-left: 4px solid var(--accent-color);
+        }}
+        .tech-specs h2 {{
+            color: var(--secondary-color);
+            margin-top: 0;
+            margin-bottom: 20px;
+        }}
+        .spec-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }}
+        .spec-card {{
+            background: var(--bg-color);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+        }}
+        .spec-card h3 {{
+            color: var(--primary-color);
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }}
+        .specs-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 0.9em;
+        }}
+        .specs-table th {{
+            background: var(--primary-color);
+            color: white;
+            padding: 10px;
+            text-align: left;
+            font-weight: 600;
+        }}
+        .specs-table td {{
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border-color);
+        }}
+        .specs-table tr:last-child td {{
+            border-bottom: none;
+        }}
+        .specs-table tr:nth-child(even) {{
+            background: var(--bg-color);
+        }}
+        .feature-list {{
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }}
+        .feature-list li {{
+            padding: 8px 0 8px 25px;
+            position: relative;
+            line-height: 1.6;
+        }}
+        .feature-list li:before {{
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: var(--accent-color);
+            font-weight: bold;
+            font-size: 1.2em;
+        }}
     </style>
 </head>
 <body>
@@ -10218,6 +10393,7 @@ Write ONLY the description paragraphs, no title or introduction."""
                 </div>
 
                 {overview_html}
+                {tech_specs_html}
                 {entities_html}
                 {related_html}
                 {code_html}

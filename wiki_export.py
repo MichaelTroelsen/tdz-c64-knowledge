@@ -9600,28 +9600,35 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         examples = []
 
         # Get chunks from documents
-        for doc in entity['documents'][:max_examples]:
-            # Fetch chunks for this document
-            cursor = self.kb.db_conn.cursor()
-            chunks = cursor.execute("""
-                SELECT content, page
-                FROM chunks
-                WHERE doc_id = ?
-                ORDER BY chunk_id
-                LIMIT 3
-            """, (doc['id'],)).fetchall()
+        # Use a separate connection for thread safety (articles are generated in parallel)
+        import sqlite3
+        conn = sqlite3.connect(self.kb.db_file)
+        try:
+            cursor = conn.cursor()
 
-            for content, page in chunks:
-                # Look for code-like patterns
-                if any(indicator in content.lower() for indicator in ['$', 'lda', 'sta', 'jsr', 'rts', 'register']):
-                    examples.append({
-                        'doc_title': doc['title'],
-                        'doc_id': doc['id'],
-                        'doc_filename': doc['filename'],
-                        'content': content[:500] + '...' if len(content) > 500 else content,
-                        'page': page
-                    })
-                    break  # One example per document
+            for doc in entity['documents'][:max_examples]:
+                # Fetch chunks for this document
+                chunks = cursor.execute("""
+                    SELECT content, page
+                    FROM chunks
+                    WHERE doc_id = ?
+                    ORDER BY chunk_id
+                    LIMIT 3
+                """, (doc['id'],)).fetchall()
+
+                for content, page in chunks:
+                    # Look for code-like patterns
+                    if any(indicator in content.lower() for indicator in ['$', 'lda', 'sta', 'jsr', 'rts', 'register']):
+                        examples.append({
+                            'doc_title': doc['title'],
+                            'doc_id': doc['id'],
+                            'doc_filename': doc['filename'],
+                            'content': content[:500] + '...' if len(content) > 500 else content,
+                            'page': page
+                        })
+                        break  # One example per document
+        finally:
+            conn.close()
 
         return examples
 
@@ -9695,7 +9702,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
             docs_html += f'<li><em>...and {len(main_entity["documents"]) - 20} more documents</em></li>'
         docs_html += '</ul></div>'
 
-        html_template = """<!DOCTYPE html>
+        html_template = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -9814,7 +9821,7 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
 </body>
 </html>
 """
-        return html_content
+        return html_template
 
     def _generate_articles_browser_html(self, articles: List[Dict]):
         """Generate articles browser page."""

@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.18"
-__version_info__ = (2, 23, 18)
+__version__ = "2.23.19"
+__version_info__ = (2, 23, 19)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,33 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.19 (2026-01-04)
+  🐛 BUG FIX: Article Generation in Wiki Export
+
+  Issues Fixed:
+  - "name 'html_content' is not defined" error when generating articles
+  - "bad parameter or other API misuse" SQLite threading errors
+  - Articles not being generated (0 articles before, 24+ after fix)
+
+  Changes:
+  - Fixed _generate_article_html() to use f-string for template interpolation
+  - Changed return statement from undefined 'html_content' to 'html_template'
+  - Added thread-safe database connections in _extract_code_examples()
+  - Each thread now creates its own SQLite connection for parallel article generation
+
+  Technical Details:
+  - Article HTML template was not an f-string, causing variable substitution to fail
+  - Parallel article generation used shared db_conn causing SQLite thread errors
+  - Now uses separate sqlite3.connect() per thread with try/finally cleanup
+
+  Impact:
+  - Article generation now works correctly in parallel
+  - 24+ articles generated for major entities (SID, VIC-II, CIA, etc.)
+  - No more "name 'html_content' is not defined" errors
+  - No more SQLite threading errors
+
+  Files modified: wiki_export.py (lines 9698, 9817, 9598-9633)
+
 v2.23.18 (2026-01-04)
   ✨ ENHANCEMENT: Page-Specific About Boxes
 

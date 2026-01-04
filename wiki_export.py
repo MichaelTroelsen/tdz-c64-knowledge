@@ -9752,11 +9752,11 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
 
         # Define major topics to generate articles for
         article_topics = {
-            'HARDWARE': ['SID', 'VIC-II', 'VIC', 'CIA', '6510', '6502', '1541'],
-            'MUSIC': ['Music', 'Sound', 'Composer', 'Editor', 'Tracker'],
-            'GRAPHICS': ['Sprite', 'Bitmap', 'Graphics', 'Color', 'Screen'],
-            'PROGRAMMING': ['Assembly', 'BASIC', 'Kernal', 'ROM', 'Memory'],
-            'TOOLS': ['Assembler', 'Editor', 'Debugger', 'Monitor', 'Emulator']
+            'HARDWARE': ['SID', 'VIC-II', 'VIC', 'CIA', '6510', '6502', '1541', 'Joystick', 'Keyboard', 'Cartridge', 'User Port', 'Datasette'],
+            'MUSIC': ['Music', 'Sound', 'Composer', 'Editor', 'Tracker', 'ADSR', 'Waveform'],
+            'GRAPHICS': ['Sprite', 'Bitmap', 'Graphics', 'Color', 'Screen', 'Character', 'Raster', 'Multicolor'],
+            'PROGRAMMING': ['Assembly', 'BASIC', 'Kernal', 'ROM', 'Memory', 'Interrupt', 'PETSCII', 'Stack', 'Zero Page'],
+            'TOOLS': ['Assembler', 'Editor', 'Debugger', 'Monitor', 'Emulator', 'Compiler']
         }
 
         # Collect all article tasks
@@ -10721,6 +10721,424 @@ Write ONLY the article content, no title or introduction phrase."""
                 'path': f"../assets/images/articles/{filename}",
                 'title': 'C64 Memory Map',
                 'description': 'Complete 64KB address space layout with ROM, RAM, and I/O regions'
+            })
+
+        # Joystick Control Port Pinout
+        if 'JOYSTICK' in title_upper or 'CONTROL PORT' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'Joystick Control Ports',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, 'CIA1: Port A ($DC00) = Port 2  |  CIA1: Port B ($DC01) = Port 1',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Port 1 and Port 2 pinouts
+            y_start = 11
+            pins = [
+                ('Pin 1', 'Up', '#4A90E2', 'Bit 0'),
+                ('Pin 2', 'Down', '#4A90E2', 'Bit 1'),
+                ('Pin 3', 'Left', '#4A90E2', 'Bit 2'),
+                ('Pin 4', 'Right', '#4A90E2', 'Bit 3'),
+                ('Pin 5', 'Paddle Y', '#F4A261', 'Analog'),
+                ('Pin 6', 'Fire Button', '#E63946', 'Bit 4'),
+                ('Pin 7', '+5V Power', '#50C878', 'Power'),
+                ('Pin 8', 'Ground', '#666666', 'GND'),
+                ('Pin 9', 'Paddle X', '#F4A261', 'Analog'),
+            ]
+
+            for i, (pin, function, color, note) in enumerate(pins):
+                y = y_start - (i * 0.8)
+                rect = FancyBboxPatch((1, y-0.35), 4, 0.6,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(3, y, f'{pin}: {function}', ha='center', va='center',
+                       fontsize=11, fontweight='bold', color='white')
+                ax.text(5.5, y, note, va='center', fontsize=9, style='italic')
+
+            # Reading joystick code example
+            note_y = 2.5
+            note_rect = FancyBboxPatch((1, note_y - 0.8), 10, 1.5,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.3, 'Reading Joystick (Port 2):', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y - 0.1, 'LDA $DC00  ; Read CIA1 Port A', ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.4, 'Bit = 0 means pressed, Bit = 1 means released', ha='center', fontsize=9, style='italic')
+
+            filename = 'joystick_pinout.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Joystick Control Port Pinout',
+                'description': '9-pin D-sub connector pinout for C64 joystick ports'
+            })
+
+        # Keyboard Matrix Diagram
+        if 'KEYBOARD' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'C64 Keyboard Matrix (8x8)',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'CIA1: Port A ($DC00) = Rows  |  CIA1: Port B ($DC01) = Columns',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Simplified keyboard matrix showing structure
+            y_start = 9.5
+            rows = [
+                'Row 0: DELETE, RETURN, →, F7, F1, F3, F5, ↓',
+                'Row 1: 3, W, A, 4, Z, S, E, Shift(L)',
+                'Row 2: 5, R, D, 6, C, F, T, X',
+                'Row 3: 7, Y, G, 8, B, H, U, V',
+                'Row 4: 9, I, J, 0, M, K, O, N',
+                'Row 5: +, P, L, -, ., :, @, ,',
+                'Row 6: £, *, ;, HOME, Shift(R), =, ↑, /',
+                'Row 7: 1, ←, CTRL, 2, SPACE, C=, Q, RUN/STOP',
+            ]
+
+            colors = ['#4A90E2', '#50C878', '#E76F51', '#9D4EDD', '#F4A261', '#2A9D8F', '#E63946', '#4ECDC4']
+
+            for i, (row_text, color) in enumerate(zip(rows, colors)):
+                y = y_start - (i * 0.9)
+                rect = FancyBboxPatch((0.5, y-0.35), 13, 0.6,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(7, y, row_text, ha='center', va='center',
+                       fontsize=9, fontweight='bold', color='white')
+
+            # Scanning example
+            note_y = 1.5
+            note_rect = FancyBboxPatch((1, note_y - 0.6), 12, 1.2,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(7, note_y + 0.2, 'Scanning: Set row low on $DC00, read columns from $DC01',
+                   ha='center', fontsize=9, fontweight='bold')
+            ax.text(7, note_y - 0.2, 'Bit = 0 means key pressed, Bit = 1 means key released',
+                   ha='center', fontsize=9, style='italic')
+
+            filename = 'keyboard_matrix.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Keyboard Matrix Layout',
+                'description': '8x8 keyboard matrix showing key positions and scanning method'
+            })
+
+        # PETSCII Character Codes
+        if 'PETSCII' in title_upper or 'CHARACTER CODE' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'PETSCII Character Codes',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'PET Standard Code of Information Interchange',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Key character ranges
+            y_start = 9.5
+            ranges = [
+                ('$00-$1F', 'Control Characters', '#E63946', '32 codes: cursor, color, clear screen'),
+                ('$20-$3F', 'Uppercase + Symbols', '#4A90E2', '32 codes: SPACE ! " # $ % & \' ( ) * + , - . /'),
+                ('$40-$5F', 'Uppercase Letters', '#50C878', '32 codes: @ A-Z [ \\ ] ↑ ←'),
+                ('$60-$7F', 'Lowercase + Graphics', '#9D4EDD', '32 codes: graphic symbols and lowercase a-z'),
+                ('$80-$9F', 'Control Characters (Reverse)', '#E76F51', '32 codes: same as $00-$1F but reversed'),
+                ('$A0-$BF', 'Uppercase + Symbols (Reverse)', '#2A9D8F', '32 codes: reversed versions of $20-$3F'),
+                ('$C0-$DF', 'Graphics Characters', '#F4A261', '32 codes: block graphics and symbols'),
+                ('$E0-$FF', 'Lowercase + Graphics (Reverse)', '#4ECDC4', '32 codes: reversed versions of $60-$7F'),
+            ]
+
+            for i, (range_hex, name, color, desc) in enumerate(ranges):
+                y = y_start - (i * 0.9)
+                rect = FancyBboxPatch((0.5, y-0.35), 3, 0.6,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(2, y, range_hex, ha='center', va='center',
+                       fontsize=10, fontweight='bold', color='white')
+                ax.text(4, y + 0.1, name, va='center', fontsize=10, fontweight='bold')
+                ax.text(4, y - 0.2, desc, va='center', fontsize=8, style='italic')
+
+            # Common codes note
+            note_y = 1.5
+            note_rect = FancyBboxPatch((1, note_y - 0.8), 12, 1.5,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#FFF3CD', edgecolor='#856404', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(7, note_y + 0.3, 'Common PETSCII Codes:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(7, note_y, '$13=HOME  $14=DEL  $93=CLR  $05=WHITE  $1C=RED  $9E=YELLOW  $1E=GREEN  $1F=BLUE',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(7, note_y - 0.4, 'Screen codes differ from PETSCII: $41-$5A (A-Z) → screen codes $01-$1A',
+                   ha='center', fontsize=9, style='italic')
+
+            filename = 'petscii_codes.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'PETSCII Character Code Table',
+                'description': 'Character encoding ranges and common control codes'
+            })
+
+        # C64 Color Palette
+        if 'COLOR' in title_upper or 'COLOUR' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'Commodore 64 Color Palette',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, '16 Colors - VIC-II Color Values',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # C64 color palette (actual C64 colors)
+            colors_c64 = [
+                (0, 'Black', '#000000'),
+                (1, 'White', '#FFFFFF'),
+                (2, 'Red', '#880000'),
+                (3, 'Cyan', '#AAFFEE'),
+                (4, 'Purple', '#CC44CC'),
+                (5, 'Green', '#00CC55'),
+                (6, 'Blue', '#0000AA'),
+                (7, 'Yellow', '#EEEE77'),
+                (8, 'Orange', '#DD8855'),
+                (9, 'Brown', '#664400'),
+                (10, 'Light Red', '#FF7777'),
+                (11, 'Dark Grey', '#333333'),
+                (12, 'Grey', '#777777'),
+                (13, 'Light Green', '#AAFF66'),
+                (14, 'Light Blue', '#0088FF'),
+                (15, 'Light Grey', '#BBBBBB'),
+            ]
+
+            # Display colors in 4x4 grid
+            x_start = 1.5
+            y_start = 9.5
+            cell_width = 2.8
+            cell_height = 1.2
+
+            for i, (num, name, hex_color) in enumerate(colors_c64):
+                row = i // 4
+                col = i % 4
+                x = x_start + (col * cell_width)
+                y = y_start - (row * cell_height)
+
+                # Color box
+                rect = FancyBboxPatch((x, y-0.5), cell_width-0.2, 0.9,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=hex_color, edgecolor='black', linewidth=2)
+                ax.add_patch(rect)
+
+                # Text color (white or black depending on background)
+                text_color = 'white' if num in [0, 2, 6, 9, 11] else 'black'
+                ax.text(x + cell_width/2 - 0.1, y, f'{num}: {name}',
+                       ha='center', va='center', fontsize=10, fontweight='bold', color=text_color)
+                ax.text(x + cell_width/2 - 0.1, y - 0.25, hex_color,
+                       ha='center', va='center', fontsize=8, family='monospace', color=text_color)
+
+            # Memory addresses note
+            note_y = 2.5
+            note_rect = FancyBboxPatch((1, note_y - 0.8), 12, 1.5,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(7, note_y + 0.3, 'Color Registers:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(7, note_y, '$D020=Border  $D021=Background  $D800-$DBFF=Color RAM (screen color, 1000 bytes)',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(7, note_y - 0.4, 'POKE 53280,0: Black border  |  POKE 53281,1: White background',
+                   ha='center', fontsize=9, style='italic')
+
+            filename = 'color_palette.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'C64 Color Palette',
+                'description': 'All 16 VIC-II colors with hex values and memory addresses'
+            })
+
+        # Interrupt Vectors and Timing
+        if 'INTERRUPT' in title_upper or 'IRQ' in title_upper or 'NMI' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'C64 Interrupt System',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, '6510 CPU Interrupt Vectors and Handling',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Interrupt vectors
+            y_start = 11
+            vectors = [
+                ('$FFFE-$FFFF', 'IRQ Vector (Hardware)', '#4A90E2', 'Default: $FF48 (KERNAL IRQ handler)'),
+                ('$0314-$0315', 'IRQ Vector (RAM)', '#50C878', 'User IRQ vector (redirected by KERNAL)'),
+                ('$FFFA-$FFFB', 'NMI Vector (Hardware)', '#E63946', 'Default: $FE43 (KERNAL NMI handler)'),
+                ('$0318-$0319', 'NMI Vector (RAM)', '#E76F51', 'User NMI vector (redirected by KERNAL)'),
+            ]
+
+            for i, (addr, name, color, desc) in enumerate(vectors):
+                y = y_start - (i * 1.2)
+                rect = FancyBboxPatch((1, y-0.5), 4, 0.9,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(3, y - 0.1, addr, ha='center', va='center',
+                       fontsize=10, fontweight='bold', color='white', family='monospace')
+                ax.text(3, y + 0.2, name, ha='center', va='center',
+                       fontsize=9, fontweight='bold', color='white')
+                ax.text(5.5, y, desc, va='center', fontsize=8, style='italic')
+
+            # IRQ sources
+            y_irq = 5.5
+            ax.text(6, y_irq + 0.5, 'IRQ Sources (Maskable):', ha='center', fontsize=11, fontweight='bold')
+
+            irq_sources = [
+                'VIC-II Raster IRQ ($D012 comparison)',
+                'CIA1 Timer A/B ($DC0D)',
+                'CIA2 Timer A/B ($DD0D)',
+            ]
+
+            for i, source in enumerate(irq_sources):
+                y = y_irq - (i * 0.5)
+                ax.text(6, y, f'• {source}', ha='center', fontsize=9)
+
+            # Raster interrupt example
+            note_y = 2.5
+            note_rect = FancyBboxPatch((1, note_y - 1.2), 10, 2.2,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.7, 'Setting Up Raster IRQ:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y + 0.3, 'LDA #$7F : STA $DC0D  ; Disable CIA interrupts',
+                   ha='center', fontsize=8, family='monospace')
+            ax.text(6, note_y, 'LDA #$01 : STA $D01A  ; Enable raster IRQ',
+                   ha='center', fontsize=8, family='monospace')
+            ax.text(6, note_y - 0.3, 'LDA #$80 : STA $D012  ; Set raster line to 128',
+                   ha='center', fontsize=8, family='monospace')
+            ax.text(6, note_y - 0.6, 'LDA #<IRQ : STA $0314  ; Set IRQ vector low byte',
+                   ha='center', fontsize=8, family='monospace')
+            ax.text(6, note_y - 0.9, 'LDA #>IRQ : STA $0315  ; Set IRQ vector high byte',
+                   ha='center', fontsize=8, family='monospace')
+
+            filename = 'interrupt_vectors.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Interrupt Vectors and Setup',
+                'description': 'IRQ/NMI vectors, sources, and raster interrupt configuration'
+            })
+
+        # Character Set Overview
+        if 'CHARACTER SET' in title_upper or 'CHARSET' in title_upper or 'FONT' in title_upper:
+            fig, ax = plt.subplots(figsize=(12, 10))
+            ax.set_xlim(0, 12)
+            ax.set_ylim(0, 14)
+            ax.axis('off')
+
+            ax.text(6, 13, 'C64 Character Sets',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(6, 12.5, 'ROM Character Generator and Custom Fonts',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Character ROM locations
+            y_start = 11
+            charsets = [
+                ('$D000-$D7FF', 'Uppercase/Graphics ROM', '#4A90E2', '2KB: UPPERCASE letters + graphics'),
+                ('$D800-$DFFF', 'Lowercase/Uppercase ROM', '#50C878', '2KB: lowercase + UPPERCASE letters'),
+            ]
+
+            for i, (addr, name, color, desc) in enumerate(charsets):
+                y = y_start - (i * 1.2)
+                rect = FancyBboxPatch((1, y-0.5), 4, 0.9,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(3, y - 0.1, addr, ha='center', va='center',
+                       fontsize=10, fontweight='bold', color='white', family='monospace')
+                ax.text(3, y + 0.2, name, ha='center', va='center',
+                       fontsize=9, fontweight='bold', color='white')
+                ax.text(5.5, y, desc, va='center', fontsize=8, style='italic')
+
+            # Character format
+            y_format = 8
+            ax.text(6, y_format, 'Character Format: 8x8 pixels, 8 bytes per character',
+                   ha='center', fontsize=10, fontweight='bold')
+
+            # Custom character locations
+            y_custom = 6.5
+            ax.text(6, y_custom + 0.5, 'Custom Character Sets (User-Defined):', ha='center', fontsize=11, fontweight='bold')
+
+            custom_locs = [
+                'Can be placed in RAM at any 2KB boundary',
+                'VIC-II bank selection via $DD00 (CIA2)',
+                'Character memory pointer via $D018',
+                'Total 256 characters (8 bytes each = 2048 bytes)',
+            ]
+
+            for i, loc in enumerate(custom_locs):
+                y = y_custom - (i * 0.5)
+                ax.text(6, y, f'• {loc}', ha='center', fontsize=9)
+
+            # Switching example
+            note_y = 2.5
+            note_rect = FancyBboxPatch((1, note_y - 1), 10, 1.8,
+                                      boxstyle="round,pad=0.1",
+                                      facecolor='#F0F0F0', edgecolor='#333333', linewidth=1.5)
+            ax.add_patch(note_rect)
+            ax.text(6, note_y + 0.5, 'Switching to Lowercase/Uppercase:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(6, note_y + 0.1, 'POKE 53272,23  ; $D018=$17 (lowercase mode)',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.2, 'POKE 53272,21  ; $D018=$15 (uppercase/graphics mode)',
+                   ha='center', fontsize=9, family='monospace')
+            ax.text(6, note_y - 0.6, 'Each character = 8 bytes: bit 7=leftmost pixel, bit 0=rightmost pixel',
+                   ha='center', fontsize=9, style='italic')
+
+            filename = 'character_set.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Character Set Layout',
+                'description': 'ROM character sets and custom font configuration'
             })
 
         return diagrams

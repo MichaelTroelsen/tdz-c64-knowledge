@@ -71,6 +71,9 @@ class WikiExporter:
         entities_data = self._export_entities()
         graph_data = self._export_graph()
 
+        print("  Exporting document coordinates...")
+        coordinates_data = self._export_document_coordinates(documents_data)
+
         print("[4/7] Exporting topics and clusters...")
         topics_data = self._export_topics()
         clusters_data = self._export_clusters()
@@ -89,10 +92,12 @@ class WikiExporter:
         chunks_data = self._export_chunks()
 
         # Save data files
+        # Save data files
         print("\nSaving data files...")
         self._save_json('documents.json', documents_data)
         self._save_json('entities.json', entities_data)
         self._save_json('graph.json', graph_data)
+        self._save_json('coordinates.json', coordinates_data)
         self._save_json('topics.json', topics_data)
         self._save_json('clusters.json', clusters_data)
         self._save_json('events.json', events_data)
@@ -162,11 +167,20 @@ class WikiExporter:
             # Get tags
             tags = doc_meta.tags if doc_meta.tags else []
 
+            # Detect file type from extension for better display
+            file_type = doc_meta.file_type
+            if file_type == 'text':
+                filename_lower = doc_meta.filename.lower()
+                if filename_lower.endswith('.html') or filename_lower.endswith('.htm'):
+                    file_type = 'html'
+                elif filename_lower.endswith('.md') or filename_lower.endswith('.markdown'):
+                    file_type = 'markdown'
+
             doc_data = {
                 'id': doc_id,
                 'title': doc_meta.title,
                 'filename': doc_meta.filename,
-                'file_type': doc_meta.file_type,
+                'file_type': file_type,
                 'total_pages': doc_meta.total_pages,
                 'total_chunks': len(chunks),
                 'indexed_at': doc_meta.indexed_at,
@@ -309,6 +323,115 @@ class WikiExporter:
             }
         }
 
+    def _export_document_coordinates(self, documents_data: List[Dict]) -> Dict:
+        """Export 2D coordinates for document similarity visualization."""
+        try:
+            import numpy as np
+            try:
+                import umap
+                use_umap = True
+            except ImportError:
+                from sklearn.manifold import TSNE
+                use_umap = False
+
+            # Check if embeddings are available
+            if not hasattr(self.kb, 'embeddings') or self.kb.embeddings is None:
+                print("  No embeddings available, loading...")
+                self.kb._load_embeddings()
+
+            # Check again after loading
+            if not hasattr(self.kb, 'embeddings') or self.kb.embeddings is None or len(self.kb.embeddings) == 0:
+                print("  No embeddings found, skipping coordinates export")
+                return {'documents': [], 'method': 'none', 'count': 0}
+
+            # Get embeddings for documents
+            doc_ids = [doc['id'] for doc in documents_data]
+            embeddings_list = []
+            valid_docs = []
+
+            for doc_id in doc_ids:
+                if doc_id in self.kb.embeddings:
+                    embeddings_list.append(self.kb.embeddings[doc_id])
+                    valid_docs.append(next(d for d in documents_data if d['id'] == doc_id))
+
+            if len(embeddings_list) < 2:
+                print("  Insufficient embeddings for visualization")
+                return {'documents': [], 'method': 'none'}
+
+            embeddings_array = np.array(embeddings_list)
+
+            # Reduce to 2D
+            print(f"  Reducing {len(embeddings_list)} embeddings to 2D using {'UMAP' if use_umap else 't-SNE'}...")
+
+            if use_umap:
+                reducer = umap.UMAP(
+                    n_components=2,
+                    n_neighbors=15,
+                    min_dist=0.1,
+                    metric='cosine',
+                    random_state=42
+                )
+            else:
+                reducer = TSNE(
+                    n_components=2,
+                    perplexity=min(30, len(embeddings_list) - 1),
+                    random_state=42
+                )
+
+            coordinates_2d = reducer.fit_transform(embeddings_array)
+
+            # Normalize coordinates to 0-1000 range for easier visualization
+            x_coords = coordinates_2d[:, 0]
+            y_coords = coordinates_2d[:, 1]
+
+            x_min, x_max = x_coords.min(), x_coords.max()
+            y_min, y_max = y_coords.min(), y_coords.max()
+
+            x_norm = ((x_coords - x_min) / (x_max - x_min)) * 1000
+            y_norm = ((y_coords - y_min) / (y_max - y_min)) * 1000
+
+            # Get cluster information
+            cursor = self.kb.db_conn.cursor()
+            doc_clusters = {}
+            clusters = cursor.execute("""
+                SELECT dc.doc_id, c.cluster_number, c.algorithm
+                FROM document_clusters dc
+                JOIN clusters c ON dc.cluster_id = c.cluster_id
+                WHERE c.algorithm = 'kmeans'
+            """).fetchall()
+
+            for doc_id, cluster_num, algorithm in clusters:
+                if isinstance(cluster_num, (bytes, memoryview)):
+                    cluster_num = int.from_bytes(bytes(cluster_num), byteorder='little')
+                doc_clusters[doc_id] = cluster_num
+
+            # Build coordinate data
+            coord_data = []
+            for i, doc in enumerate(valid_docs):
+                coord_data.append({
+                    'id': doc['id'],
+                    'title': doc['title'],
+                    'filename': doc['filename'],
+                    'file_type': doc['file_type'],
+                    'tags': doc['tags'][:5],  # Limit tags
+                    'total_chunks': doc['total_chunks'],
+                    'cluster': doc_clusters.get(doc['id'], 0),
+                    'x': float(x_norm[i]),
+                    'y': float(y_norm[i])
+                })
+
+            print(f"  Generated {len(coord_data)} document coordinates")
+
+            return {
+                'documents': coord_data,
+                'method': 'umap' if use_umap else 'tsne',
+                'count': len(coord_data)
+            }
+
+        except Exception as e:
+            print(f"  Error generating coordinates: {e}")
+            return {'documents': [], 'method': 'error', 'error': str(e)}
+
     def _export_topics(self) -> Dict:
         """Export topic models."""
         cursor = self.kb.db_conn.cursor()
@@ -371,10 +494,28 @@ class WikiExporter:
                     # Convert bytes to int
                     cluster_num = int.from_bytes(bytes(cluster_num), byteorder='little')
 
+                # Get documents in this cluster
+                docs = cursor.execute("""
+                    SELECT d.doc_id, d.title, d.filename
+                    FROM documents d
+                    JOIN document_clusters dc ON d.doc_id = dc.doc_id
+                    WHERE dc.cluster_id = ?
+                    ORDER BY d.title
+                    LIMIT 50
+                """, (cluster_id,)).fetchall()
+
                 processed_clusters.append({
                     'id': cluster_id,
                     'number': cluster_num,
-                    'doc_count': doc_count
+                    'doc_count': doc_count,
+                    'documents': [
+                        {
+                            'id': doc_id,
+                            'title': title,
+                            'filename': filename
+                        }
+                        for doc_id, title, filename in docs
+                    ]
                 })
 
             clusters_by_algo[algorithm] = processed_clusters
@@ -621,6 +762,9 @@ class WikiExporter:
 
         # Generate knowledge graph page
         self._generate_knowledge_graph_html()
+
+        # Generate similarity map page
+        self._generate_similarity_map_html()
 
         # Generate topics page
         self._generate_topics_html()
@@ -1719,6 +1863,668 @@ class WikiExporter:
             f.write(html_content)
         print(f"  Generated: knowledge-graph.html")
 
+    def _generate_similarity_map_html(self):
+        """Generate document similarity map visualization page."""
+        html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Similarity Map - TDZ C64 Knowledge Base</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+    <style>
+        .map-container {
+            display: grid;
+            grid-template-columns: 250px 1fr 300px;
+            gap: 20px;
+            margin: 20px 0;
+            height: calc(100vh - 200px);
+        }
+
+        .map-controls {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .map-controls h3 {
+            margin-top: 0;
+            color: var(--secondary-color);
+            font-size: 1.2em;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .control-group {
+            margin: 20px 0;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: var(--text-color);
+        }
+
+        .control-group input[type="text"],
+        .control-group select {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            font-family: inherit;
+        }
+
+        .control-group input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        #canvas-container {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+            cursor: grab;
+        }
+
+        #canvas-container.grabbing {
+            cursor: grabbing;
+        }
+
+        #similarity-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .map-info {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .map-info h3 {
+            margin-top: 0;
+            color: var(--secondary-color);
+            font-size: 1.2em;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .info-empty {
+            color: var(--text-muted);
+            font-style: italic;
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .doc-info {
+            animation: fadeIn 0.3s;
+        }
+
+        .doc-info h4 {
+            color: var(--accent-color);
+            margin: 0 0 10px 0;
+            font-size: 1.3em;
+        }
+
+        .doc-meta {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .meta-item {
+            background: var(--bg-color);
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .meta-value {
+            font-size: 1.5em;
+            font-weight: 700;
+            color: var(--accent-color);
+        }
+
+        .meta-label {
+            font-size: 0.85em;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .doc-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 15px 0;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 4px 10px;
+            background: var(--accent-color);
+            color: white;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }
+
+        .map-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .stat-card .value {
+            font-size: 2em;
+            font-weight: 700;
+            color: var(--accent-color);
+        }
+
+        .stat-card .label {
+            font-size: 0.85em;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        .loading-map {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-muted);
+            font-size: 1.2em;
+        }
+
+        .zoom-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        .zoom-btn {
+            width: 40px;
+            height: 40px;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-color);
+            font-size: 1.5em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .zoom-btn:hover {
+            background: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }
+
+        .cluster-legend {
+            margin-top: 15px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 5px 0;
+            padding: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .legend-item:hover {
+            background: var(--bg-color);
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+        }
+
+        @media (max-width: 1200px) {
+            .map-container {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+
+            .map-info {
+                order: -1;
+            }
+
+            #canvas-container {
+                height: 600px;
+            }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <nav class="main-nav">
+        <div class="nav-left">
+            <a href="index.html" class="nav-logo">📚 TDZ C64 KB</a>
+        </div>
+        <div class="nav-center">
+            <a href="documents.html">Documents</a>
+            <a href="entities.html">Entities</a>
+            <a href="knowledge-graph.html">Knowledge Graph</a>
+            <a href="similarity-map.html" class="active">Similarity Map</a>
+            <a href="topics.html">Topics</a>
+            <a href="timeline.html">Timeline</a>
+        </div>
+        <div class="nav-right">
+            <button class="theme-switcher" id="theme-toggle" aria-label="Toggle theme">🌙</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header>
+            <h1>🗺️ Document Similarity Map</h1>
+            <p class="subtitle">Explore documents in 2D semantic space</p>
+        </header>
+
+        <div class="map-stats">
+            <div class="stat-card">
+                <div class="value" id="total-docs">-</div>
+                <div class="label">Documents</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" id="total-clusters">-</div>
+                <div class="label">Clusters</div>
+            </div>
+            <div class="stat-card">
+                <div class="value" id="reduction-method">-</div>
+                <div class="label">Method</div>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <div class="map-controls">
+                <h3>Controls</h3>
+
+                <div class="control-group">
+                    <label for="search-doc">🔍 Search Document</label>
+                    <input type="text" id="search-doc" placeholder="Type document title...">
+                </div>
+
+                <div class="control-group">
+                    <label for="cluster-filter">🎨 Filter by Cluster</label>
+                    <select id="cluster-filter">
+                        <option value="all">All Clusters</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label for="file-type-filter">📁 Filter by Type</label>
+                    <select id="file-type-filter">
+                        <option value="all">All Types</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="show-labels" checked> Show Labels
+                    </label>
+                </div>
+
+                <div class="cluster-legend">
+                    <h3>Cluster Legend</h3>
+                    <div id="legend-items"></div>
+                </div>
+            </div>
+
+            <div id="canvas-container">
+                <div class="loading-map">Loading similarity map...</div>
+                <div class="zoom-controls">
+                    <button class="zoom-btn" id="zoom-in" title="Zoom In">+</button>
+                    <button class="zoom-btn" id="zoom-out" title="Zoom Out">−</button>
+                    <button class="zoom-btn" id="zoom-reset" title="Reset View">⟲</button>
+                </div>
+                <canvas id="similarity-canvas"></canvas>
+            </div>
+
+            <div class="map-info">
+                <h3>Document Details</h3>
+                <div class="info-empty" id="info-empty">
+                    Hover over a point to view details<br>
+                    Click to navigate to document
+                </div>
+                <div class="doc-info" id="doc-info" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="assets/js/enhancements.js"></script>
+    <script>
+        let documentsData = [];
+        let canvas, ctx;
+        let scale = 1;
+        let offsetX = 0, offsetY = 0;
+        let isDragging = false;
+        let dragStartX, dragStartY;
+        let hoveredDoc = null;
+        let selectedCluster = 'all';
+        let selectedFileType = 'all';
+        let showLabels = true;
+        let searchQuery = '';
+
+        const clusterColors = [
+            '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
+            '#1abc9c', '#e67e22', '#16a085', '#d35400', '#8e44ad',
+            '#c0392b', '#27ae60', '#2980b9', '#f1c40f', '#95a5a6'
+        ];
+
+        async function loadMap() {
+            try {
+                const response = await fetch('assets/data/coordinates.json');
+                const data = await response.json();
+
+                if (!data.documents || data.documents.length === 0) {
+                    document.querySelector('.loading-map').textContent = 'No coordinate data available';
+                    return;
+                }
+
+                documentsData = data.documents;
+
+                // Update stats
+                const clusters = new Set(documentsData.map(d => d.cluster));
+                document.getElementById('total-docs').textContent = documentsData.length;
+                document.getElementById('total-clusters').textContent = clusters.size;
+                document.getElementById('reduction-method').textContent = data.method.toUpperCase();
+
+                // Build filters
+                buildFilters();
+
+                // Initialize canvas
+                initCanvas();
+
+                // Hide loading
+                document.querySelector('.loading-map').style.display = 'none';
+            } catch (error) {
+                console.error('Error loading map:', error);
+                document.querySelector('.loading-map').textContent = 'Error loading similarity map';
+            }
+        }
+
+        function buildFilters() {
+            const clusters = [...new Set(documentsData.map(d => d.cluster))].sort((a, b) => a - b);
+            const fileTypes = [...new Set(documentsData.map(d => d.file_type))].sort();
+
+            const clusterSelect = document.getElementById('cluster-filter');
+            clusters.forEach(cluster => {
+                const option = document.createElement('option');
+                option.value = cluster;
+                option.textContent = `Cluster ${cluster}`;
+                clusterSelect.appendChild(option);
+            });
+
+            const fileTypeSelect = document.getElementById('file-type-filter');
+            fileTypes.forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = type.toUpperCase();
+                fileTypeSelect.appendChild(option);
+            });
+
+            // Build legend
+            const legendContainer = document.getElementById('legend-items');
+            clusters.forEach(cluster => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.innerHTML = `
+                    <div class="legend-color" style="background: ${clusterColors[cluster % clusterColors.length]}"></div>
+                    <span>Cluster ${cluster}</span>
+                `;
+                item.onclick = () => {
+                    clusterSelect.value = cluster;
+                    selectedCluster = cluster.toString();
+                    renderCanvas();
+                };
+                legendContainer.appendChild(item);
+            });
+
+            // Setup event listeners
+            document.getElementById('search-doc').addEventListener('input', (e) => {
+                searchQuery = e.target.value.toLowerCase();
+                renderCanvas();
+            });
+
+            clusterSelect.addEventListener('change', (e) => {
+                selectedCluster = e.target.value;
+                renderCanvas();
+            });
+
+            fileTypeSelect.addEventListener('change', (e) => {
+                selectedFileType = e.target.value;
+                renderCanvas();
+            });
+
+            document.getElementById('show-labels').addEventListener('change', (e) => {
+                showLabels = e.target.checked;
+                renderCanvas();
+            });
+
+            document.getElementById('zoom-in').addEventListener('click', () => {
+                scale *= 1.2;
+                renderCanvas();
+            });
+
+            document.getElementById('zoom-out').addEventListener('click', () => {
+                scale /= 1.2;
+                renderCanvas();
+            });
+
+            document.getElementById('zoom-reset').addEventListener('click', () => {
+                scale = 1;
+                offsetX = 0;
+                offsetY = 0;
+                renderCanvas();
+            });
+        }
+
+        function initCanvas() {
+            canvas = document.getElementById('similarity-canvas');
+            const container = document.getElementById('canvas-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            ctx = canvas.getContext('2d');
+
+            // Mouse events
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('mouseleave', onMouseUp);
+            canvas.addEventListener('wheel', onWheel);
+            canvas.addEventListener('click', onClick);
+
+            // Render
+            renderCanvas();
+        }
+
+        function renderCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Filter documents
+            const filtered = documentsData.filter(doc => {
+                if (selectedCluster !== 'all' && doc.cluster !== parseInt(selectedCluster)) return false;
+                if (selectedFileType !== 'all' && doc.file_type !== selectedFileType) return false;
+                if (searchQuery && !doc.title.toLowerCase().includes(searchQuery)) return false;
+                return true;
+            });
+
+            // Draw documents
+            filtered.forEach(doc => {
+                const x = (doc.x * scale) + offsetX + canvas.width / 2;
+                const y = (doc.y * scale) + offsetY + canvas.height / 2;
+
+                const color = clusterColors[doc.cluster % clusterColors.length];
+                const isHovered = hoveredDoc && hoveredDoc.id === doc.id;
+                const isSearchMatch = searchQuery && doc.title.toLowerCase().includes(searchQuery);
+
+                // Draw point
+                ctx.beginPath();
+                ctx.arc(x, y, isHovered ? 8 : isSearchMatch ? 6 : 4, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = isHovered ? '#fff' : color;
+                ctx.lineWidth = isHovered ? 3 : 1;
+                ctx.stroke();
+
+                // Draw label
+                if (showLabels && (isHovered || isSearchMatch)) {
+                    ctx.fillStyle = 'var(--text-color)';
+                    ctx.font = '12px sans-serif';
+                    ctx.fillText(doc.title.substring(0, 30), x + 10, y - 5);
+                }
+            });
+        }
+
+        function onMouseDown(e) {
+            isDragging = true;
+            dragStartX = e.clientX - offsetX;
+            dragStartY = e.clientY - offsetY;
+            document.getElementById('canvas-container').classList.add('grabbing');
+        }
+
+        function onMouseMove(e) {
+            if (isDragging) {
+                offsetX = e.clientX - dragStartX;
+                offsetY = e.clientY - dragStartY;
+                renderCanvas();
+            } else {
+                // Check hover
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                hoveredDoc = null;
+                for (const doc of documentsData) {
+                    const x = (doc.x * scale) + offsetX + canvas.width / 2;
+                    const y = (doc.y * scale) + offsetY + canvas.height / 2;
+                    const dist = Math.sqrt((mouseX - x) ** 2 + (mouseY - y) ** 2);
+
+                    if (dist < 10) {
+                        hoveredDoc = doc;
+                        showDocInfo(doc);
+                        break;
+                    }
+                }
+
+                if (!hoveredDoc) {
+                    hideDocInfo();
+                }
+
+                renderCanvas();
+            }
+        }
+
+        function onMouseUp() {
+            isDragging = false;
+            document.getElementById('canvas-container').classList.remove('grabbing');
+        }
+
+        function onWheel(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            scale *= delta;
+            renderCanvas();
+        }
+
+        function onClick(e) {
+            if (hoveredDoc) {
+                window.location.href = `docs/${hoveredDoc.filename}`;
+            }
+        }
+
+        function showDocInfo(doc) {
+            document.getElementById('info-empty').style.display = 'none';
+            const infoDiv = document.getElementById('doc-info');
+            infoDiv.style.display = 'block';
+
+            const color = clusterColors[doc.cluster % clusterColors.length];
+            const tags = doc.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
+
+            infoDiv.innerHTML = `
+                <h4>${escapeHtml(doc.title)}</h4>
+                <div class="doc-meta">
+                    <div class="meta-item">
+                        <div class="meta-value" style="color: ${color}">${doc.cluster}</div>
+                        <div class="meta-label">Cluster</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-value">${doc.total_chunks}</div>
+                        <div class="meta-label">Chunks</div>
+                    </div>
+                </div>
+                <div class="doc-tags">${tags}</div>
+                <p style="font-size: 0.9em; color: var(--text-muted);">Type: ${doc.file_type.toUpperCase()}</p>
+                <p style="font-size: 0.9em; color: var(--text-muted); margin-top: 10px;">Click to open document</p>
+            `;
+        }
+
+        function hideDocInfo() {
+            document.getElementById('doc-info').style.display = 'none';
+            document.getElementById('info-empty').style.display = 'block';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load map on page load
+        loadMap();
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            if (canvas) {
+                const container = document.getElementById('canvas-container');
+                canvas.width = container.clientWidth;
+                canvas.height = container.clientHeight;
+                renderCanvas();
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+        filepath = self.output_dir / "similarity-map.html"
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        print(f"  Generated: similarity-map.html")
+
     def _generate_topics_html(self):
         """Generate topics browser page."""
         html_content = f"""<!DOCTYPE html>
@@ -1747,6 +2553,18 @@ class WikiExporter:
         </nav>
 
         <main>
+            <div class="explanation-box">
+                <h3>🔍 About Topics & Clusters</h3>
+                <p>
+                    <strong>Topic Models:</strong> Automatically discovered themes in the documents using LDA (Latent Dirichlet Allocation).
+                    Each topic shows the most representative words and related documents.
+                </p>
+                <p>
+                    <strong>Document Clusters:</strong> Groups of similar documents identified using k-means clustering on document embeddings.
+                    Click on any document in a cluster to view its content.
+                </p>
+            </div>
+
             <section>
                 <h2>Topic Models</h2>
                 <div id="topics-container">
@@ -1895,6 +2713,7 @@ class WikiExporter:
             position: relative;
             overflow-x: auto;
             overflow-y: visible;
+            height: calc(100vh - 400px);
             min-height: 500px;
         }
 
@@ -2604,6 +3423,18 @@ class WikiExporter:
         </nav>
 
         <main>
+            <div class="explanation-box">
+                <h3>📚 About Documents</h3>
+                <p>
+                    This page shows all documents in the knowledge base. Each document represents a source of C64 information
+                    that has been processed and indexed for searching.
+                </p>
+                <p>
+                    <strong>Features:</strong> Search by title or tags • Filter by file type (PDF, HTML, Markdown, Text) •
+                    Sort by various criteria • Click any document to view its content and chunks
+                </p>
+            </div>
+
             <div class="browser-controls">
                 <input type="text" id="doc-search" placeholder="🔍 Search documents..." autocomplete="off">
 
@@ -2678,6 +3509,18 @@ class WikiExporter:
         </nav>
 
         <main>
+            <div class="explanation-box">
+                <h3>🧩 About Chunks</h3>
+                <p>
+                    Documents are automatically split into smaller "chunks" for better search and analysis. Each chunk is typically
+                    1500 words with 200-word overlap to maintain context across boundaries.
+                </p>
+                <p>
+                    <strong>Why chunks?</strong> Breaking documents into smaller pieces improves search precision, enables semantic
+                    analysis, and makes it easier to find specific information within large documents.
+                </p>
+            </div>
+
             <div class="browser-controls">
                 <input type="text" id="chunk-search" placeholder="🔍 Search chunks..." autocomplete="off">
 
@@ -4313,21 +5156,48 @@ html {
 }
 
 .chat-toggle {
-    width: 60px;
-    height: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 85px;
+    height: 85px;
     border-radius: 50%;
-    background: var(--accent-color);
+    background: linear-gradient(135deg, var(--accent-color) 0%, var(--secondary-color) 100%);
     color: white;
-    border: none;
-    font-size: 2em;
+    border: 3px solid rgba(255,255,255,0.3);
     cursor: pointer;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
     transition: all 0.3s;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.bot-icon {
+    font-size: 2.5em;
+    line-height: 1;
+}
+
+.bot-label {
+    font-size: 0.75em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .chat-toggle:hover {
-    transform: scale(1.1);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    transform: scale(1.1) rotate(5deg);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    animation: none;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    }
+    50% {
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4), 0 0 20px rgba(88,80,236,0.6);
+    }
 }
 
 .chat-container {
@@ -4595,6 +5465,54 @@ html {
     .chat-widget {
         right: 20px;
     }
+}
+
+/* ===== EXPLANATION BOXES ===== */
+.explanation-box {
+    background: linear-gradient(135deg, rgba(88,80,236,0.1) 0%, rgba(146,64,230,0.1) 100%);
+    border: 2px solid var(--border-color);
+    border-left: 5px solid var(--accent-color);
+    border-radius: 12px;
+    padding: 20px 25px;
+    margin: 20px 0 30px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.explanation-box h3 {
+    color: var(--accent-color);
+    margin: 0 0 12px 0;
+    font-size: 1.1em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.explanation-box p {
+    margin: 0 0 10px 0;
+    line-height: 1.6;
+    color: var(--text-color);
+}
+
+.explanation-box p:last-child {
+    margin-bottom: 0;
+}
+
+.explanation-box ul {
+    margin: 10px 0;
+    padding-left: 25px;
+}
+
+.explanation-box li {
+    margin: 6px 0;
+    line-height: 1.5;
+}
+
+.explanation-box code {
+    background: var(--bg-color);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
 }
 
 /* ===== AUTO TABLE OF CONTENTS ===== */
@@ -6521,9 +7439,26 @@ function displayClusters(clustersData) {
         for (const cluster of clusters) {
             const card = document.createElement('div');
             card.className = 'doc-card';
+
+            // Create document list
+            let docsList = '';
+            if (cluster.documents && cluster.documents.length > 0) {
+                const displayDocs = cluster.documents.slice(0, 10); // Show first 10
+                docsList = '<div style="margin-top: 12px;"><ul style="list-style: none; padding: 0; font-size: 0.9em;">';
+                for (const doc of displayDocs) {
+                    const safeFilename = doc.id.replace(/[^\\w\\-]/g, '_') + '.html';
+                    docsList += `<li style="margin: 4px 0;"><a href="docs/${safeFilename}" style="color: var(--accent-color); text-decoration: none;">${escapeHtml(doc.title)}</a></li>`;
+                }
+                if (cluster.documents.length > 10) {
+                    docsList += `<li style="margin: 8px 0; font-style: italic; color: var(--text-muted);">...and ${cluster.documents.length - 10} more</li>`;
+                }
+                docsList += '</ul></div>';
+            }
+
             card.innerHTML = `
                 <h3>Cluster ${cluster.number}</h3>
                 <div class="doc-card-meta">${cluster.doc_count} documents</div>
+                ${docsList}
             `;
             grid.appendChild(card);
         }
@@ -7807,7 +8742,8 @@ class AIChatbot {
         widget.className = 'chat-widget';
         widget.innerHTML = `
             <button class="chat-toggle" id="chat-toggle" title="Ask AI Assistant">
-                💬
+                <span class="bot-icon">🤖</span>
+                <span class="bot-label">Ask AI</span>
             </button>
             <div class="chat-container" id="chat-container">
                 <div class="chat-header">

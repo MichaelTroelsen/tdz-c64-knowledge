@@ -4917,6 +4917,37 @@ class KnowledgeBase:
 
         return result
 
+    def _call_llm(self, prompt: str, max_tokens: int = 1024, temperature: float = 0.3) -> str:
+        """
+        Call LLM with a prompt (helper method for LLM operations).
+
+        Args:
+            prompt: Text prompt
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature (0.0-1.0)
+
+        Returns:
+            LLM response text
+
+        Raises:
+            ValueError: If LLM not available or call fails
+        """
+        # Check if LLM client is available
+        if not hasattr(self, 'llm_client') or self.llm_client is None:
+            # Try to initialize it
+            try:
+                from llm_integration import LLMClient
+                self.llm_client = LLMClient()
+            except Exception as e:
+                raise ValueError(f"LLM client not available: {e}")
+
+        try:
+            response = self.llm_client.call(prompt, max_tokens=max_tokens, temperature=temperature)
+            return response.strip()
+        except Exception as e:
+            self.logger.error(f"LLM call failed: {e}")
+            raise ValueError(f"LLM call failed: {e}")
+
     def summarize_document(self, doc_id: str,
                           max_length: int = 500,
                           style: str = "technical") -> str:

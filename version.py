@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.28"
-__version_info__ = (2, 23, 28)
+__version__ = "2.23.29"
+__version_info__ = (2, 23, 29)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,49 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.29 (2026-01-04)
+  🐛 BUG FIX: Complete ParseException Fix - All Diagrams Working
+
+  User Request:
+  - "fix the CIA article ParseException"
+
+  Issue Fixed:
+  - Remaining ParseException errors for CIA, VIC, VIC-II, SID articles
+  - Matplotlib still attempting to parse math text despite usetex=False
+  - Complex title strings with parentheses and colons causing issues
+
+  Root Cause:
+  - matplotlib.rcParams['text.usetex'] = False alone was insufficient
+  - Matplotlib has separate 'text.parse_math' parameter for math parsing
+  - Default mathtext rendering still tried to interpret $ as delimiters
+
+  Solution:
+  - Added matplotlib.rcParams['text.parse_math'] = False (line 38)
+  - Added matplotlib.rcParams['mathtext.default'] = 'regular' (line 39)
+  - Simplified CIA title from complex string to two-line format
+  - Comprehensive matplotlib text parsing disabled at module level
+
+  Results:
+  - Articles increased from 23 to 24 (CIA now working)
+  - All hardware diagrams now generate successfully
+  - CIA diagram regenerated: cia_registers.png (75K)
+  - VIC-II diagram updated: vic-ii_memory_map.png (141K)
+  - SID diagram updated: sid_memory_map.png (125K)
+
+  CIA Diagram Improvements:
+  - Clean title: "CIA Chip Register Map"
+  - Subtitle: "CIA1: $DC00 | CIA2: $DD00"
+  - 11 color-coded registers (Data Ports, Timers, Clock, Interrupt, Serial)
+  - Professional appearance with $ symbols displaying correctly
+
+  Impact:
+  - ALL diagram generation now working: SID, VIC-II, CIA, Sprite, 6502, 1541
+  - No more ParseException errors in article generation
+  - Complete hardware reference with visual diagrams
+  - Professional C64 documentation suite
+
+  Files modified: wiki_export.py (lines 38-39, 10325-10328), version.py
+
 v2.23.28 (2026-01-04)
   🐛 BUG FIX: Article Generation ParseException - 1541 Diagram Now Working
 

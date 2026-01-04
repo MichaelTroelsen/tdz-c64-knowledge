@@ -34,7 +34,9 @@ import io
 import hashlib
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
-matplotlib.rcParams['text.usetex'] = False  # Disable LaTeX rendering to allow $ symbols
+matplotlib.rcParams['text.usetex'] = False  # Disable LaTeX rendering
+matplotlib.rcParams['text.parse_math'] = False  # Disable math text parsing
+matplotlib.rcParams['mathtext.default'] = 'regular'  # Use regular text for math
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Rectangle, FancyBboxPatch
@@ -10322,8 +10324,10 @@ Write ONLY the article content, no title or introduction phrase."""
             ax.set_ylim(0, 12)
             ax.axis('off')
 
-            ax.text(5, 11.5, 'CIA Chip Registers (CIA1: $DC00, CIA2: $DD00)',
+            ax.text(5, 11.5, 'CIA Chip Register Map',
                    ha='center', fontsize=14, fontweight='bold')
+            ax.text(5, 11, 'CIA1: $DC00  |  CIA2: $DD00',
+                   ha='center', fontsize=11, style='italic', color='#666666')
 
             y_start = 10
             registers = [

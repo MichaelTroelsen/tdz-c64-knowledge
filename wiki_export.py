@@ -18,6 +18,7 @@ Usage:
 import sys
 sys.path.insert(0, '.')
 from server import KnowledgeBase
+import version
 import os
 import json
 import shutil
@@ -876,6 +877,7 @@ class WikiExporter:
         <header>
             <h1>🎮 TDZ C64 Knowledge Base</h1>
             <p class="subtitle">Comprehensive Commodore 64 Documentation</p>
+            <p style="color: var(--text-muted); font-size: 0.9em; margin-top: -10px;">Version {version.__version__}</p>
         </header>
 
 {self._get_main_nav()}

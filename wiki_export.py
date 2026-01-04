@@ -197,7 +197,7 @@ class WikiExporter:
 """
 
     def _get_main_nav(self, active_page: str = '') -> str:
-        """Generate consistent main navigation HTML with logo and theme switcher."""
+        """Generate consistent main navigation HTML with logo, search, and theme switcher."""
         pages = [
             ('articles', 'Articles'),
             ('documents', 'Documents'),
@@ -223,6 +223,10 @@ class WikiExporter:
 {chr(10).join(nav_items)}
         </div>
         <div class="nav-right">
+            <div class="search-container">
+                <input type="search" id="nav-search" class="nav-search" placeholder="🔍 Search..." autocomplete="off" />
+                <div id="search-results" class="search-results"></div>
+            </div>
             <button class="theme-switcher" id="theme-toggle" aria-label="Toggle theme">🌙</button>
         </div>
     </nav>"""
@@ -257,10 +261,7 @@ class WikiExporter:
         print("[5/7] Exporting events...")
         events_data = self._export_events()
 
-        print("[6/9] Building search index...")
-        search_index = self._build_search_index(documents_data)
-
-        print("[7/9] Generating navigation...")
+        print("[6/9] Generating navigation...")
         navigation = self._build_navigation(documents_data)
 
         # Export chunks data
@@ -284,7 +285,6 @@ class WikiExporter:
         self._save_json('topics.json', topics_data)
         self._save_json('clusters.json', clusters_data)
         self._save_json('events.json', events_data)
-        self._save_json('search-index.json', search_index)
         self._save_json('navigation.json', navigation)
         self._save_json('chunks.json', chunks_data)
         self._save_json('stats.json', self.stats)
@@ -300,6 +300,11 @@ class WikiExporter:
 
         # Generate articles
         articles_data = self._generate_articles(entities_data)
+
+        # Build comprehensive search index (after articles are generated)
+        print("\n[7/9] Building comprehensive search index...")
+        search_index_data = self._export_search_index(documents_data, entities_data, articles_data)
+        self._save_json('search.json', search_index_data)
 
         # Copy static assets
         print("\nCopying static assets...")
@@ -641,6 +646,68 @@ class WikiExporter:
         except Exception as e:
             print(f"  Error generating coordinates: {e}")
             return {'documents': [], 'method': 'error', 'error': str(e)}
+
+    def _export_search_index(self, documents_data: List[Dict], entities_data: Dict, articles_data: List[Dict]) -> Dict:
+        """Export comprehensive search index for Fuse.js."""
+        print("  Building search index...")
+        search_items = []
+
+        # Index articles
+        for article in articles_data:
+            search_items.append({
+                'type': 'article',
+                'title': article['title'],
+                'category': article['category'],
+                'url': f"articles/{article['filename']}",
+                'description': f"{article['entity_count']} entities, {article['doc_count']} document references",
+                'tags': [article['category'], 'article'],
+                'relevance': article['doc_count']  # For sorting by importance
+            })
+
+        # Index documents
+        for doc in documents_data:
+            # Combine first few chunks for searchable content preview
+            preview_chunks = doc.get('chunks', [])[:3]
+            content_preview = ' '.join([chunk['content'][:200] for chunk in preview_chunks])[:500]
+
+            search_items.append({
+                'type': 'document',
+                'title': doc['title'],
+                'category': doc['file_type'].upper(),
+                'url': f"docs/{re.sub(r'[^\\w\\-]', '_', doc['id'])}.html",
+                'description': content_preview,
+                'tags': doc.get('tags', []) + [doc['file_type'], 'document'],
+                'relevance': doc.get('total_chunks', 0)
+            })
+
+        # Index entities (top entities by document count)
+        for entity_type, entities in entities_data.items():
+            # Only index top 20 entities per type to avoid bloat
+            for entity in entities[:20]:
+                search_items.append({
+                    'type': 'entity',
+                    'title': entity['text'],
+                    'category': entity_type,
+                    'url': f"entities.html?q={entity['text']}",
+                    'description': f"{entity['doc_count']} document references",
+                    'tags': [entity_type, 'entity'],
+                    'relevance': entity['doc_count']
+                })
+
+        # Sort by relevance (most referenced first)
+        search_items.sort(key=lambda x: x['relevance'], reverse=True)
+
+        print(f"  Indexed {len(search_items)} items ({len(articles_data)} articles, {len(documents_data)} documents, {sum(min(20, len(entities)) for entities in entities_data.values())} entities)")
+
+        return {
+            'items': search_items,
+            'stats': {
+                'total': len(search_items),
+                'articles': len(articles_data),
+                'documents': len(documents_data),
+                'entities': sum(min(20, len(entities)) for entities in entities_data.values())
+            }
+        }
 
     def _export_topics(self) -> Dict:
         """Export topic models."""

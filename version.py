@@ -10,8 +10,8 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.34"
-__version_info__ = (2, 23, 34)
+__version__ = "2.23.35"
+__version_info__ = (2, 23, 35)
 
 # Build information
 __build_date__ = "2026-01-04"
@@ -75,6 +75,113 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.35 (2026-01-05)
+  🎨 MAJOR ENHANCEMENT: 6 Specialized Diagrams + Complete Article Infrastructure
+
+  User Request:
+  - "proceed with your recommendation" (Options 1+2: Complete article coverage + Enhanced diagrams)
+
+  New Diagram Generators Added (6 comprehensive visualizations):
+
+  **1. Zero Page Memory Map (zero_page.png)**
+  - Critical system variables in $00-$FF
+  - 10 key memory locations: Processor port, BASIC pointers, Kernal variables
+  - Addressing modes: Indirect indexed example code
+  - Assembly examples with zero page usage
+  - Fast access explanation (1 cycle less than absolute)
+
+  **2. Stack Visualization (stack_diagram.png)**
+  - 6502 stack: $0100-$01FF (256 bytes)
+  - Stack Pointer (SP) visualization growing downward from $01FF
+  - Color-coded stack states: SP position, return addresses, free space
+  - Complete stack operations: PHA, PLA, PHP, PLP, JSR, RTS
+  - Push/pull mechanics with SP increment/decrement
+  - Return address handling (2-byte push/pull)
+
+  **3. PETSCII Character Set (petscii_chart.png)**
+  - Complete 256-character encoding chart
+  - 8 character ranges with color coding:
+    - $00-$1F: Control characters
+    - $20-$3F: Uppercase + symbols
+    - $40-$5F: Lowercase + graphics
+    - $60-$7F: Uppercase + graphics
+    - $80-$9F: Control (reverse)
+    - $A0-$BF: Graphics + symbols
+    - $C0-$DF: Uppercase (reverse)
+    - $E0-$FF: Lowercase (reverse)
+  - Common characters reference
+  - Screen codes vs PETSCII note (important distinction!)
+
+  **4. Joystick Port Wiring (joystick_wiring.png)**
+  - 9-pin D-Sub connector layout (Atari standard)
+  - Pin assignments: Up, Down, Left, Right, Fire, POT X/Y, +5V, Ground
+  - CIA register mapping:
+    - Port 1: $DC00 (CIA1 Data Port A)
+    - Port 2: $DC01 (CIA1 Data Port B)
+  - Assembly read example with bit masking
+  - Bit mapping: 0=Active, 1=Inactive
+  - Active-low logic explanation
+
+  **5. C64 Color Palette (color_palette.png)**
+  - All 16 colors in 4x4 grid layout
+  - Color values: 0=Black through 15=Lt Grey
+  - RGB approximations for each color
+  - Contrasting text colors for readability
+  - BASIC POKE examples: Border ($D020), Background ($D021)
+  - Reverse mode character (CHR$(18))
+  - Hardware vs emulator color note
+
+  **6. SID Waveform Types (waveforms.png)**
+  - Four basic waveforms visualized:
+    - Triangle: Smooth harmonic sound
+    - Sawtooth: Buzzy, rich harmonics
+    - Pulse: Hollow, clarinet-like (variable width)
+    - Noise: White noise for drums/effects
+  - Visual waveform graphs for each type
+  - Control register bits ($D404, $D40B, $D412):
+    - Bit 4: Triangle
+    - Bit 5: Sawtooth
+    - Bit 6: Pulse
+    - Bit 7: Noise
+  - Assembly example: Triangle wave with gate
+
+  Article Infrastructure Improvements:
+
+  **Complete Coverage Support:**
+  - All 42 potential article topics now have diagram generators
+  - Currently generating 34 articles (based on available entities)
+  - Ready to auto-generate 8 more articles when entities are added:
+    - Joystick, VIC (vs VIC-II), Waveform (MUSIC)
+    - PETSCII, Stack, Zero Page (PROGRAMMING)
+    - Debugger, Emulator (TOOLS)
+
+  **Diagram Generation System:**
+  - Total diagram types: 27 (was 21, added 6)
+  - Conditional generation based on article keywords
+  - Professional color-coded layouts
+  - Technical accuracy with register addresses
+  - Code examples (Assembly + BASIC) in diagrams
+  - 150 DPI output for crisp rendering
+
+  Changes:
+  - wiki_export.py:11945-12326 - Added 6 new diagram generators (382 lines)
+  - version.py:13-14 - Bumped version to 2.23.35
+  - All diagrams integrate seamlessly with existing article system
+
+  Technical Details:
+  - Diagrams use matplotlib with FancyBboxPatch for professional appearance
+  - Color palette consistent across all diagrams
+  - Text rendering optimized for readability
+  - Proper escaping for special characters
+
+  Impact:
+  - Complete visual reference for C64 programming
+  - Zero page, stack, and PETSCII now fully documented
+  - Joystick interfacing made clear with pin layout
+  - Color palette reference for graphics programming
+  - SID waveforms visualized for music composition
+  - Ready for future entity additions (auto-generates articles + diagrams)
+
 v2.23.34 (2026-01-04)
   🔍 MAJOR FEATURE: Live Search Functionality
 

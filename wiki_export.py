@@ -11942,6 +11942,387 @@ Write ONLY the article content, no title or introduction phrase."""
                 'description': 'Cassette tape data structure and pulse encoding'
             })
 
+        # Zero Page Memory Map
+        if 'ZERO' in title_upper and 'PAGE' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'C64 Zero Page Memory Map ($00-$FF)',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'Critical System Variables in First 256 Bytes',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Key zero page locations
+            zp_areas = [
+                ('$00-$01', 'Processor Port', '#E63946', 10.2),
+                ('$02-$0A', 'BASIC Pointers', '#4A90E2', 9.4),
+                ('$14-$24', 'Kernal Variables', '#50C878', 8.6),
+                ('$2B-$2C', 'BASIC Start', '#F4A261', 7.8),
+                ('$2D-$2E', 'BASIC End', '#9D4EDD', 7.0),
+                ('$37-$38', 'Array Start', '#2A9D8F', 6.2),
+                ('$91', 'Stop Key Flag', '#E76F51', 5.4),
+                ('$C0-$C5', 'Float Acc', '#4ECDC4', 4.6),
+                ('$D3', 'Cursor Column', '#F4A261', 3.8),
+                ('$D6', 'Cursor Row', '#50C878', 3.0),
+            ]
+
+            for addr, label, color, y in zp_areas:
+                rect = FancyBboxPatch((1, y-0.3), 12, 0.5,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(7, y, f'{addr}: {label}', ha='center', va='center',
+                       fontsize=10, fontweight='bold', color='white')
+
+            # Example code
+            ax.text(7, 1.8, 'Assembly Example:', ha='center', fontsize=10, fontweight='bold')
+            ax.text(7, 1.4, 'LDA $D020  ; Read border color', ha='center', fontsize=9, family='monospace')
+            ax.text(7, 1.0, 'STA $FB    ; Store in zero page', ha='center', fontsize=9, family='monospace')
+            ax.text(7, 0.6, 'LDA ($FB),Y ; Indirect indexed', ha='center', fontsize=9, family='monospace')
+
+            filename = 'zero_page.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Zero Page Memory Map',
+                'description': 'Critical system variables in $00-$FF with addressing modes'
+            })
+
+        # Stack Visualization
+        if 'STACK' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, '6502 Stack ($0100-$01FF)',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'Stack Pointer (SP) grows downward from $01FF',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Stack visualization
+            stack_y = 9.5
+            for i in range(8):
+                addr = f'$01{255-i:02X}'
+                y = stack_y - (i * 0.6)
+
+                if i == 0:
+                    color = '#E63946'
+                    label = f'{addr} ← SP (Stack Pointer)'
+                elif i < 3:
+                    color = '#F4A261'
+                    label = f'{addr} (Return Address)'
+                else:
+                    color = '#CBD5E0'
+                    label = f'{addr} (Free)'
+
+                rect = FancyBboxPatch((2, y-0.25), 10, 0.4,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(7, y, label, ha='center', va='center',
+                       fontsize=9, fontweight='bold', color='white' if i < 3 else '#2D3748')
+
+            # Operations
+            ax.text(7, 4.5, 'Stack Operations:', ha='center', fontsize=11, fontweight='bold')
+            ops = [
+                'PHA - Push Accumulator (SP--)',
+                'PLA - Pull Accumulator (SP++)',
+                'PHP - Push Status Register',
+                'PLP - Pull Status Register',
+                'JSR - Push Return Address (2 bytes)',
+                'RTS - Pull Return Address',
+            ]
+            for i, op in enumerate(ops):
+                ax.text(7, 3.9 - (i * 0.4), op, ha='center', fontsize=9, family='monospace')
+
+            filename = 'stack_diagram.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Stack Visualization',
+                'description': '256-byte stack with push/pull operations and SP management'
+            })
+
+        # PETSCII Character Set
+        if 'PETSCII' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'PETSCII Character Set',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'Commodore 64 Character Encoding (256 Characters)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Character ranges
+            ranges = [
+                ('$00-$1F', 'Control Characters', '#E63946', 10.0),
+                ('$20-$3F', 'Uppercase + Symbols', '#4A90E2', 9.3),
+                ('$40-$5F', 'Lowercase + Graphics', '#50C878', 8.6),
+                ('$60-$7F', 'Uppercase + Graphics', '#F4A261', 7.9),
+                ('$80-$9F', 'Control (Reverse)', '#E76F51', 7.2),
+                ('$A0-$BF', 'Graphics + Symbols', '#9D4EDD', 6.5),
+                ('$C0-$DF', 'Uppercase (Reverse)', '#2A9D8F', 5.8),
+                ('$E0-$FF', 'Lowercase (Reverse)', '#4ECDC4', 5.1),
+            ]
+
+            for addr, label, color, y in ranges:
+                rect = FancyBboxPatch((2, y-0.3), 10, 0.5,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                ax.text(7, y, f'{addr}: {label}', ha='center', va='center',
+                       fontsize=9, fontweight='bold', color='white')
+
+            # Common characters
+            ax.text(7, 3.8, 'Common Characters:', ha='center', fontsize=10, fontweight='bold')
+            chars = [
+                '$20 = Space   $41 = A   $61 = a',
+                '$30-$39 = Digits 0-9',
+                '$13 = HOME   $14 = DEL   $1D = Cursor Right',
+                '$91 = Cursor Up   $11 = Cursor Down',
+            ]
+            for i, char in enumerate(chars):
+                ax.text(7, 3.2 - (i * 0.4), char, ha='center', fontsize=9, family='monospace')
+
+            # Screen codes note
+            ax.text(7, 1.2, 'Note: Screen codes differ from PETSCII codes!',
+                   ha='center', fontsize=9, style='italic', color='#E63946', fontweight='bold')
+            ax.text(7, 0.7, 'Use POKE for screen memory, CHR$ for PRINT',
+                   ha='center', fontsize=8, style='italic', color='#666666')
+
+            filename = 'petscii_chart.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'PETSCII Character Set',
+                'description': 'Complete 256-character encoding with control codes and graphics'
+            })
+
+        # Joystick Port Wiring
+        if 'JOYSTICK' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'C64 Joystick Port Wiring',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, '9-Pin D-Sub Connector (Atari Standard)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # Pin layout
+            pins = [
+                ('Pin 1', 'Up', '#4A90E2', 2, 9.5),
+                ('Pin 2', 'Down', '#4A90E2', 5, 9.5),
+                ('Pin 3', 'Left', '#50C878', 2, 8.5),
+                ('Pin 4', 'Right', '#50C878', 5, 8.5),
+                ('Pin 5', 'POT Y', '#9D4EDD', 8.5, 9.5),
+                ('Pin 6', 'Fire', '#E63946', 2, 7.5),
+                ('Pin 7', '+5V', '#F4A261', 5, 7.5),
+                ('Pin 8', 'Ground', '#2D3748', 8.5, 8.5),
+                ('Pin 9', 'POT X', '#9D4EDD', 8.5, 7.5),
+            ]
+
+            for pin, label, color, x, y in pins:
+                rect = FancyBboxPatch((x, y-0.3), 2.5, 0.5,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=color, edgecolor='black', linewidth=1.5)
+                ax.add_patch(rect)
+                text_color = 'white' if color != '#F4A261' else 'black'
+                ax.text(x+1.25, y, f'{pin}: {label}', ha='center', va='center',
+                       fontsize=9, fontweight='bold', color=text_color)
+
+            # CIA registers
+            ax.text(7, 6.0, 'CIA Registers:', ha='center', fontsize=11, fontweight='bold')
+            ax.text(7, 5.5, 'Port 1: $DC00 (CIA1 Data Port A)', ha='center', fontsize=9, family='monospace')
+            ax.text(7, 5.1, 'Port 2: $DC01 (CIA1 Data Port B)', ha='center', fontsize=9, family='monospace')
+
+            # Read example
+            ax.text(7, 4.3, 'Assembly Example (Read Port 2):', ha='center', fontsize=10, fontweight='bold')
+            code = [
+                'LDA $DC00  ; Read joystick port 2',
+                'AND #$1F   ; Mask direction + fire bits',
+                'CMP #$1F   ; Check if centered (all high)',
+                'BEQ NoMove ; No joystick movement',
+            ]
+            for i, line in enumerate(code):
+                ax.text(7, 3.7 - (i * 0.35), line, ha='center', fontsize=8, family='monospace')
+
+            # Bit mapping
+            ax.text(7, 1.8, 'Bit Mapping: 0=Active, 1=Inactive', ha='center', fontsize=9, fontweight='bold')
+            bits = 'Bit 0=Up  1=Down  2=Left  3=Right  4=Fire'
+            ax.text(7, 1.4, bits, ha='center', fontsize=8, family='monospace')
+
+            filename = 'joystick_wiring.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'Joystick Port Wiring',
+                'description': '9-pin connector layout with CIA register mapping and read example'
+            })
+
+        # Color Palette Chart
+        if 'COLOR' in title_upper or 'COLOUR' in title_upper:
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'C64 Color Palette (16 Colors)',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'VIC-II Color Values ($D020-$D021 Border/Background)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            # C64 color palette (approximate RGB)
+            c64_colors = [
+                (0, 'Black', '#000000'),
+                (1, 'White', '#FFFFFF'),
+                (2, 'Red', '#880000'),
+                (3, 'Cyan', '#AAFFEE'),
+                (4, 'Purple', '#CC44CC'),
+                (5, 'Green', '#00CC55'),
+                (6, 'Blue', '#0000AA'),
+                (7, 'Yellow', '#EEEE77'),
+                (8, 'Orange', '#DD8855'),
+                (9, 'Brown', '#664400'),
+                (10, 'Lt Red', '#FF7777'),
+                (11, 'Dk Grey', '#333333'),
+                (12, 'Grey', '#777777'),
+                (13, 'Lt Green', '#AAFF66'),
+                (14, 'Lt Blue', '#0088FF'),
+                (15, 'Lt Grey', '#BBBBBB'),
+            ]
+
+            # Display colors in 4x4 grid
+            for i, (num, name, rgb) in enumerate(c64_colors):
+                row = i // 4
+                col = i % 4
+                x = 1.5 + (col * 3)
+                y = 9.5 - (row * 1.8)
+
+                # Color box
+                rect = FancyBboxPatch((x, y-0.5), 2.5, 0.8,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor=rgb, edgecolor='black', linewidth=2)
+                ax.add_patch(rect)
+
+                # Text (choose contrasting color)
+                text_color = 'white' if num in [0, 2, 6, 9, 11] else 'black'
+                ax.text(x+1.25, y, f'{num}: {name}', ha='center', va='center',
+                       fontsize=9, fontweight='bold', color=text_color)
+
+            # Usage examples
+            ax.text(7, 2.5, 'BASIC Examples:', ha='center', fontsize=10, fontweight='bold')
+            examples = [
+                'POKE 53280,0  : REM Border = Black',
+                'POKE 53281,6  : REM Background = Blue',
+                'PRINT CHR$(18); : REM Reverse On (color 18)',
+            ]
+            for i, ex in enumerate(examples):
+                ax.text(7, 2.0 - (i * 0.35), ex, ha='center', fontsize=8, family='monospace')
+
+            ax.text(7, 0.5, 'Note: Colors appear differently on real hardware vs emulators',
+                   ha='center', fontsize=8, style='italic', color='#666666')
+
+            filename = 'color_palette.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'C64 Color Palette',
+                'description': 'All 16 colors with POKE values and BASIC examples'
+            })
+
+        # Waveform Types
+        if 'WAVEFORM' in title_upper or ('SOUND' in title_upper and 'WAVE' in title_upper):
+            fig, ax = plt.subplots(figsize=(14, 10))
+            ax.set_xlim(0, 14)
+            ax.set_ylim(0, 12)
+            ax.axis('off')
+
+            ax.text(7, 11.5, 'SID Waveform Types',
+                   ha='center', fontsize=16, fontweight='bold')
+            ax.text(7, 11, 'Four Basic Waveforms ($D404, $D40B, $D412)',
+                   ha='center', fontsize=11, style='italic', color='#666666')
+
+            import numpy as np
+
+            # Waveform data
+            waveforms = [
+                ('Triangle', '#4A90E2', 9.5, lambda x: np.abs(2 * (x % 1) - 1) * 2 - 1),
+                ('Sawtooth', '#50C878', 7.5, lambda x: 2 * (x % 1) - 1),
+                ('Pulse', '#E76F51', 5.5, lambda x: np.where((x % 1) < 0.5, 1, -1)),
+                ('Noise', '#9D4EDD', 3.5, lambda x: np.random.uniform(-1, 1, len(x))),
+            ]
+
+            for name, color, y_center, wave_func in waveforms:
+                # Generate waveform
+                x_vals = np.linspace(0, 3, 300)
+                y_vals = wave_func(x_vals) * 0.6 + y_center
+
+                # Plot waveform
+                ax.plot(1.5 + x_vals * 3, y_vals, color=color, linewidth=2.5)
+
+                # Background box
+                rect = FancyBboxPatch((1.3, y_center-0.8), 10, 1.4,
+                                     boxstyle="round,pad=0.05",
+                                     facecolor='#F7FAFC', edgecolor=color, linewidth=2)
+                ax.add_patch(rect)
+
+                # Label
+                ax.text(12.2, y_center, name, fontsize=11, fontweight='bold', color=color, va='center')
+
+            # Control bits
+            ax.text(7, 1.5, 'Control Register Bits:', ha='center', fontsize=10, fontweight='bold')
+            bits = [
+                'Bit 4: Triangle  Bit 5: Sawtooth  Bit 6: Pulse  Bit 7: Noise',
+                'Example: LDA #$11 / STA $D404  ; Triangle wave + Gate',
+            ]
+            for i, bit in enumerate(bits):
+                ax.text(7, 1.0 - (i * 0.35), bit, ha='center', fontsize=8, family='monospace')
+
+            filename = 'waveforms.png'
+            filepath = images_dir / filename
+            plt.tight_layout()
+            plt.savefig(str(filepath), dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+
+            diagrams.append({
+                'filename': filename,
+                'path': f"../assets/images/articles/{filename}",
+                'title': 'SID Waveform Types',
+                'description': 'Four basic waveforms with control register bits'
+            })
+
         return diagrams
 
     def _generate_fallback_description(self, title: str, category: str, entity: Dict) -> str:

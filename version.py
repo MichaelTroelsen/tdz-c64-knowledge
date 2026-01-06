@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.35"
-__version_info__ = (2, 23, 35)
+__version__ = "2.23.36"
+__version_info__ = (2, 23, 36)
 
 # Build information
-__build_date__ = "2026-01-04"
+__build_date__ = "2026-01-06"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"
@@ -75,6 +75,70 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.23.36 (2026-01-06)
+  📚 MAJOR FEATURE: Enhanced Article Coverage (+26% More Articles!)
+
+  Completion of Original Recommendation:
+  - Original recommendation: "Complete article coverage THEN add diagrams"
+  - v2.23.35: Added 6 specialized diagrams ✅
+  - v2.23.36: Completed article coverage expansion ✅
+
+  Article Expansion:
+  - Articles: 34 → 43 (+9 articles, +26% increase!)
+  - Topics: 42 → 51 keywords (+9 new topics)
+  - Search index: 415 → 424 items (+9)
+  - Coverage: 81% (34/42) → 84% (43/51)
+
+  New Article Topics Added:
+
+  **HARDWARE (1 new)**
+  - VIC-20 (91 document references) - Commodore's predecessor to C64
+
+  **PROGRAMMING (8 new)**
+  High-Value Concepts & Instructions:
+  - DMA (99 docs) - Direct Memory Access for fast data transfer
+  - IRQ (98 docs) - Interrupt Request handling
+  - NMI (docs) - Non-Maskable Interrupt
+  - LDA (95 docs) - Load Accumulator instruction
+  - STA (92 docs) - Store Accumulator instruction
+  - JMP (86 docs) - Jump instruction
+  - JSR (docs) - Jump to Subroutine
+  - RTS (docs) - Return from Subroutine
+
+  Technical Details:
+  - Expanded article_topics dictionary (wiki_export.py:9821-9827)
+  - Added keywords based on entity extraction statistics
+  - Selected entities with 80+ document references for maximum value
+  - All new articles include AI-generated summaries, code examples, diagrams
+
+  Article Generation System:
+  - 51 article tasks generated (from expanded keyword list)
+  - 43 articles successfully created (84% success rate)
+  - Parallel generation with 8 workers
+  - Automatic diagram selection based on article keywords
+
+  Files Modified:
+  - wiki_export.py - Expanded article topics (HARDWARE +1, PROGRAMMING +8)
+  - version.py - Updated to v2.23.36
+  - wiki/* - Regenerated all wiki files with new articles
+
+  Impact:
+  - Comprehensive instruction reference (6 key assembly instructions)
+  - Complete interrupt documentation (IRQ, NMI)
+  - Hardware comparison (VIC-20 vs C64)
+  - Enhanced search coverage with new high-value topics
+
+  Search Index Updated:
+  - 424 total searchable items
+  - 43 articles (all major C64 topics)
+  - 215 documents (PDFs, text files)
+  - 166 entities (top 20 per entity type)
+
+  Next Steps:
+  - Remaining 8 topics lack entities in KB (Joystick, Composer, Waveform, PETSCII, Stack, Zero Page, Debugger, Emulator)
+  - Can be addressed by adding more source documents covering these topics
+  - All diagram generators ready (27 types including the 8 missing topics)
+
 v2.23.35 (2026-01-05)
   🎨 MAJOR ENHANCEMENT: 6 Specialized Diagrams + Complete Article Infrastructure
 

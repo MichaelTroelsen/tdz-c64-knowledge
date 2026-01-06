@@ -9819,10 +9819,10 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
 
         # Define major topics to generate articles for
         article_topics = {
-            'HARDWARE': ['SID', 'VIC-II', 'VIC', 'CIA', '6510', '6502', '1541', 'Joystick', 'Keyboard', 'Cartridge', 'User Port', 'Datasette'],
+            'HARDWARE': ['SID', 'VIC-II', 'VIC', 'VIC-20', 'CIA', '6510', '6502', '1541', 'Joystick', 'Keyboard', 'Cartridge', 'User Port', 'Datasette'],
             'MUSIC': ['Music', 'Sound', 'Composer', 'Editor', 'Tracker', 'ADSR', 'Waveform'],
             'GRAPHICS': ['Sprite', 'Bitmap', 'Graphics', 'Color', 'Screen', 'Character', 'Raster', 'Multicolor'],
-            'PROGRAMMING': ['Assembly', 'BASIC', 'Kernal', 'ROM', 'Memory', 'Interrupt', 'PETSCII', 'Stack', 'Zero Page'],
+            'PROGRAMMING': ['Assembly', 'BASIC', 'Kernal', 'ROM', 'Memory', 'Interrupt', 'DMA', 'IRQ', 'NMI', 'LDA', 'STA', 'JMP', 'JSR', 'RTS', 'PETSCII', 'Stack', 'Zero Page'],
             'TOOLS': ['Assembler', 'Editor', 'Debugger', 'Monitor', 'Emulator', 'Compiler']
         }
 

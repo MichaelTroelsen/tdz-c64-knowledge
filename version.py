@@ -10,11 +10,11 @@ This file contains version and build information for the project.
 # MINOR: Add functionality in a backwards compatible manner
 # PATCH: Backwards compatible bug fixes
 
-__version__ = "2.23.36"
-__version_info__ = (2, 23, 36)
+__version__ = "2.24.0"
+__version_info__ = (2, 24, 0)
 
 # Build information
-__build_date__ = "2026-01-06"
+__build_date__ = "2026-01-10"
 __author__ = "TDZ Development Team"
 __project_name__ = "TDZ C64 Knowledge Base"
 __description__ = "MCP server for managing and searching Commodore 64 documentation"
@@ -75,6 +75,95 @@ FEATURES = {
 
 # Version history
 VERSION_HISTORY = """
+v2.24.0 (2026-01-10)
+  ✨ MAJOR ENHANCEMENT: Wiki Article Improvements - Related Articles Sidebar + Enhanced Syntax Highlighting
+
+  User Request:
+  - "option 1 and option 5" - Complete article coverage + enhance existing articles
+
+  Article Enhancement Features:
+
+  **1. Related Articles Sidebar**
+  - Professional sidebar showing 8 most related articles
+  - Two-column responsive layout (article content + sidebar)
+  - Sorted by document overlap ratio (highest relevance first)
+  - Each related article shows:
+    * Article title with clickable link
+    * Document count (e.g., "📚 58 docs")
+    * Overlap percentage (e.g., "72% overlap")
+    * Category badge (HARDWARE, PROGRAMMING, etc.)
+  - Sticky positioning follows scroll
+  - Mobile-responsive (sidebar moves above content on small screens)
+  - Color-coded categories with themed badges
+  - Hover animations for better UX
+
+  **2. Enhanced Syntax Highlighting with BASIC Support**
+  - Automatic language detection (Assembly vs BASIC)
+  - Detection regex: /^\s*\d+\s+(PRINT|REM|FOR|NEXT|IF|...)/
+  - BASIC syntax highlighting includes:
+    * Line numbers (cyan, bold)
+    * Keywords (pink, bold): PRINT, FOR, IF, GOTO, POKE, etc.
+    * Functions (green): CHR$, ASC, LEN, VAL, INT, SIN, etc.
+    * Strings (yellow): "text in quotes"
+    * Comments (gray, italic): REM comments
+  - Assembly syntax highlighting (existing):
+    * Opcodes (pink, bold): LDA, STA, JMP, etc.
+    * Hex values (green): $D000, $D020
+    * Comments (gray, italic): ; comments
+    * Labels (yellow, bold): routine:
+  - Theme-aware colors (dark mode + C64 theme support)
+
+  **3. Copy to Clipboard for Code Blocks** (existing feature verified)
+  - 📋 Copy button on all code blocks
+  - Hover animations and visual feedback
+  - Success message: "✅ Copied!"
+  - Error handling: "❌ Failed"
+  - 2-second timeout for feedback
+  - Mobile-optimized button sizing
+
+  Technical Implementation:
+
+  **Related Articles Sidebar:**
+  - New method: _build_related_articles_sidebar() (wiki_export.py:12477-12547)
+  - Loads articles.json to match entity names to articles
+  - Filters current article from suggestions
+  - CSS grid layout with sticky positioning
+  - Responsive breakpoint at 1024px
+
+  **BASIC Syntax Highlighting:**
+  - Enhanced highlightSyntax() function (wiki_export.py:8690-8752)
+  - 30+ BASIC keywords supported
+  - 15+ BASIC functions supported  - String literal detection with regex
+  - Proper escaping for special characters
+
+  **CSS Enhancements:**
+  - Related Articles: 70+ lines of CSS (wiki_export.py:5786-5860)
+  - BASIC Syntax: 20+ lines of CSS (wiki_export.py:5539-5577)
+  - Mobile-responsive media queries
+  - Theme-compatible color schemes
+
+  Results:
+  - 51 articles generated with all enhancements
+  - Related Articles sidebar on all article pages
+  - BASIC and Assembly code both beautifully highlighted
+  - Copy buttons working on all code blocks
+  - Professional appearance matching modern documentation sites
+
+  Impact:
+  - Improved article discoverability through related articles
+  - Better code readability with BASIC support
+  - Enhanced user experience with professional sidebar
+  - Modern wiki features rivaling major documentation sites
+  - Sticky sidebar keeps related content visible while reading
+
+  Files Modified:
+  - wiki_export.py - Added sidebar generation, enhanced syntax highlighting
+  - version.py - Updated to v2.24.0 with comprehensive changelog
+
+  Next Steps (Option 1 - deferred):
+  - Complete final 8 articles (Joystick, Composer, Waveform, PETSCII, Stack, Zero Page, Debugger, Emulator)
+  - Fallback search mechanism implemented but needs more testing
+
 v2.23.36 (2026-01-06)
   📚 MAJOR FEATURE: Enhanced Article Coverage (+26% More Articles!)
 

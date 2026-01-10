@@ -5504,6 +5504,7 @@ html {
 }
 
 /* ===== SYNTAX HIGHLIGHTING ===== */
+/* Assembly syntax */
 .asm-opcode {
     color: #ff79c6;
     font-weight: bold;
@@ -5535,15 +5536,45 @@ html {
     color: #ffb86c;
 }
 
+/* BASIC syntax */
+.basic-linenum {
+    color: #8be9fd;
+    font-weight: bold;
+}
+
+.basic-keyword {
+    color: #ff79c6;
+    font-weight: bold;
+}
+
+.basic-function {
+    color: #50fa7b;
+}
+
+.basic-string {
+    color: #f1fa8c;
+}
+
+.basic-comment {
+    color: #6272a4;
+    font-style: italic;
+}
+
 [data-theme="dark"] .asm-opcode { color: #ff79c6; }
 [data-theme="dark"] .asm-hex { color: #50fa7b; }
 [data-theme="dark"] .asm-comment { color: #6272a4; }
 [data-theme="dark"] .asm-label { color: #f1fa8c; }
+[data-theme="dark"] .basic-keyword { color: #ff79c6; }
+[data-theme="dark"] .basic-linenum { color: #8be9fd; }
+[data-theme="dark"] .basic-string { color: #f1fa8c; }
 
 [data-theme="c64"] .asm-opcode { color: #ffeb3b; }
 [data-theme="c64"] .asm-hex { color: #00e676; }
 [data-theme="c64"] .asm-comment { color: #9fa8da; }
 [data-theme="c64"] .asm-label { color: #ffc107; }
+[data-theme="c64"] .basic-keyword { color: #ffeb3b; }
+[data-theme="c64"] .basic-linenum { color: #00e676; }
+[data-theme="c64"] .basic-string { color: #ffc107; }
 
 /* ===== BOOKMARKS SYSTEM ===== */
 .bookmark-btn {
@@ -8694,30 +8725,57 @@ function highlightSyntax() {
 
         let code = block.textContent;
 
-        // 6502/6510 Assembly syntax highlighting
+        // Detect if this is BASIC or Assembly code
+        const isBASIC = /^\s*\d+\s+(PRINT|REM|FOR|NEXT|IF|THEN|GOTO|GOSUB|INPUT|LET|DIM|DATA|READ|POKE|PEEK|SYS)/im.test(code);
 
-        // 1. Highlight comments (;)
-        code = code.replace(/;.*/g, match => `<span class="asm-comment">${match}</span>`);
+        if (isBASIC) {
+            // BASIC syntax highlighting
 
-        // 2. Highlight hex values ($xx, $xxxx)
-        code = code.replace(/\$[0-9A-Fa-f]+/g, match => `<span class="asm-hex">${match}</span>`);
+            // 1. Highlight line numbers
+            code = code.replace(/^\s*(\d+)\s+/gm, match => `<span class="basic-linenum">${match}</span>`);
 
-        // 3. Highlight binary values (%)
-        code = code.replace(/%[01]+/g, match => `<span class="asm-binary">${match}</span>`);
+            // 2. Highlight BASIC keywords
+            const basicKeywords = 'PRINT|REM|FOR|NEXT|IF|THEN|ELSE|GOTO|GOSUB|RETURN|INPUT|LET|DIM|DATA|READ|RESTORE|POKE|PEEK|SYS|END|STOP|LOAD|SAVE|RUN|LIST|NEW|CLR|GET|TAB|SPC|AND|OR|NOT|TO|STEP|FN|DEF|ON';
+            const basicRegex = new RegExp(`\\b(${basicKeywords})\\b`, 'gi');
+            code = code.replace(basicRegex, match => `<span class="basic-keyword">${match.toUpperCase()}</span>`);
 
-        // 4. Highlight decimal numbers
-        code = code.replace(/\b\d+\b/g, match => `<span class="asm-number">${match}</span>`);
+            // 3. Highlight strings
+            code = code.replace(/"[^"]*"/g, match => `<span class="basic-string">${match}</span>`);
 
-        // 5. Highlight opcodes (all 56 6502 instructions)
-        const opcodes = 'ADC|AND|ASL|BCC|BCS|BEQ|BIT|BMI|BNE|BPL|BRK|BVC|BVS|CLC|CLD|CLI|CLV|CMP|CPX|CPY|DEC|DEX|DEY|EOR|INC|INX|INY|JMP|JSR|LDA|LDX|LDY|LSR|NOP|ORA|PHA|PHP|PLA|PLP|ROL|ROR|RTI|RTS|SBC|SEC|SED|SEI|STA|STX|STY|TAX|TAY|TSX|TXA|TXS|TYA';
-        const opcodeRegex = new RegExp(`\\b(${opcodes})\\b`, 'gi');
-        code = code.replace(opcodeRegex, match => `<span class="asm-opcode">${match.toUpperCase()}</span>`);
+            // 4. Highlight BASIC functions
+            const basicFunctions = 'CHR\\$|ASC|LEN|LEFT\\$|RIGHT\\$|MID\\$|STR\\$|VAL|INT|ABS|SIN|COS|TAN|ATN|SQR|RND|SGN|LOG|EXP|FRE|POS|USR';
+            const funcRegex = new RegExp(`\\b(${basicFunctions})`, 'gi');
+            code = code.replace(funcRegex, match => `<span class="basic-function">${match.toUpperCase()}</span>`);
 
-        // 6. Highlight labels (word followed by :)
-        code = code.replace(/^(\w+):/gm, match => `<span class="asm-label">${match}</span>`);
+            // 5. Highlight REM comments
+            code = code.replace(/\bREM\s+.*/gi, match => `<span class="basic-comment">${match}</span>`);
 
-        // 7. Highlight directives (.byte, .word, etc.)
-        code = code.replace(/\.\w+/g, match => `<span class="asm-directive">${match}</span>`);
+        } else {
+            // 6502/6510 Assembly syntax highlighting
+
+            // 1. Highlight comments (;)
+            code = code.replace(/;.*/g, match => `<span class="asm-comment">${match}</span>`);
+
+            // 2. Highlight hex values ($xx, $xxxx)
+            code = code.replace(/\$[0-9A-Fa-f]+/g, match => `<span class="asm-hex">${match}</span>`);
+
+            // 3. Highlight binary values (%)
+            code = code.replace(/%[01]+/g, match => `<span class="asm-binary">${match}</span>`);
+
+            // 4. Highlight decimal numbers
+            code = code.replace(/\b\d+\b/g, match => `<span class="asm-number">${match}</span>`);
+
+            // 5. Highlight opcodes (all 56 6502 instructions)
+            const opcodes = 'ADC|AND|ASL|BCC|BCS|BEQ|BIT|BMI|BNE|BPL|BRK|BVC|BVS|CLC|CLD|CLI|CLV|CMP|CPX|CPY|DEC|DEX|DEY|EOR|INC|INX|INY|JMP|JSR|LDA|LDX|LDY|LSR|NOP|ORA|PHA|PHP|PLA|PLP|ROL|ROR|RTI|RTS|SBC|SEC|SED|SEI|STA|STX|STY|TAX|TAY|TSX|TXA|TXS|TYA';
+            const opcodeRegex = new RegExp(`\\b(${opcodes})\\b`, 'gi');
+            code = code.replace(opcodeRegex, match => `<span class="asm-opcode">${match.toUpperCase()}</span>`);
+
+            // 6. Highlight labels (word followed by :)
+            code = code.replace(/^(\w+):/gm, match => `<span class="asm-label">${match}</span>`);
+
+            // 7. Highlight directives (.byte, .word, etc.)
+            code = code.replace(/\.\w+/g, match => `<span class="asm-directive">${match}</span>`);
+        }
 
         block.innerHTML = code;
         block.classList.add('highlighted');
@@ -9878,7 +9936,9 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
 
         if matching_entities:
             return self._create_article(keyword, category, matching_entities, entities_data)
-        return None
+
+        # Fallback: Try to generate article from search results if no entities found
+        return self._create_article_from_search(keyword, category, entities_data)
 
     def _find_entities_for_article(self, entities_data: Dict, keyword: str) -> List[Dict]:
         """Find entities matching a keyword for article generation."""
@@ -9899,6 +9959,50 @@ console.warn('PDF.js not loaded - PDF viewing will not work');
         # Sort by document count (most referenced first)
         matching.sort(key=lambda x: x['doc_count'], reverse=True)
         return matching
+
+    def _create_article_from_search(self, keyword: str, category: str, all_entities: Dict) -> Dict:
+        """Create article from search results when no entities are found (fallback)."""
+        try:
+            # Search knowledge base for the keyword
+            search_results = self.kb.search(keyword, max_results=20)
+
+            if not search_results:
+                return None  # No results found
+
+            # Create synthetic entity from search results
+            synthetic_entity = {
+                'type': 'concept',
+                'text': keyword,
+                'doc_count': len(search_results),
+                'confidence': 0.85,  # Synthetic confidence
+                'documents': []
+            }
+
+            # Build document list from search results
+            # Group results by document ID to avoid duplicates
+            doc_ids_seen = set()
+            for result in search_results:
+                doc_id = result.get('doc_id', '')
+                if doc_id and doc_id not in doc_ids_seen:
+                    doc_ids_seen.add(doc_id)
+                    # kb.documents is a dict {doc_id: DocumentMeta}
+                    doc = self.kb.documents.get(doc_id)
+                    if doc:
+                        synthetic_entity['documents'].append({
+                            'id': doc.doc_id,
+                            'title': doc.title,
+                            'filename': re.sub(r'[^\w\-]', '_', doc.doc_id) + '.html'
+                        })
+
+            # If we have at least 3 documents, create the article
+            if len(synthetic_entity['documents']) >= 3:
+                return self._create_article(keyword, category, [synthetic_entity], all_entities)
+
+            return None  # Not enough content
+
+        except Exception as e:
+            print(f"    Warning: Failed to create article from search for '{keyword}': {e}")
+            return None
 
     def _create_article(self, keyword: str, category: str, entities: List[Dict], all_entities: Dict) -> Dict:
         """Create an article from entity data."""
@@ -12428,6 +12532,78 @@ Write ONLY the article content, no title or introduction phrase."""
         minutes = max(1, round(words / 200))
         return minutes
 
+    def _build_related_articles_sidebar(self, current_title: str, related_entities: List[Dict]) -> str:
+        """Build sidebar HTML showing related articles."""
+        # Load articles.json to find matching articles
+        articles_json_path = self.data_dir / "articles.json"
+
+        if not articles_json_path.exists():
+            return ''  # No articles.json yet
+
+        try:
+            with open(articles_json_path, 'r', encoding='utf-8') as f:
+                all_articles = json.load(f)
+        except Exception as e:
+            print(f"    Warning: Could not load articles.json: {e}")
+            return ''
+
+        # Match related entities to articles
+        related_articles = []
+        for rel_entity in related_entities[:10]:  # Top 10 related entities
+            entity_name = rel_entity['text']
+
+            # Find article with matching title
+            for article in all_articles:
+                if article['title'].lower() == entity_name.lower():
+                    # Don't include the current article
+                    if article['title'].lower() != current_title.lower():
+                        related_articles.append({
+                            'title': article['title'],
+                            'filename': article['filename'],
+                            'category': article['category'],
+                            'doc_count': article['doc_count'],
+                            'overlap_count': rel_entity.get('overlap_count', 0),
+                            'overlap_ratio': rel_entity.get('overlap_ratio', 0)
+                        })
+                    break
+
+        # Sort by overlap ratio (most related first)
+        related_articles.sort(key=lambda x: x['overlap_ratio'], reverse=True)
+
+        # Build sidebar HTML
+        if not related_articles:
+            return f"""
+            <aside class="related-articles-sidebar">
+                <h2>🔗 Related Articles</h2>
+                <div class="related-articles-empty">
+                    No related articles found yet.
+                </div>
+            </aside>
+            """
+
+        # Build article items
+        items_html = ''
+        for article in related_articles[:8]:  # Show max 8 related articles
+            overlap_pct = int(article['overlap_ratio'] * 100)
+            items_html += f"""
+            <div class="related-article-item">
+                <a href="{article['filename']}">{html.escape(article['title'])}</a>
+                <div class="related-article-meta">
+                    📚 {article['doc_count']} docs • {overlap_pct}% overlap
+                </div>
+                <span class="related-article-category">{html.escape(article['category'])}</span>
+            </div>
+            """
+
+        sidebar_html = f"""
+        <aside class="related-articles-sidebar">
+            <h2>🔗 Related Articles</h2>
+            {items_html}
+        </aside>
+        """
+
+        return sidebar_html
+
     def _generate_article_html(self, title: str, category: str, main_entity: Dict,
                                all_matches: List[Dict], related: List[Dict],
                                code_examples: List[Dict]) -> str:
@@ -12544,6 +12720,9 @@ Write ONLY the article content, no title or introduction phrase."""
         if len(main_entity['documents']) > 20:
             docs_html += f'<li><em>...and {len(main_entity["documents"]) - 20} more documents</em></li>'
         docs_html += '</ul></div>'
+
+        # Build Related Articles sidebar
+        related_articles_html = self._build_related_articles_sidebar(title, related)
 
         html_template = f"""<!DOCTYPE html>
 <html lang="en">
@@ -12734,6 +12913,81 @@ Write ONLY the article content, no title or introduction phrase."""
             color: var(--text-muted);
             font-size: 0.9em;
         }}
+        /* Two-column layout for article + sidebar */
+        .article-layout {{
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: 30px;
+            align-items: start;
+        }}
+        @media (max-width: 1024px) {{
+            .article-layout {{
+                grid-template-columns: 1fr;
+            }}
+            .related-articles-sidebar {{
+                order: -1; /* Show sidebar above content on mobile */
+            }}
+        }}
+        /* Related Articles Sidebar */
+        .related-articles-sidebar {{
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            position: sticky;
+            top: 20px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }}
+        .related-articles-sidebar h2 {{
+            margin: 0 0 15px 0;
+            color: var(--secondary-color);
+            font-size: 1.2em;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--border-color);
+        }}
+        .related-article-item {{
+            margin: 12px 0;
+            padding: 12px;
+            background: var(--bg-color);
+            border-radius: 8px;
+            border-left: 3px solid var(--accent-color);
+            transition: all 0.2s;
+        }}
+        .related-article-item:hover {{
+            transform: translateX(5px);
+            border-left-color: var(--primary-color);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }}
+        .related-article-item a {{
+            color: var(--text-color);
+            text-decoration: none;
+            font-weight: 600;
+            display: block;
+        }}
+        .related-article-item a:hover {{
+            color: var(--primary-color);
+        }}
+        .related-article-meta {{
+            font-size: 0.75em;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }}
+        .related-article-category {{
+            display: inline-block;
+            padding: 2px 8px;
+            background: var(--accent-color);
+            color: white;
+            border-radius: 10px;
+            font-size: 0.7em;
+            margin-top: 5px;
+        }}
+        .related-articles-empty {{
+            color: var(--text-muted);
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }}
     </style>
 </head>
 <body>
@@ -12761,7 +13015,7 @@ Write ONLY the article content, no title or introduction phrase."""
             <span class="current">{title_escaped}</span>
         </nav>
 
-        <main>
+        <main class="article-layout">
             <article class="article-content">
                 <span class="article-category">{html.escape(category)}</span>
                 <h1>{title_escaped}</h1>
@@ -12780,6 +13034,8 @@ Write ONLY the article content, no title or introduction phrase."""
                 {code_html}
                 {docs_html}
             </article>
+
+            {related_articles_html}
         </main>
 
         <footer>

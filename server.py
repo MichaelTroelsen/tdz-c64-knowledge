@@ -194,6 +194,9 @@ class DocumentMeta:
     scrape_error: Optional[str] = None  # Error message if scrape failed
     url_last_checked: Optional[str] = None  # ISO timestamp of last update check
     url_content_hash: Optional[str] = None  # Hash of scraped content for change detection
+    # Knowledge-card identity (optional)
+    card_id: Optional[str] = None  # Logical card id parsed from a ```json id``` block; None for non-card docs
+    superseded_by: Optional[str] = None  # doc_id of the card that replaced this one; None if this is the live version
 
 
 @dataclass
@@ -468,7 +471,9 @@ class KnowledgeBase:
                     scrape_status TEXT,
                     scrape_error TEXT,
                     url_last_checked TEXT,
-                    url_content_hash TEXT
+                    url_content_hash TEXT,
+                    card_id TEXT,
+                    superseded_by TEXT
                 )
             """)
 
@@ -477,6 +482,8 @@ class KnowledgeBase:
             cursor.execute("CREATE INDEX idx_documents_file_type ON documents(file_type)")
             cursor.execute("CREATE INDEX idx_documents_source_url ON documents(source_url)")
             cursor.execute("CREATE INDEX idx_documents_scrape_status ON documents(scrape_status)")
+            cursor.execute("CREATE INDEX idx_documents_card_id ON documents(card_id)")
+            cursor.execute("CREATE INDEX idx_documents_superseded_by ON documents(superseded_by)")
 
             # Create chunks table
             cursor.execute("""
@@ -896,6 +903,19 @@ class KnowledgeBase:
 
                 self.db_conn.commit()
                 self.logger.info("URL scraping columns and indexes added successfully")
+
+            # Migrate: Add knowledge-card identity columns if missing
+            if 'card_id' not in columns:
+                self.logger.info("Migrating database: adding card_id column")
+                cursor.execute("ALTER TABLE documents ADD COLUMN card_id TEXT")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_card_id ON documents(card_id)")
+                self.db_conn.commit()
+
+            if 'superseded_by' not in columns:
+                self.logger.info("Migrating database: adding superseded_by column")
+                cursor.execute("ALTER TABLE documents ADD COLUMN superseded_by TEXT")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_superseded_by ON documents(superseded_by)")
+                self.db_conn.commit()
 
             # Check if FTS5 table exists and populate if needed
             try:
@@ -1698,7 +1718,9 @@ class KnowledgeBase:
                     scrape_status=row[18] if len(row) > 18 else None,
                     scrape_error=row[19] if len(row) > 19 else None,
                     url_last_checked=row[20] if len(row) > 20 else None,
-                    url_content_hash=row[21] if len(row) > 21 else None
+                    url_content_hash=row[21] if len(row) > 21 else None,
+                    card_id=row[22] if len(row) > 22 else None,
+                    superseded_by=row[23] if len(row) > 23 else None
                 )
                 self.documents[doc.doc_id] = doc
 
@@ -1754,8 +1776,8 @@ class KnowledgeBase:
                 (doc_id, filename, title, filepath, file_type, total_pages, total_chunks,
                  indexed_at, tags, author, subject, creator, creation_date, file_mtime, file_hash,
                  source_url, scrape_date, scrape_config, scrape_status, scrape_error,
-                 url_last_checked, url_content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 url_last_checked, url_content_hash, card_id, superseded_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 doc_meta.doc_id,
                 doc_meta.filename,
@@ -1778,7 +1800,9 @@ class KnowledgeBase:
                 doc_meta.scrape_status,
                 doc_meta.scrape_error,
                 doc_meta.url_last_checked,
-                doc_meta.url_content_hash
+                doc_meta.url_content_hash,
+                doc_meta.card_id,
+                doc_meta.superseded_by
             ))
 
             # Delete old chunks if re-indexing
@@ -3364,8 +3388,169 @@ class KnowledgeBase:
             for allowed_dir in self.allowed_dirs
         )
 
+    def _extract_text_for_file(self, filepath: str) -> tuple[str, str, Optional[int], dict]:
+        """Extract raw text and file-type metadata for a document file.
+
+        Shared by add_document (full ingest) and update_document (which peeks
+        a new file's declared card id before deciding what to supersede).
+
+        Returns:
+            (text, file_type, total_pages, pdf_metadata)
+        """
+        filename = os.path.basename(filepath)
+        file_ext = os.path.splitext(filename)[1].lower()
+
+        total_pages = None
+        pdf_metadata = {}
+        try:
+            if file_ext == '.pdf':
+                text, total_pages, pdf_metadata = self._extract_pdf_text(filepath)
+                file_type = 'pdf'
+                self.logger.info(f"Extracted {total_pages} pages from PDF")
+            elif file_ext in ['.xlsx', '.xls']:
+                text, sheet_count = self._extract_excel_file(filepath)
+                file_type = 'excel'
+                total_pages = sheet_count  # Treat sheets as "pages"
+                self.logger.info(f"Extracted Excel file with {sheet_count} sheets ({len(text)} characters)")
+            elif file_ext in ['.html', '.htm']:
+                text = self._extract_html_file(filepath)
+                file_type = 'html'
+                self.logger.info(f"Extracted HTML file ({len(text)} characters)")
+            elif file_ext in ['.txt', '.md', '.asm', '.bas', '.inc', '.s']:
+                text = self._extract_text_file(filepath)
+                file_type = 'text'
+                self.logger.info(f"Extracted text file ({len(text)} characters)")
+            else:
+                raise UnsupportedFileTypeError(f"Unsupported file type: {file_ext}")
+        except (UnsupportedFileTypeError, DocumentNotFoundError):
+            raise
+        except Exception as e:
+            self.logger.error(f"Error extracting {filepath}: {e}")
+            raise KnowledgeBaseError(f"Error extracting document: {e}")
+
+        return text, file_type, total_pages, pdf_metadata
+
+    def _extract_card_id(self, text: str) -> Optional[str]:
+        """Parse the logical `id` out of a knowledge card's fenced ```json block.
+
+        Cards are markdown documents whose identity is the `id` field of their
+        first fenced json block, not their (content-hash) doc_id. Anything
+        without a well-formed json block with a string `id` is not a card -
+        PDFs, scrapes, ezines, etc. return None here and are left untouched
+        by the upsert/refuse logic in add_document/update_document.
+        """
+        if not text:
+            return None
+        match = re.search(r'```json\s*\n(.*?)```', text, re.DOTALL)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group(1))
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if isinstance(data, dict):
+            card_id = data.get('id')
+            if isinstance(card_id, str) and card_id.strip():
+                return card_id.strip()
+        return None
+
+    def get_document_by_card_id(self, card_id: str, include_superseded: bool = False) -> Optional[DocumentMeta]:
+        """Resolve a card's logical id to its document.
+
+        Returns the live (non-superseded) card by default - by construction
+        there is at most one, since add_document/update_document refuse to
+        create a second live document for the same card_id. With
+        include_superseded=True, falls back to the most recently indexed
+        superseded version if no live one exists.
+        """
+        matches = [d for d in self.documents.values() if d.card_id == card_id]
+        live = [d for d in matches if not d.superseded_by]
+        if live:
+            return live[0]
+        if include_superseded and matches:
+            return sorted(matches, key=lambda d: d.indexed_at, reverse=True)[0]
+        return None
+
+    def _rebuild_entity_relationships(self) -> None:
+        """Recompute entity_relationships from scratch across all live documents.
+
+        entity_relationships has no per-document attribution - it's a running
+        aggregate keyed only on (entity1_text, entity2_text, relationship_type)
+        with no doc_id column - so a superseded document's contribution can't
+        be surgically subtracted. The only correct fix is to wipe the table
+        and rebuild it from whatever document_entities currently holds for
+        live documents.
+        """
+        cursor = self.db_conn.cursor()
+        cursor.execute("DELETE FROM entity_relationships")
+        self.db_conn.commit()
+
+        cursor.execute("SELECT DISTINCT doc_id FROM document_entities")
+        doc_ids = [row[0] for row in cursor.fetchall()]
+        for doc_id in doc_ids:
+            doc = self.documents.get(doc_id)
+            if doc is None or doc.superseded_by:
+                continue
+            try:
+                self.extract_entity_relationships(doc_id, force_regenerate=True)
+            except Exception as e:
+                self.logger.warning(f"Relationship rebuild failed for {doc_id}: {e}")
+
+    def _mark_superseded(self, old_doc_id: str, new_doc_id: str) -> None:
+        """Mark old_doc_id as superseded by new_doc_id and purge its contribution
+        from derived artifacts that would otherwise keep answering with retracted
+        content (entities, entity relationships, cached graph artifacts).
+
+        Chunks/embeddings for old_doc_id are deliberately left in place - the
+        card's prior content stays retrievable by doc_id for history/audit -
+        but old_doc_id is excluded from default search results and from
+        get_document_by_card_id once superseded_by is set.
+        """
+        if old_doc_id not in self.documents or old_doc_id == new_doc_id:
+            return
+
+        cursor = self.db_conn.cursor()
+        cursor.execute(
+            "UPDATE documents SET superseded_by = ? WHERE doc_id = ?",
+            (new_doc_id, old_doc_id)
+        )
+        self.db_conn.commit()
+        self.documents[old_doc_id].superseded_by = new_doc_id
+
+        # Purge stale entities contributed by the retracted content, then
+        # rebuild the globally-aggregated relationship table from what's left
+        # so stale co-occurrence edges can't survive it.
+        cursor.execute("SELECT COUNT(*) FROM document_entities WHERE doc_id = ?", (old_doc_id,))
+        had_entities = cursor.fetchone()[0] > 0
+        if had_entities:
+            cursor.execute("DELETE FROM document_entities WHERE doc_id = ?", (old_doc_id,))
+            self.db_conn.commit()
+            if self._entity_cache is not None:
+                self._entity_cache.clear()
+            try:
+                self.extract_entities(new_doc_id, confidence_threshold=0.6, force_regenerate=True)
+            except Exception as e:
+                self.logger.warning(f"Entity re-extraction for {new_doc_id} failed after supersede: {e}")
+            self._rebuild_entity_relationships()
+
+        # Drop cached graph artifacts so they can't keep answering with
+        # retracted claims - build_knowledge_graph rebuilds from
+        # document_entities/entity_relationships on every call, but other
+        # code paths may read these caches directly.
+        for table in ("graph_cache", "graph_metrics", "graph_paths"):
+            try:
+                cursor.execute(f"DELETE FROM {table}")
+            except sqlite3.OperationalError:
+                pass
+        self.db_conn.commit()
+
+        # Invalidate search caches - the old doc is now excluded from default results.
+        self._invalidate_caches()
+
+        self.logger.info(f"Marked {old_doc_id} as superseded by {new_doc_id}")
+
     def add_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
-                     progress_callback: ProgressCallback = None) -> DocumentMeta:
+                     progress_callback: ProgressCallback = None, replace: bool = False) -> DocumentMeta:
         """Add a document to the knowledge base.
 
         Args:
@@ -3373,6 +3558,12 @@ class KnowledgeBase:
             title: Optional title for the document
             tags: Optional list of tags
             progress_callback: Optional callback for progress updates
+            replace: If the file is a knowledge card (has a ```json id``` block)
+                and a live card with the same id already exists, add_document
+                refuses by default (raises KnowledgeBaseError naming the
+                existing doc id). Pass replace=True to supersede it instead.
+                Non-card documents (no json id block) are never affected by
+                this check and are always created, matching prior behavior.
         """
         # Report progress: Start
         if progress_callback:
@@ -3402,36 +3593,9 @@ class KnowledgeBase:
             raise DocumentNotFoundError(f"File not found: {filepath}")
 
         filename = os.path.basename(filepath)
-        file_ext = os.path.splitext(filename)[1].lower()
 
         # Extract text based on file type
-        total_pages = None
-        pdf_metadata = {}
-        try:
-            if file_ext == '.pdf':
-                text, total_pages, pdf_metadata = self._extract_pdf_text(filepath)
-                file_type = 'pdf'
-                self.logger.info(f"Extracted {total_pages} pages from PDF")
-            elif file_ext in ['.xlsx', '.xls']:
-                text, sheet_count = self._extract_excel_file(filepath)
-                file_type = 'excel'
-                total_pages = sheet_count  # Treat sheets as "pages"
-                self.logger.info(f"Extracted Excel file with {sheet_count} sheets ({len(text)} characters)")
-            elif file_ext in ['.html', '.htm']:
-                text = self._extract_html_file(filepath)
-                file_type = 'html'
-                self.logger.info(f"Extracted HTML file ({len(text)} characters)")
-            elif file_ext in ['.txt', '.md', '.asm', '.bas', '.inc', '.s']:
-                text = self._extract_text_file(filepath)
-                file_type = 'text'
-                self.logger.info(f"Extracted text file ({len(text)} characters)")
-            else:
-                raise UnsupportedFileTypeError(f"Unsupported file type: {file_ext}")
-        except (UnsupportedFileTypeError, DocumentNotFoundError):
-            raise
-        except Exception as e:
-            self.logger.error(f"Error extracting {filepath}: {e}")
-            raise KnowledgeBaseError(f"Error extracting document: {e}")
+        text, file_type, total_pages, pdf_metadata = self._extract_text_for_file(filepath)
 
         # Report progress: Text extraction complete
         if progress_callback:
@@ -3464,7 +3628,11 @@ class KnowledgeBase:
         # Generate content-based doc_id for deduplication
         doc_id = self._generate_doc_id(filepath, text)
 
+        # Parse the card's logical identity, if this is a knowledge card
+        card_id = self._extract_card_id(text)
+
         # Thread-safe duplicate check
+        superseded_doc_id = None
         with self._lock:
             # Check for duplicate content
             if doc_id in self.documents:
@@ -3473,7 +3641,23 @@ class KnowledgeBase:
                 self.logger.warning(f"  Matches existing document: {existing_doc.filepath}")
                 self.logger.info(f"Skipping duplicate - returning existing document {doc_id}")
                 return existing_doc
-        
+
+            # Card-identity guard: refuse to silently fork a card that already
+            # exists under the same logical id. This is the fix for the
+            # "two live documents both claim id: X" failure mode - callers
+            # must explicitly opt into replacing via replace=True or
+            # update_document().
+            if card_id:
+                existing_card = self.get_document_by_card_id(card_id, include_superseded=False)
+                if existing_card and existing_card.doc_id != doc_id:
+                    if not replace:
+                        raise KnowledgeBaseError(
+                            f"Card '{card_id}' already exists as document {existing_card.doc_id} "
+                            f"('{existing_card.title}'). Use update_document() to replace it, "
+                            f"or pass replace=true to add_document()."
+                        )
+                    superseded_doc_id = existing_card.doc_id
+
         # Create chunks
         text_chunks = self._chunk_text(text)
         chunks = []
@@ -3533,7 +3717,8 @@ class KnowledgeBase:
             creator=pdf_metadata.get('creator'),
             creation_date=pdf_metadata.get('creation_date'),
             file_mtime=file_mtime,
-            file_hash=file_hash
+            file_hash=file_hash,
+            card_id=card_id
         )
 
         # Thread-safe database insertion and cache invalidation
@@ -3564,6 +3749,11 @@ class KnowledgeBase:
 
             # Invalidate search caches
             self._invalidate_caches()
+
+        # If this replaces an existing card, retire the old one and refresh
+        # everything derived from its (now-retracted) content.
+        if superseded_doc_id:
+            self._mark_superseded(superseded_doc_id, doc_id)
 
         self.logger.info(f"Successfully indexed document {doc_id}: {filename} ({len(chunks)} chunks)")
 
@@ -4602,9 +4792,15 @@ class KnowledgeBase:
             self.logger.error(f"Error computing hash for {filepath}: {e}")
             return False
 
-    def update_document(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None) -> DocumentMeta:
+    def _reindex_document_if_changed(self, filepath: str, title: Optional[str] = None, tags: Optional[list[str]] = None) -> DocumentMeta:
         """
-        Update an existing document if it has changed, or add it if it doesn't exist.
+        Re-index a document (matched by filepath) if its file content has changed
+        since it was indexed, or add it if it doesn't exist yet. Used by the bulk
+        directory-scan path (add_documents_bulk / check_for_updates) to catch
+        files that were edited on disk. Not card-aware - it does a full
+        remove-then-add (fresh content-hash doc_id) rather than an in-place
+        update, so it does not preserve doc_id or history. For card documents,
+        prefer update_document(card_id_or_doc_id, filepath) instead.
 
         Args:
             filepath: Path to the document file
@@ -4635,6 +4831,107 @@ class KnowledgeBase:
         self.logger.info(f"Document changed, re-indexing: {filepath}")
         self.remove_document(existing_doc.doc_id)
         return self.add_document(filepath, title, tags)
+
+    def update_document(self, card_id_or_doc_id: str, filepath: str,
+                        title: Optional[str] = None, tags: Optional[list[str]] = None) -> DocumentMeta:
+        """
+        Replace an existing card's content (and all derived artifacts) at a
+        stable logical identity.
+
+        Resolves card_id_or_doc_id to an existing LIVE document (first as an
+        exact doc_id, then as a card's logical id via get_document_by_card_id),
+        ingests filepath as the new content, and retires the old document
+        (marks it superseded_by the new doc, purges its stale entities, and
+        rebuilds entity_relationships) so exactly one live document answers
+        for that card afterwards.
+
+        This is a whole-file replace, not a merge: the new file's content
+        entirely replaces the old card's content. If the new file declares a
+        different (or no) card id than the document being updated, the update
+        is refused - update_document does not change a card's identity.
+
+        Re-running the same file through update_document is idempotent: since
+        doc_id is content-derived, ingesting identical content resolves to the
+        same doc_id as the card already live, so no second supersede happens.
+
+        Args:
+            card_id_or_doc_id: The card's logical id (from its json block) or
+                an exact doc_id of an existing, live document.
+            filepath: Path to the new content to replace it with.
+            title: Optional new title (defaults to the existing document's title).
+            tags: Optional new tags (defaults to the existing document's tags).
+
+        Returns:
+            DocumentMeta for the (new or unchanged) live document.
+
+        Raises:
+            DocumentNotFoundError: If card_id_or_doc_id does not resolve to a
+                live document. Use add_document to create a new card.
+            KnowledgeBaseError: If the new file's declared card id conflicts
+                with the document being updated.
+        """
+        old_doc = self.documents.get(card_id_or_doc_id)
+        if old_doc is None or old_doc.superseded_by:
+            old_doc = self.get_document_by_card_id(card_id_or_doc_id, include_superseded=False)
+
+        if old_doc is None:
+            raise DocumentNotFoundError(
+                f"No live document or card found for '{card_id_or_doc_id}'. "
+                f"Use add_document() to create a new card."
+            )
+
+        # Peek the new file's declared identity BEFORE ingesting anything.
+        # add_document(replace=True) will supersede whatever live document
+        # currently owns the incoming card_id - so if we didn't validate
+        # first, a mismatched file could silently supersede an unrelated
+        # card instead of (or in addition to) old_doc.
+        resolved_path = Path(filepath).resolve()
+        if not self._is_path_allowed(filepath):
+            raise SecurityError(
+                f"Path outside allowed directories. File must be within: {self.allowed_dirs}"
+            )
+        if not os.path.exists(str(resolved_path)):
+            raise DocumentNotFoundError(f"File not found: {filepath}")
+        peek_text, _, _, _ = self._extract_text_for_file(str(resolved_path))
+        new_card_id = self._extract_card_id(peek_text)
+
+        if old_doc.card_id and new_card_id != old_doc.card_id:
+            raise KnowledgeBaseError(
+                f"Refusing update: {filepath} declares card id {new_card_id!r}, "
+                f"but you're updating card {old_doc.card_id!r} (doc {old_doc.doc_id}). "
+                f"update_document() does not change a card's identity - fix the "
+                f"file's id or use add_document() to create a separate card."
+            )
+
+        if new_card_id:
+            colliding = self.get_document_by_card_id(new_card_id, include_superseded=False)
+            if colliding and colliding.doc_id != old_doc.doc_id:
+                raise KnowledgeBaseError(
+                    f"Refusing update: {filepath} declares card id {new_card_id!r}, "
+                    f"which already belongs to a different live document "
+                    f"{colliding.doc_id} ('{colliding.title}'). update_document() "
+                    f"will not supersede a document other than the one you asked "
+                    f"to update ({old_doc.doc_id})."
+                )
+
+        resolved_title = title if title is not None else old_doc.title
+        resolved_tags = tags if tags is not None else old_doc.tags
+
+        new_doc = self.add_document(filepath, resolved_title, resolved_tags, replace=True)
+
+        if new_doc.doc_id == old_doc.doc_id:
+            # Identical content - add_document's own dedupe short-circuited.
+            return new_doc
+
+        # add_document(replace=True) already superseded old_doc for us when
+        # old_doc.card_id was set (its own card-identity lookup resolves to
+        # exactly old_doc, guaranteed by the checks above). Cover the case
+        # where old_doc has no card_id (generic content replace) by
+        # superseding explicitly here.
+        if not old_doc.card_id and not old_doc.superseded_by:
+            self._mark_superseded(old_doc.doc_id, new_doc.doc_id)
+
+        return new_doc
 
     def update_document_title(self, doc_id: str, title: str) -> None:
         """
@@ -5054,7 +5351,7 @@ Summary:"""
 
                 if auto_update:
                     try:
-                        updated_doc = self.update_document(filepath, doc.title, doc.tags)
+                        updated_doc = self._reindex_document_if_changed(filepath, doc.title, doc.tags)
                         results['updated'].append({
                             'doc_id': updated_doc.doc_id,
                             'filepath': filepath,
@@ -15208,8 +15505,13 @@ Important:
 
     # NOTE: translate_nl_query is defined later in the file (~line 9100)
 
-    def search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
-        """Search the knowledge base using BM25 ranking or simple term frequency."""
+    def search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
+              include_superseded: bool = False) -> list[dict]:
+        """Search the knowledge base using BM25 ranking or simple term frequency.
+
+        Superseded card versions are excluded by default so retracted claims
+        don't keep answering searches; pass include_superseded=True to see them.
+        """
         start_time = time.time()
 
         # Check cache first
@@ -15217,7 +15519,8 @@ Important:
             cache_key = self._cache_key('search',
                                        query=query,
                                        max_results=max_results,
-                                       tags=tuple(sorted(tags)) if tags else None)
+                                       tags=tuple(sorted(tags)) if tags else None,
+                                       include_superseded=include_superseded)
             if cache_key in self._search_cache:
                 results = self._search_cache[cache_key]
                 elapsed_ms = (time.time() - start_time) * 1000
@@ -15245,36 +15548,37 @@ Important:
 
         if use_fts5 and self._fts5_available():
             # Use SQLite FTS5 full-text search
-            results = self._search_fts5(query, query_terms, phrases, tags, max_results)
+            results = self._search_fts5(query, query_terms, phrases, tags, max_results, include_superseded)
             # Fall back to BM25/simple if FTS5 returns no results
             if not results:
                 if use_bm25 and BM25_SUPPORT:
                     if self.bm25 is None:
                         self._build_bm25_index()
                     if self.bm25 is not None:
-                        results = self._search_bm25(query, query_terms, phrases, tags, max_results)
+                        results = self._search_bm25(query, query_terms, phrases, tags, max_results, include_superseded)
                     else:
-                        results = self._search_simple(query_terms, phrases, tags, max_results)
+                        results = self._search_simple(query_terms, phrases, tags, max_results, include_superseded)
                 else:
-                    results = self._search_simple(query_terms, phrases, tags, max_results)
+                    results = self._search_simple(query_terms, phrases, tags, max_results, include_superseded)
         elif use_bm25 and BM25_SUPPORT:
             # Build BM25 index if not already built
             if self.bm25 is None:
                 self._build_bm25_index()
 
             if self.bm25 is not None:
-                results = self._search_bm25(query, query_terms, phrases, tags, max_results)
+                results = self._search_bm25(query, query_terms, phrases, tags, max_results, include_superseded)
             else:
-                results = self._search_simple(query_terms, phrases, tags, max_results)
+                results = self._search_simple(query_terms, phrases, tags, max_results, include_superseded)
         else:
-            results = self._search_simple(query_terms, phrases, tags, max_results)
+            results = self._search_simple(query_terms, phrases, tags, max_results, include_superseded)
 
         # Store in cache
         if self._search_cache is not None:
             cache_key = self._cache_key('search',
                                        query=query,
                                        max_results=max_results,
-                                       tags=tuple(sorted(tags)) if tags else None)
+                                       tags=tuple(sorted(tags)) if tags else None,
+                                       include_superseded=include_superseded)
             self._search_cache[cache_key] = results
 
         elapsed_ms = (time.time() - start_time) * 1000
@@ -15286,7 +15590,8 @@ Important:
 
         return results
 
-    def _search_bm25(self, query: str, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int) -> list[dict]:
+    def _search_bm25(self, query: str, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int,
+                     include_superseded: bool = False) -> list[dict]:
         """Search using BM25 algorithm."""
         # Preprocess query for BM25
         tokenized_query = self._preprocess_text(query)
@@ -15297,9 +15602,14 @@ Important:
         # Build results with scores
         results = []
         for idx, chunk in enumerate(self.chunks):
+            doc = self.documents.get(chunk.doc_id)
+
+            # Exclude superseded card versions by default
+            if not include_superseded and doc and doc.superseded_by:
+                continue
+
             # Filter by tags if specified
             if tags:
-                doc = self.documents.get(chunk.doc_id)
                 if doc and not any(t in doc.tags for t in tags):
                     continue
 
@@ -15333,14 +15643,20 @@ Important:
         results.sort(key=lambda x: x['score'], reverse=True)
         return results[:max_results]
 
-    def _search_simple(self, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int) -> list[dict]:
+    def _search_simple(self, query_terms: set, phrases: list, tags: Optional[list[str]], max_results: int,
+                       include_superseded: bool = False) -> list[dict]:
         """Simple term frequency search with fuzzy matching support (fallback when BM25 not available)."""
         results = []
 
         for chunk in self.chunks:
+            doc = self.documents.get(chunk.doc_id)
+
+            # Exclude superseded card versions by default
+            if not include_superseded and doc and doc.superseded_by:
+                continue
+
             # Filter by tags if specified
             if tags:
-                doc = self.documents.get(chunk.doc_id)
                 if doc and not any(t in doc.tags for t in tags):
                     continue
 
@@ -15385,7 +15701,7 @@ Important:
         return results[:max_results]
 
     def _search_fts5(self, query: str, query_terms: set, phrases: list,
-                     tags: Optional[list[str]], max_results: int) -> list[dict]:
+                     tags: Optional[list[str]], max_results: int, include_superseded: bool = False) -> list[dict]:
         """Search using SQLite FTS5 full-text search."""
         cursor = self.db_conn.cursor()
 
@@ -15426,10 +15742,14 @@ Important:
             results = []
             for row in cursor.fetchall():
                 doc_id, chunk_id, content, word_count, page, filename, title, score = row
+                doc = self.documents.get(doc_id)
+
+                # Exclude superseded card versions by default
+                if not include_superseded and doc and doc.superseded_by:
+                    continue
 
                 # Filter by tags if specified
                 if tags:
-                    doc = self.documents.get(doc_id)
                     if doc and not any(t in doc.tags for t in tags):
                         continue
 
@@ -15707,7 +16027,8 @@ Important:
         elapsed = time.time() - start_time
         self.logger.info(f"Added {len(chunks)} chunks to embeddings index in {elapsed:.2f}s")
 
-    def semantic_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None) -> list[dict]:
+    def semantic_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
+                        include_superseded: bool = False) -> list[dict]:
         """
         Perform semantic search using embeddings and vector similarity.
 
@@ -15715,6 +16036,7 @@ Important:
             query: Search query
             max_results: Maximum number of results to return
             tags: Optional list of tags to filter by
+            include_superseded: If False (default), excludes superseded card versions
 
         Returns:
             List of search results with scores
@@ -15740,7 +16062,8 @@ Important:
             cache_key = self._cache_key('semantic_search',
                                        query=query,
                                        max_results=max_results,
-                                       tags=tuple(sorted(tags)) if tags else None)
+                                       tags=tuple(sorted(tags)) if tags else None,
+                                       include_superseded=include_superseded)
             if cache_key in self._semantic_cache:
                 results = self._semantic_cache[cache_key]
                 elapsed_ms = (time.time() - start_time) * 1000
@@ -15784,10 +16107,14 @@ Important:
                 continue
 
             doc_id, chunk_id = self.embeddings_doc_map[idx]
+            doc = self.documents.get(doc_id)
+
+            # Exclude superseded card versions by default
+            if not include_superseded and doc and doc.superseded_by:
+                continue
 
             # Filter by tags if specified
             if tags:
-                doc = self.documents.get(doc_id)
                 if doc and not any(t in doc.tags for t in tags):
                     continue
 
@@ -15826,7 +16153,8 @@ Important:
             cache_key = self._cache_key('semantic_search',
                                        query=query,
                                        max_results=max_results,
-                                       tags=tuple(sorted(tags)) if tags else None)
+                                       tags=tuple(sorted(tags)) if tags else None,
+                                       include_superseded=include_superseded)
             self._semantic_cache[cache_key] = results
 
         return results
@@ -16971,10 +17299,16 @@ Return ONLY valid JSON, no additional text.
                 if chunk_id is None or found_chunk_id == chunk_id:
                     continue
 
+            found_doc = self.documents.get(found_doc_id)
+
+            # Exclude superseded card versions - a retracted card shouldn't
+            # surface as "similar" content either.
+            if found_doc and found_doc.superseded_by:
+                continue
+
             # Filter by tags if specified
             if tags:
-                doc = self.documents.get(found_doc_id)
-                if doc and not any(t in doc.tags for t in tags):
+                if found_doc and not any(t in found_doc.tags for t in tags):
                     continue
 
             # Track best score per document
@@ -17356,9 +17690,11 @@ Return ONLY valid JSON, no additional text.
             return None
         return "\n\n".join(c.content for c in chunks)
 
-    def list_documents(self) -> list[DocumentMeta]:
-        """List all indexed documents."""
-        return list(self.documents.values())
+    def list_documents(self, include_superseded: bool = False) -> list[DocumentMeta]:
+        """List indexed documents. Excludes superseded card versions by default."""
+        if include_superseded:
+            return list(self.documents.values())
+        return [d for d in self.documents.values() if not d.superseded_by]
     
     def get_stats(self, use_cache: bool = True) -> dict:
         """
@@ -18126,6 +18462,11 @@ async def list_tools() -> list[Tool]:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "Filter by document tags (optional)"
+                    },
+                    "include_superseded": {
+                        "type": "boolean",
+                        "description": "Include superseded knowledge-card versions in results (default: false). Superseded cards are retracted/replaced content excluded from search by default.",
+                        "default": False
                     }
                 },
                 "required": ["query"]
@@ -18187,12 +18528,37 @@ async def list_tools() -> list[Tool]:
             description="List all documents in the C64 knowledge base.",
             inputSchema={
                 "type": "object",
-                "properties": {}
+                "properties": {
+                    "include_superseded": {
+                        "type": "boolean",
+                        "description": "Include superseded knowledge-card versions (default: false)",
+                        "default": False
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="get_document_by_card_id",
+            description="Resolve a knowledge card's logical id (the `id` field in its ```json block, e.g. 'mon-deenen') to its live document. Use this instead of search when you already know a card's id, e.g. to follow an edges.derives_from/successor_of/shares_routine_with reference.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "card_id": {
+                        "type": "string",
+                        "description": "The card's logical id"
+                    },
+                    "include_superseded": {
+                        "type": "boolean",
+                        "description": "If no live card matches, fall back to the most recently indexed superseded version (default: false)",
+                        "default": False
+                    }
+                },
+                "required": ["card_id"]
             }
         ),
         Tool(
             name="add_document",
-            description="Add a PDF or text file to the knowledge base.",
+            description="Add a PDF or text file to the knowledge base. For a knowledge card (a markdown file whose content has a fenced ```json block with an `id` field), this refuses by default if a live card with that id already exists - use update_document to replace it, or pass replace=true here.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -18204,6 +18570,11 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Document title (optional, defaults to filename)"
                     },
+                    "replace": {
+                        "type": "boolean",
+                        "description": "If the file is a knowledge card and a live card with the same id already exists, replace it (supersede the old one) instead of refusing (default: false)",
+                        "default": False
+                    },
                     "tags": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -18211,6 +18582,33 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["filepath"]
+            }
+        ),
+        Tool(
+            name="update_document",
+            description="Replace an existing knowledge card's content (and refresh everything derived from it - chunks, embeddings, entities, entity relationships) at its stable logical id. Resolves card_id_or_doc_id to the live document, replaces it with filepath's content, and marks the old version superseded rather than leaving two live copies. Refuses if the new file declares a different card id than the one being updated.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "card_id_or_doc_id": {
+                        "type": "string",
+                        "description": "The card's logical id (from its json block) or the exact doc_id of the existing live document to replace"
+                    },
+                    "filepath": {
+                        "type": "string",
+                        "description": "Full path to the new content to replace it with"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title (optional, defaults to the existing document's title)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "New tags (optional, defaults to the existing document's tags)"
+                    }
+                },
+                "required": ["card_id_or_doc_id", "filepath"]
             }
         ),
         Tool(
@@ -20447,8 +20845,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         query = arguments.get("query", "")
         max_results = arguments.get("max_results", 5)
         tags = arguments.get("tags")
-        
-        results = kb.search(query, max_results, tags)
+        include_superseded = arguments.get("include_superseded", False)
+
+        results = kb.search(query, max_results, tags, include_superseded)
         
         if not results:
             return [TextContent(type="text", text=f"No results found for: {query}")]
@@ -20773,42 +21172,87 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=output)]
     
     elif name == "list_docs":
-        docs = kb.list_documents()
-        
+        include_superseded = arguments.get("include_superseded", False)
+        docs = kb.list_documents(include_superseded)
+
         if not docs:
             return [TextContent(type="text", text="No documents in knowledge base. Use add_document to add PDFs or text files.")]
-        
+
         output = f"Documents in knowledge base ({len(docs)}):\n\n"
         for doc in docs:
             output += f"- {doc.title}\n"
             output += f"  ID: {doc.doc_id}\n"
             output += f"  File: {doc.filename} ({doc.file_type})\n"
+            if doc.card_id:
+                output += f"  Card ID: {doc.card_id}\n"
+            if doc.superseded_by:
+                output += f"  Superseded by: {doc.superseded_by}\n"
             if doc.total_pages:
                 output += f"  Pages: {doc.total_pages}\n"
             output += f"  Chunks: {doc.total_chunks}\n"
             if doc.tags:
                 output += f"  Tags: {', '.join(doc.tags)}\n"
             output += f"  Indexed: {doc.indexed_at}\n\n"
-        
+
         return [TextContent(type="text", text=output)]
-    
+
+    elif name == "get_document_by_card_id":
+        card_id = arguments.get("card_id")
+        include_superseded = arguments.get("include_superseded", False)
+
+        doc = kb.get_document_by_card_id(card_id, include_superseded)
+        if not doc:
+            return [TextContent(type="text", text=f"No card found with id: {card_id}")]
+
+        output = f"Card: {card_id}\n"
+        output += f"  Title: {doc.title}\n"
+        output += f"  Doc ID: {doc.doc_id}\n"
+        if doc.superseded_by:
+            output += f"  Status: SUPERSEDED by {doc.superseded_by}\n"
+        else:
+            output += f"  Status: live\n"
+        output += f"  Chunks: {doc.total_chunks}\n"
+        output += f"  Indexed: {doc.indexed_at}\n"
+        return [TextContent(type="text", text=output)]
+
     elif name == "add_document":
         filepath = arguments.get("filepath")
         title = arguments.get("title")
         tags = arguments.get("tags", [])
-        
+        replace = arguments.get("replace", False)
+
         try:
-            doc = kb.add_document(filepath, title, tags)
+            doc = kb.add_document(filepath, title, tags, replace=replace)
             output = "Successfully added document:\n"
             output += f"  Title: {doc.title}\n"
             output += f"  ID: {doc.doc_id}\n"
             output += f"  Type: {doc.file_type}\n"
+            if doc.card_id:
+                output += f"  Card ID: {doc.card_id}\n"
             output += f"  Chunks: {doc.total_chunks}\n"
             if doc.total_pages:
                 output += f"  Pages: {doc.total_pages}\n"
             return [TextContent(type="text", text=output)]
         except Exception as e:
             return [TextContent(type="text", text=f"Error adding document: {str(e)}")]
+
+    elif name == "update_document":
+        card_id_or_doc_id = arguments.get("card_id_or_doc_id")
+        filepath = arguments.get("filepath")
+        title = arguments.get("title")
+        tags = arguments.get("tags")
+
+        try:
+            doc = kb.update_document(card_id_or_doc_id, filepath, title, tags)
+            output = "Successfully updated document:\n"
+            output += f"  Title: {doc.title}\n"
+            output += f"  ID: {doc.doc_id}\n"
+            if doc.card_id:
+                output += f"  Card ID: {doc.card_id}\n"
+            output += f"  Chunks: {doc.total_chunks}\n"
+            return [TextContent(type="text", text=output)]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error updating document: {str(e)}")]
 
     elif name == "scrape_url":
         url = arguments.get("url")

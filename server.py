@@ -17765,6 +17765,56 @@ Return ONLY valid JSON, no additional text.
 
         return stats
 
+    def reconcile_chunk_cache(self) -> dict:
+        """
+        Reconcile the in-memory chunk cache (self.chunks) against the database.
+
+        _build_bm25_index() only (re)loads chunks from the DB when self.chunks
+        is empty, so a process that already had chunks in memory before a
+        remove_document() bugfix landed (or before any future cache/DB
+        divergence) will keep serving stale content from search_docs/BM25
+        forever, even though get_document()/list_docs() correctly report the
+        DB state. This unconditionally reloads self.chunks from the DB - the
+        chunks/documents JOIN in _get_chunks_db() naturally drops any chunk
+        whose document no longer exists - and invalidates every derived index
+        and cache so the next search rebuilds from the reconciled data.
+
+        Returns:
+            Dictionary with before/after chunk counts and the doc_ids that
+            were pruned as orphans (present in the cache, absent from the DB).
+        """
+        before_count = len(self.chunks)
+        before_doc_ids = {c.doc_id for c in self.chunks}
+
+        self.chunks = self._get_chunks_db()
+
+        after_count = len(self.chunks)
+        after_doc_ids = {c.doc_id for c in self.chunks}
+        orphaned_doc_ids = sorted(before_doc_ids - after_doc_ids)
+
+        # Invalidate BM25 index (will be rebuilt on next search)
+        self.bm25 = None
+
+        # Invalidate embeddings (will be rebuilt on next semantic search)
+        if self.use_semantic:
+            self.embeddings_index = None
+            self.embeddings_doc_map = []
+
+        # Invalidate search result caches
+        self._invalidate_caches()
+
+        self.logger.info(
+            f"Reconciled chunk cache: {before_count} -> {after_count} chunks "
+            f"({len(orphaned_doc_ids)} orphaned doc_id(s) pruned)"
+        )
+
+        return {
+            'chunks_before': before_count,
+            'chunks_after': after_count,
+            'chunks_pruned': before_count - after_count,
+            'orphaned_doc_ids': orphaned_doc_ids,
+        }
+
     def health_check(self, quick_check: bool = True, use_cache: bool = True) -> dict:
         """
         Perform health check on the knowledge base system.
@@ -18949,6 +18999,14 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="health_check",
             description="Perform health check on the knowledge base system. Returns status, metrics, feature availability, and any issues detected.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="reconcile_chunk_cache",
+            description="Reconcile the in-memory chunk cache against the database on demand, without restarting the server. Fixes cases where search_docs still returns content for a document that get_document/list_docs already report as removed (stale in-memory cache from before a fix, or any future cache/DB divergence). Also invalidates the BM25 index, embeddings, and search caches so they rebuild from the reconciled data.",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -21542,6 +21600,23 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 output += f"  {i}. {issue}\n"
         else:
             output += "✓ No issues detected\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "reconcile_chunk_cache":
+        result = kb.reconcile_chunk_cache()
+
+        output = f"Chunk Cache Reconciliation\n{'='*50}\n\n"
+        output += f"Chunks before: {result['chunks_before']:,}\n"
+        output += f"Chunks after:  {result['chunks_after']:,}\n"
+        output += f"Chunks pruned: {result['chunks_pruned']:,}\n\n"
+
+        if result['orphaned_doc_ids']:
+            output += f"Orphaned doc_ids removed from cache ({len(result['orphaned_doc_ids'])}):\n"
+            for doc_id in result['orphaned_doc_ids']:
+                output += f"  - {doc_id}\n"
+        else:
+            output += "No orphaned doc_ids found - cache was already consistent with the database.\n"
 
         return [TextContent(type="text", text=output)]
 

@@ -2010,6 +2010,7 @@ class KnowledgeBase:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         start_time = time.time()
+        load_time = 0.0
 
         if not BM25_SUPPORT:
             self.logger.info("BM25 index not built (no support)")
@@ -4730,6 +4731,13 @@ class KnowledgeBase:
         if success:
             # Remove from in-memory index
             del self.documents[doc_id]
+
+            # Prune this doc's chunks from the in-memory chunk cache. Without
+            # this, self.chunks keeps serving the deleted content forever in
+            # a long-running process: _build_bm25_index() only reloads from
+            # the database when self.chunks is empty, so invalidating
+            # self.bm25 alone doesn't pick up the DB-level cascade delete.
+            self.chunks = [c for c in self.chunks if c.doc_id != doc_id]
 
             # Invalidate BM25 index (will be rebuilt on next search)
             self.bm25 = None
@@ -15604,8 +15612,13 @@ Important:
         for idx, chunk in enumerate(self.chunks):
             doc = self.documents.get(chunk.doc_id)
 
+            # Orphaned chunk (parent doc removed) - never searchable, deleted
+            # is not the same as superseded.
+            if doc is None:
+                continue
+
             # Exclude superseded card versions by default
-            if not include_superseded and doc and doc.superseded_by:
+            if not include_superseded and doc.superseded_by:
                 continue
 
             # Filter by tags if specified
@@ -15651,13 +15664,18 @@ Important:
         for chunk in self.chunks:
             doc = self.documents.get(chunk.doc_id)
 
+            # Orphaned chunk (parent doc removed) - never searchable, deleted
+            # is not the same as superseded.
+            if doc is None:
+                continue
+
             # Exclude superseded card versions by default
-            if not include_superseded and doc and doc.superseded_by:
+            if not include_superseded and doc.superseded_by:
                 continue
 
             # Filter by tags if specified
             if tags:
-                if doc and not any(t in doc.tags for t in tags):
+                if not any(t in doc.tags for t in tags):
                     continue
 
             content_lower = chunk.content.lower()
@@ -15744,13 +15762,18 @@ Important:
                 doc_id, chunk_id, content, word_count, page, filename, title, score = row
                 doc = self.documents.get(doc_id)
 
+                # Orphaned chunk (parent doc removed) - never searchable,
+                # deleted is not the same as superseded.
+                if doc is None:
+                    continue
+
                 # Exclude superseded card versions by default
-                if not include_superseded and doc and doc.superseded_by:
+                if not include_superseded and doc.superseded_by:
                     continue
 
                 # Filter by tags if specified
                 if tags:
-                    if doc and not any(t in doc.tags for t in tags):
+                    if not any(t in doc.tags for t in tags):
                         continue
 
                 # Extract snippet with highlighting

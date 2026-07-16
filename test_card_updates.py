@@ -267,3 +267,49 @@ def test_derived_entities_refresh_on_supersede(kb, temp_data_dir):
     # appears in any live document's entities, and entity_relationships has
     # no doc_id column so it can only be kept correct by a full rebuild.
     assert kb.get_entity_relationships(retracted_entity) == []
+
+
+# ---------------------------------------------------------------------------
+# 7. remove_document purges its chunks from search, including from an
+#    already-warm in-memory cache (GitHub issue #1: a deleted doc's chunks
+#    stayed searchable forever in a long-running process because self.chunks
+#    is only loaded from the DB once and never pruned on removal).
+# ---------------------------------------------------------------------------
+
+def test_no_orphaned_chunks_after_remove(kb, temp_data_dir):
+    # Force the BM25/simple search path deterministically. The bug is
+    # specifically in that path's in-memory chunk cache; the FTS5 path
+    # queries the DB directly and (via a JOIN against `documents`) already
+    # excludes a removed doc's chunks correctly, so it wouldn't reproduce
+    # this regression, and we don't want the test's outcome to depend on
+    # whatever USE_FTS5 happens to be set to in the ambient environment.
+    original_fts5 = os.environ.get('USE_FTS5')
+    os.environ['USE_FTS5'] = '0'
+    try:
+        marker = "the quokka juggles paperclips underwater on tuesdays"
+        f1 = make_card_file(temp_data_dir, "gone1.md", "gone-card",
+                             f"Some intro text. {marker}. More text after that.")
+        doc1 = kb.add_document(f1)
+
+        # Warm the in-memory chunk/BM25 cache *before* removal - the bug
+        # only reproduces once self.chunks has already been loaded once
+        # (as it would be in a long-running server after any earlier
+        # search), since a search on an empty cache would just re-read the
+        # (already-correct) DB.
+        warm_results = kb.search(marker)
+        assert any(r['doc_id'] == doc1.doc_id for r in warm_results)
+
+        assert kb.remove_document(doc1.doc_id) is True
+
+        results = kb.search(marker)
+        assert all(r['doc_id'] != doc1.doc_id for r in results)
+
+        # Deleted is not the same as superseded - it must not resurface even
+        # when the caller explicitly asks to include superseded content.
+        results_incl = kb.search(marker, include_superseded=True)
+        assert all(r['doc_id'] != doc1.doc_id for r in results_incl)
+    finally:
+        if original_fts5 is None:
+            os.environ.pop('USE_FTS5', None)
+        else:
+            os.environ['USE_FTS5'] = original_fts5

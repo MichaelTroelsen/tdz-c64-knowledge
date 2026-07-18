@@ -1,6 +1,6 @@
 # TDZ C64 Knowledge Base - Documentation Index
 
-**Version:** 2.23.1
+**Version:** 2.24.0
 **Last Updated:** 2026-01-03
 
 Welcome to the TDZ C64 Knowledge Base documentation! This index will help you find the right documentation for your needs.

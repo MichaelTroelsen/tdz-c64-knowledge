@@ -1,6 +1,6 @@
 [project]
 name = "tdz-c64-knowledge"
-version = "1.0.0"
+dynamic = ["version"]
 description = "MCP server for C64 documentation knowledge base"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,6 +23,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "httpx>=0.25.0",  # For FastAPI TestClient
+    "PyMuPDF>=1.23.0",  # wiki_export.py imports fitz; test_pdf_viewer.py needs it
 ]
 semantic = [
     "sentence-transformers>=2.0.0",
@@ -56,6 +57,9 @@ tdz-c64-knowledge = "server:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["."]

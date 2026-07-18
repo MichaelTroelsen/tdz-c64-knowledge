@@ -34,7 +34,7 @@ jobs:
 
     - name: Run tests with coverage
       run: |
-        pytest test_server.py -v --cov=. --cov-report=xml --cov-report=term-missing --tb=short
+        pytest test_card_updates.py -v --cov=. --cov-report=xml --cov-report=term-missing --tb=short
 
     - name: Upload coverage to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
@@ -63,11 +63,11 @@ jobs:
 
     - name: Run Ruff (linter)
       run: |
-        ruff check server.py cli.py test_server.py || true
+        ruff check server.py cli.py test_card_updates.py || true
 
     - name: Check code formatting
       run: |
-        ruff format --check server.py cli.py test_server.py || true
+        ruff format --check server.py cli.py test_card_updates.py || true
 
   integration-test:
     name: Integration Tests

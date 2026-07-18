@@ -14,6 +14,9 @@ venv/
 ENV/
 env/
 
+# Local configuration — may contain API keys. Track .env.example instead.
+.env
+
 # IDE
 .vscode/
 .idea/

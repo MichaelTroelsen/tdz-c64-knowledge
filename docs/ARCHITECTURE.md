@@ -29,7 +29,7 @@ For user-facing documentation, see [README.md](README.md).
 
 The knowledge base uses **SQLite database** for efficient storage and querying:
 
-**knowledge_base.db** - SQLite database with four main tables:
+**knowledge_base.db** - SQLite database with 22 tables (the six most central are detailed below; see server.py for the complete schema):
 
 #### Tables Schema
 
@@ -626,10 +626,10 @@ Currently supported formats:
 
 ### Future Enhancements
 
-- Query autocompletion based on indexed content
-- Fuzzy search / typo tolerance (Levenshtein distance)
 - Multi-language support beyond English
-- See FUTURE_IMPROVEMENTS.md for detailed roadmap
+- See docs/ROADMAP.md for detailed roadmap
+
+(Query autocompletion and fuzzy search / typo tolerance were on this list previously but have since shipped - see the version history above and docs/ROADMAP.md.)
 
 ## Wiki Export (v2.23.15)
 

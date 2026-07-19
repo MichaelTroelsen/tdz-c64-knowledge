@@ -160,6 +160,8 @@ CREATE TABLE document_summaries (
 #### 1.3 Smart Auto-Tagging ⭐⭐⭐⭐
 **Impact:** High | **Effort:** ⭐⭐⭐ | **Time:** 6-8 hours
 
+**Status:** ✅ Shipped in v2.23.0 (see `suggest_tags`, `add_tags_to_document`, `get_tags_by_category` MCP tools). Original proposal kept below for design context.
+
 **Proposed:** AI-generated tags from content analysis
 
 ```python
@@ -827,6 +829,8 @@ def analyze_sid_file(self, filepath: str) -> dict:
 
 #### 5.1 REST API Server ⭐⭐⭐⭐
 **Impact:** Very High | **Effort:** ⭐⭐⭐⭐ | **Time:** 16-20 hours
+
+**Status:** ✅ Shipped in v2.18.0+ (18 endpoints in `rest_server.py`). Original proposal kept below for design context.
 
 **Proposed:** Full REST API for integration
 

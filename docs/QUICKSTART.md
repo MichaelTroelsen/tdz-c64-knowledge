@@ -87,12 +87,10 @@ For best performance, enable these features in your MCP config:
 # Install dependencies
 .venv\Scripts\python.exe -m pip install sentence-transformers faiss-cpu
 
-# Pre-build embeddings index (takes 1-2 minutes)
-.venv\Scripts\python.exe enable_semantic_search.py
-
 # Add to your MCP config env section:
 "USE_SEMANTIC_SEARCH": "1"
 ```
+The embeddings model and index load lazily on first use - no separate pre-build step needed.
 
 **What you get:**
 - Search by meaning, not just keywords
@@ -150,11 +148,11 @@ run_rest_api.bat
 ```
 
 **What you get:**
-- 27 HTTP endpoints for all knowledge base operations
+- 18 HTTP endpoints for all knowledge base operations
 - API key authentication for secure access
 - OpenAPI/Swagger documentation
 - Can run alongside MCP server
-- See [README_REST_API.md](README_REST_API.md) for complete API docs
+- See [REST_API.md](REST_API.md) for complete API docs
 
 ### Run the Web GUI (Streamlit)
 ```cmd
@@ -226,9 +224,9 @@ Ask Claude: "Check if any indexed documents have been updated"
 
 ## 📖 Full Documentation
 
-- [README.md](README.md) - Complete feature documentation
-- [IMPROVEMENTS.md](IMPROVEMENTS.md) - Technical implementation details
-- [CLAUDE.md](CLAUDE.md) - Development guide
+- [README.md](../README.md) - Complete feature documentation
+- [IMPROVEMENTS.md](../archive/historical-docs/IMPROVEMENTS.md) - Technical implementation details (archived)
+- [CLAUDE.md](../CLAUDE.md) - Development guide
 
 ## 🎉 You're Ready!
 
@@ -259,7 +257,7 @@ Start asking Claude Code about your C64 documentation. The knowledge base will h
 
 **Access Methods:**
 - ✅ MCP Server for Claude Code/Desktop
-- ✅ REST API Server (27 HTTP endpoints)
+- ✅ REST API Server (18 HTTP endpoints)
 - ✅ Streamlit Web GUI
 - ✅ CLI for batch operations
 

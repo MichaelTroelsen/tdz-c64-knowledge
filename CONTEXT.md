@@ -14,8 +14,8 @@
 MCP server providing Claude with searchable Commodore 64 documentation (memory maps, hardware specs, programming references, technical manuals).
 
 **Architecture:**
-- MCP Server (Python, stdio transport) + optional REST API (FastAPI, 27 endpoints)
-- SQLite database (16 tables, FTS5 full-text search)
+- MCP Server (Python, stdio transport) + optional REST API (FastAPI, 18 endpoints)
+- SQLite database (22 tables, FTS5 full-text search)
 - Multi-format ingestion: PDF, text, Markdown, HTML, Excel, web scraping
 - Search: FTS5 (480x faster), semantic (FAISS), hybrid, fuzzy, RAG
 - AI: Entity extraction, relationship mapping, topic modeling, clustering, anomaly detection, question answering
@@ -45,12 +45,12 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 - **Search Performance:** FTS5 85ms avg, Semantic 16ms avg, Hybrid 142ms avg
 - **Throughput:** 5,712 concurrent queries/sec (10 workers), 3,400+ docs/sec anomaly detection
 - **Entity Extraction:** 5000x faster with C64-specific regex (1ms vs 5s LLM-only)
-- **Database:** 12+ tables, ACID transactions, lazy loading, content-based deduplication
+- **Database:** 22 tables, ACID transactions, lazy loading, content-based deduplication
 
 ## Core Components
 
-- **server.py** - MCP server, KnowledgeBase class, 50+ tools, AI features
-- **rest_server.py** - FastAPI REST API (27 endpoints, optional)
+- **server.py** - MCP server, KnowledgeBase class, 87 tools, AI features
+- **rest_server.py** - FastAPI REST API (18 endpoints, optional)
 - **rest_models.py** - Pydantic v2 models
 - **cli.py** - Command-line interface
 - **admin_gui.py** - Streamlit dashboard
@@ -59,11 +59,11 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 
 ## MCP Tools Summary
 
-**59 tools organized by category:**
+**87 tools total.** Representative categories (not exhaustive - see README.md for the complete reference):
 - Search (11): search_docs, semantic_search, hybrid_search, fuzzy_search, search_within_results, answer_question, translate_query, search_tables, search_code, find_similar, faceted_search
-- Documents (6): add_document, add_documents_bulk, remove_document, remove_documents_bulk, list_docs, get_document, get_chunk, check_updates
+- Documents (8): add_document, add_documents_bulk, remove_document, remove_documents_bulk, list_docs, get_document, get_chunk, check_updates
 - URL Scraping (3): scrape_url, rescrape_document, check_url_updates
-- AI & Analytics (14): extract_entities, get_entities, search_entities, entity_stats, extract_entities_bulk, extract_entity_relationships, get_entity_relationships, find_related_entities, search_entity_pair, extract_relationships_bulk, get_entity_analytics, compare_documents, suggest_tags, add_tags_to_document, get_tags_by_category
+- AI & Analytics (15): extract_entities, get_entities, search_entities, entity_stats, extract_entities_bulk, extract_entity_relationships, get_entity_relationships, find_related_entities, search_entity_pair, extract_relationships_bulk, get_entity_analytics, compare_documents, suggest_tags, add_tags_to_document, get_tags_by_category
 - **Topics & Clustering (8):** train_lda_topics, train_nmf_topics, train_bertopic, get_document_topics, cluster_documents_kmeans, cluster_documents_dbscan, cluster_documents_hdbscan, get_cluster_documents
 - Export (3): export_entities, export_relationships, export_documents_bulk
 - System (3): kb_stats, health_check, detect_anomalies

@@ -26,7 +26,7 @@ claude mcp add tdz-c64-knowledge -- .venv\Scripts\python.exe server.py
 # Ask: "Search the C64 docs for VIC-II sprite registers"
 ```
 
-See [QUICKSTART.md](QUICKSTART.md) for detailed setup.
+See [QUICKSTART.md](docs/QUICKSTART.md) for detailed setup.
 
 ## Features
 
@@ -67,10 +67,10 @@ See [QUICKSTART.md](QUICKSTART.md) for detailed setup.
 - **Clickable clusters** - Browse k-means clusters with linked documents
 - **No server required** - Pure client-side JavaScript, works offline
 - **Full-text search** - Fuse.js powered search across all content
-- See [WIKI_EXPORT_GUIDE.md](WIKI_EXPORT_GUIDE.md) for usage
+- See [WIKI_EXPORT_GUIDE.md](docs/WIKI_EXPORT_GUIDE.md) for usage
 
 ### REST API (Optional)
-- **27 endpoints** - Full CRUD, search, analytics, export
+- **18 endpoints** - Full CRUD, search, analytics, export
 - **OpenAPI/Swagger docs** - Interactive API at `/api/docs`
 - **API authentication** - Secure via X-API-Key header
 - See [docs/REST_API.md](docs/REST_API.md) for details
@@ -269,11 +269,11 @@ kb.visualize_topic_flow_sankey(time_period='decade', output_path="flow.html")
 - `search_events_by_date` - Search events by date range and type
 - `get_historical_context` - Get events around a specific year
 
-See [PHASE3_TEMPORAL_ANALYSIS.md](PHASE3_TEMPORAL_ANALYSIS.md) for complete documentation.
+See [PHASE3_TEMPORAL_ANALYSIS.md](docs/PHASE3_TEMPORAL_ANALYSIS.md) for complete documentation.
 
 ## Tools
 
-62 MCP tools organized by category. Key tools listed below.
+87 MCP tools organized by category. Key tools listed below.
 
 ### Search Tools
 
@@ -441,7 +441,7 @@ export_relationships(format="json", output_path="rels.json", min_strength=0.5)
 
 ## Data Storage
 
-SQLite database with 12+ tables:
+SQLite database with 22 tables:
 - **documents** - Document metadata
 - **chunks** - Chunked content (1500 words, 200 overlap)
 - **document_tables** - Extracted PDF tables
@@ -517,18 +517,18 @@ GitHub Actions workflow tests on Python 3.10/3.11/3.12 across Windows/Linux/macO
 ### Core Documentation
 
 - **[README.md](README.md)** (this file) - Installation, features, tools, usage
-- **[QUICKSTART.md](QUICKSTART.md)** - Fast setup guide (5 minutes)
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technical deep dive, database schema, algorithms
+- **[QUICKSTART.md](docs/QUICKSTART.md)** - Fast setup guide (5 minutes)
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Technical deep dive, database schema, algorithms
 - **[CONTEXT.md](CONTEXT.md)** - Project status, quick stats, version history
 - **[CLAUDE.md](CLAUDE.md)** - Quick reference for Claude Code integration
-- **[CHANGELOG.md](CHANGELOG.md)** - Complete version history
+- **[CHANGELOG.md](docs/CHANGELOG.md)** - Complete version history
 
 ### Feature Documentation
 
 Browse [docs/](docs/) for detailed guides on specific features:
 
 **API & Integration:**
-- [REST API](docs/REST_API.md) - FastAPI REST server (27 endpoints)
+- [REST API](docs/REST_API.md) - FastAPI REST server (18 endpoints)
 
 **AI-Powered Features:**
 - [Entity Extraction](docs/ENTITY_EXTRACTION.md) - Extract hardware, memory addresses, instructions
@@ -572,7 +572,7 @@ Browse [docs/](docs/) for detailed guides on specific features:
 - 1500x performance improvement
 
 **v2.18.0** - REST API & Background Processing
-- FastAPI REST server (27 endpoints)
+- FastAPI REST server (18 endpoints)
 - Background entity extraction
 
 **v2.15.0+** - Entity Intelligence

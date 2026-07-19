@@ -5,10 +5,10 @@ Quick reference for Claude Code when working with this codebase.
 ## Documentation Index
 
 - **README.md** - Installation, features, tools, usage examples
-- **ARCHITECTURE.md** - Technical details, database schema, algorithms
+- **docs/ARCHITECTURE.md** - Technical details, database schema, algorithms
 - **CONTEXT.md** - Project status, version history, quick overview
-- **QUICKSTART.md** - Fast setup guide
-- **FUTURE_IMPROVEMENTS.md** - Roadmap
+- **docs/QUICKSTART.md** - Fast setup guide
+- **docs/ROADMAP.md** - Roadmap
 
 ## Project Summary
 
@@ -18,8 +18,8 @@ MCP server for searching Commodore 64 documentation. Ingests PDFs/text/web pages
 
 ## File Structure
 
-- `server.py` - MCP server, KnowledgeBase class, 50+ tools
-- `rest_server.py` - FastAPI REST API (27 endpoints, optional)
+- `server.py` - MCP server, KnowledgeBase class, 87 tools
+- `rest_server.py` - FastAPI REST API (18 endpoints, optional)
 - `cli.py` - Command-line interface
 - `admin_gui.py` - Streamlit web UI
 - `test_card_updates.py` - Pytest test suite
@@ -73,12 +73,12 @@ See README.md for complete environment variable list.
 
 ## Architecture Overview
 
-**Database:** SQLite with 12+ tables (documents, chunks, entities, relationships, etc.)
+**Database:** SQLite with 22 tables (documents, chunks, entities, relationships, etc.)
 **Search:** FTS5 (480x faster), semantic (FAISS), hybrid, BM25 fallback
 **Chunking:** 1500 words, 200 word overlap, lazy loading
 **Processing:** PDF/text/HTML/Excel → extract → chunk → index → search
 
-See ARCHITECTURE.md for detailed technical documentation.
+See docs/ARCHITECTURE.md for detailed technical documentation.
 
 ## Common Code Patterns
 
@@ -98,7 +98,7 @@ Use KnowledgeBase methods (ACID transactions):
 2. Implement `_extract_X_file()` method
 3. Update README.md and admin_gui.py
 
-See ARCHITECTURE.md "Extending File Type Support" for details.
+See docs/ARCHITECTURE.md "Extending File Type Support" for details.
 
 ## Testing
 

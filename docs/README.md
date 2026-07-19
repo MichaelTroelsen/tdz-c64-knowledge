@@ -1,7 +1,7 @@
 # TDZ C64 Knowledge Base - Documentation Index
 
 **Version:** 2.24.0
-**Last Updated:** 2026-01-03
+**Last Updated:** 2026-07-19
 
 Welcome to the TDZ C64 Knowledge Base documentation! This index will help you find the right documentation for your needs.
 
@@ -11,7 +11,7 @@ Welcome to the TDZ C64 Knowledge Base documentation! This index will help you fi
 
 **New to the project?** Start here:
 
-- **[Installation & Setup](../QUICKSTART.md)** - Get running in 5 minutes
+- **[Installation & Setup](QUICKSTART.md)** - Get running in 5 minutes
 - **[README](../README.md)** - Features overview and main documentation
 - **[Project Status](../CONTEXT.md)** - Current version and capabilities
 
@@ -21,9 +21,9 @@ Welcome to the TDZ C64 Knowledge Base documentation! This index will help you fi
 
 **For developers and contributors:**
 
-- **[Architecture Guide](../ARCHITECTURE.md)** - Technical deep dive, database schema, algorithms
+- **[Architecture Guide](ARCHITECTURE.md)** - Technical deep dive, database schema, algorithms
 - **[Developer Quick Reference](../CLAUDE.md)** - Claude Code integration, dev commands, patterns
-- **[Version History](../CHANGELOG.md)** - Complete changelog with all versions
+- **[Version History](CHANGELOG.md)** - Complete changelog with all versions
 - **[Testing Guide](TESTING.md)** - Test suite, CI/CD, quality assurance
 - **[Migration Guide](MIGRATION.md)** - Upgrading between versions
 
@@ -33,8 +33,8 @@ Welcome to the TDZ C64 Knowledge Base documentation! This index will help you fi
 
 **Integrate with the knowledge base:**
 
-- **[REST API Reference](REST_API.md)** - 27 HTTP endpoints, authentication, examples
-- **[MCP Tools Reference](MCP_TOOLS_REFERENCE.md)** - All 50+ MCP tools with examples
+- **[REST API Reference](REST_API.md)** - 18 HTTP endpoints, authentication, examples
+- **[MCP Tools Reference](MCP_TOOLS_REFERENCE.md)** - All 87 MCP tools with examples
 - **[MCP Integration Guide](MCP_INTEGRATION.md)** - Claude Code/Desktop setup, troubleshooting
 
 ---
@@ -110,7 +110,7 @@ Welcome to the TDZ C64 Knowledge Base documentation! This index will help you fi
 - See: [ENTITY_EXTRACTION](ENTITY_EXTRACTION.md)
 
 ### REST API
-- 27 endpoints across 6 categories
+- 18 endpoints across 6 categories
 - OpenAPI/Swagger documentation
 - Authentication and CORS
 - See: [REST_API](REST_API.md)
@@ -137,5 +137,27 @@ All documentation follows these principles:
 
 ---
 
+## Other Documents
+
+Point-in-time reports and working notes, not part of the curated index above:
+
+- [COMPREHENSIVE_TEST_REPORT.md](COMPREHENSIVE_TEST_REPORT.md)
+- [KNOWLEDGE_EXTRACTION.md](KNOWLEDGE_EXTRACTION.md)
+- [KNOWLEDGE_EXTRACTION_PLAN.md](KNOWLEDGE_EXTRACTION_PLAN.md)
+- [PHASE2_COMPLETION_SUMMARY.md](PHASE2_COMPLETION_SUMMARY.md)
+- [PHASE3_TEMPORAL_ANALYSIS.md](PHASE3_TEMPORAL_ANALYSIS.md)
+- [QUICK_START_IMPROVEMENTS.md](QUICK_START_IMPROVEMENTS.md)
+- [RELEASE_NOTES_v2.23.15.md](RELEASE_NOTES_v2.23.15.md)
+- [TOP_10_IMPROVEMENTS.md](TOP_10_IMPROVEMENTS.md)
+- [WIKI_EXPORT_GUIDE.md](WIKI_EXPORT_GUIDE.md)
+- [WIKI_EXPORT_SUMMARY.md](WIKI_EXPORT_SUMMARY.md)
+- [WIKI_ENHANCEMENT_PROGRESS.md](WIKI_ENHANCEMENT_PROGRESS.md)
+- [WIKI_IMPROVEMENTS.md](WIKI_IMPROVEMENTS.md)
+- [WIKI_IMPROVEMENTS_V2.md](WIKI_IMPROVEMENTS_V2.md)
+- [WIKI_IMPROVEMENTS_ULTRATHINK.md](WIKI_IMPROVEMENTS_ULTRATHINK.md)
+- [WIKI_NEXT_IMPROVEMENTS.md](WIKI_NEXT_IMPROVEMENTS.md)
+
+---
+
 **Quick Links:**
-- [Main README](../README.md) | [Quick Start](../QUICKSTART.md) | [Architecture](../ARCHITECTURE.md) | [Changelog](../CHANGELOG.md)
+- [Main README](../README.md) | [Quick Start](QUICKSTART.md) | [Architecture](ARCHITECTURE.md) | [Changelog](CHANGELOG.md)

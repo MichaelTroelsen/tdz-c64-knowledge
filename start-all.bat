@@ -33,7 +33,7 @@ set USE_OCR=1
 set SEARCH_CACHE_SIZE=100
 set SEARCH_CACHE_TTL=300
 set LLM_PROVIDER=anthropic
-set LLM_MODEL=claude-3-haiku-20240307
+set LLM_MODEL=claude-haiku-4-5-20251001
 set ALLOWED_DOCS_DIRS=C:\Users\mit\Downloads\tdz-c64-knowledge-input,C:\Users\mit\.tdz-c64-knowledge\scraped_docs
 set POPPLER_PATH=C:\Users\mit\claude\c64server\tdz-c64-knowledge\poppler-25.12.0\Library\bin
 

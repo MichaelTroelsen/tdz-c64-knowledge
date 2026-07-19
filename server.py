@@ -20,9 +20,11 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Load environment variables from .env file
+# Load environment variables from .env file. Resolve relative to this
+# script's own directory, not the launching process's cwd - the MCP client
+# can start this server from any project's working directory.
 from dotenv import load_dotenv
-load_dotenv()  # Load .env file from current directory
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # Import version information
 from version import __build_date__, get_full_version_string
@@ -442,6 +444,11 @@ class KnowledgeBase:
         # Connect to database with enable foreign keys
         self.db_conn = sqlite3.connect(str(self.db_file), check_same_thread=False)
         self.db_conn.execute("PRAGMA foreign_keys = ON")
+        # A lingering orphaned process (e.g. a prior session's server that
+        # never exited) can hold the file lock indefinitely; without a
+        # timeout, a second process blocks on it forever with no log output
+        # instead of failing fast with a clear "database is locked" error.
+        self.db_conn.execute("PRAGMA busy_timeout = 5000")
 
         if not db_exists:
             self.logger.info("Creating new database schema")
@@ -24663,12 +24670,18 @@ async def main():
     logger.info(f"Build Date: {__build_date__}")
     logger.info("=" * 60)
 
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options()
-        )
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options()
+            )
+    finally:
+        # Ensure the DB connection and worker thread are released whenever
+        # the stdio loop exits (client disconnect, error, or Ctrl+C) so this
+        # process doesn't linger and hold a lock for the next one to start.
+        kb.close()
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ MCP server for searching Commodore 64 documentation. Ingests PDFs/text/web pages
 - `rest_server.py` - FastAPI REST API (27 endpoints, optional)
 - `cli.py` - Command-line interface
 - `admin_gui.py` - Streamlit web UI
-- `test_server.py` - Pytest test suite
+- `test_card_updates.py` - Pytest test suite
 - `knowledge_base.db` - SQLite database (in TDZ_DATA_DIR)
 
 ## Development Commands
@@ -34,7 +34,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 
 # Test
-pytest test_server.py -v
+pytest test_card_updates.py -v
 
 # CLI
 python cli.py stats
@@ -103,9 +103,9 @@ See ARCHITECTURE.md "Extending File Type Support" for details.
 ## Testing
 
 ```cmd
-pytest test_server.py -v                                    # All tests
-pytest test_server.py::TestKnowledgeBase::test_search -v   # Specific test
-pytest test_server.py --cov=server --cov-report=term       # With coverage
+pytest test_card_updates.py -v                                          # All tests
+pytest test_card_updates.py::test_no_orphaned_chunks_after_remove -v    # Specific test
+pytest test_card_updates.py --cov=server --cov-report=term              # With coverage
 ```
 
 ## Windows Notes

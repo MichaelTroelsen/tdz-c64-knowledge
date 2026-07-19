@@ -18,7 +18,7 @@ set USE_OCR=1
 set SEARCH_CACHE_SIZE=100
 set SEARCH_CACHE_TTL=300
 set LLM_PROVIDER=anthropic
-set LLM_MODEL=claude-3-haiku-20240307
+set LLM_MODEL=claude-haiku-4-5-20251001
 
 echo Features enabled:
 echo  ✓ FTS5 full-text search (480x faster)

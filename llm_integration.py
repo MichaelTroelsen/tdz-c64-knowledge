@@ -34,7 +34,7 @@ class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         super().__init__(api_key, model)
         self.api_key = api_key or os.environ.get('ANTHROPIC_API_KEY')
-        self.model = model or os.environ.get('LLM_MODEL', 'claude-3-haiku-20240307')
+        self.model = model or os.environ.get('LLM_MODEL', 'claude-haiku-4-5-20251001')
 
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY not set")

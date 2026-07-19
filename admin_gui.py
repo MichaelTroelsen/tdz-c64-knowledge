@@ -4252,7 +4252,7 @@ Rules:
 
                                 # Call Claude API
                                 # Use configurable model (fallback to most widely available model)
-                                model = os.environ.get("AI_SUGGESTIONS_MODEL", "claude-3-haiku-20240307")
+                                model = os.environ.get("AI_SUGGESTIONS_MODEL", "claude-haiku-4-5-20251001")
                                 client = anthropic.Anthropic(api_key=api_key)
                                 message = client.messages.create(
                                     model=model,

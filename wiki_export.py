@@ -341,6 +341,16 @@ class WikiExporter:
         (self.assets_dir / "css").mkdir(exist_ok=True)
         (self.assets_dir / "js").mkdir(exist_ok=True)
         self.data_dir.mkdir(exist_ok=True)
+
+        # Clear stale data files from a previous export before writing this
+        # one. export() only ever *writes* the current set of data files - it
+        # never removed files left behind by an older run, so a file dropped
+        # or renamed between versions (e.g. search-index.json -> search.json)
+        # would linger indefinitely and get served alongside the current
+        # export (see GitHub issue #7 - a 68 MB orphan from 2026-01-04 was
+        # still sitting next to a 2026-07-19 export).
+        for stale in self.data_dir.glob('*.json'):
+            stale.unlink()
         (self.output_dir / "lib").mkdir(exist_ok=True)
         self.files_dir.mkdir(exist_ok=True)  # For actual source files
 

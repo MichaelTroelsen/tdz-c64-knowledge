@@ -19713,27 +19713,6 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="translate_query",
-            description="Translate a natural language query into structured search parameters. Uses AI to extract entities, keywords, and determine optimal search strategy. Perfect for conversational queries like 'find info about sprites on VIC-II' or 'how does sound work?'. Returns structured parameters that can be used directly with other search tools.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language query to translate (e.g., 'find sprite information on the VIC-II chip')"
-                    },
-                    "confidence_threshold": {
-                        "type": "number",
-                        "description": "Minimum confidence score for entity extraction (0.0-1.0, default: 0.7)",
-                        "default": 0.7,
-                        "minimum": 0.0,
-                        "maximum": 1.0
-                    }
-                },
-                "required": ["query"]
-            }
-        ),
-        Tool(
             name="compare_documents",
             description="Compare two documents side-by-side with similarity scoring, metadata diff, content diff, and entity comparison. Perfect for finding differences between document versions, comparing related documents, or analyzing document similarity. Returns comprehensive comparison with cosine similarity score (0.0-1.0).",
             inputSchema={
@@ -19926,6 +19905,109 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": []
+            }
+        ),
+        Tool(
+            name="analyze_graph_pagerank",
+            description="Calculate PageRank scores for entities in the knowledge graph. PageRank identifies the most 'important' or 'central' entities based on their connections. Higher scores indicate entities that are more connected and influential in the knowledge network.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter graph to specific entity types (optional)"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences (default: 2)",
+                        "default": 2
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top entities to return (default: 20)",
+                        "default": 20,
+                        "minimum": 1,
+                        "maximum": 100
+                    },
+                    "alpha": {
+                        "type": "number",
+                        "description": "Damping parameter for PageRank (default: 0.85)",
+                        "default": 0.85,
+                        "minimum": 0.0,
+                        "maximum": 1.0
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="detect_graph_communities",
+            description="Detect communities (clusters) in the knowledge graph. Communities are groups of entities that are more densely connected to each other than to the rest of the graph. This helps identify topic clusters and thematic groupings.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter graph to specific entity types (optional)"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences (default: 2)",
+                        "default": 2
+                    },
+                    "algorithm": {
+                        "type": "string",
+                        "description": "Detection algorithm: 'louvain' (best for large graphs), 'label_propagation' (fast), or 'greedy_modularity'",
+                        "default": "louvain",
+                        "enum": ["louvain", "label_propagation", "greedy_modularity"]
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="calculate_graph_centrality",
+            description="Calculate centrality measures for entities in the knowledge graph. Returns betweenness, closeness, and degree centrality. These measures identify entities that bridge different parts of the graph, are close to all others, or have many connections.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter graph to specific entity types (optional)"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences (default: 2)",
+                        "default": 2
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top entities per measure (default: 10)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 50
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="get_graph_statistics",
+            description="Get statistical overview of the knowledge graph including node count, edge count, density, connected components, and degree distribution. Provides insight into the overall structure and complexity of the knowledge network.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "entity_types": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter graph to specific entity types (optional)"
+                    },
+                    "min_occurrences": {
+                        "type": "integer",
+                        "description": "Minimum entity occurrences (default: 2)",
+                        "default": 2
+                    }
+                }
             }
         ),
         Tool(
@@ -20546,329 +20628,6 @@ async def list_tools() -> list[Tool]:
                 "required": ["year"]
             }
         ),
-        # Phase 1: Knowledge Graph Tools (v2.24.0)
-        Tool(
-            name="build_knowledge_graph",
-            description="Build a knowledge graph from entities and relationships in the C64 knowledge base. The graph represents entities as nodes and their relationships as weighted edges. Use this to understand the structure of knowledge and find connections between concepts.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "entity_types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter to specific entity types (e.g., ['person', 'product', 'hardware']). Omit for all types."
-                    },
-                    "min_occurrences": {
-                        "type": "integer",
-                        "description": "Minimum entity occurrences to include (default: 2)",
-                        "default": 2,
-                        "minimum": 1
-                    },
-                    "min_relationship_strength": {
-                        "type": "number",
-                        "description": "Minimum relationship strength 0.0-1.0 (default: 0.3)",
-                        "default": 0.3,
-                        "minimum": 0.0,
-                        "maximum": 1.0
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="analyze_graph_pagerank",
-            description="Calculate PageRank scores for entities in the knowledge graph. PageRank identifies the most 'important' or 'central' entities based on their connections. Higher scores indicate entities that are more connected and influential in the knowledge network.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "entity_types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter graph to specific entity types (optional)"
-                    },
-                    "min_occurrences": {
-                        "type": "integer",
-                        "description": "Minimum entity occurrences (default: 2)",
-                        "default": 2
-                    },
-                    "top_n": {
-                        "type": "integer",
-                        "description": "Number of top entities to return (default: 20)",
-                        "default": 20,
-                        "minimum": 1,
-                        "maximum": 100
-                    },
-                    "alpha": {
-                        "type": "number",
-                        "description": "Damping parameter for PageRank (default: 0.85)",
-                        "default": 0.85,
-                        "minimum": 0.0,
-                        "maximum": 1.0
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="detect_graph_communities",
-            description="Detect communities (clusters) in the knowledge graph. Communities are groups of entities that are more densely connected to each other than to the rest of the graph. This helps identify topic clusters and thematic groupings.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "entity_types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter graph to specific entity types (optional)"
-                    },
-                    "min_occurrences": {
-                        "type": "integer",
-                        "description": "Minimum entity occurrences (default: 2)",
-                        "default": 2
-                    },
-                    "algorithm": {
-                        "type": "string",
-                        "description": "Detection algorithm: 'louvain' (best for large graphs), 'label_propagation' (fast), or 'greedy_modularity'",
-                        "default": "louvain",
-                        "enum": ["louvain", "label_propagation", "greedy_modularity"]
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="calculate_graph_centrality",
-            description="Calculate centrality measures for entities in the knowledge graph. Returns betweenness, closeness, and degree centrality. These measures identify entities that bridge different parts of the graph, are close to all others, or have many connections.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "entity_types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter graph to specific entity types (optional)"
-                    },
-                    "min_occurrences": {
-                        "type": "integer",
-                        "description": "Minimum entity occurrences (default: 2)",
-                        "default": 2
-                    },
-                    "top_n": {
-                        "type": "integer",
-                        "description": "Number of top entities per measure (default: 10)",
-                        "default": 10,
-                        "minimum": 1,
-                        "maximum": 50
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="find_entity_path",
-            description="Find the shortest path between two entities in the knowledge graph. Shows how entities are connected through intermediate relationships. Useful for understanding conceptual connections and knowledge pathways.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "entity1": {
-                        "type": "string",
-                        "description": "Source entity name"
-                    },
-                    "entity2": {
-                        "type": "string",
-                        "description": "Target entity name"
-                    },
-                    "min_occurrences": {
-                        "type": "integer",
-                        "description": "Minimum entity occurrences for graph (default: 2)",
-                        "default": 2
-                    }
-                },
-                "required": ["entity1", "entity2"]
-            }
-        ),
-        Tool(
-            name="get_graph_statistics",
-            description="Get statistical overview of the knowledge graph including node count, edge count, density, connected components, and degree distribution. Provides insight into the overall structure and complexity of the knowledge network.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "entity_types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Filter graph to specific entity types (optional)"
-                    },
-                    "min_occurrences": {
-                        "type": "integer",
-                        "description": "Minimum entity occurrences (default: 2)",
-                        "default": 2
-                    }
-                }
-            }
-        ),
-        # ========================================
-        # Phase 2: Topic Modeling & Clustering
-        # ========================================
-        Tool(
-            name="train_lda_topics",
-            description="Train LDA (Latent Dirichlet Allocation) topic model on documents. Discovers latent topics using probabilistic modeling. Returns topics with top words and document assignments.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "num_topics": {
-                        "type": "integer",
-                        "description": "Number of topics to discover (default: 10)",
-                        "default": 10
-                    },
-                    "max_iter": {
-                        "type": "integer",
-                        "description": "Maximum iterations (default: 100)",
-                        "default": 100
-                    },
-                    "random_state": {
-                        "type": "integer",
-                        "description": "Random seed for reproducibility (default: 42)",
-                        "default": 42
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="train_nmf_topics",
-            description="Train NMF (Non-negative Matrix Factorization) topic model on documents. Often produces more coherent topics than LDA using matrix factorization. Returns topics with top words and document assignments.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "num_topics": {
-                        "type": "integer",
-                        "description": "Number of topics to discover (default: 10)",
-                        "default": 10
-                    },
-                    "max_iter": {
-                        "type": "integer",
-                        "description": "Maximum iterations (default: 200)",
-                        "default": 200
-                    },
-                    "random_state": {
-                        "type": "integer",
-                        "description": "Random seed for reproducibility (default: 42)",
-                        "default": 42
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="train_bertopic",
-            description="Train BERTopic model using document embeddings. State-of-the-art topic modeling with UMAP + HDBSCAN clustering. Automatically discovers topics from semantic embeddings.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "num_topics": {
-                        "type": "integer",
-                        "description": "Target number of topics (default: 10)",
-                        "default": 10
-                    },
-                    "min_cluster_size": {
-                        "type": "integer",
-                        "description": "Minimum documents per topic (default: 5)",
-                        "default": 5
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_document_topics",
-            description="Get topics assigned to a specific document, including probabilities and top words for each topic. Shows which topics the document belongs to.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
-                    "model_type": {
-                        "type": "string",
-                        "description": "Topic model type: 'lda', 'nmf', or 'bertopic' (optional)",
-                        "enum": ["lda", "nmf", "bertopic"]
-                    }
-                },
-                "required": ["doc_id"]
-            }
-        ),
-        Tool(
-            name="cluster_documents_kmeans",
-            description="Cluster documents using K-Means algorithm on embeddings. Partitions documents into K clusters. Returns cluster assignments and silhouette score.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "num_clusters": {
-                        "type": "integer",
-                        "description": "Number of clusters (default: 10)",
-                        "default": 10
-                    },
-                    "random_state": {
-                        "type": "integer",
-                        "description": "Random seed (default: 42)",
-                        "default": 42
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="cluster_documents_dbscan",
-            description="Cluster documents using DBSCAN (density-based) algorithm. Automatically discovers clusters and identifies outliers. Does not require specifying number of clusters.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "eps": {
-                        "type": "number",
-                        "description": "Maximum distance between samples (default: 0.5)",
-                        "default": 0.5
-                    },
-                    "min_samples": {
-                        "type": "integer",
-                        "description": "Minimum samples in neighborhood (default: 5)",
-                        "default": 5
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="cluster_documents_hdbscan",
-            description="Cluster documents using HDBSCAN (hierarchical density-based) algorithm. Advanced clustering that handles varying densities. Automatically discovers clusters and outliers.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "min_cluster_size": {
-                        "type": "integer",
-                        "description": "Minimum samples per cluster (default: 5)",
-                        "default": 5
-                    },
-                    "min_samples": {
-                        "type": "integer",
-                        "description": "Minimum samples in neighborhood (optional)"
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_cluster_documents",
-            description="Get all documents in a specific cluster, including distances from centroid. Shows which documents are grouped together.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "cluster_id": {
-                        "type": "string",
-                        "description": "Cluster ID"
-                    },
-                    "algorithm": {
-                        "type": "string",
-                        "description": "Clustering algorithm: 'kmeans', 'dbscan', or 'hdbscan' (optional)",
-                        "enum": ["kmeans", "dbscan", "hdbscan"]
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum documents to return (default: 50)",
-                        "default": 50
-                    }
-                },
-                "required": ["cluster_id"]
-            }
-        )
     ]
 
 
@@ -22607,70 +22366,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         except Exception as e:
             return [TextContent(type="text", text=f"Error searching entity pair: {str(e)}")]
 
-    elif name == "translate_query":
-        query = arguments.get("query")
-        confidence_threshold = arguments.get("confidence_threshold", 0.7)
-
-        if not query:
-            return [TextContent(type="text", text="Error: query is required")]
-
-        try:
-            result = kb.translate_nl_query(query=query, confidence_threshold=confidence_threshold)
-
-            # Build formatted output
-            output = "**Natural Language Query Translation**\n\n"
-            output += f"**Original Query:** {result['original_query']}\n"
-            output += f"**Suggested Query:** {result['suggested_query']}\n"
-            output += f"**Confidence:** {result['confidence']:.2f}\n"
-            output += f"**Search Mode:** {result['search_mode']}\n\n"
-
-            # Show extracted search terms
-            if result.get('search_terms'):
-                output += f"**Search Terms:** {', '.join(result['search_terms'])}\n\n"
-
-            # Show entities found
-            if result.get('entities_found'):
-                output += f"**Entities Detected:** ({len(result['entities_found'])} found)\n"
-                for entity in result['entities_found'][:10]:  # Show top 10
-                    source_badge = "🔍" if entity['source'] == 'regex' else "🤖"
-                    output += f"  {source_badge} **{entity['text']}** ({entity['type']}) - confidence: {entity['confidence']:.2f}\n"
-                if len(result['entities_found']) > 10:
-                    output += f"  ... and {len(result['entities_found']) - 10} more\n"
-                output += "\n"
-
-            # Show facet filters
-            if result.get('facet_filters'):
-                output += "**Facet Filters:**\n"
-                for facet_type, values in result['facet_filters'].items():
-                    output += f"  - {facet_type}: {', '.join(values)}\n"
-                output += "\n"
-
-            # Show intent if available
-            if result.get('intent'):
-                output += f"**Intent:** {result['intent']}\n\n"
-
-            # Warn if fallback mode
-            if result.get('fallback'):
-                output += "⚠️ **Fallback Mode:** LLM unavailable, using simple keyword extraction\n\n"
-
-            # Add helpful next steps
-            output += "---\n**Next Steps:**\n"
-            if result['search_mode'] == 'keyword':
-                output += f"• Use `search_docs` with query: \"{result['suggested_query']}\"\n"
-            elif result['search_mode'] == 'semantic':
-                output += f"• Use `semantic_search` with query: \"{result['suggested_query']}\"\n"
-            elif result['search_mode'] == 'hybrid':
-                output += f"• Use `hybrid_search` with query: \"{result['suggested_query']}\"\n"
-
-            if result.get('facet_filters'):
-                output += f"• Use `faceted_search` with filters: {result['facet_filters']}\n"
-
-            return [TextContent(type="text", text=output)]
-        except ValueError as e:
-            return [TextContent(type="text", text=f"Translation error: {str(e)}\n\nMake sure LLM_PROVIDER and API key are configured.")]
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error translating query: {str(e)}")]
-
     elif name == "compare_documents":
         doc_id_1 = arguments.get("doc_id_1")
         doc_id_2 = arguments.get("doc_id_2")
@@ -23821,50 +23516,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         except Exception as e:
             return [TextContent(type="text", text=f"Error getting historical context: {str(e)}")]
 
-    # Phase 1: Knowledge Graph Tools (v2.24.0)
-    elif name == "build_knowledge_graph":
-        try:
-            import networkx as nx
-        except ImportError:
-            return [TextContent(type="text", text="NetworkX not installed. Run: pip install networkx>=3.0")]
-
-        entity_types = arguments.get("entity_types")
-        min_occurrences = arguments.get("min_occurrences", 2)
-        min_relationship_strength = arguments.get("min_relationship_strength", 0.3)
-
-        try:
-            G = kb.build_knowledge_graph(
-                entity_types=entity_types,
-                min_occurrences=min_occurrences,
-                min_relationship_strength=min_relationship_strength
-            )
-
-            output = f"# Knowledge Graph Built\n\n"
-            output += f"**Nodes (entities):** {G.number_of_nodes()}\n"
-            output += f"**Edges (relationships):** {G.number_of_edges()}\n"
-            output += f"**Density:** {nx.density(G):.4f}\n"
-            output += f"**Connected components:** {nx.number_connected_components(G)}\n\n"
-
-            # Show largest connected component
-            if G.number_of_nodes() > 0:
-                largest_cc = max(nx.connected_components(G), key=len)
-                output += f"**Largest component:** {len(largest_cc)} nodes\n\n"
-
-            # Show sample nodes with highest degree
-            degrees = dict(G.degree())
-            if degrees:
-                top_nodes = sorted(degrees.items(), key=lambda x: x[1], reverse=True)[:10]
-                output += "## Top Connected Entities\n\n"
-                for entity, degree in top_nodes:
-                    node_type = G.nodes[entity].get('type', 'unknown')
-                    occurrences = G.nodes[entity].get('occurrences', 0)
-                    output += f"- **{entity}** (type: {node_type}, degree: {degree}, occurrences: {occurrences})\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error building knowledge graph: {str(e)}")]
-
     elif name == "analyze_graph_pagerank":
         try:
             import networkx as nx
@@ -24017,67 +23668,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         except Exception as e:
             return [TextContent(type="text", text=f"Error calculating centrality: {str(e)}")]
 
-    elif name == "find_entity_path":
-        try:
-            import networkx as nx
-        except ImportError:
-            return [TextContent(type="text", text="NetworkX not installed. Run: pip install networkx>=3.0")]
-
-        entity1 = arguments.get("entity1")
-        entity2 = arguments.get("entity2")
-        min_occurrences = arguments.get("min_occurrences", 2)
-
-        try:
-            # Build graph
-            G = kb.build_knowledge_graph(min_occurrences=min_occurrences)
-
-            if G.number_of_nodes() == 0:
-                return [TextContent(type="text", text="No entities found for graph construction.")]
-
-            # Find path
-            path = kb.find_shortest_path(G, entity1, entity2)
-
-            if path is None:
-                # Check if entities exist in graph
-                if entity1 not in G.nodes():
-                    return [TextContent(type="text", text=f"Entity '{entity1}' not found in graph. Try lowering min_occurrences or check spelling.")]
-                if entity2 not in G.nodes():
-                    return [TextContent(type="text", text=f"Entity '{entity2}' not found in graph. Try lowering min_occurrences or check spelling.")]
-
-                return [TextContent(type="text", text=f"No path found between '{entity1}' and '{entity2}'. They are in different connected components.")]
-
-            # Format results
-            output = f"# Entity Path: {entity1} → {entity2}\n\n"
-            output += f"**Path length:** {len(path)} steps\n"
-            output += f"**Path:** {' → '.join(path)}\n\n"
-
-            # Show detailed path with relationship info
-            output += "## Detailed Path\n\n"
-            for i in range(len(path) - 1):
-                curr_entity = path[i]
-                next_entity = path[i + 1]
-
-                curr_type = G.nodes[curr_entity].get('type', 'unknown')
-                next_type = G.nodes[next_entity].get('type', 'unknown')
-
-                if G.has_edge(curr_entity, next_entity):
-                    edge_data = G.edges[curr_entity, next_entity]
-                    weight = edge_data.get('weight', 0.0)
-                    co_occurrences = edge_data.get('co_occurrences', 0)
-
-                    output += f"{i + 1}. **{curr_entity}** (type: {curr_type})\n"
-                    output += f"   ↓ *relationship strength: {weight:.2f}, co-occurrences: {co_occurrences}*\n"
-
-            # Add final entity
-            final_entity = path[-1]
-            final_type = G.nodes[final_entity].get('type', 'unknown')
-            output += f"{len(path)}. **{final_entity}** (type: {final_type})\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error finding entity path: {str(e)}")]
-
     elif name == "get_graph_statistics":
         try:
             import networkx as nx
@@ -24144,306 +23734,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         except Exception as e:
             return [TextContent(type="text", text=f"Error getting graph statistics: {str(e)}")]
-
-    # ========================================
-    # Phase 2: Topic Modeling & Clustering
-    # ========================================
-
-    elif name == "train_lda_topics":
-        num_topics = arguments.get("num_topics", 10)
-        max_iter = arguments.get("max_iter", 100)
-        random_state = arguments.get("random_state", 42)
-
-        try:
-            result = kb.train_lda_model(num_topics, max_iter, random_state)
-
-            if 'error' in result:
-                return [TextContent(type="text", text=f"Error: {result['error']}")]
-
-            output = f"LDA Topic Modeling Complete\n{'='*60}\n\n"
-            output += f"Model: {result['model_type']}\n"
-            output += f"Topics: {result['num_topics']}\n"
-            output += f"Documents: {result['num_documents']}\n"
-            output += f"Assignments: {result['num_assignments']}\n"
-            output += f"Perplexity: {result['perplexity']:.2f}\n\n"
-
-            output += "Discovered Topics:\n\n"
-            for topic in result['topics'][:5]:  # Show first 5 topics
-                top_words = topic['words'][:5]
-                output += f"Topic {topic['topic_number']}: {', '.join(top_words)}\n"
-
-            if len(result['topics']) > 5:
-                output += f"\n... and {len(result['topics']) - 5} more topics\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error training LDA model: {str(e)}")]
-
-    elif name == "train_nmf_topics":
-        num_topics = arguments.get("num_topics", 10)
-        max_iter = arguments.get("max_iter", 200)
-        random_state = arguments.get("random_state", 42)
-
-        try:
-            result = kb.train_nmf_model(num_topics, max_iter, random_state)
-
-            if 'error' in result:
-                return [TextContent(type="text", text=f"Error: {result['error']}")]
-
-            output = f"NMF Topic Modeling Complete\n{'='*60}\n\n"
-            output += f"Model: {result['model_type']}\n"
-            output += f"Topics: {result['num_topics']}\n"
-            output += f"Documents: {result['num_documents']}\n"
-            output += f"Assignments: {result['num_assignments']}\n"
-            output += f"Reconstruction Error: {result['reconstruction_error']:.2f}\n\n"
-
-            output += "Discovered Topics:\n\n"
-            for topic in result['topics'][:5]:
-                top_words = topic['words'][:5]
-                output += f"Topic {topic['topic_number']}: {', '.join(top_words)}\n"
-
-            if len(result['topics']) > 5:
-                output += f"\n... and {len(result['topics']) - 5} more topics\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error training NMF model: {str(e)}")]
-
-    elif name == "train_bertopic":
-        num_topics = arguments.get("num_topics", 10)
-        min_cluster_size = arguments.get("min_cluster_size", 5)
-
-        try:
-            result = kb.train_bertopic_model(num_topics, min_cluster_size)
-
-            if 'error' in result:
-                return [TextContent(type="text", text=f"Error: {result['error']}")]
-
-            output = f"BERTopic Modeling Complete\n{'='*60}\n\n"
-            output += f"Model: {result['model_type']}\n"
-            output += f"Topics Discovered: {result['num_topics']}\n"
-            output += f"Documents: {result['num_documents']}\n"
-            output += f"Assignments: {result['num_assignments']}\n"
-            output += f"Outliers: {result['outliers']}\n\n"
-
-            output += "Discovered Topics:\n\n"
-            for topic in result['topics'][:5]:
-                top_words = topic['words'][:5]
-                output += f"Topic {topic['topic_number']}: {', '.join(top_words)}\n"
-
-            if len(result['topics']) > 5:
-                output += f"\n... and {len(result['topics']) - 5} more topics\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error training BERTopic model: {str(e)}")]
-
-    elif name == "get_document_topics":
-        doc_id = arguments.get("doc_id")
-        model_type = arguments.get("model_type")
-
-        try:
-            cursor = kb.db_conn.cursor()
-
-            # Build query
-            if model_type:
-                query = """
-                    SELECT t.model_type, t.topic_number, t.top_words, dt.probability
-                    FROM document_topics dt
-                    JOIN topics t ON dt.topic_id = t.topic_id
-                    WHERE dt.doc_id = ? AND t.model_type = ?
-                    ORDER BY dt.probability DESC
-                """
-                results = cursor.execute(query, (doc_id, model_type)).fetchall()
-            else:
-                query = """
-                    SELECT t.model_type, t.topic_number, t.top_words, dt.probability
-                    FROM document_topics dt
-                    JOIN topics t ON dt.topic_id = t.topic_id
-                    WHERE dt.doc_id = ?
-                    ORDER BY t.model_type, dt.probability DESC
-                """
-                results = cursor.execute(query, (doc_id,)).fetchall()
-
-            if not results:
-                return [TextContent(type="text", text=f"No topics found for document: {doc_id}")]
-
-            # Get document info
-            doc = kb.documents.get(doc_id)
-            doc_title = doc.title if doc else "Unknown"
-
-            output = f"Topics for Document: {doc_title}\n{'='*60}\n\n"
-            output += f"Document ID: {doc_id}\n"
-            output += f"Total Topics: {len(results)}\n\n"
-
-            current_model = None
-            for model, topic_num, top_words_json, prob in results:
-                if model != current_model:
-                    output += f"\n{model.upper()} Model Topics:\n"
-                    output += "-" * 40 + "\n"
-                    current_model = model
-
-                import json
-                top_words = json.loads(top_words_json)
-                words_str = ', '.join(top_words[:5])
-                output += f"Topic {topic_num} (prob={prob:.3f}): {words_str}\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error getting document topics: {str(e)}")]
-
-    elif name == "cluster_documents_kmeans":
-        num_clusters = arguments.get("num_clusters", 10)
-        random_state = arguments.get("random_state", 42)
-
-        try:
-            result = kb.cluster_documents_kmeans(num_clusters, random_state)
-
-            if 'error' in result:
-                return [TextContent(type="text", text=f"Error: {result['error']}")]
-
-            output = f"K-Means Clustering Complete\n{'='*60}\n\n"
-            output += f"Algorithm: {result['algorithm']}\n"
-            output += f"Clusters: {result['num_clusters']}\n"
-            output += f"Documents: {result['num_documents']}\n"
-            output += f"Assignments: {result['num_assignments']}\n"
-            output += f"Silhouette Score: {result['silhouette_score']:.3f}\n\n"
-
-            output += "Clustering quality:\n"
-            if result['silhouette_score'] > 0.5:
-                output += "  Excellent - Strong cluster separation\n"
-            elif result['silhouette_score'] > 0.3:
-                output += "  Good - Reasonable cluster structure\n"
-            elif result['silhouette_score'] > 0.0:
-                output += "  Fair - Weak but present structure\n"
-            else:
-                output += "  Poor - Overlapping clusters\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error clustering with K-Means: {str(e)}")]
-
-    elif name == "cluster_documents_dbscan":
-        eps = arguments.get("eps", 0.5)
-        min_samples = arguments.get("min_samples", 5)
-
-        try:
-            result = kb.cluster_documents_dbscan(eps, min_samples)
-
-            if 'error' in result:
-                return [TextContent(type="text", text=f"Error: {result['error']}")]
-
-            output = f"DBSCAN Clustering Complete\n{'='*60}\n\n"
-            output += f"Algorithm: {result['algorithm']}\n"
-            output += f"Clusters Found: {result['num_clusters']}\n"
-            output += f"Documents: {result['num_documents']}\n"
-            output += f"Assignments: {result['num_assignments']}\n"
-            output += f"Outliers: {result['num_outliers']} ({result['num_outliers']/result['num_documents']*100:.1f}%)\n"
-            output += f"Silhouette Score: {result['silhouette_score']:.3f}\n\n"
-
-            output += "Note: DBSCAN automatically discovers clusters without\n"
-            output += "specifying K. Outliers are documents that don't fit\n"
-            output += "well into any cluster.\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error clustering with DBSCAN: {str(e)}")]
-
-    elif name == "cluster_documents_hdbscan":
-        min_cluster_size = arguments.get("min_cluster_size", 5)
-        min_samples = arguments.get("min_samples")
-
-        try:
-            result = kb.cluster_documents_hdbscan(min_cluster_size, min_samples)
-
-            if 'error' in result:
-                return [TextContent(type="text", text=f"Error: {result['error']}")]
-
-            output = f"HDBSCAN Clustering Complete\n{'='*60}\n\n"
-            output += f"Algorithm: {result['algorithm']}\n"
-            output += f"Clusters Found: {result['num_clusters']}\n"
-            output += f"Documents: {result['num_documents']}\n"
-            output += f"Assignments: {result['num_assignments']}\n"
-            output += f"Outliers: {result['num_outliers']} ({result['num_outliers']/result['num_documents']*100:.1f}%)\n\n"
-
-            output += "Note: HDBSCAN is hierarchical and handles varying\n"
-            output += "densities better than DBSCAN. More conservative with\n"
-            output += "cluster assignment, resulting in higher quality clusters.\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error clustering with HDBSCAN: {str(e)}")]
-
-    elif name == "get_cluster_documents":
-        cluster_id = arguments.get("cluster_id")
-        algorithm = arguments.get("algorithm")
-        max_results = arguments.get("max_results", 50)
-
-        try:
-            cursor = kb.db_conn.cursor()
-
-            # Build query
-            if algorithm:
-                query = """
-                    SELECT d.doc_id, d.title, d.filename, dc.distance, c.algorithm
-                    FROM document_clusters dc
-                    JOIN documents d ON dc.doc_id = d.doc_id
-                    JOIN clusters c ON dc.cluster_id = c.cluster_id
-                    WHERE dc.cluster_id = ? AND c.algorithm = ?
-                    ORDER BY dc.distance ASC
-                    LIMIT ?
-                """
-                results = cursor.execute(query, (cluster_id, algorithm, max_results)).fetchall()
-            else:
-                query = """
-                    SELECT d.doc_id, d.title, d.filename, dc.distance, c.algorithm
-                    FROM document_clusters dc
-                    JOIN documents d ON dc.doc_id = d.doc_id
-                    JOIN clusters c ON dc.cluster_id = c.cluster_id
-                    WHERE dc.cluster_id = ?
-                    ORDER BY dc.distance ASC
-                    LIMIT ?
-                """
-                results = cursor.execute(query, (cluster_id, max_results)).fetchall()
-
-            if not results:
-                return [TextContent(type="text", text=f"No documents found in cluster: {cluster_id}")]
-
-            # Get cluster info
-            cluster_info = cursor.execute("""
-                SELECT algorithm, cluster_number
-                FROM clusters
-                WHERE cluster_id = ?
-            """, (cluster_id,)).fetchone()
-
-            if not cluster_info:
-                return [TextContent(type="text", text=f"Cluster not found: {cluster_id}")]
-
-            algo, cluster_num = cluster_info
-
-            output = f"Documents in Cluster {cluster_num} ({algo.upper()})\n{'='*60}\n\n"
-            output += f"Cluster ID: {cluster_id}\n"
-            output += f"Total Documents: {len(results)}\n\n"
-
-            for doc_id, title, filename, distance, _ in results[:20]:  # Show first 20
-                output += f"- {title}\n"
-                output += f"  File: {filename}\n"
-                output += f"  Distance: {distance:.4f}\n\n"
-
-            if len(results) > 20:
-                output += f"... and {len(results) - 20} more documents\n"
-
-            return [TextContent(type="text", text=output)]
-
-        except Exception as e:
-            return [TextContent(type="text", text=f"Error getting cluster documents: {str(e)}")]
 
     # Phase 2: Visualization Tools
     elif name == "generate_topic_wordcloud":

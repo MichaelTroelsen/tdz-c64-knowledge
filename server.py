@@ -1521,67 +1521,14 @@ class KnowledgeBase:
                     )
                 """)
 
-                # ========================================
-                # PHASE 3: TEMPORAL ANALYSIS TABLES
-                # ========================================
-
-                # Events table - stores detected temporal events
-                cursor.execute("""
-                    CREATE TABLE events (
-                        event_id TEXT PRIMARY KEY,
-                        event_type TEXT NOT NULL,
-                        title TEXT NOT NULL,
-                        description TEXT,
-                        date_extracted TEXT,
-                        date_normalized TEXT,
-                        year INTEGER,
-                        month INTEGER,
-                        day INTEGER,
-                        confidence REAL DEFAULT 0.5,
-                        entities TEXT,
-                        metadata TEXT,
-                        created_date TEXT NOT NULL
-                    )
-                """)
-
-                # Document-events mapping table
-                cursor.execute("""
-                    CREATE TABLE document_events (
-                        mapping_id TEXT PRIMARY KEY,
-                        doc_id TEXT NOT NULL,
-                        event_id TEXT NOT NULL,
-                        context TEXT,
-                        position INTEGER,
-                        created_date TEXT NOT NULL,
-                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
-                        FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
-                    )
-                """)
-
-                # Timeline entries table
-                cursor.execute("""
-                    CREATE TABLE timeline_entries (
-                        entry_id TEXT PRIMARY KEY,
-                        event_id TEXT NOT NULL,
-                        display_date TEXT NOT NULL,
-                        sort_order INTEGER NOT NULL,
-                        category TEXT,
-                        importance INTEGER DEFAULT 3,
-                        created_date TEXT NOT NULL,
-                        FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
-                    )
-                """)
-
-                # Create indexes for Phase 3 tables
-                self.logger.info("Creating indexes for Phase 3 tables")
-                cursor.execute("CREATE INDEX idx_events_type ON events(event_type)")
-                cursor.execute("CREATE INDEX idx_events_year ON events(year)")
-                cursor.execute("CREATE INDEX idx_events_date ON events(date_normalized)")
-                cursor.execute("CREATE INDEX idx_document_events_doc ON document_events(doc_id)")
-                cursor.execute("CREATE INDEX idx_document_events_event ON document_events(event_id)")
-                cursor.execute("CREATE INDEX idx_timeline_entries_event ON timeline_entries(event_id)")
-                cursor.execute("CREATE INDEX idx_timeline_entries_sort ON timeline_entries(sort_order)")
-                cursor.execute("CREATE INDEX idx_timeline_entries_category ON timeline_entries(category)")
+                # Phase 3 temporal analysis tables (events, document_events,
+                # timeline_entries) are NOT created here - _migrate_phase3_schema(),
+                # called unconditionally below regardless of db_exists, already
+                # creates them idempotently. Duplicating that here caused a crash
+                # the first time an existing (non-fresh) database reached this
+                # branch: _migrate_phase3_schema() had already created 'events' on
+                # the previous init, so the unconditional CREATE TABLE here raised
+                # "table events already exists".
 
                 # Create indexes for cluster assignment queries
                 cursor.execute("CREATE INDEX idx_doc_clusters_doc ON document_clusters(doc_id)")

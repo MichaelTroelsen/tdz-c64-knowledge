@@ -225,7 +225,7 @@ class WikiExporter:
         <div class="nav-right">
             <div class="search-container">
                 <input type="search" id="nav-search" class="nav-search" placeholder="🔍 Search..." autocomplete="off" />
-                <div id="search-results" class="search-results"></div>
+                <div id="nav-search-results" class="search-results"></div>
             </div>
             <button class="theme-switcher" id="theme-toggle" aria-label="Toggle theme">🌙</button>
         </div>
@@ -351,6 +351,19 @@ class WikiExporter:
         # still sitting next to a 2026-07-19 export).
         for stale in self.data_dir.glob('*.json'):
             stale.unlink()
+
+        # Same problem, different shape: root-level HTML pages this version
+        # of export() no longer generates (e.g. pdf-viewer.html/test_viewer.html
+        # from a much older layout) otherwise linger forever too.
+        current_pages = {
+            'index.html', 'articles.html', 'chunks.html', 'documents.html',
+            'entities.html', 'knowledge-graph.html', 'settings.html',
+            'similarity-map.html', 'timeline.html', 'topics.html', 'viewer.html',
+        }
+        for stale in self.output_dir.glob('*.html'):
+            if stale.name not in current_pages:
+                stale.unlink()
+
         (self.output_dir / "lib").mkdir(exist_ok=True)
         self.files_dir.mkdir(exist_ok=True)  # For actual source files
 
@@ -1399,6 +1412,8 @@ python wiki_export.py --output {self.output_dir.name}
         </footer>
     </div>
 
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/entities.js"></script>
     <script src="assets/js/enhancements.js"></script>
 </body>
@@ -1841,6 +1856,8 @@ python wiki_export.py --output {self.output_dir.name}
     </div>
 
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/enhancements.js"></script>
     <script>
         // Knowledge Graph Visualization using D3.js
@@ -2562,6 +2579,8 @@ python wiki_export.py --output {self.output_dir.name}
         </div>
     </div>
 
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/enhancements.js"></script>
     <script>
         let documentsData = [];
@@ -2908,6 +2927,8 @@ python wiki_export.py --output {self.output_dir.name}
         </footer>
     </div>
 
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/topics.js"></script>
     <script src="assets/js/enhancements.js"></script>
 </body>
@@ -3460,6 +3481,8 @@ python wiki_export.py --output {self.output_dir.name}
         </div>
     </div>
 
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/enhancements.js"></script>
     <script>
         let timelineEvents = [];
@@ -3771,6 +3794,8 @@ python wiki_export.py --output {self.output_dir.name}
         </footer>
     </div>
 
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/documents.js"></script>
     <script src="assets/js/enhancements.js"></script>
 </body>
@@ -3831,6 +3856,8 @@ python wiki_export.py --output {self.output_dir.name}
         </footer>
     </div>
 
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/chunks.js"></script>
     <script src="assets/js/enhancements.js"></script>
 </body>
@@ -4035,6 +4062,8 @@ python wiki_export.py --output {self.output_dir.name}
                 '<div class="error-message">No file specified</div>';
         }
     </script>
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
@@ -4268,6 +4297,8 @@ python wiki_export.py --output {self.output_dir.name}
         </footer>
     </div>
 
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/enhancements.js"></script>
 </body>
 </html>
@@ -4438,6 +4469,10 @@ header h1 {
 /* Search Section */
 .search-section {
     margin: 30px 0;
+    position: relative;
+}
+
+.search-container {
     position: relative;
 }
 
@@ -7580,7 +7615,7 @@ async function loadSearchIndex() {
 
         // Initialize Fuse.js
         fuse = new Fuse(searchIndex, {
-            keys: ['title', 'content', 'tags'],
+            keys: ['title', 'description', 'tags'],
             threshold: 0.3,
             includeScore: true,
             minMatchCharLength: 2,
@@ -7593,22 +7628,30 @@ async function loadSearchIndex() {
     }
 }
 
-// Handle search input
-const searchInput = document.getElementById('search-input');
-const searchResults = document.getElementById('search-results');
+// Wire up every search box present on the page. The nav bar's box
+// (#nav-search / #nav-search-results) is present on every page; index.html
+// additionally has its own larger homepage box (#search-input /
+// #search-results). Both share the same underlying Fuse index.
+const SEARCH_BOX_IDS = [
+    ['nav-search', 'nav-search-results'],
+    ['search-input', 'search-results']
+];
 
-if (searchInput && searchResults) {
-    searchInput.addEventListener('input', handleSearch);
+for (const [inputId, resultsId] of SEARCH_BOX_IDS) {
+    const input = document.getElementById(inputId);
+    const results = document.getElementById(resultsId);
+    if (!input || !results) continue;
 
-    // Close results when clicking outside
+    input.addEventListener('input', (event) => handleSearch(event, results));
+
     document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
-            searchResults.classList.remove('active');
+        if (!input.contains(e.target) && !results.contains(e.target)) {
+            results.classList.remove('active');
         }
     });
 }
 
-function handleSearch(event) {
+function handleSearch(event, searchResults) {
     const query = event.target.value.trim();
 
     if (query.length < 2) {
@@ -7646,16 +7689,14 @@ function createSearchResult(doc) {
     const div = document.createElement('div');
     div.className = 'search-result';
 
-    const safeFilename = doc.id.replace(/[^\\w\\-]/g, '_') + '.html';
-
     div.innerHTML = `
         <div class="search-result-title">${escapeHtml(doc.title)}</div>
-        <div class="search-result-preview">${escapeHtml(doc.preview)}</div>
-        <div class="search-result-meta">${doc.file_type} • ${doc.chunks} chunks</div>
+        <div class="search-result-preview">${escapeHtml(doc.description || '')}</div>
+        <div class="search-result-meta">${escapeHtml(doc.category || doc.type)}</div>
     `;
 
     div.onclick = () => {
-        window.location.href = `docs/${safeFilename}`;
+        window.location.href = doc.url;
     };
 
     return div;
@@ -9072,7 +9113,7 @@ function displayPopularArticles() {
 
     // This data should be generated by wiki_export.py
     // For now, we'll use the articles.json if available
-    fetch('articles.json')
+    fetch('assets/data/articles.json')
         .then(response => response.json())
         .then(data => {
             if (!data || !data.articles) return;
@@ -13254,6 +13295,8 @@ Write ONLY the article content, no title or introduction phrase."""
         </footer>
     </div>
 
+    <script src="lib/fuse.min.js"></script>
+    <script src="assets/js/search.js"></script>
     <script src="assets/js/enhancements.js"></script>
 </body>
 </html>

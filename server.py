@@ -14035,7 +14035,7 @@ Important:
     # ========================================
 
     def _store_cluster(self, algorithm: str, cluster_number: int,
-                      centroid_vector: Optional[np.ndarray] = None,
+                      centroid_vector: "Optional[np.ndarray]" = None,
                       silhouette_score: Optional[float] = None) -> str:
         """
         Store cluster to database.

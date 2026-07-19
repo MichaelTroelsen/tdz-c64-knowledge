@@ -54,7 +54,7 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 - **rest_models.py** - Pydantic v2 models
 - **cli.py** - Command-line interface
 - **admin_gui.py** - Streamlit dashboard
-- **test_server.py** - Pytest test suite
+- **test_card_updates.py** - Pytest test suite (CI-wired)
 - **knowledge_base.db** - SQLite database (in TDZ_DATA_DIR)
 
 ## MCP Tools Summary
@@ -134,7 +134,7 @@ See README.md for complete list.
 ## Testing
 
 ```cmd
-pytest test_server.py -v                    # All tests
+pytest test_card_updates.py -v              # All tests
 python cli.py stats                         # Test CLI
 python -m streamlit run admin_gui.py       # Test GUI
 ```

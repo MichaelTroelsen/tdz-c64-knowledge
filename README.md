@@ -494,23 +494,19 @@ Organize docs with consistent tags:
 pip install -e ".[dev]"
 
 # Run all tests
-pytest test_server.py test_wiki_export.py -v
+pytest test_card_updates.py test_pdf_viewer.py -v
 
 # With coverage
-pytest test_server.py -v --cov=server --cov-report=term
-
-# Wiki export tests only
-pytest test_wiki_export.py -v
+pytest test_card_updates.py -v --cov=server --cov-report=term
 ```
 
 **Test Coverage:**
-- `test_server.py` - Core server functionality (search, entities, RAG, etc.)
-- `test_wiki_export.py` - Wiki generation features (16 tests):
-  - Document coordinate export (UMAP/t-SNE)
-  - File type detection (HTML/MD)
-  - Cluster document export
-  - HTML generation with explanation boxes
-  - JavaScript generation for interactive features
+- `test_card_updates.py` - Card upsert/supersede semantics and chunk cleanup on remove
+- `test_pdf_viewer.py` - PDF viewer support (requires PyMuPDF)
+
+A larger suite (35 files) lives under `archive/tests/` but is not currently wired into CI. CI
+itself only runs `test_card_updates.py`; `test_pdf_viewer.py` is included above for local runs
+but requires PyMuPDF (`pip install -e ".[dev]"` covers it).
 
 ### CI/CD
 

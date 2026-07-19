@@ -15,7 +15,7 @@ import sqlite3
 import threading
 import queue
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Dict, Tuple, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed

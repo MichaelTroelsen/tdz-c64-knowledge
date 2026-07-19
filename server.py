@@ -17,7 +17,7 @@ import queue
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple, Any
 from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Load environment variables from .env file. Resolve relative to this
@@ -1541,6 +1541,172 @@ class KnowledgeBase:
 
         # Always run migrations for schema updates (regardless of db_exists)
         self._migrate_phase3_schema()
+        self._migrate_mcp_log_schema()
+
+    def _migrate_mcp_log_schema(self):
+        """Create the MCP call log table if it doesn't exist yet."""
+        cursor = self.db_conn.cursor()
+
+        result = cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='mcp_call_log'
+        """).fetchone()
+
+        if result:
+            return
+
+        self.logger.info("Creating mcp_call_log table")
+
+        cursor.execute("""
+            CREATE TABLE mcp_call_log (
+                call_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tool_name TEXT NOT NULL,
+                called_at TEXT NOT NULL,
+                duration_ms REAL NOT NULL,
+                success INTEGER NOT NULL,
+                error_message TEXT,
+                args_summary TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX idx_mcp_log_tool ON mcp_call_log(tool_name)")
+        cursor.execute("CREATE INDEX idx_mcp_log_time ON mcp_call_log(called_at)")
+        cursor.execute("CREATE INDEX idx_mcp_log_success ON mcp_call_log(success)")
+
+        self.db_conn.commit()
+        self.logger.info("mcp_call_log table created")
+
+    @staticmethod
+    def _summarize_call_args(arguments: dict, max_value_len: int = 150) -> str:
+        """
+        Render tool call arguments as a short, privacy-conscious JSON summary
+        for logging - long string values (e.g. full document content pasted
+        into a tool call) are truncated rather than stored in full.
+        """
+        if not arguments:
+            return "{}"
+        summarized = {}
+        for key, value in arguments.items():
+            if isinstance(value, str) and len(value) > max_value_len:
+                summarized[key] = value[:max_value_len] + f"...[{len(value)} chars]"
+            else:
+                summarized[key] = value
+        try:
+            return json.dumps(summarized, default=str)[:2000]
+        except Exception:
+            return str(summarized)[:2000]
+
+    def _log_mcp_call(self, tool_name: str, duration_ms: float, success: bool,
+                       error_message: Optional[str] = None, arguments: Optional[dict] = None):
+        """Record one MCP tool invocation to mcp_call_log. Never raises - a
+        logging failure must not break the tool call it's trying to record."""
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute(
+                """INSERT INTO mcp_call_log
+                   (tool_name, called_at, duration_ms, success, error_message, args_summary)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    tool_name,
+                    datetime.now(timezone.utc).isoformat(),
+                    duration_ms,
+                    1 if success else 0,
+                    (error_message or None),
+                    self._summarize_call_args(arguments),
+                )
+            )
+            self.db_conn.commit()
+        except Exception as e:
+            self.logger.warning(f"Failed to log MCP call for {tool_name}: {e}")
+
+    def get_mcp_call_stats(self, hours: int = 24) -> Dict[str, Any]:
+        """Aggregate MCP usage stats over the trailing window (default 24h)."""
+        cursor = self.db_conn.cursor()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+
+        row = cursor.execute(
+            """SELECT COUNT(*), SUM(success = 0), AVG(duration_ms), MAX(duration_ms)
+               FROM mcp_call_log WHERE called_at >= ?""",
+            (cutoff,)
+        ).fetchone()
+        total, errors, avg_ms, max_ms = row
+        total = total or 0
+        errors = errors or 0
+
+        top_tools = cursor.execute(
+            """SELECT tool_name, COUNT(*) as cnt, AVG(duration_ms) as avg_ms,
+                      SUM(success = 0) as errors
+               FROM mcp_call_log WHERE called_at >= ?
+               GROUP BY tool_name ORDER BY cnt DESC LIMIT 20""",
+            (cutoff,)
+        ).fetchall()
+
+        return {
+            'window_hours': hours,
+            'total_calls': total,
+            'error_count': errors,
+            'error_rate': (errors / total) if total else 0.0,
+            'avg_duration_ms': avg_ms or 0.0,
+            'max_duration_ms': max_ms or 0.0,
+            'top_tools': [
+                {'tool_name': t, 'calls': c, 'avg_duration_ms': a or 0.0, 'errors': e}
+                for t, c, a, e in top_tools
+            ]
+        }
+
+    def get_recent_mcp_calls(self, limit: int = 200, tool_name: Optional[str] = None,
+                              only_errors: bool = False) -> List[Dict[str, Any]]:
+        """Fetch the most recent MCP calls, optionally filtered, newest first."""
+        cursor = self.db_conn.cursor()
+        query = "SELECT call_id, tool_name, called_at, duration_ms, success, error_message, args_summary FROM mcp_call_log WHERE 1=1"
+        params = []
+        if tool_name:
+            query += " AND tool_name = ?"
+            params.append(tool_name)
+        if only_errors:
+            query += " AND success = 0"
+        query += " ORDER BY call_id DESC LIMIT ?"
+        params.append(limit)
+
+        rows = cursor.execute(query, params).fetchall()
+        return [
+            {
+                'call_id': r[0], 'tool_name': r[1], 'called_at': r[2],
+                'duration_ms': r[3], 'success': bool(r[4]),
+                'error_message': r[5], 'args_summary': r[6],
+            }
+            for r in rows
+        ]
+
+    def get_mcp_calls_over_time(self, hours: int = 24, bucket_minutes: int = 60) -> List[Dict[str, Any]]:
+        """Bucket call counts over time for a simple usage-over-time chart."""
+        cursor = self.db_conn.cursor()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        rows = cursor.execute(
+            """SELECT called_at, success FROM mcp_call_log WHERE called_at >= ? ORDER BY called_at""",
+            (cutoff,)
+        ).fetchall()
+
+        buckets = {}
+        for called_at, success in rows:
+            try:
+                dt = datetime.fromisoformat(called_at)
+            except ValueError:
+                continue
+            bucket_key = dt.replace(
+                minute=(dt.minute // bucket_minutes) * bucket_minutes if bucket_minutes < 60 else 0,
+                second=0, microsecond=0
+            )
+            if bucket_minutes >= 60:
+                bucket_key = bucket_key.replace(hour=(dt.hour // (bucket_minutes // 60)) * (bucket_minutes // 60))
+            entry = buckets.setdefault(bucket_key.isoformat(), {'calls': 0, 'errors': 0})
+            entry['calls'] += 1
+            if not success:
+                entry['errors'] += 1
+
+        return [
+            {'bucket': k, 'calls': v['calls'], 'errors': v['errors']}
+            for k, v in sorted(buckets.items())
+        ]
 
     def _migrate_phase3_schema(self):
         """Migrate existing databases to include Phase 3 temporal analysis tables."""
@@ -20631,10 +20797,9 @@ async def list_tools() -> list[Tool]:
     ]
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    """Handle tool calls."""
-    
+async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
+    """Handle tool calls (implementation - wrapped by call_tool() below for timing/logging)."""
+
     if name == "search_docs":
         query = arguments.get("query", "")
         max_results = arguments.get("max_results", 5)
@@ -23871,6 +24036,34 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Error generating distribution chart: {str(e)}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    """
+    Time and log every MCP tool invocation to mcp_call_log, then dispatch to
+    the real implementation. Kept separate from _call_tool_impl so the
+    logging wrapper doesn't get lost in that function's ~3000-line dispatch
+    body.
+    """
+    start_time = time.time()
+    error_message = None
+    result = None
+    try:
+        result = await _call_tool_impl(name, arguments)
+        return result
+    except Exception as e:
+        error_message = str(e)
+        raise
+    finally:
+        duration_ms = (time.time() - start_time) * 1000
+        success = error_message is None
+        if success and result:
+            first_text = getattr(result[0], 'text', '') if result else ''
+            if first_text.startswith('Error'):
+                success = False
+                error_message = first_text[:300]
+        kb._log_mcp_call(name, duration_ms, success, error_message, arguments)
 
 
 @server.list_resources()

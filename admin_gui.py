@@ -152,7 +152,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["📊 Dashboard", "📚 Documents", "🌐 Web Scraping", "🌐 URL Monitoring", "🏷️ Tag Management", "🧠 Entity Extraction", "🔗 Relationship Graph", "📈 Entity Analytics", "📄 Document Comparison", "🔍 Search", "💾 Backup & Restore", "📉 System Analytics", "🔍 Archive Search", "⚙️ Settings"]
+    ["📊 Dashboard", "📚 Documents", "🌐 Web Scraping", "🌐 URL Monitoring", "🏷️ Tag Management", "🧠 Entity Extraction", "🔗 Relationship Graph", "📈 Entity Analytics", "🕸️ Graph Explorer", "📄 Document Comparison", "🔍 Search", "💾 Backup & Restore", "📉 System Analytics", "🛰️ MCP Monitor", "🔍 Archive Search", "⚙️ Settings"]
 )
 
 st.sidebar.markdown("---")
@@ -3520,6 +3520,229 @@ elif page == "📈 Entity Analytics":
                 st.dataframe(timeline_df, use_container_width=True)
         else:
             st.info("No timeline data available. Entity extraction dates are tracked from document creation.")
+
+# ========== GRAPH EXPLORER PAGE ==========
+elif page == "🕸️ Graph Explorer":
+    st.title("🕸️ Knowledge Graph Explorer")
+    st.write("Explore the entity relationship graph interactively: filter, color/size by metric, and trace paths between entities.")
+
+    cursor = kb.db_conn.cursor()
+    all_entity_types = [row[0] for row in cursor.execute(
+        "SELECT DISTINCT entity_type FROM document_entities ORDER BY entity_type"
+    ).fetchall()]
+
+    st.markdown("**Filters**")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        selected_types = st.multiselect("Entity Types", all_entity_types, default=[], help="Leave empty to include all types")
+    with col2:
+        min_occurrences = st.number_input("Min Occurrences", min_value=1, value=2, step=1, help="Minimum times an entity must appear to be included")
+    with col3:
+        min_strength = st.slider("Min Relationship Strength", 0.0, 1.0, 0.3, 0.05)
+
+    st.markdown("**Display**")
+    col4, col5, col6, col7 = st.columns(4)
+    with col4:
+        color_by = st.selectbox("Color By", ["type", "community"])
+    with col5:
+        size_by = st.selectbox("Size By", ["pagerank", "occurrences", "degree"])
+    with col6:
+        max_nodes = st.slider("Max Nodes Shown", 10, 300, 100, 10)
+    with col7:
+        show_labels = st.checkbox("Show Labels", value=True)
+
+    if st.button("🔄 Generate Graph", type="primary"):
+        with st.spinner("Building knowledge graph..."):
+            G = kb.build_knowledge_graph(
+                entity_types=selected_types or None,
+                min_occurrences=min_occurrences,
+                min_relationship_strength=min_strength,
+                use_cache=False
+            )
+            st.session_state.graph_explorer_G = G
+
+    if "graph_explorer_G" in st.session_state:
+        G = st.session_state.graph_explorer_G
+
+        if G.number_of_nodes() == 0:
+            st.info("No entities match the current filters. Try lowering Min Occurrences or widening the entity type selection.")
+        else:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("🔵 Nodes", f"{G.number_of_nodes():,}")
+            with col2:
+                st.metric("🔗 Edges", f"{G.number_of_edges():,}")
+            with col3:
+                import networkx as nx
+                density = nx.density(G) if G.number_of_nodes() > 1 else 0.0
+                st.metric("📐 Density", f"{density:.4f}")
+
+            with st.spinner("Rendering visualization..."):
+                try:
+                    import tempfile
+                    import streamlit.components.v1 as components
+
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.html') as f:
+                        html_path = f.name
+                    kb.visualize_knowledge_graph_pyvis(
+                        G, output_path=html_path,
+                        color_by=color_by, size_by=size_by,
+                        show_labels=show_labels, max_nodes=max_nodes
+                    )
+                    with open(html_path, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    components.html(html_content, height=770)
+
+                    color_map = kb._get_color_map_for_graph(G, color_by)
+                    if color_map:
+                        st.markdown("**Legend:**")
+                        legend_cols = st.columns(min(len(color_map), 6))
+                        for idx, (key, color) in enumerate(color_map.items()):
+                            with legend_cols[idx % len(legend_cols)]:
+                                st.markdown(f"<span style='color:{color};'>●</span> {key}", unsafe_allow_html=True)
+
+                    if G.number_of_nodes() > max_nodes:
+                        st.caption(f"Showing top {max_nodes} of {G.number_of_nodes()} nodes by degree centrality. Increase 'Max Nodes Shown' to see more.")
+                except Exception as e:
+                    st.error(f"Failed to render graph: {e}")
+                    st.info("Graph visualization requires pyvis. Install with: pip install pyvis")
+
+            st.markdown("---")
+            st.markdown(f"**🏆 Top Entities by {size_by.title()}**")
+            sample_node = next(iter(G.nodes))
+            if size_by == "pagerank" and 'pagerank' in G.nodes[sample_node]:
+                ranked = sorted(G.nodes(data=True), key=lambda nd: nd[1].get('pagerank', 0), reverse=True)
+            elif size_by == "degree":
+                degree_cent = nx.degree_centrality(G)
+                ranked = sorted(G.nodes(data=True), key=lambda nd: degree_cent.get(nd[0], 0), reverse=True)
+            else:
+                ranked = sorted(G.nodes(data=True), key=lambda nd: nd[1].get('occurrences', 0), reverse=True)
+
+            top_rows = []
+            for node, attrs in ranked[:10]:
+                top_rows.append({
+                    "Entity": node,
+                    "Type": attrs.get('type', 'unknown'),
+                    "Occurrences": attrs.get('occurrences', 0),
+                    "Degree": G.degree(node)
+                })
+            import pandas as pd
+            st.dataframe(pd.DataFrame(top_rows), use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            st.markdown("**🧭 Find Path Between Entities**")
+            node_list = sorted(G.nodes())
+            colp1, colp2, colp3 = st.columns([2, 2, 1])
+            with colp1:
+                entity1 = st.selectbox("From Entity", node_list, key="path_entity1")
+            with colp2:
+                entity2 = st.selectbox("To Entity", node_list, key="path_entity2", index=min(1, len(node_list) - 1))
+            with colp3:
+                st.write("")
+                st.write("")
+                find_path_clicked = st.button("Find Path")
+
+            if find_path_clicked:
+                if entity1 == entity2:
+                    st.warning("Choose two different entities.")
+                else:
+                    path = kb.find_shortest_path(G, entity1, entity2, cache_result=False)
+                    if path:
+                        st.success(f"Path found ({len(path)} nodes):")
+                        st.markdown(" → ".join(f"`{p}`" for p in path))
+                        for a, b in zip(path, path[1:]):
+                            edge = G.edges[a, b]
+                            st.caption(f"`{a}` → `{b}`: strength={edge.get('weight', 0):.2f}, co-occurrences={edge.get('co_occurrences', 0)}")
+                    else:
+                        st.warning(f"No path exists between '{entity1}' and '{entity2}' with the current filters.")
+    else:
+        st.info("Set your filters above and click **Generate Graph** to build and explore the knowledge graph.")
+
+# ========== MCP MONITOR PAGE ==========
+elif page == "🛰️ MCP Monitor":
+    st.title("🛰️ MCP Monitor")
+    st.write("Usage stats for every MCP tool call, logged to `mcp_call_log` so recurring problems and popular tools are visible instead of buried in `server.log`.")
+
+    window_label = st.selectbox("Time Window", ["Last hour", "Last 6 hours", "Last 24 hours", "Last 7 days"], index=2)
+    window_hours = {"Last hour": 1, "Last 6 hours": 6, "Last 24 hours": 24, "Last 7 days": 24 * 7}[window_label]
+
+    stats = kb.get_mcp_call_stats(hours=window_hours)
+
+    if stats['total_calls'] == 0:
+        st.info(f"No MCP tool calls logged in the {window_label.lower()}. Calls are recorded automatically as Claude Code (or any other MCP client) uses this server's tools.")
+    else:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📞 Total Calls", f"{stats['total_calls']:,}")
+        with col2:
+            st.metric("❌ Errors", f"{stats['error_count']:,}", delta=f"{stats['error_rate']:.1%} error rate", delta_color="inverse")
+        with col3:
+            st.metric("⏱️ Avg Latency", f"{stats['avg_duration_ms']:.0f} ms")
+        with col4:
+            st.metric("🐌 Max Latency", f"{stats['max_duration_ms']:.0f} ms")
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("**📊 Calls Over Time**")
+            bucket_minutes = 15 if window_hours <= 6 else (60 if window_hours <= 24 else 60 * 6)
+            timeline = kb.get_mcp_calls_over_time(hours=window_hours, bucket_minutes=bucket_minutes)
+            if timeline:
+                df_timeline = pd.DataFrame(timeline).set_index('bucket')
+                st.line_chart(df_timeline[['calls', 'errors']])
+            else:
+                st.caption("No data to chart yet.")
+
+        with col2:
+            st.markdown("**🏆 Top Tools by Call Count**")
+            if stats['top_tools']:
+                df_tools = pd.DataFrame(stats['top_tools']).set_index('tool_name')
+                st.bar_chart(df_tools['calls'])
+            else:
+                st.caption("No data to chart yet.")
+
+        st.markdown("**🔧 Per-Tool Breakdown**")
+        df_breakdown = pd.DataFrame(stats['top_tools'])
+        if not df_breakdown.empty:
+            df_breakdown['avg_duration_ms'] = df_breakdown['avg_duration_ms'].round(1)
+            st.dataframe(
+                df_breakdown.rename(columns={
+                    'tool_name': 'Tool', 'calls': 'Calls',
+                    'avg_duration_ms': 'Avg ms', 'errors': 'Errors'
+                }),
+                use_container_width=True, hide_index=True
+            )
+
+        st.markdown("---")
+        st.markdown("**📋 Recent Calls**")
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            all_tool_names = sorted({t['tool_name'] for t in stats['top_tools']})
+            filter_tool = st.selectbox("Filter by tool", ["All tools"] + all_tool_names)
+        with col2:
+            only_errors = st.checkbox("Errors only", value=False)
+        with col3:
+            call_limit = st.number_input("Max rows", min_value=10, max_value=1000, value=100, step=10)
+
+        recent = kb.get_recent_mcp_calls(
+            limit=call_limit,
+            tool_name=None if filter_tool == "All tools" else filter_tool,
+            only_errors=only_errors
+        )
+        if recent:
+            df_recent = pd.DataFrame(recent)
+            df_recent['duration_ms'] = df_recent['duration_ms'].round(1)
+            st.dataframe(
+                df_recent.rename(columns={
+                    'call_id': 'ID', 'tool_name': 'Tool', 'called_at': 'When',
+                    'duration_ms': 'ms', 'success': 'OK',
+                    'error_message': 'Error', 'args_summary': 'Args'
+                }),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.caption("No calls match the current filters.")
 
 # ========== DOCUMENT COMPARISON PAGE ==========
 elif page == "📄 Document Comparison":

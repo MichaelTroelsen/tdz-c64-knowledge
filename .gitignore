@@ -41,8 +41,11 @@ SIDin/
 # Binary dependencies
 poppler-*/
 
-# Temporary test files
+# Temporary test files (the maintained suites below are tracked exceptions)
 test_*.py
+!test_card_updates.py
+!test_pdf_viewer.py
+!test_mcp_startup.py
 check_*.py
 reimport_*.py
 debug_*.py

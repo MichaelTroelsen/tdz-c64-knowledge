@@ -14,6 +14,8 @@ import time
 import sqlite3
 import threading
 import queue
+import importlib
+import importlib.util
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple, Any
 from dataclasses import dataclass, asdict
@@ -78,34 +80,88 @@ except ImportError:
     BM25_SUPPORT = False
     print("Warning: rank-bm25 not installed. Using simple search.", file=sys.stderr)
 
-# NLTK for query preprocessing
-try:
+# Heavy optional dependencies (nltk, sentence-transformers, faiss) are detected
+# here but NOT imported. Importing them eagerly cost ~16s of the ~18s startup
+# time, which pushed MCP client handshakes past their 30s timeout whenever more
+# than one Claude Code session started a server at once. They are now imported
+# on first actual use via the lazy helpers below.
+def _module_available(name: str) -> bool:
+    """Check whether a module can be imported without actually importing it."""
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+class _LazyModule:
+    """Proxy that imports the wrapped module on first attribute access."""
+
+    def __init__(self, name: str):
+        self._lazy_name = name
+        self._lazy_mod = None
+
+    def __getattr__(self, attr):
+        if self._lazy_mod is None:
+            self._lazy_mod = importlib.import_module(self._lazy_name)
+        return getattr(self._lazy_mod, attr)
+
+
+# NLTK for query preprocessing (imported lazily - see _ensure_nltk)
+NLTK_SUPPORT = _module_available('nltk')
+if not NLTK_SUPPORT:
+    print("Warning: nltk not installed. Query preprocessing disabled.", file=sys.stderr)
+
+_nltk_ready = False
+
+
+def _ensure_nltk():
+    """Import nltk and download its corpora on first use.
+
+    Returns (PorterStemmer_cls, stopwords_mod, word_tokenize_fn) or None if
+    nltk is unavailable or its data cannot be fetched.
+    """
+    global _nltk_ready
+    if not NLTK_SUPPORT:
+        return None
     import nltk
     from nltk.corpus import stopwords
     from nltk.stem import PorterStemmer
     from nltk.tokenize import word_tokenize
-    NLTK_SUPPORT = True
+    if not _nltk_ready:
+        # Ensure NLTK data is available. This can hit the network, which is
+        # why it must never run at import time - a slow or offline mirror
+        # would stall the MCP handshake instead of just this one call.
+        try:
+            stopwords.words('english')
+        except LookupError:
+            nltk.download('stopwords', quiet=True)
+            nltk.download('punkt', quiet=True)
+            nltk.download('punkt_tab', quiet=True)
+        _nltk_ready = True
+    return PorterStemmer, stopwords, word_tokenize
 
-    # Ensure NLTK data is available
-    try:
-        stopwords.words('english')
-    except LookupError:
-        nltk.download('stopwords', quiet=True)
-        nltk.download('punkt', quiet=True)
-        nltk.download('punkt_tab', quiet=True)
-except ImportError:
-    NLTK_SUPPORT = False
-    print("Warning: nltk not installed. Query preprocessing disabled.", file=sys.stderr)
 
-# Semantic search support
-try:
-    from sentence_transformers import SentenceTransformer
-    import faiss
-    import numpy as np
-    SEMANTIC_SUPPORT = True
-except ImportError:
-    SEMANTIC_SUPPORT = False
+# Semantic search support (sentence-transformers + faiss imported lazily)
+SEMANTIC_SUPPORT = _module_available('sentence_transformers') and _module_available('faiss')
+if not SEMANTIC_SUPPORT:
     print("Warning: sentence-transformers or faiss-cpu not installed. Semantic search disabled.", file=sys.stderr)
+
+# faiss is referenced from many methods; the proxy defers the ~4s import until
+# the first embedding operation actually touches it.
+faiss = _LazyModule('faiss')
+
+
+def SentenceTransformer(*args, **kwargs):
+    """Lazily import and instantiate the real SentenceTransformer class."""
+    from sentence_transformers import SentenceTransformer as _SentenceTransformer
+    return _SentenceTransformer(*args, **kwargs)
+
+
+# numpy is cheap (~0.3s) and used throughout, so it stays eager.
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 # Fuzzy search support
 try:
@@ -310,13 +366,15 @@ class KnowledgeBase:
 
         # Initialize query preprocessing
         self.use_preprocessing = NLTK_SUPPORT and os.getenv('USE_QUERY_PREPROCESSING', '1') == '1'
+        # The stemmer and stopword set are built on first search, not here -
+        # constructing them forces the nltk import and keeps startup slow.
+        self.stemmer = None
+        self.stop_words = set()
+        self._preprocessing_ready = False
         if self.use_preprocessing:
-            self.stemmer = PorterStemmer()
-            self.stop_words = set(stopwords.words('english'))
-            self.logger.info("Query preprocessing enabled (stemming + stopwords)")
+            self.logger.info("Query preprocessing enabled (stemming + stopwords, lazy init)")
         else:
-            self.stemmer = None
-            self.stop_words = set()
+            self._preprocessing_ready = True  # nothing to initialize
             if NLTK_SUPPORT:
                 self.logger.info("Query preprocessing disabled via USE_QUERY_PREPROCESSING=0")
 
@@ -448,7 +506,21 @@ class KnowledgeBase:
         # never exited) can hold the file lock indefinitely; without a
         # timeout, a second process blocks on it forever with no log output
         # instead of failing fast with a clear "database is locked" error.
-        self.db_conn.execute("PRAGMA busy_timeout = 5000")
+        self.db_conn.execute(f"PRAGMA busy_timeout = {int(os.getenv('TDZ_DB_BUSY_TIMEOUT_MS', '30000'))}")
+
+        # Every Claude Code session spawns its own server process against this
+        # same database file. In the default 'delete' journal mode a single
+        # writer takes an exclusive lock on the whole file and blocks every
+        # reader in every other process, so concurrent sessions serialised
+        # behind each other and timed out. WAL lets readers proceed during a
+        # write, which is what makes multi-session use viable.
+        try:
+            mode = self.db_conn.execute("PRAGMA journal_mode = WAL").fetchone()
+            if mode and str(mode[0]).lower() != 'wal':
+                self.logger.warning(f"Could not enable WAL journal mode (got '{mode[0]}')")
+        except sqlite3.Error as e:
+            # Non-fatal: e.g. the DB lives on a network share that lacks WAL support
+            self.logger.warning(f"Could not enable WAL journal mode: {e}")
 
         if not db_exists:
             self.logger.info("Creating new database schema")
@@ -2245,8 +2317,31 @@ class KnowledgeBase:
             # No preprocessing - just lowercase and split
             return text.lower().split()
 
+        # Build the stemmer/stopwords on first use (deferred from __init__ so
+        # that importing nltk does not delay the MCP handshake).
+        if not self._preprocessing_ready:
+            with self._lock:
+                if not self._preprocessing_ready:
+                    try:
+                        nltk_parts = _ensure_nltk()
+                        if nltk_parts is None:
+                            raise ImportError("nltk unavailable")
+                        PorterStemmer, stopwords, _ = nltk_parts
+                        self.stemmer = PorterStemmer()
+                        self.stop_words = set(stopwords.words('english'))
+                    except Exception as e:
+                        # Degrade to no preprocessing rather than failing the search
+                        self.logger.warning(f"Query preprocessing unavailable, disabling: {e}")
+                        self.use_preprocessing = False
+                        self.stemmer = None
+                        self.stop_words = set()
+                    self._preprocessing_ready = True
+            if not self.use_preprocessing:
+                return text.lower().split()
+
         # Tokenize and lowercase
         try:
+            word_tokenize = _ensure_nltk()[2]
             tokens = word_tokenize(text.lower())
         except Exception:
             # Fallback if tokenization fails

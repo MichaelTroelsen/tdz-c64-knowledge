@@ -23,6 +23,7 @@ MCP server for searching Commodore 64 documentation. Ingests PDFs/text/web pages
 - `cli.py` - Command-line interface
 - `admin_gui.py` - Streamlit web UI
 - `test_card_updates.py` - Pytest test suite
+- `test_mcp_startup.py` - MCP startup/connectivity regression tests (handshake speed, concurrent sessions, lazy imports, WAL)
 - `knowledge_base.db` - SQLite database (in TDZ_DATA_DIR)
 
 ## Development Commands
@@ -106,7 +107,25 @@ See docs/ARCHITECTURE.md "Extending File Type Support" for details.
 pytest test_card_updates.py -v                                          # All tests
 pytest test_card_updates.py::test_no_orphaned_chunks_after_remove -v    # Specific test
 pytest test_card_updates.py --cov=server --cov-report=term              # With coverage
+pytest test_mcp_startup.py -v                                           # MCP connectivity
 ```
+
+### MCP startup performance
+
+`test_mcp_startup.py` guards the constraint that broke multi-session use:
+Claude Code allows **30s** for the MCP initialize handshake, and every session
+spawns its own `server.py` process against the shared database.
+
+Keep startup fast — **do not import heavy optional dependencies at module
+level**. `sentence-transformers`, `torch`, `transformers` and `nltk` cost ~16s
+between them and are imported on first use instead (see `_LazyModule`,
+`_ensure_nltk`, and the `SentenceTransformer` factory near the top of
+`server.py`). Availability is detected with `importlib.util.find_spec`, so
+feature flags stay accurate without paying the import cost.
+
+The database runs in **WAL** journal mode so concurrent server processes do not
+serialise behind a single exclusive writer lock. `TDZ_DB_BUSY_TIMEOUT_MS`
+(default 30000) tunes the SQLite busy timeout.
 
 ## Windows Notes
 

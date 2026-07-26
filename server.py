@@ -631,6 +631,7 @@ class KnowledgeBase:
 
         # Load documents (with automatic migration if needed)
         self._load_documents()
+        self._documents_data_version = self._current_data_version()
         self.logger.info(f"Loaded {len(self.documents)} documents")
 
         # Initialize background entity extraction queue
@@ -2060,6 +2061,90 @@ class KnowledgeBase:
             return True
         except Exception:
             return False
+
+    def _current_data_version(self) -> Optional[int]:
+        """SQLite's built-in per-connection change counter, or None on error.
+
+        PRAGMA data_version increments whenever a DIFFERENT connection
+        commits a change to this database file, but does NOT change for
+        commits made by this connection itself - exactly the signal needed
+        to detect "another agent process changed something" without a
+        schema change (a new revision column) and without re-querying the
+        documents table on every call just to check.
+        """
+        try:
+            return self.db_conn.execute("PRAGMA data_version").fetchone()[0]
+        except sqlite3.Error:
+            return None
+
+    def _reload_documents(self):
+        """Authoritative refresh of self.documents from the database.
+
+        Unlike _load_documents() (which only ever adds/updates entries and
+        is meant for the one-time startup/migration path), this REPLACES the
+        dict wholesale so a document another agent process removed is
+        actually dropped here too, not just never updated.
+        """
+        cursor = self.db_conn.cursor()
+        cursor.execute("SELECT * FROM documents")
+        rows = cursor.fetchall()
+
+        documents = {}
+        for row in rows:
+            doc = DocumentMeta(
+                doc_id=row[0], filename=row[1], title=row[2], filepath=row[3],
+                file_type=row[4], total_pages=row[5], total_chunks=row[6],
+                indexed_at=row[7], tags=json.loads(row[8]), author=row[9],
+                subject=row[10], creator=row[11], creation_date=row[12],
+                file_mtime=row[13] if len(row) > 13 else None,
+                file_hash=row[14] if len(row) > 14 else None,
+                source_url=row[15] if len(row) > 15 else None,
+                scrape_date=row[16] if len(row) > 16 else None,
+                scrape_config=row[17] if len(row) > 17 else None,
+                scrape_status=row[18] if len(row) > 18 else None,
+                scrape_error=row[19] if len(row) > 19 else None,
+                url_last_checked=row[20] if len(row) > 20 else None,
+                url_content_hash=row[21] if len(row) > 21 else None,
+                card_id=row[22] if len(row) > 22 else None,
+                superseded_by=row[23] if len(row) > 23 else None
+            )
+            documents[doc.doc_id] = doc
+        self.documents = documents
+
+    def _sync_documents_if_needed(self):
+        """Refresh self.documents if another agent process changed the DB.
+
+        self.documents was historically loaded once at startup and never
+        refreshed, so a long-running session kept serving a frozen view:
+        a document another Claude Code session added was invisible to
+        search_docs/get_document/list_docs until this process restarted, and
+        one that peer removed kept being served indefinitely. Called at the
+        top of the read paths that matter most (search, semantic_search,
+        hybrid_search, get_document, list_documents, get_stats) - a single
+        cheap PRAGMA query on every call, and a full reload only on the rare
+        call where something actually changed.
+        """
+        version = self._current_data_version()
+        if version is None:
+            return
+        if version != self._documents_data_version:
+            self._documents_data_version = version
+            self._reload_documents()
+
+            # self.chunks/self.bm25 have the identical staleness problem once
+            # loaded in this process (_build_bm25_index only reloads chunks
+            # from the DB when self.chunks is empty - see
+            # reconcile_chunk_cache for the same reasoning). Clearing them
+            # here piggybacks on the same change-detection signal instead of
+            # needing a second one; this mirrors what add_document/
+            # remove_document already do for THEIR OWN writes, just extended
+            # to writes made by a peer process.
+            if self.chunks:
+                self.chunks = []
+            self.bm25 = None
+            self._invalidate_caches()
+
+            self.logger.debug(f"Refreshed documents cache ({len(self.documents)} docs) - detected change from another process")
 
     def _load_documents(self):
         """Load documents from database, with automatic migration from JSON if needed."""
@@ -4521,6 +4606,16 @@ class KnowledgeBase:
             stdout_lines = []
             stderr_lines = []
 
+            # This loop used to have no wall-clock deadline at all: it only
+            # LOGGED a warning after 60s of no progress and never actually
+            # terminated the process, so a stalled or hung mdscrape process
+            # blocked this call (and, per issue #12's investigation, the
+            # whole asyncio event loop) indefinitely. scrape_start_time and
+            # stop_reason below give it a real, enforced deadline.
+            scrape_start_time = time.time()
+            scrape_timeout_s = float(os.getenv('SCRAPE_TIMEOUT_S', '3600'))
+            stop_reason = None  # 'max_pages' | 'timeout' | None (ran to completion)
+
             # Process output in real-time
             while process.poll() is None:
                 # Check stdout
@@ -4549,6 +4644,17 @@ class KnowledgeBase:
                                 item=current_url
                             ))
 
+                        # mdscrape has no concept of max_pages itself (see the
+                        # comment above where the command is built) - this is
+                        # the actual enforcement. Reaching the requested cap
+                        # is success, not an error, so it's tracked separately
+                        # from the timeout case below.
+                        if pages_scraped >= max_pages:
+                            stop_reason = 'max_pages'
+                            self.logger.info(f"Reached max_pages={max_pages}, stopping crawl")
+                            process.terminate()
+                            break
+
                 except Empty:
                     pass
 
@@ -4562,7 +4668,11 @@ class KnowledgeBase:
                 except Empty:
                     pass
 
-                # Check for timeout on individual page (60 seconds)
+                # No-progress warning stays informational (mdscrape can go
+                # quiet on a slow page and still recover), but the overall
+                # wall-clock deadline below is a hard stop - previously
+                # nothing in this loop ever terminated the process, so a
+                # truly hung mdscrape run blocked this call forever.
                 time_since_update = time.time() - last_update_time
                 if time_since_update > 60 and not timeout_warned:
                     timeout_warned = True
@@ -4580,8 +4690,28 @@ class KnowledgeBase:
                             item=current_url or "unknown"
                         ))
 
-            # Wait for process to complete
-            process.wait(timeout=60)
+                if time.time() - scrape_start_time > scrape_timeout_s:
+                    stop_reason = 'timeout'
+                    self.logger.error(
+                        f"Scraping exceeded {scrape_timeout_s:.0f}s wall-clock limit "
+                        f"({pages_scraped} pages scraped so far), terminating"
+                    )
+                    process.terminate()
+                    break
+
+            # A deliberate stop (page cap or timeout) needs its own
+            # terminate-then-kill sequence; a process that already exited on
+            # its own just needs reaping, which is what the original
+            # unconditional wait(timeout=60) here provided.
+            if stop_reason is not None:
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self.logger.warning("Process did not exit after terminate(), killing it")
+                    process.kill()
+                    process.wait(timeout=10)
+            else:
+                process.wait(timeout=60)
 
             # Stop background threads
             stop_event.set()
@@ -4605,7 +4735,16 @@ class KnowledgeBase:
             stdout_output = ''.join(stdout_lines)
             stderr_output = ''.join(stderr_lines)
 
-            if process.returncode != 0:
+            if stop_reason is not None:
+                # We deliberately terminated the process ourselves, so a
+                # nonzero returncode here is expected (the classic
+                # image-error/generic-error classification below is for
+                # mdscrape's OWN exit status and would just be noise).
+                self.logger.info(
+                    f"Scraping stopped by {stop_reason} after {pages_scraped} pages "
+                    f"(not a failure - proceeding with what was scraped)"
+                )
+            elif process.returncode != 0:
                 error_msg = stderr_output or stdout_output or "Unknown error"
 
                 # Count image-related errors (not critical failures)
@@ -4625,11 +4764,16 @@ class KnowledgeBase:
                 self.logger.info(f"[OK] Scraping completed successfully ({pages_scraped} pages)")
 
         except subprocess.TimeoutExpired:
-            self.logger.error("Scraping timeout (>1 hour)")
+            # The loop above now enforces scrape_timeout_s itself and
+            # terminates/kills the process well before this can fire from
+            # the crawl running long - reaching here means the process
+            # didn't die even after kill(), which is the genuinely
+            # exceptional case worth surfacing distinctly.
+            self.logger.error("Scrape process did not exit even after being killed")
             return {
                 'status': 'failed',
                 'url': url,
-                'error': 'Scraping timeout (>1 hour)'
+                'error': 'Scrape process did not exit even after being killed'
             }
         except Exception as e:
             self.logger.error(f"Scraping error: {e}")
@@ -4644,7 +4788,8 @@ class KnowledgeBase:
             return {
                 'status': 'failed',
                 'url': url,
-                'error': f"Output directory not created: {output_dir}"
+                'error': f"Output directory not created: {output_dir}",
+                'stop_reason': stop_reason,
             }
 
         md_files = list(output_dir.rglob('*.md'))
@@ -4653,7 +4798,8 @@ class KnowledgeBase:
             return {
                 'status': 'failed',
                 'url': url,
-                'error': f"No markdown files generated in {output_dir}"
+                'error': f"No markdown files generated in {output_dir}",
+                'stop_reason': stop_reason,
             }
 
         self.logger.info(f"Found {len(md_files)} markdown files to process")
@@ -4720,6 +4866,13 @@ class KnowledgeBase:
 
         # 9. Return results
         status = 'success' if not failed_docs else ('partial' if added_docs else 'failed')
+        if stop_reason == 'timeout':
+            # A deliberate max_pages cap is a normal, successful outcome, but
+            # hitting the wall-clock timeout means the crawl was cut short
+            # before it necessarily finished what was asked - the caller
+            # should be able to tell "got everything requested" apart from
+            # "ran out of time partway through".
+            status = 'partial' if added_docs else 'failed'
 
         result_dict = {
             'status': status,
@@ -4729,11 +4882,19 @@ class KnowledgeBase:
             'docs_added': len(added_docs),
             'docs_updated': 0,
             'docs_failed': len(failed_docs),
-            'doc_ids': added_docs
+            'doc_ids': added_docs,
+            'stop_reason': stop_reason,
         }
 
         if failed_docs:
             result_dict['error'] = f"{len(failed_docs)} files failed to add"
+        if stop_reason == 'timeout':
+            result_dict['error'] = (
+                result_dict.get('error', '') +
+                (' ' if result_dict.get('error') else '') +
+                f"Crawl exceeded the {scrape_timeout_s:.0f}s time limit and was stopped early "
+                f"after {pages_scraped} pages - results may be incomplete."
+            ).strip()
 
         self.logger.info(f"Scraping complete: {status} - Added {len(added_docs)}/{len(md_files)} documents")
 
@@ -4769,16 +4930,19 @@ class KnowledgeBase:
             except Exception as e:
                 self.logger.warning(f"Failed to parse scrape config: {e}")
 
-        # Remove old document
-        self.logger.info(f"Removing old document version: {doc_id}")
-        self.remove_document(doc_id)
-
-        # Re-scrape with original config
+        # Scrape BEFORE touching the existing document. This used to remove
+        # the old document first, unconditionally, with no rollback - a
+        # dead/renamed page or a hung/failed scrape then permanently
+        # destroyed the only copy of the content. Scraping first means a
+        # failure just leaves the original document exactly as it was.
+        # depth also no longer silently falls back to 50 (a much deeper
+        # crawl than scrape_url's own default of 3) when the stored config
+        # predates that field being recorded.
         result = self.scrape_url(
             url=doc.source_url,
             title=doc.title,
             tags=doc.tags,
-            depth=scrape_config.get('depth', 50),
+            depth=scrape_config.get('depth', 3),
             limit=scrape_config.get('limit'),
             threads=scrape_config.get('threads', 10),
             delay=scrape_config.get('delay', 100),
@@ -4789,6 +4953,29 @@ class KnowledgeBase:
         # Add rescrape metadata to result
         result['rescrape'] = True
         result['old_doc_id'] = doc_id
+
+        if result.get('status') == 'failed' or not result.get('doc_ids'):
+            self.logger.warning(
+                f"Re-scrape of {doc_id} produced no documents (status={result.get('status')}); "
+                "keeping the original document unchanged"
+            )
+            result['old_doc_kept'] = True
+            self.logger.info(f"Re-scrape complete: {result['status']}")
+            return result
+
+        if doc_id in result['doc_ids']:
+            # Content-hash dedup (see add_document) matched the existing
+            # document byte-for-byte - there is nothing new to swap in.
+            self.logger.info(f"Re-scrape of {doc_id} found identical content; nothing to replace")
+            result['old_doc_kept'] = True
+            self.logger.info(f"Re-scrape complete: {result['status']}")
+            return result
+
+        # Only now, with a confirmed successful scrape of different content
+        # in hand, is it safe to retire the old version.
+        self.logger.info(f"Removing superseded document version: {doc_id}")
+        self.remove_document(doc_id)
+        result['old_doc_kept'] = False
 
         self.logger.info(f"Re-scrape complete: {result['status']}")
         return result
@@ -14624,6 +14811,7 @@ Important:
         Superseded card versions are excluded by default so retracted claims
         don't keep answering searches; pass include_superseded=True to see them.
         """
+        self._sync_documents_if_needed()
         start_time = time.time()
 
         # Check cache first
@@ -15240,6 +15428,8 @@ Important:
         Returns:
             List of search results with scores
         """
+        self._sync_documents_if_needed()
+
         if not self.use_semantic:
             raise RuntimeError("Semantic search not available. Enable with USE_SEMANTIC_SEARCH=1")
 
@@ -15372,6 +15562,8 @@ Important:
         Returns:
             List of search results with combined scores
         """
+        self._sync_documents_if_needed()
+
         if not self.use_semantic or self.embeddings_model is None:
             # Fall back to regular search if semantic not available
             self.logger.warning("Semantic search not available, falling back to FTS5/BM25")
@@ -16861,6 +17053,8 @@ Return ONLY valid JSON, no additional text.
         Returns:
             Dictionary with document metadata and chunks, or None if not found
         """
+        self._sync_documents_if_needed()
+
         if doc_id not in self.documents:
             return None
 
@@ -16891,6 +17085,7 @@ Return ONLY valid JSON, no additional text.
 
     def list_documents(self, include_superseded: bool = False) -> list[DocumentMeta]:
         """List indexed documents. Excludes superseded card versions by default."""
+        self._sync_documents_if_needed()
         if include_superseded:
             return list(self.documents.values())
         return [d for d in self.documents.values() if not d.superseded_by]
@@ -16911,6 +17106,7 @@ Return ONLY valid JSON, no additional text.
             if cached_result is not None:
                 return cached_result
 
+        self._sync_documents_if_needed()
         cursor = self.db_conn.cursor()
 
         # Count total chunks and words

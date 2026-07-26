@@ -355,3 +355,77 @@ def test_concurrent_agents_do_not_lose_each_others_embeddings(temp_data_dir, tmp
         )
     finally:
         kb.close()
+
+
+# ---------------------------------------------------------------------------
+# 6. self.documents must refresh when another agent process changes the DB.
+#
+# PRAGMA data_version is per-CONNECTION, not per-process, so a second
+# KnowledgeBase instance here (its own sqlite3 connection) is a faithful
+# stand-in for a second Claude Code session's separate server.py process -
+# the same signal that distinguishes "another connection changed this" from
+# "I changed this myself" applies identically either way.
+# ---------------------------------------------------------------------------
+
+def test_documents_refresh_when_a_peer_process_adds_a_document(semantic_kb, temp_data_dir):
+    """Regression: self.documents was loaded once at startup and never
+    refreshed, so a peer's new document stayed invisible to search_docs/
+    get_document/list_docs until this process restarted.
+    """
+    peer = KnowledgeBase(temp_data_dir)
+    try:
+        f = _write_doc(temp_data_dir, "peer_doc.txt", "Peer-added document about the CIA chip.")
+        peer_doc = peer.add_document(f)
+
+        assert peer_doc.doc_id not in semantic_kb.documents, (
+            "test setup: should not be visible before a sync happens"
+        )
+
+        semantic_kb._sync_documents_if_needed()
+        assert peer_doc.doc_id in semantic_kb.documents
+        assert semantic_kb.list_documents()[0].doc_id == peer_doc.doc_id
+
+        # And a real read-path entry point picks it up without an explicit
+        # sync call, since it's now wired in at the top of the method.
+        semantic_kb._documents_data_version = None  # force a re-check
+        assert semantic_kb.get_document(peer_doc.doc_id) is not None
+    finally:
+        peer.close()
+
+
+def test_documents_refresh_drops_a_peer_removed_document(semantic_kb, temp_data_dir):
+    """A document a peer removed must actually disappear on refresh, not just
+    never update - _load_documents() only ever adds/updates entries, so the
+    refresh path needed its own full-replace reload (_reload_documents).
+    """
+    f = _write_doc(temp_data_dir, "to_remove.txt", "Document a peer will delete.")
+    doc = semantic_kb.add_document(f)
+
+    peer = KnowledgeBase(temp_data_dir)
+    try:
+        assert doc.doc_id in peer.documents
+        peer.remove_document(doc.doc_id)
+
+        assert doc.doc_id in semantic_kb.documents, "test setup: still present before sync"
+        semantic_kb._sync_documents_if_needed()
+        assert doc.doc_id not in semantic_kb.documents, (
+            "removed document was not dropped from the refreshed cache"
+        )
+    finally:
+        peer.close()
+
+
+def test_own_writes_do_not_trigger_a_needless_reload(semantic_kb, temp_data_dir):
+    """PRAGMA data_version must not change for this connection's own commits -
+    otherwise every add_document would immediately re-trigger a full reload
+    of the very state it just correctly set in memory.
+    """
+    version_before = semantic_kb._current_data_version()
+    f = _write_doc(temp_data_dir, "own_doc.txt", "Locally added document about the KERNAL.")
+    semantic_kb.add_document(f)
+    version_after = semantic_kb._current_data_version()
+    assert version_after == version_before, (
+        "this connection's own commit changed its own data_version - "
+        "_sync_documents_if_needed would now do a full reload on every "
+        "single call this process makes, not just when a peer writes"
+    )

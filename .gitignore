@@ -46,6 +46,7 @@ test_*.py
 !test_card_updates.py
 !test_pdf_viewer.py
 !test_mcp_startup.py
+!test_embeddings_reliability.py
 check_*.py
 reimport_*.py
 debug_*.py

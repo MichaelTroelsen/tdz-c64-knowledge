@@ -12,10 +12,12 @@ import hashlib
 import logging
 import time
 import sqlite3
+import socket
 import threading
 import queue
 import importlib
 import importlib.util
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, Callable, List, Dict, Tuple, Any
 from dataclasses import dataclass, asdict
@@ -113,6 +115,156 @@ if not NLTK_SUPPORT:
 
 _nltk_ready = False
 
+# How long a one-off network fetch of a lazily-loaded NLP resource (NLTK
+# corpora, the sentence-transformers model) may block before giving up.
+# These fetches happen on the first real search call, not at startup, so a
+# filtered/unreachable network must fail fast here rather than hang the
+# calling tool indefinitely - see _ensure_nltk and _ensure_embeddings_loaded.
+NETWORK_FETCH_TIMEOUT_S = float(os.environ.get('NETWORK_FETCH_TIMEOUT_S', '15'))
+
+
+@contextmanager
+def _network_timeout(seconds: float = NETWORK_FETCH_TIMEOUT_S):
+    """Temporarily cap the process-wide default socket timeout.
+
+    nltk.download() and huggingface_hub's model download path issue plain
+    urllib/requests calls with no timeout of their own, so a blocked or
+    silently-dropped connection blocks forever instead of raising. Bounding
+    the default socket timeout here gives those calls a real deadline; on
+    expiry they raise (socket.timeout / URLError / requests exceptions),
+    which the existing except-and-degrade logic at each call site handles.
+    """
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(seconds)
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(previous)
+
+
+@contextmanager
+def _cross_process_lock(lock_path: Path, timeout: float = 60.0, stale_after: float = 120.0,
+                         poll_interval: float = 0.1):
+    """Mutual exclusion across separate OS processes sharing a data directory.
+
+    Every Claude Code session runs its own server.py process (see
+    test_mcp_startup.py), so `threading.Lock` (self._lock) only serialises
+    threads within one of those processes - it does nothing to stop two
+    concurrent sessions from both loading the shared embeddings.faiss /
+    embeddings_map.json, both appending in memory, and one silently
+    clobbering the other's write. This uses atomic exclusive file creation
+    (open with O_CREAT|O_EXCL fails if the file already exists) as a real
+    cross-process mutex. A lock file older than `stale_after` is assumed to
+    belong to a crashed holder and is reclaimed rather than deadlocking every
+    future session forever.
+    """
+    lock_path = Path(lock_path)
+    deadline = time.time() + timeout
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock_path.stat().st_mtime > stale_after:
+                    lock_path.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                continue  # released between our open() attempt and stat()
+            if time.time() > deadline:
+                raise TimeoutError(f"Timed out waiting for lock: {lock_path}")
+            time.sleep(poll_interval)
+    try:
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
+
+
+def _atomic_write_bytes(path: Path, data: bytes):
+    """Write a file such that concurrent readers never see a partial write.
+
+    A crash or a concurrent reader mid-write of embeddings.faiss/
+    embeddings_map.json previously risked a torn file - or worse, a FAISS
+    index and its doc-id map from two different points in time, since they
+    were written as two separate non-atomic files. Writing to a temp file
+    first and using os.replace (atomic on the same filesystem, including
+    Windows) means any given file is always either fully the old version or
+    fully the new one.
+    """
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + f'.tmp-{os.getpid()}')
+    tmp.write_bytes(data)
+    os.replace(str(tmp), str(path))
+
+
+_RETRYABLE_DB_ERRORS = ('locked', 'busy', 'no such table')
+
+
+def _retry_on_db_locked(fn, *args, max_attempts: int = 5, base_delay: float = 0.5, **kwargs):
+    """Retry a DB write a few times if it hits transient SQLite contention.
+
+    `PRAGMA busy_timeout` already makes a connection retry internally while
+    waiting for another connection's write lock, but that budget can still be
+    exhausted when two agent processes both start a transaction at almost the
+    same instant (observed directly: two fresh processes both calling
+    add_document() the moment they started up). Retrying the whole write from
+    the top - not just re-waiting on the same lock - is the standard pattern
+    for this class of transient SQLITE_BUSY condition.
+
+    Also retries "no such table" - observed directly as a residual startup
+    race even after serialising schema creation/WAL-activation behind a
+    cross-process lock (see _init_database): two brand-new connections
+    enabling WAL mode at almost the same instant on a not-yet-existent file
+    can leave one connection with a transiently stale view of the schema for
+    its very next statement. A short retry resolves that once the view
+    catches up; a genuinely missing table (a real bug, not a race) still
+    fails after max_attempts rather than being silently hidden forever.
+
+    Callers like _add_document_db catch the raw sqlite3.OperationalError
+    themselves and re-raise a KnowledgeBaseError whose message includes the
+    original text, so this checks the message rather than the exception type
+    to still recognise a retryable condition underneath that wrapping.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            msg = str(e).lower()
+            if not any(marker in msg for marker in _RETRYABLE_DB_ERRORS):
+                raise
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(base_delay * (2 ** attempt))
+
+
+def _expand_brace_pattern(pattern: str) -> list[str]:
+    """Expand a shell-style brace glob into the list of plain globs it means.
+
+    `pathlib.Path.glob` does NOT support brace alternation, so a pattern like
+    "**/*.{pdf,txt}" matches literally nothing - it looks for a file whose
+    extension is the 9-character string "{pdf,txt}". Bulk ingest shipped that
+    as its default and so silently found 0 files while reporting success.
+
+    >>> _expand_brace_pattern("**/*.{pdf,txt}")
+    ['**/*.pdf', '**/*.txt']
+    >>> _expand_brace_pattern("**/*.md")
+    ['**/*.md']
+    """
+    start = pattern.find('{')
+    if start == -1:
+        return [pattern]
+    end = pattern.find('}', start)
+    if end == -1:
+        return [pattern]  # unbalanced - treat as a literal, don't guess
+    prefix, alts, suffix = pattern[:start], pattern[start + 1:end], pattern[end + 1:]
+    expanded = []
+    for alt in alts.split(','):
+        # Recurse so patterns with more than one brace group also work.
+        expanded.extend(_expand_brace_pattern(prefix + alt.strip() + suffix))
+    return expanded
+
 
 def _ensure_nltk():
     """Import nltk and download its corpora on first use.
@@ -134,9 +286,18 @@ def _ensure_nltk():
         try:
             stopwords.words('english')
         except LookupError:
-            nltk.download('stopwords', quiet=True)
-            nltk.download('punkt', quiet=True)
-            nltk.download('punkt_tab', quiet=True)
+            try:
+                with _network_timeout():
+                    nltk.download('stopwords', quiet=True)
+                    nltk.download('punkt', quiet=True)
+                    nltk.download('punkt_tab', quiet=True)
+            except Exception as e:
+                # Network unreachable/filtered - the caller's except-and-
+                # degrade logic (see _preprocess_text) handles this fine as
+                # long as we don't hang here first. Mark ready regardless so
+                # every subsequent search doesn't re-attempt (and re-wait
+                # out) the same doomed download.
+                sys.stderr.write(f"Warning: NLTK data download failed or timed out: {e}\n")
         _nltk_ready = True
     return PorterStemmer, stopwords, word_tokenize
 
@@ -418,6 +579,7 @@ class KnowledgeBase:
             # Don't load model yet - will load on first use for faster startup
             self.embeddings_file = self.data_dir / "embeddings.faiss"
             self.embeddings_map_file = self.data_dir / "embeddings_map.json"
+            self.embeddings_lock_file = self.data_dir / "embeddings.lock"
             self.logger.info("Semantic search enabled (lazy loading - model will load on first use)")
         else:
             if SEMANTIC_SUPPORT:
@@ -497,8 +659,6 @@ class KnowledgeBase:
 
     def _init_database(self):
         """Initialize SQLite database and create schema if needed."""
-        db_exists = self.db_file.exists()
-
         # Connect to database with enable foreign keys
         self.db_conn = sqlite3.connect(str(self.db_file), check_same_thread=False)
         self.db_conn.execute("PRAGMA foreign_keys = ON")
@@ -508,6 +668,32 @@ class KnowledgeBase:
         # instead of failing fast with a clear "database is locked" error.
         self.db_conn.execute(f"PRAGMA busy_timeout = {int(os.getenv('TDZ_DB_BUSY_TIMEOUT_MS', '30000'))}")
 
+        # Serialise WAL-mode activation and the check-then-create-or-migrate
+        # sequence across processes. sqlite3.connect() above creates the
+        # physical .db file immediately even with zero tables, so a
+        # file-existence check is not a reliable signal of "has the schema
+        # been created" when two processes start against the same brand-new
+        # data directory at once - and switching journal mode is itself a
+        # schema-file mutation with the same race potential (observed
+        # directly: two connections enabling WAL at almost the same instant
+        # on a brand-new file occasionally left one connection with a view of
+        # the database that didn't yet include the other's committed schema,
+        # surfacing as a transient "no such table: documents"). Every CREATE
+        # statement below is now idempotent (IF NOT EXISTS), so once
+        # serialised it's harmless for a racing process to run the "create
+        # schema" branch again - it just no-ops through statements a peer
+        # already committed.
+        with _cross_process_lock(self.data_dir / "schema_init.lock", timeout=60.0):
+            self._init_database_locked()
+
+    def _init_database_locked(self):
+        """Create/migrate the schema. Caller must hold schema_init.lock.
+
+        db_exists is determined here, under the lock, via a live query
+        against this connection rather than a pre-lock filesystem check -
+        that check would be stale by the time we get the lock if a
+        concurrent process created the schema while we were waiting for it.
+        """
         # Every Claude Code session spawns its own server process against this
         # same database file. In the default 'delete' journal mode a single
         # writer takes an exclusive lock on the whole file and blocks every
@@ -522,13 +708,17 @@ class KnowledgeBase:
             # Non-fatal: e.g. the DB lives on a network share that lacks WAL support
             self.logger.warning(f"Could not enable WAL journal mode: {e}")
 
+        cursor = self.db_conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='documents'")
+        db_exists = cursor.fetchone() is not None
+
         if not db_exists:
             self.logger.info("Creating new database schema")
             cursor = self.db_conn.cursor()
 
             # Create documents table
             cursor.execute("""
-                CREATE TABLE documents (
+                CREATE TABLE IF NOT EXISTS documents (
                     doc_id TEXT PRIMARY KEY,
                     filename TEXT NOT NULL,
                     title TEXT NOT NULL,
@@ -557,16 +747,16 @@ class KnowledgeBase:
             """)
 
             # Create indexes on documents table
-            cursor.execute("CREATE INDEX idx_documents_filepath ON documents(filepath)")
-            cursor.execute("CREATE INDEX idx_documents_file_type ON documents(file_type)")
-            cursor.execute("CREATE INDEX idx_documents_source_url ON documents(source_url)")
-            cursor.execute("CREATE INDEX idx_documents_scrape_status ON documents(scrape_status)")
-            cursor.execute("CREATE INDEX idx_documents_card_id ON documents(card_id)")
-            cursor.execute("CREATE INDEX idx_documents_superseded_by ON documents(superseded_by)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_filepath ON documents(filepath)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_file_type ON documents(file_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_source_url ON documents(source_url)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_scrape_status ON documents(scrape_status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_card_id ON documents(card_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_superseded_by ON documents(superseded_by)")
 
             # Create chunks table
             cursor.execute("""
-                CREATE TABLE chunks (
+                CREATE TABLE IF NOT EXISTS chunks (
                     doc_id TEXT NOT NULL,
                     chunk_id INTEGER NOT NULL,
                     page INTEGER,
@@ -578,7 +768,7 @@ class KnowledgeBase:
             """)
 
             # Create index on chunks table
-            cursor.execute("CREATE INDEX idx_chunks_doc_id ON chunks(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id)")
 
             # Create FTS5 virtual table for full-text search
             cursor.execute("""
@@ -616,7 +806,7 @@ class KnowledgeBase:
 
             # Create document_tables table
             cursor.execute("""
-                CREATE TABLE document_tables (
+                CREATE TABLE IF NOT EXISTS document_tables (
                     doc_id TEXT NOT NULL,
                     table_id INTEGER NOT NULL,
                     page INTEGER,
@@ -631,7 +821,7 @@ class KnowledgeBase:
 
             # Create FTS5 index for table search
             cursor.execute("""
-                CREATE VIRTUAL TABLE tables_fts USING fts5(
+                CREATE VIRTUAL TABLE IF NOT EXISTS tables_fts USING fts5(
                     doc_id UNINDEXED,
                     table_id UNINDEXED,
                     searchable_text,
@@ -641,7 +831,7 @@ class KnowledgeBase:
 
             # Triggers for tables_fts
             cursor.execute("""
-                CREATE TRIGGER tables_fts_insert AFTER INSERT ON document_tables BEGIN
+                CREATE TRIGGER IF NOT EXISTS tables_fts_insert AFTER INSERT ON document_tables BEGIN
                     INSERT INTO tables_fts(rowid, doc_id, table_id, searchable_text)
                     VALUES ((SELECT COALESCE(MAX(rowid), 0) + 1 FROM tables_fts),
                             new.doc_id, new.table_id, new.searchable_text);
@@ -649,13 +839,13 @@ class KnowledgeBase:
             """)
 
             cursor.execute("""
-                CREATE TRIGGER tables_fts_delete AFTER DELETE ON document_tables BEGIN
+                CREATE TRIGGER IF NOT EXISTS tables_fts_delete AFTER DELETE ON document_tables BEGIN
                     DELETE FROM tables_fts WHERE doc_id = old.doc_id AND table_id = old.table_id;
                 END
             """)
 
             cursor.execute("""
-                CREATE TRIGGER tables_fts_update AFTER UPDATE ON document_tables BEGIN
+                CREATE TRIGGER IF NOT EXISTS tables_fts_update AFTER UPDATE ON document_tables BEGIN
                     DELETE FROM tables_fts WHERE doc_id = old.doc_id AND table_id = old.table_id;
                     INSERT INTO tables_fts(rowid, doc_id, table_id, searchable_text)
                     VALUES ((SELECT COALESCE(MAX(rowid), 0) + 1 FROM tables_fts),
@@ -665,7 +855,7 @@ class KnowledgeBase:
 
             # Create document_code_blocks table
             cursor.execute("""
-                CREATE TABLE document_code_blocks (
+                CREATE TABLE IF NOT EXISTS document_code_blocks (
                     doc_id TEXT NOT NULL,
                     block_id INTEGER NOT NULL,
                     page INTEGER,
@@ -680,7 +870,7 @@ class KnowledgeBase:
 
             # Create FTS5 index for code search
             cursor.execute("""
-                CREATE VIRTUAL TABLE code_fts USING fts5(
+                CREATE VIRTUAL TABLE IF NOT EXISTS code_fts USING fts5(
                     doc_id UNINDEXED,
                     block_id UNINDEXED,
                     block_type UNINDEXED,
@@ -691,7 +881,7 @@ class KnowledgeBase:
 
             # Triggers for code_fts
             cursor.execute("""
-                CREATE TRIGGER code_fts_insert AFTER INSERT ON document_code_blocks BEGIN
+                CREATE TRIGGER IF NOT EXISTS code_fts_insert AFTER INSERT ON document_code_blocks BEGIN
                     INSERT INTO code_fts(rowid, doc_id, block_id, block_type, searchable_text)
                     VALUES ((SELECT COALESCE(MAX(rowid), 0) + 1 FROM code_fts),
                             new.doc_id, new.block_id, new.block_type, new.searchable_text);
@@ -699,13 +889,13 @@ class KnowledgeBase:
             """)
 
             cursor.execute("""
-                CREATE TRIGGER code_fts_delete AFTER DELETE ON document_code_blocks BEGIN
+                CREATE TRIGGER IF NOT EXISTS code_fts_delete AFTER DELETE ON document_code_blocks BEGIN
                     DELETE FROM code_fts WHERE doc_id = old.doc_id AND block_id = old.block_id;
                 END
             """)
 
             cursor.execute("""
-                CREATE TRIGGER code_fts_update AFTER UPDATE ON document_code_blocks BEGIN
+                CREATE TRIGGER IF NOT EXISTS code_fts_update AFTER UPDATE ON document_code_blocks BEGIN
                     DELETE FROM code_fts WHERE doc_id = old.doc_id AND block_id = old.block_id;
                     INSERT INTO code_fts(rowid, doc_id, block_id, block_type, searchable_text)
                     VALUES ((SELECT COALESCE(MAX(rowid), 0) + 1 FROM code_fts),
@@ -715,7 +905,7 @@ class KnowledgeBase:
 
             # Create document_facets table for faceted search
             cursor.execute("""
-                CREATE TABLE document_facets (
+                CREATE TABLE IF NOT EXISTS document_facets (
                     doc_id TEXT NOT NULL,
                     facet_type TEXT NOT NULL,
                     facet_value TEXT NOT NULL,
@@ -725,12 +915,12 @@ class KnowledgeBase:
             """)
 
             # Create indexes for faceted search
-            cursor.execute("CREATE INDEX idx_facets_type_value ON document_facets(facet_type, facet_value)")
-            cursor.execute("CREATE INDEX idx_facets_doc_id ON document_facets(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_facets_type_value ON document_facets(facet_type, facet_value)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_facets_doc_id ON document_facets(doc_id)")
 
             # Create search_log table for analytics
             cursor.execute("""
-                CREATE TABLE search_log (
+                CREATE TABLE IF NOT EXISTS search_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
                     query TEXT NOT NULL,
@@ -743,13 +933,13 @@ class KnowledgeBase:
             """)
 
             # Create indexes for search analytics
-            cursor.execute("CREATE INDEX idx_search_log_query ON search_log(query)")
-            cursor.execute("CREATE INDEX idx_search_log_timestamp ON search_log(timestamp)")
-            cursor.execute("CREATE INDEX idx_search_log_mode ON search_log(search_mode)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_log_query ON search_log(query)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_log_timestamp ON search_log(timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_log_mode ON search_log(search_mode)")
 
             # Create cross_references table for content linking
             cursor.execute("""
-                CREATE TABLE cross_references (
+                CREATE TABLE IF NOT EXISTS cross_references (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     doc_id TEXT NOT NULL,
                     chunk_id INTEGER NOT NULL,
@@ -761,12 +951,12 @@ class KnowledgeBase:
             """)
 
             # Create indexes for cross-reference lookup
-            cursor.execute("CREATE INDEX idx_xref_type_value ON cross_references(ref_type, ref_value)")
-            cursor.execute("CREATE INDEX idx_xref_doc_id ON cross_references(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_xref_type_value ON cross_references(ref_type, ref_value)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_xref_doc_id ON cross_references(doc_id)")
 
             # Create query_suggestions table for autocomplete
             cursor.execute("""
-                CREATE VIRTUAL TABLE query_suggestions USING fts5(
+                CREATE VIRTUAL TABLE IF NOT EXISTS query_suggestions USING fts5(
                     term,
                     frequency UNINDEXED,
                     category UNINDEXED
@@ -775,7 +965,7 @@ class KnowledgeBase:
 
             # Create document_summaries table for AI-generated summaries
             cursor.execute("""
-                CREATE TABLE document_summaries (
+                CREATE TABLE IF NOT EXISTS document_summaries (
                     doc_id TEXT NOT NULL,
                     summary_type TEXT NOT NULL,
                     summary_text TEXT NOT NULL,
@@ -788,12 +978,12 @@ class KnowledgeBase:
             """)
 
             # Create indexes for summary queries
-            cursor.execute("CREATE INDEX idx_summaries_doc_id ON document_summaries(doc_id)")
-            cursor.execute("CREATE INDEX idx_summaries_type ON document_summaries(summary_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_summaries_doc_id ON document_summaries(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_summaries_type ON document_summaries(summary_type)")
 
             # Create document_entities table for named entity extraction
             cursor.execute("""
-                CREATE TABLE document_entities (
+                CREATE TABLE IF NOT EXISTS document_entities (
                     doc_id TEXT NOT NULL,
                     entity_id INTEGER NOT NULL,
                     entity_text TEXT NOT NULL,
@@ -811,7 +1001,7 @@ class KnowledgeBase:
 
             # Create FTS5 index for entity search
             cursor.execute("""
-                CREATE VIRTUAL TABLE entities_fts USING fts5(
+                CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
                     doc_id UNINDEXED,
                     entity_id UNINDEXED,
                     entity_text,
@@ -823,20 +1013,20 @@ class KnowledgeBase:
 
             # Triggers to keep entities_fts in sync with document_entities
             cursor.execute("""
-                CREATE TRIGGER entities_fts_insert AFTER INSERT ON document_entities BEGIN
+                CREATE TRIGGER IF NOT EXISTS entities_fts_insert AFTER INSERT ON document_entities BEGIN
                     INSERT INTO entities_fts(rowid, doc_id, entity_id, entity_text, entity_type, context)
                     VALUES (new.rowid, new.doc_id, new.entity_id, new.entity_text, new.entity_type, new.context);
                 END
             """)
 
             cursor.execute("""
-                CREATE TRIGGER entities_fts_delete AFTER DELETE ON document_entities BEGIN
+                CREATE TRIGGER IF NOT EXISTS entities_fts_delete AFTER DELETE ON document_entities BEGIN
                     DELETE FROM entities_fts WHERE rowid = old.rowid;
                 END
             """)
 
             cursor.execute("""
-                CREATE TRIGGER entities_fts_update AFTER UPDATE ON document_entities BEGIN
+                CREATE TRIGGER IF NOT EXISTS entities_fts_update AFTER UPDATE ON document_entities BEGIN
                     DELETE FROM entities_fts WHERE rowid = old.rowid;
                     INSERT INTO entities_fts(rowid, doc_id, entity_id, entity_text, entity_type, context)
                     VALUES (new.rowid, new.doc_id, new.entity_id, new.entity_text, new.entity_type, new.context);
@@ -844,13 +1034,13 @@ class KnowledgeBase:
             """)
 
             # Create indexes for entity queries
-            cursor.execute("CREATE INDEX idx_entities_doc_id ON document_entities(doc_id)")
-            cursor.execute("CREATE INDEX idx_entities_type ON document_entities(entity_type)")
-            cursor.execute("CREATE INDEX idx_entities_text ON document_entities(entity_text)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_doc_id ON document_entities(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_type ON document_entities(entity_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_text ON document_entities(entity_text)")
 
             # Create entity relationships table
             cursor.execute("""
-                CREATE TABLE entity_relationships (
+                CREATE TABLE IF NOT EXISTS entity_relationships (
                     entity1_text TEXT NOT NULL,
                     entity1_type TEXT NOT NULL,
                     entity2_text TEXT NOT NULL,
@@ -866,14 +1056,14 @@ class KnowledgeBase:
             """)
 
             # Create indexes for relationship queries
-            cursor.execute("CREATE INDEX idx_relationships_entity1 ON entity_relationships(entity1_text)")
-            cursor.execute("CREATE INDEX idx_relationships_entity2 ON entity_relationships(entity2_text)")
-            cursor.execute("CREATE INDEX idx_relationships_type ON entity_relationships(relationship_type)")
-            cursor.execute("CREATE INDEX idx_relationships_strength ON entity_relationships(strength)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_entity1 ON entity_relationships(entity1_text)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_entity2 ON entity_relationships(entity2_text)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_type ON entity_relationships(relationship_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_strength ON entity_relationships(strength)")
 
             # Create extraction_jobs table for background entity extraction
             cursor.execute("""
-                CREATE TABLE extraction_jobs (
+                CREATE TABLE IF NOT EXISTS extraction_jobs (
                     job_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     doc_id TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -888,13 +1078,13 @@ class KnowledgeBase:
             """)
 
             # Create indexes for extraction jobs queries
-            cursor.execute("CREATE INDEX idx_extraction_jobs_doc_id ON extraction_jobs(doc_id)")
-            cursor.execute("CREATE INDEX idx_extraction_jobs_status ON extraction_jobs(status)")
-            cursor.execute("CREATE INDEX idx_extraction_jobs_queued_at ON extraction_jobs(queued_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_jobs_doc_id ON extraction_jobs(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_jobs_status ON extraction_jobs(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_jobs_queued_at ON extraction_jobs(queued_at)")
 
             # Create graph_cache table for knowledge graph caching (v2.24.0)
             cursor.execute("""
-                CREATE TABLE graph_cache (
+                CREATE TABLE IF NOT EXISTS graph_cache (
                     cache_id TEXT PRIMARY KEY,
                     graph_version INTEGER NOT NULL,
                     graph_data BLOB NOT NULL,
@@ -905,12 +1095,12 @@ class KnowledgeBase:
                 )
             """)
 
-            cursor.execute("CREATE INDEX idx_graph_cache_created ON graph_cache(created_date)")
-            cursor.execute("CREATE INDEX idx_graph_cache_accessed ON graph_cache(last_accessed)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_cache_created ON graph_cache(created_date)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_cache_accessed ON graph_cache(last_accessed)")
 
             # Create graph_metrics table for graph analysis metrics (v2.24.0)
             cursor.execute("""
-                CREATE TABLE graph_metrics (
+                CREATE TABLE IF NOT EXISTS graph_metrics (
                     metric_id TEXT PRIMARY KEY,
                     entity_text TEXT NOT NULL,
                     entity_type TEXT NOT NULL,
@@ -923,14 +1113,14 @@ class KnowledgeBase:
                 )
             """)
 
-            cursor.execute("CREATE INDEX idx_graph_metrics_entity ON graph_metrics(entity_text)")
-            cursor.execute("CREATE INDEX idx_graph_metrics_pagerank ON graph_metrics(pagerank DESC)")
-            cursor.execute("CREATE INDEX idx_graph_metrics_community ON graph_metrics(community_id)")
-            cursor.execute("CREATE INDEX idx_graph_metrics_type ON graph_metrics(entity_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_metrics_entity ON graph_metrics(entity_text)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_metrics_pagerank ON graph_metrics(pagerank DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_metrics_community ON graph_metrics(community_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_metrics_type ON graph_metrics(entity_type)")
 
             # Create graph_paths table for path finding cache (v2.24.0)
             cursor.execute("""
-                CREATE TABLE graph_paths (
+                CREATE TABLE IF NOT EXISTS graph_paths (
                     path_id TEXT PRIMARY KEY,
                     entity1 TEXT NOT NULL,
                     entity2 TEXT NOT NULL,
@@ -941,9 +1131,9 @@ class KnowledgeBase:
                 )
             """)
 
-            cursor.execute("CREATE INDEX idx_graph_paths_entity1 ON graph_paths(entity1)")
-            cursor.execute("CREATE INDEX idx_graph_paths_entity2 ON graph_paths(entity2)")
-            cursor.execute("CREATE INDEX idx_graph_paths_entities ON graph_paths(entity1, entity2)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_paths_entity1 ON graph_paths(entity1)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_paths_entity2 ON graph_paths(entity2)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_paths_entities ON graph_paths(entity1, entity2)")
 
             self.db_conn.commit()
             self.logger.info("Database schema created successfully (with FTS5, tables, code blocks, facets, analytics, suggestions, summaries, entities, relationships, extraction jobs, and knowledge graph)")
@@ -1068,7 +1258,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating document_tables table")
                 cursor.execute("""
-                    CREATE TABLE document_tables (
+                    CREATE TABLE IF NOT EXISTS document_tables (
                         doc_id TEXT NOT NULL,
                         table_id INTEGER NOT NULL,
                         page INTEGER,
@@ -1124,7 +1314,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating document_code_blocks table")
                 cursor.execute("""
-                    CREATE TABLE document_code_blocks (
+                    CREATE TABLE IF NOT EXISTS document_code_blocks (
                         doc_id TEXT NOT NULL,
                         block_id INTEGER NOT NULL,
                         page INTEGER,
@@ -1181,7 +1371,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating document_facets table for faceted search")
                 cursor.execute("""
-                    CREATE TABLE document_facets (
+                    CREATE TABLE IF NOT EXISTS document_facets (
                         doc_id TEXT NOT NULL,
                         facet_type TEXT NOT NULL,
                         facet_value TEXT NOT NULL,
@@ -1190,8 +1380,8 @@ class KnowledgeBase:
                     )
                 """)
 
-                cursor.execute("CREATE INDEX idx_facets_type_value ON document_facets(facet_type, facet_value)")
-                cursor.execute("CREATE INDEX idx_facets_doc_id ON document_facets(doc_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_facets_type_value ON document_facets(facet_type, facet_value)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_facets_doc_id ON document_facets(doc_id)")
 
                 self.db_conn.commit()
                 self.logger.info("document_facets table created")
@@ -1204,7 +1394,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating search_log table for analytics")
                 cursor.execute("""
-                    CREATE TABLE search_log (
+                    CREATE TABLE IF NOT EXISTS search_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
                         query TEXT NOT NULL,
@@ -1216,9 +1406,9 @@ class KnowledgeBase:
                     )
                 """)
 
-                cursor.execute("CREATE INDEX idx_search_log_query ON search_log(query)")
-                cursor.execute("CREATE INDEX idx_search_log_timestamp ON search_log(timestamp)")
-                cursor.execute("CREATE INDEX idx_search_log_mode ON search_log(search_mode)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_log_query ON search_log(query)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_log_timestamp ON search_log(timestamp)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_search_log_mode ON search_log(search_mode)")
 
                 self.db_conn.commit()
                 self.logger.info("search_log table created")
@@ -1231,7 +1421,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating cross_references table for content linking")
                 cursor.execute("""
-                    CREATE TABLE cross_references (
+                    CREATE TABLE IF NOT EXISTS cross_references (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         doc_id TEXT NOT NULL,
                         chunk_id INTEGER NOT NULL,
@@ -1242,8 +1432,8 @@ class KnowledgeBase:
                     )
                 """)
 
-                cursor.execute("CREATE INDEX idx_xref_type_value ON cross_references(ref_type, ref_value)")
-                cursor.execute("CREATE INDEX idx_xref_doc_id ON cross_references(doc_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_xref_type_value ON cross_references(ref_type, ref_value)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_xref_doc_id ON cross_references(doc_id)")
 
                 self.db_conn.commit()
                 self.logger.info("cross_references table created")
@@ -1256,7 +1446,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating query_suggestions table for autocomplete")
                 cursor.execute("""
-                    CREATE VIRTUAL TABLE query_suggestions USING fts5(
+                    CREATE VIRTUAL TABLE IF NOT EXISTS query_suggestions USING fts5(
                         term,
                         frequency UNINDEXED,
                         category UNINDEXED
@@ -1274,7 +1464,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating document_summaries table for AI-generated summaries")
                 cursor.execute("""
-                    CREATE TABLE document_summaries (
+                    CREATE TABLE IF NOT EXISTS document_summaries (
                         doc_id TEXT NOT NULL,
                         summary_type TEXT NOT NULL,
                         summary_text TEXT NOT NULL,
@@ -1287,8 +1477,8 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for summary queries
-                cursor.execute("CREATE INDEX idx_summaries_doc_id ON document_summaries(doc_id)")
-                cursor.execute("CREATE INDEX idx_summaries_type ON document_summaries(summary_type)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_summaries_doc_id ON document_summaries(doc_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_summaries_type ON document_summaries(summary_type)")
 
                 self.db_conn.commit()
                 self.logger.info("document_summaries table created")
@@ -1301,7 +1491,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating document_entities table for named entity extraction")
                 cursor.execute("""
-                    CREATE TABLE document_entities (
+                    CREATE TABLE IF NOT EXISTS document_entities (
                         doc_id TEXT NOT NULL,
                         entity_id INTEGER NOT NULL,
                         entity_text TEXT NOT NULL,
@@ -1319,7 +1509,7 @@ class KnowledgeBase:
 
                 # Create FTS5 index for entity search
                 cursor.execute("""
-                    CREATE VIRTUAL TABLE entities_fts USING fts5(
+                    CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
                         doc_id UNINDEXED,
                         entity_id UNINDEXED,
                         entity_text,
@@ -1331,20 +1521,20 @@ class KnowledgeBase:
 
                 # Triggers to keep entities_fts in sync
                 cursor.execute("""
-                    CREATE TRIGGER entities_fts_insert AFTER INSERT ON document_entities BEGIN
+                    CREATE TRIGGER IF NOT EXISTS entities_fts_insert AFTER INSERT ON document_entities BEGIN
                         INSERT INTO entities_fts(rowid, doc_id, entity_id, entity_text, entity_type, context)
                         VALUES (new.rowid, new.doc_id, new.entity_id, new.entity_text, new.entity_type, new.context);
                     END
                 """)
 
                 cursor.execute("""
-                    CREATE TRIGGER entities_fts_delete AFTER DELETE ON document_entities BEGIN
+                    CREATE TRIGGER IF NOT EXISTS entities_fts_delete AFTER DELETE ON document_entities BEGIN
                         DELETE FROM entities_fts WHERE rowid = old.rowid;
                     END
                 """)
 
                 cursor.execute("""
-                    CREATE TRIGGER entities_fts_update AFTER UPDATE ON document_entities BEGIN
+                    CREATE TRIGGER IF NOT EXISTS entities_fts_update AFTER UPDATE ON document_entities BEGIN
                         DELETE FROM entities_fts WHERE rowid = old.rowid;
                         INSERT INTO entities_fts(rowid, doc_id, entity_id, entity_text, entity_type, context)
                         VALUES (new.rowid, new.doc_id, new.entity_id, new.entity_text, new.entity_type, new.context);
@@ -1352,9 +1542,9 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for entity queries
-                cursor.execute("CREATE INDEX idx_entities_doc_id ON document_entities(doc_id)")
-                cursor.execute("CREATE INDEX idx_entities_type ON document_entities(entity_type)")
-                cursor.execute("CREATE INDEX idx_entities_text ON document_entities(entity_text)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_doc_id ON document_entities(doc_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_type ON document_entities(entity_type)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_text ON document_entities(entity_text)")
 
                 self.db_conn.commit()
                 self.logger.info("document_entities table created")
@@ -1367,7 +1557,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating entity_relationships table for entity co-occurrence tracking")
                 cursor.execute("""
-                    CREATE TABLE entity_relationships (
+                    CREATE TABLE IF NOT EXISTS entity_relationships (
                         entity1_text TEXT NOT NULL,
                         entity1_type TEXT NOT NULL,
                         entity2_text TEXT NOT NULL,
@@ -1383,10 +1573,10 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for relationship queries
-                cursor.execute("CREATE INDEX idx_relationships_entity1 ON entity_relationships(entity1_text)")
-                cursor.execute("CREATE INDEX idx_relationships_entity2 ON entity_relationships(entity2_text)")
-                cursor.execute("CREATE INDEX idx_relationships_type ON entity_relationships(relationship_type)")
-                cursor.execute("CREATE INDEX idx_relationships_strength ON entity_relationships(strength)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_entity1 ON entity_relationships(entity1_text)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_entity2 ON entity_relationships(entity2_text)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_type ON entity_relationships(relationship_type)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_relationships_strength ON entity_relationships(strength)")
 
                 self.db_conn.commit()
                 self.logger.info("entity_relationships table created")
@@ -1399,7 +1589,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating extraction_jobs table for background entity extraction")
                 cursor.execute("""
-                    CREATE TABLE extraction_jobs (
+                    CREATE TABLE IF NOT EXISTS extraction_jobs (
                         job_id INTEGER PRIMARY KEY AUTOINCREMENT,
                         doc_id TEXT NOT NULL,
                         status TEXT NOT NULL,
@@ -1414,9 +1604,9 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for extraction jobs queries
-                cursor.execute("CREATE INDEX idx_extraction_jobs_doc_id ON extraction_jobs(doc_id)")
-                cursor.execute("CREATE INDEX idx_extraction_jobs_status ON extraction_jobs(status)")
-                cursor.execute("CREATE INDEX idx_extraction_jobs_queued_at ON extraction_jobs(queued_at)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_jobs_doc_id ON extraction_jobs(doc_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_jobs_status ON extraction_jobs(status)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_jobs_queued_at ON extraction_jobs(queued_at)")
 
                 self.db_conn.commit()
                 self.logger.info("extraction_jobs table created")
@@ -1426,7 +1616,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating graph_cache table for knowledge graph caching")
                 cursor.execute("""
-                    CREATE TABLE graph_cache (
+                    CREATE TABLE IF NOT EXISTS graph_cache (
                         cache_id TEXT PRIMARY KEY,
                         graph_version INTEGER NOT NULL,
                         graph_data BLOB NOT NULL,
@@ -1438,8 +1628,8 @@ class KnowledgeBase:
                 """)
 
                 # Create index for cache management
-                cursor.execute("CREATE INDEX idx_graph_cache_created ON graph_cache(created_date)")
-                cursor.execute("CREATE INDEX idx_graph_cache_accessed ON graph_cache(last_accessed)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_cache_created ON graph_cache(created_date)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_cache_accessed ON graph_cache(last_accessed)")
 
                 self.db_conn.commit()
                 self.logger.info("graph_cache table created")
@@ -1449,7 +1639,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating graph_metrics table for graph analysis metrics")
                 cursor.execute("""
-                    CREATE TABLE graph_metrics (
+                    CREATE TABLE IF NOT EXISTS graph_metrics (
                         metric_id TEXT PRIMARY KEY,
                         entity_text TEXT NOT NULL,
                         entity_type TEXT NOT NULL,
@@ -1463,10 +1653,10 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for metric queries
-                cursor.execute("CREATE INDEX idx_graph_metrics_entity ON graph_metrics(entity_text)")
-                cursor.execute("CREATE INDEX idx_graph_metrics_pagerank ON graph_metrics(pagerank DESC)")
-                cursor.execute("CREATE INDEX idx_graph_metrics_community ON graph_metrics(community_id)")
-                cursor.execute("CREATE INDEX idx_graph_metrics_type ON graph_metrics(entity_type)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_metrics_entity ON graph_metrics(entity_text)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_metrics_pagerank ON graph_metrics(pagerank DESC)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_metrics_community ON graph_metrics(community_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_metrics_type ON graph_metrics(entity_type)")
 
                 self.db_conn.commit()
                 self.logger.info("graph_metrics table created")
@@ -1476,7 +1666,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating graph_paths table for path finding cache")
                 cursor.execute("""
-                    CREATE TABLE graph_paths (
+                    CREATE TABLE IF NOT EXISTS graph_paths (
                         path_id TEXT PRIMARY KEY,
                         entity1 TEXT NOT NULL,
                         entity2 TEXT NOT NULL,
@@ -1488,9 +1678,9 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for path queries
-                cursor.execute("CREATE INDEX idx_graph_paths_entity1 ON graph_paths(entity1)")
-                cursor.execute("CREATE INDEX idx_graph_paths_entity2 ON graph_paths(entity2)")
-                cursor.execute("CREATE INDEX idx_graph_paths_entities ON graph_paths(entity1, entity2)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_paths_entity1 ON graph_paths(entity1)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_paths_entity2 ON graph_paths(entity2)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_paths_entities ON graph_paths(entity1, entity2)")
 
                 self.db_conn.commit()
                 self.logger.info("graph_paths table created")
@@ -1504,7 +1694,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating topics table for topic modeling")
                 cursor.execute("""
-                    CREATE TABLE topics (
+                    CREATE TABLE IF NOT EXISTS topics (
                         topic_id TEXT PRIMARY KEY,
                         model_type TEXT NOT NULL,
                         topic_number INTEGER NOT NULL,
@@ -1518,8 +1708,8 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for topic queries
-                cursor.execute("CREATE INDEX idx_topics_model ON topics(model_type)")
-                cursor.execute("CREATE INDEX idx_topics_number ON topics(model_type, topic_number)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_model ON topics(model_type)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_number ON topics(model_type, topic_number)")
 
                 self.db_conn.commit()
                 self.logger.info("topics table created")
@@ -1529,7 +1719,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating document_topics table for topic assignments")
                 cursor.execute("""
-                    CREATE TABLE document_topics (
+                    CREATE TABLE IF NOT EXISTS document_topics (
                         assignment_id TEXT PRIMARY KEY,
                         doc_id TEXT NOT NULL,
                         topic_id TEXT NOT NULL,
@@ -1542,10 +1732,10 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for topic assignment queries
-                cursor.execute("CREATE INDEX idx_doc_topics_doc ON document_topics(doc_id)")
-                cursor.execute("CREATE INDEX idx_doc_topics_topic ON document_topics(topic_id)")
-                cursor.execute("CREATE INDEX idx_doc_topics_model ON document_topics(model_type)")
-                cursor.execute("CREATE INDEX idx_doc_topics_probability ON document_topics(probability DESC)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_doc ON document_topics(doc_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_topic ON document_topics(topic_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_model ON document_topics(model_type)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_probability ON document_topics(probability DESC)")
 
                 self.db_conn.commit()
                 self.logger.info("document_topics table created")
@@ -1555,7 +1745,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating clusters table for clustering analysis")
                 cursor.execute("""
-                    CREATE TABLE clusters (
+                    CREATE TABLE IF NOT EXISTS clusters (
                         cluster_id TEXT PRIMARY KEY,
                         algorithm TEXT NOT NULL,
                         cluster_number INTEGER NOT NULL,
@@ -1570,8 +1760,8 @@ class KnowledgeBase:
                 """)
 
                 # Create indexes for cluster queries
-                cursor.execute("CREATE INDEX idx_clusters_algorithm ON clusters(algorithm)")
-                cursor.execute("CREATE INDEX idx_clusters_number ON clusters(algorithm, cluster_number)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_clusters_algorithm ON clusters(algorithm)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_clusters_number ON clusters(algorithm, cluster_number)")
 
                 self.db_conn.commit()
                 self.logger.info("clusters table created")
@@ -1581,7 +1771,7 @@ class KnowledgeBase:
             if not cursor.fetchone():
                 self.logger.info("Creating document_clusters table for cluster assignments")
                 cursor.execute("""
-                    CREATE TABLE document_clusters (
+                    CREATE TABLE IF NOT EXISTS document_clusters (
                         assignment_id TEXT PRIMARY KEY,
                         doc_id TEXT NOT NULL,
                         cluster_id TEXT NOT NULL,
@@ -1599,14 +1789,14 @@ class KnowledgeBase:
                 # creates them idempotently. Duplicating that here caused a crash
                 # the first time an existing (non-fresh) database reached this
                 # branch: _migrate_phase3_schema() had already created 'events' on
-                # the previous init, so the unconditional CREATE TABLE here raised
+                # the previous init, so the unconditional CREATE TABLE IF NOT EXISTS here raised
                 # "table events already exists".
 
                 # Create indexes for cluster assignment queries
-                cursor.execute("CREATE INDEX idx_doc_clusters_doc ON document_clusters(doc_id)")
-                cursor.execute("CREATE INDEX idx_doc_clusters_cluster ON document_clusters(cluster_id)")
-                cursor.execute("CREATE INDEX idx_doc_clusters_algorithm ON document_clusters(algorithm)")
-                cursor.execute("CREATE INDEX idx_doc_clusters_distance ON document_clusters(distance)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_doc ON document_clusters(doc_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_cluster ON document_clusters(cluster_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_algorithm ON document_clusters(algorithm)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_distance ON document_clusters(distance)")
 
                 self.db_conn.commit()
                 self.logger.info("document_clusters table created")
@@ -1630,7 +1820,7 @@ class KnowledgeBase:
         self.logger.info("Creating mcp_call_log table")
 
         cursor.execute("""
-            CREATE TABLE mcp_call_log (
+            CREATE TABLE IF NOT EXISTS mcp_call_log (
                 call_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tool_name TEXT NOT NULL,
                 called_at TEXT NOT NULL,
@@ -1640,9 +1830,9 @@ class KnowledgeBase:
                 args_summary TEXT
             )
         """)
-        cursor.execute("CREATE INDEX idx_mcp_log_tool ON mcp_call_log(tool_name)")
-        cursor.execute("CREATE INDEX idx_mcp_log_time ON mcp_call_log(called_at)")
-        cursor.execute("CREATE INDEX idx_mcp_log_success ON mcp_call_log(success)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_mcp_log_tool ON mcp_call_log(tool_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_mcp_log_time ON mcp_call_log(called_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_mcp_log_success ON mcp_call_log(success)")
 
         self.db_conn.commit()
         self.logger.info("mcp_call_log table created")
@@ -1799,7 +1989,7 @@ class KnowledgeBase:
         try:
             # Create events table
             cursor.execute("""
-                CREATE TABLE events (
+                CREATE TABLE IF NOT EXISTS events (
                     event_id TEXT PRIMARY KEY,
                     event_type TEXT NOT NULL,
                     title TEXT NOT NULL,
@@ -1818,7 +2008,7 @@ class KnowledgeBase:
 
             # Create document-events mapping table
             cursor.execute("""
-                CREATE TABLE document_events (
+                CREATE TABLE IF NOT EXISTS document_events (
                     mapping_id TEXT PRIMARY KEY,
                     doc_id TEXT NOT NULL,
                     event_id TEXT NOT NULL,
@@ -1832,7 +2022,7 @@ class KnowledgeBase:
 
             # Create timeline entries table
             cursor.execute("""
-                CREATE TABLE timeline_entries (
+                CREATE TABLE IF NOT EXISTS timeline_entries (
                     entry_id TEXT PRIMARY KEY,
                     event_id TEXT NOT NULL,
                     display_date TEXT NOT NULL,
@@ -1845,14 +2035,14 @@ class KnowledgeBase:
             """)
 
             # Create indexes for Phase 3 tables
-            cursor.execute("CREATE INDEX idx_events_type ON events(event_type)")
-            cursor.execute("CREATE INDEX idx_events_year ON events(year)")
-            cursor.execute("CREATE INDEX idx_events_date ON events(date_normalized)")
-            cursor.execute("CREATE INDEX idx_document_events_doc ON document_events(doc_id)")
-            cursor.execute("CREATE INDEX idx_document_events_event ON document_events(event_id)")
-            cursor.execute("CREATE INDEX idx_timeline_entries_event ON timeline_entries(event_id)")
-            cursor.execute("CREATE INDEX idx_timeline_entries_sort ON timeline_entries(sort_order)")
-            cursor.execute("CREATE INDEX idx_timeline_entries_category ON timeline_entries(category)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_year ON events(year)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_date ON events(date_normalized)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_document_events_doc ON document_events(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_document_events_event ON document_events(event_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_timeline_entries_event ON timeline_entries(event_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_timeline_entries_sort ON timeline_entries(sort_order)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_timeline_entries_category ON timeline_entries(category)")
 
             self.db_conn.commit()
             self.logger.info("Phase 3 temporal analysis tables created successfully")
@@ -3940,7 +4130,10 @@ class KnowledgeBase:
         # Thread-safe database insertion and cache invalidation
         with self._lock:
             # Add to database (with tables, code blocks, facets, and cross-references)
-            self._add_document_db(doc_meta, chunks, tables=tables, code_blocks=code_blocks, facets=facets, cross_refs=cross_refs)
+            _retry_on_db_locked(
+                self._add_document_db, doc_meta, chunks,
+                tables=tables, code_blocks=code_blocks, facets=facets, cross_refs=cross_refs
+            )
             self.documents[doc_id] = doc_meta
 
             # Report progress: Database insertion complete
@@ -3956,9 +4149,20 @@ class KnowledgeBase:
             # Invalidate BM25 index (will be rebuilt on next search)
             self.bm25 = None
 
-            # Incrementally add chunks to embeddings (faster than full rebuild)
+            # Incrementally add chunks to embeddings (faster than full rebuild).
+            # Must load the model first: _add_chunks_to_embeddings silently
+            # no-ops when embeddings_model is None, which it is for every
+            # process that hasn't yet run a semantic search - i.e. every
+            # ingest-only session. Without this, newly-added documents are
+            # never embedded and there is no error to notice.
             if self.use_semantic:
-                self._add_chunks_to_embeddings(chunks)
+                self._ensure_embeddings_loaded()
+                if self.embeddings_model is not None:
+                    self._add_chunks_to_embeddings(chunks)
+                else:
+                    self.logger.warning(
+                        f"Skipping embeddings for {doc_id}: embeddings model unavailable"
+                    )
 
             # Update query suggestions with new terms
             self._update_suggestions_for_chunks(chunks)
@@ -4941,7 +5145,7 @@ class KnowledgeBase:
         filename = self.documents[doc_id].filename
 
         # Remove from database (chunks cascade automatically)
-        success = self._remove_document_db(doc_id)
+        success = _retry_on_db_locked(self._remove_document_db, doc_id)
 
         if success:
             # Remove from in-memory index
@@ -4957,10 +5161,15 @@ class KnowledgeBase:
             # Invalidate BM25 index (will be rebuilt on next search)
             self.bm25 = None
 
-            # Invalidate embeddings (will be rebuilt on next semantic search)
+            # Remove this document's vectors from the shared embeddings index
+            # in place. Nulling the in-memory index here (the old behaviour)
+            # left the on-disk .faiss/.json files untouched but out of sync
+            # with self.embeddings_index; the next add_document would then
+            # see a "no index" state, build a fresh index from only its own
+            # new chunks, and overwrite the full-corpus file with it -
+            # silently destroying every other document's embeddings.
             if self.use_semantic:
-                self.embeddings_index = None
-                self.embeddings_doc_map = []
+                self._remove_doc_embeddings(doc_id)
 
             # Invalidate search caches
             self._invalidate_caches()
@@ -5614,13 +5823,18 @@ Summary:"""
         if not dir_path.exists():
             raise ValueError(f"Directory does not exist: {directory}")
 
-        # Find matching files
-        if recursive:
-            files = list(dir_path.glob(pattern))
-        else:
-            # Non-recursive: remove ** from pattern
-            non_recursive_pattern = pattern.replace('**/', '')
-            files = list(dir_path.glob(non_recursive_pattern))
+        # Find matching files. Brace alternation must be expanded by hand -
+        # pathlib.glob treats "{pdf,txt}" as a literal extension and matches
+        # nothing, which made the default pattern a silent no-op.
+        search_pattern = pattern if recursive else pattern.replace('**/', '')
+        files = []
+        seen_paths = set()
+        for expanded in _expand_brace_pattern(search_pattern):
+            for match in dir_path.glob(expanded):
+                # Dedupe: overlapping alternatives can match the same file.
+                if match not in seen_paths:
+                    seen_paths.add(match)
+                    files.append(match)
 
         results = {
             'added': [],
@@ -14784,7 +14998,18 @@ Important:
             # Load the sentence transformer model (this is the slow part)
             model_name = os.getenv('SEMANTIC_MODEL', 'all-MiniLM-L6-v2')
             self.logger.info(f"Lazy loading embeddings model: {model_name} (first semantic search)")
-            self.embeddings_model = SentenceTransformer(model_name)
+            try:
+                # Fast path: model already cached on disk - no network at
+                # all, so this can't be affected by a blocked/filtered
+                # connection regardless of how long that would take to fail.
+                self.embeddings_model = SentenceTransformer(model_name, local_files_only=True)
+            except Exception:
+                # Not cached yet - fetch it, but bound the wait. Without
+                # this, an unreachable Hugging Face Hub (offline machine,
+                # filtered egress) can block this call indefinitely, taking
+                # every semantic_search call down with it.
+                with _network_timeout():
+                    self.embeddings_model = SentenceTransformer(model_name)
 
             # Load the pre-computed embeddings index
             self._load_embeddings()
@@ -14797,10 +15022,20 @@ Important:
             self._embeddings_loaded = False
 
     def _load_embeddings(self):
-        """Load FAISS embeddings index from disk."""
+        """Load FAISS embeddings index from disk (acquires the cross-process lock)."""
         if not self.use_semantic:
             return
+        with _cross_process_lock(self.embeddings_lock_file):
+            self._load_embeddings_locked()
 
+    def _load_embeddings_locked(self):
+        """Load FAISS embeddings index from disk.
+
+        Caller must already hold embeddings_lock_file - this does no locking
+        of its own so it can be called from inside a read-modify-write
+        section (see _add_chunks_to_embeddings, _build_embeddings,
+        _remove_doc_embeddings) without deadlocking on re-entry.
+        """
         try:
             if self.embeddings_file.exists() and self.embeddings_map_file.exists():
                 self.embeddings_index = faiss.read_index(str(self.embeddings_file))
@@ -14808,24 +15043,74 @@ Important:
                     self.embeddings_doc_map = json.load(f)
                 self.logger.info(f"Loaded embeddings index with {len(self.embeddings_doc_map)} vectors")
             else:
+                self.embeddings_index = None
+                self.embeddings_doc_map = []
                 self.logger.info("No existing embeddings found, will build on first use")
         except Exception as e:
             self.logger.error(f"Error loading embeddings: {e}")
             self.embeddings_index = None
             self.embeddings_doc_map = []
 
-    def _save_embeddings(self):
-        """Save FAISS embeddings index to disk."""
+    def _save_embeddings_locked(self):
+        """Write the FAISS index and its doc-id map to disk, atomically.
+
+        Caller must already hold embeddings_lock_file. Each file is written
+        to a temp path and moved into place with os.replace, so a crash or a
+        concurrent reader never observes a torn/partial file - and because
+        both files are rewritten while the lock is held, a reader taking the
+        same lock (see _load_embeddings) never observes one half of the pair
+        updated and not the other.
+        """
         if not self.use_semantic or self.embeddings_index is None:
             return
-
         try:
-            faiss.write_index(self.embeddings_index, str(self.embeddings_file))
-            with open(self.embeddings_map_file, 'w') as f:
-                json.dump(self.embeddings_doc_map, f)
+            index_bytes = faiss.serialize_index(self.embeddings_index).tobytes()
+            _atomic_write_bytes(self.embeddings_file, index_bytes)
+            map_bytes = json.dumps(self.embeddings_doc_map).encode('utf-8')
+            _atomic_write_bytes(self.embeddings_map_file, map_bytes)
             self.logger.info(f"Saved embeddings index with {len(self.embeddings_doc_map)} vectors")
         except Exception as e:
             self.logger.error(f"Error saving embeddings: {e}")
+
+    def _remove_doc_embeddings(self, doc_id: str):
+        """Surgically remove one document's vectors from the shared index.
+
+        remove_document() used to just null self.embeddings_index in memory
+        and leave the on-disk files untouched. The next add_document() would
+        then see a null index, build a FRESH index containing only its own
+        new chunks, and overwrite the full-corpus file with it - silently
+        destroying every other document's embeddings. This instead reloads
+        the latest committed state under the cross-process lock, drops only
+        this document's rows, and saves the result back - so the rest of the
+        corpus's embeddings survive a removal.
+        """
+        if not self.use_semantic:
+            return
+        with _cross_process_lock(self.embeddings_lock_file):
+            self._load_embeddings_locked()
+            if self.embeddings_index is None or not self.embeddings_doc_map:
+                return
+
+            keep_positions = [i for i, (d, _) in enumerate(self.embeddings_doc_map) if d != doc_id]
+            if len(keep_positions) == len(self.embeddings_doc_map):
+                return  # this document had no embedded chunks - nothing to do
+
+            if keep_positions:
+                vectors = self.embeddings_index.reconstruct_n(0, self.embeddings_index.ntotal)
+                kept_vectors = vectors[keep_positions]
+                new_index = faiss.IndexFlatIP(self.embeddings_index.d)
+                new_index.add(kept_vectors)
+                self.embeddings_index = new_index
+                self.embeddings_doc_map = [self.embeddings_doc_map[i] for i in keep_positions]
+                self._save_embeddings_locked()
+            else:
+                # Nothing left at all - clear in-memory state and remove the
+                # now-empty artifacts so a stale file can't be misread later.
+                self.embeddings_index = None
+                self.embeddings_doc_map = []
+                self.embeddings_file.unlink(missing_ok=True)
+                self.embeddings_map_file.unlink(missing_ok=True)
+            self.logger.info(f"Removed embeddings for {doc_id}: {len(keep_positions)} vectors remain")
 
     def _build_embeddings(self):
         """Build FAISS index from all document chunks."""
@@ -14847,23 +15132,24 @@ Important:
             self.logger.warning("No chunks to embed")
             return
 
-        # Generate embeddings
+        # Generate embeddings (CPU-bound; deliberately outside the lock below
+        # so concurrent agent processes don't serialise behind each other's
+        # encoding work, only behind the actual shared-file write).
         texts = [chunk.content for chunk in chunks]
         embeddings = self.embeddings_model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
-
-        # Create FAISS index
-        dimension = embeddings.shape[1]
-        self.embeddings_index = faiss.IndexFlatIP(dimension)  # Inner product (cosine similarity)
-
-        # Normalize embeddings for cosine similarity
         faiss.normalize_L2(embeddings)
-        self.embeddings_index.add(embeddings)
+        doc_map = [(chunk.doc_id, chunk.chunk_id) for chunk in chunks]
 
-        # Build doc map
-        self.embeddings_doc_map = [(chunk.doc_id, chunk.chunk_id) for chunk in chunks]
-
-        # Save to disk
-        self._save_embeddings()
+        # This rebuild is authoritative - it re-derives from every chunk in
+        # the database, not from a possibly-stale in-memory copy - so it just
+        # needs the write itself serialised against other processes, not a
+        # reload-before-modify.
+        with _cross_process_lock(self.embeddings_lock_file):
+            dimension = embeddings.shape[1]
+            self.embeddings_index = faiss.IndexFlatIP(dimension)  # Inner product (cosine similarity)
+            self.embeddings_index.add(embeddings)
+            self.embeddings_doc_map = doc_map
+            self._save_embeddings_locked()
 
         # Invalidate similarity cache since embeddings changed
         if self._similar_cache is not None:
@@ -14896,41 +15182,41 @@ Important:
         # Get batch size from environment (default: 32 for optimal memory/performance trade-off)
         batch_size = int(os.getenv('EMBEDDING_BATCH_SIZE', '32'))
 
-        # If no existing index, create one (need to know dimension first)
-        if self.embeddings_index is None or len(self.embeddings_doc_map) == 0:
-            self.logger.info("Creating new embeddings index")
-            # Generate first embedding to get dimension
-            sample_text = chunks[0].content
-            sample_embedding = self.embeddings_model.encode([sample_text], show_progress_bar=False, convert_to_numpy=True)
-            dimension = sample_embedding.shape[1]
-            self.embeddings_index = faiss.IndexFlatIP(dimension)  # Inner product (cosine similarity)
-            self.embeddings_doc_map = []
-
-        # Process chunks in batches for better memory usage
+        # Encode every batch up front - CPU-bound work with no shared state,
+        # so it happens outside the lock and doesn't serialise concurrent
+        # agent processes against each other's model inference time.
+        batch_vectors = []
         total_chunks = len(chunks)
         for batch_start in range(0, total_chunks, batch_size):
             batch_end = min(batch_start + batch_size, total_chunks)
             batch_chunks = chunks[batch_start:batch_end]
-
-            # Generate embeddings for this batch
             texts = [chunk.content for chunk in batch_chunks]
-            batch_embeddings = self.embeddings_model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
-
-            # Normalize for cosine similarity
-            faiss.normalize_L2(batch_embeddings)
-
-            # Add to existing index
-            self.embeddings_index.add(batch_embeddings)
-
-            # Update doc map
-            for chunk in batch_chunks:
-                self.embeddings_doc_map.append((chunk.doc_id, chunk.chunk_id))
-
+            embeddings = self.embeddings_model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+            faiss.normalize_L2(embeddings)
+            batch_vectors.append((embeddings, batch_chunks))
             if total_chunks > batch_size:
-                self.logger.debug(f"Processed embedding batch {batch_start+1}-{batch_end}/{total_chunks}")
+                self.logger.debug(f"Encoded batch {batch_start+1}-{batch_end}/{total_chunks}")
 
-        # Save updated index to disk
-        self._save_embeddings()
+        # Reload the latest committed state under the lock before appending -
+        # not the possibly-stale copy this process loaded at startup or built
+        # up in memory - then append and save as one atomic critical section.
+        # Without this, two concurrent add_document calls each append to
+        # their OWN in-memory copy of an older index and the second save
+        # silently discards the first agent's new vectors entirely.
+        with _cross_process_lock(self.embeddings_lock_file):
+            self._load_embeddings_locked()
+            if self.embeddings_index is None or len(self.embeddings_doc_map) == 0:
+                self.logger.info("Creating new embeddings index")
+                dimension = batch_vectors[0][0].shape[1]
+                self.embeddings_index = faiss.IndexFlatIP(dimension)
+                self.embeddings_doc_map = []
+
+            for embeddings, batch_chunks in batch_vectors:
+                self.embeddings_index.add(embeddings)
+                for chunk in batch_chunks:
+                    self.embeddings_doc_map.append((chunk.doc_id, chunk.chunk_id))
+
+            self._save_embeddings_locked()
 
         # Invalidate similarity cache since embeddings changed
         if self._similar_cache is not None:
@@ -16685,10 +16971,15 @@ Return ONLY valid JSON, no additional text.
         # Invalidate BM25 index (will be rebuilt on next search)
         self.bm25 = None
 
-        # Invalidate embeddings (will be rebuilt on next semantic search)
+        # Remove the orphaned docs' vectors from the shared embeddings index
+        # in place, the same way remove_document() does - nulling the index
+        # here would leave the on-disk files (which still contain the
+        # orphans' vectors) untouched, then have the next add_document()
+        # overwrite that full-corpus file with an index containing only its
+        # own new chunks.
         if self.use_semantic:
-            self.embeddings_index = None
-            self.embeddings_doc_map = []
+            for doc_id in orphaned_doc_ids:
+                self._remove_doc_embeddings(doc_id)
 
         # Invalidate search result caches
         self._invalidate_caches()
@@ -16703,6 +16994,68 @@ Return ONLY valid JSON, no additional text.
             'chunks_after': after_count,
             'chunks_pruned': before_count - after_count,
             'orphaned_doc_ids': orphaned_doc_ids,
+        }
+
+    def reconcile_embeddings(self, max_docs: Optional[int] = None) -> dict:
+        """
+        Backfill embeddings for documents that have chunks but no vectors.
+
+        The embeddings rebuild trigger only fires when the index is
+        COMPLETELY empty (see _build_embeddings/_ensure_embeddings_loaded),
+        so a partially populated index - built while USE_SEMANTIC_SEARCH was
+        off, or from before add_document loaded the embeddings model - looks
+        healthy forever and silently leaves those documents invisible to
+        semantic_search/find_similar. This finds every document with chunks
+        but no embedded vectors and embeds them via the same locked
+        incremental path add_document uses, so it is safe to run
+        concurrently with other agents.
+
+        Args:
+            max_docs: Optional cap on how many missing documents to process
+                      in this call, for backfilling a large gap incrementally
+                      instead of one long-running call.
+
+        Returns:
+            Dictionary with before/after coverage and the doc_ids processed.
+        """
+        if not self.use_semantic:
+            return {'error': 'Semantic search is not enabled (set USE_SEMANTIC_SEARCH=1)'}
+
+        self._ensure_embeddings_loaded()
+        if self.embeddings_model is None:
+            return {'error': 'Embeddings model is unavailable - check server logs'}
+
+        embedded_docs_before = {d for d, _ in self.embeddings_doc_map}
+        chunks_before = len(self.embeddings_doc_map)
+
+        missing_doc_ids = [d for d in self.documents.keys() if d not in embedded_docs_before]
+        if max_docs is not None:
+            missing_doc_ids = missing_doc_ids[:max_docs]
+
+        processed = []
+        for doc_id in missing_doc_ids:
+            chunks = self._get_chunks_db(doc_id)
+            if chunks:
+                self._add_chunks_to_embeddings(chunks)
+                processed.append(doc_id)
+
+        embedded_docs_after = {d for d, _ in self.embeddings_doc_map}
+        chunks_after = len(self.embeddings_doc_map)
+        total_docs = len(self.documents)
+
+        self.logger.info(
+            f"Reconciled embeddings: {len(embedded_docs_before)} -> {len(embedded_docs_after)} "
+            f"docs covered ({len(processed)} backfilled this call)"
+        )
+
+        return {
+            'docs_covered_before': len(embedded_docs_before),
+            'docs_covered_after': len(embedded_docs_after),
+            'total_documents': total_docs,
+            'docs_still_missing': total_docs - len(embedded_docs_after),
+            'docs_backfilled_this_call': len(processed),
+            'chunks_before': chunks_before,
+            'chunks_after': chunks_after,
         }
 
     def health_check(self, quick_check: bool = True, use_cache: bool = True) -> dict:
@@ -16810,16 +17163,50 @@ Return ONLY valid JSON, no additional text.
                         emb_size_mb = self.embeddings_file.stat().st_size / (1024 * 1024)
                         health['features']['embeddings_size_mb'] = round(emb_size_mb, 2)
 
-                        # Get count from loaded index or from map file
+                        # Get the doc map from the loaded index or straight
+                        # from the map file - needed for both the raw count
+                        # and the drift check below.
+                        embeddings_map = None
                         if self.embeddings_index is not None:
-                            health['features']['embeddings_count'] = len(self.embeddings_doc_map)
+                            embeddings_map = self.embeddings_doc_map
                         elif self.embeddings_map_file.exists():
                             try:
                                 with open(self.embeddings_map_file, 'r') as f:
                                     embeddings_map = json.load(f)
-                                    health['features']['embeddings_count'] = len(embeddings_map)
                             except Exception:
-                                pass
+                                embeddings_map = None
+
+                        if embeddings_map is not None:
+                            health['features']['embeddings_count'] = len(embeddings_map)
+
+                            # Drift check: the rebuild trigger only fires on a
+                            # COMPLETELY empty index (see _build_embeddings/
+                            # _ensure_embeddings_loaded), so a partially
+                            # populated one - e.g. built while
+                            # USE_SEMANTIC_SEARCH was off, or before
+                            # add_document loaded the model - looks healthy
+                            # forever with no signal that most documents are
+                            # actually invisible to semantic_search.
+                            embedded_docs = {d for d, _ in embeddings_map}
+                            total_docs = health['metrics'].get('documents', 0)
+                            total_chunks = health['metrics'].get('chunks', 0)
+                            if total_docs > 0:
+                                doc_coverage_pct = round(100.0 * len(embedded_docs) / total_docs, 1)
+                                health['features']['embeddings_doc_coverage_pct'] = doc_coverage_pct
+                                # A newly-added, not-yet-embedded document or two is
+                                # expected between searches; a large gap is not.
+                                missing_docs = total_docs - len(embedded_docs)
+                                if missing_docs > max(5, total_docs * 0.1):
+                                    health['status'] = 'warning'
+                                    health['issues'].append(
+                                        f"Semantic search coverage gap: {missing_docs} of {total_docs} "
+                                        f"documents ({100 - doc_coverage_pct:.1f}%) have no embeddings - "
+                                        "run reconcile_embeddings to backfill"
+                                    )
+                            if total_chunks > 0:
+                                health['features']['embeddings_chunk_coverage_pct'] = round(
+                                    100.0 * len(embeddings_map) / total_chunks, 1
+                                )
 
             # Performance metrics
             health['performance']['cache_enabled'] = self._search_cache is not None
@@ -17900,6 +18287,19 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {}
+            }
+        ),
+        Tool(
+            name="reconcile_embeddings",
+            description="Backfill embeddings for documents that have chunks but no embedded vectors. The embeddings rebuild only triggers when the index is completely empty, so documents added while USE_SEMANTIC_SEARCH was off (or before the model was loaded) can be permanently invisible to semantic_search/find_similar with no error - health_check's embeddings_doc_coverage_pct feature flags this. Safe to run concurrently with other agent sessions.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "max_docs": {
+                        "type": "integer",
+                        "description": "Optional cap on how many missing documents to backfill in this call, for processing a large gap incrementally instead of one long-running call."
+                    }
+                }
             }
         ),
         Tool(
@@ -20229,9 +20629,18 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
         # Features
         if health['features']:
             output += "Features:\n"
+            # Lazily-built features are expected to read False until their
+            # first use (e.g. the BM25 index only builds on first BM25
+            # search) - that's not a problem, so don't flag it with a ✗
+            # right next to "No issues detected" below.
+            lazy_features = {'bm25_index_built'}
             for key, value in health['features'].items():
-                status = "✓" if value else "✗"
-                output += f"  {status} {key}: {value}\n"
+                if key in lazy_features and not value:
+                    status = "ⓘ"
+                    output += f"  {status} {key}: {value} (builds lazily on first use)\n"
+                else:
+                    status = "✓" if value else "✗"
+                    output += f"  {status} {key}: {value}\n"
             output += "\n"
 
         # Performance
@@ -20265,6 +20674,29 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
                 output += f"  - {doc_id}\n"
         else:
             output += "No orphaned doc_ids found - cache was already consistent with the database.\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "reconcile_embeddings":
+        max_docs = arguments.get("max_docs")
+        result = kb.reconcile_embeddings(max_docs=max_docs)
+
+        if 'error' in result:
+            return [TextContent(type="text", text=f"Error: {result['error']}")]
+
+        output = f"Embeddings Reconciliation\n{'='*50}\n\n"
+        output += f"Documents covered before: {result['docs_covered_before']:,} / {result['total_documents']:,}\n"
+        output += f"Documents covered after:  {result['docs_covered_after']:,} / {result['total_documents']:,}\n"
+        output += f"Backfilled this call:     {result['docs_backfilled_this_call']:,}\n"
+        output += f"Still missing:            {result['docs_still_missing']:,}\n\n"
+        output += f"Chunks before: {result['chunks_before']:,}\n"
+        output += f"Chunks after:  {result['chunks_after']:,}\n"
+
+        if result['docs_still_missing'] > 0:
+            output += (
+                f"\n{result['docs_still_missing']} document(s) still have no embeddings. "
+                "Run this tool again (optionally with max_docs to process in smaller batches).\n"
+            )
 
         return [TextContent(type="text", text=output)]
 

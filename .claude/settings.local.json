@@ -292,7 +292,28 @@
       "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\basic.html\")",
       "Bash(\".venv/Scripts/pip\" install PyMuPDF)",
       "Bash(find:*)",
-      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\cia.html\")"
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\cia.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\6502.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\1541.html\")",
+      "Bash(CIA2: $DD00\" \\(italicized\\)\n- Separated title and memory addresses for clarity\n- Professional appearance maintained\n\nResults:\n- Articles: 23 → 24 \\(CIA now working\\)\n- CIA diagram: cia_registers.png \\(75K\\)\n- VIC-II updated: vic-ii_memory_map.png \\(141K\\)\n- SID updated: sid_memory_map.png \\(125K\\)\n- All diagrams regenerated successfully\n\nComplete Diagram Suite:\n1. SID - Sound chip registers \\(125K\\) ✅\n2. VIC-II - Graphics registers \\(141K\\) ✅\n3. CIA - I/O and timers \\(75K\\) ✅\n4. Sprite - Pixel specs \\(57K\\) ✅\n5. 6502 - Processor flags \\(6.2K\\) ✅\n6. 1541 - Disk layout \\(87K\\) ✅\n\nImpact:\n- Zero ParseException errors\n- Complete C64 hardware reference\n- Professional technical documentation\n- All memory-mapped registers visualized\n\nTechnical Details:\n- wiki_export.py:38 - text.parse_math = False\n- wiki_export.py:39 - mathtext.default = ''regular''\n- wiki_export.py:10325-10328 - CIA title formatting\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\vic.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\6510.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\memory.html\")",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" cli.py stats)",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\keyboard.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\interrupt.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\adsr.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\raster.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\multicolor.html\")",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" cli.py entity-stats)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" cli.py search \"PETSCII\" --max 5)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" cli.py search \"stack pointer\" --max 5)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" cli.py search \"zero page\" --max 5)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" cli.py search \"joystick\" --max 5)",
+      "Bash(\".venv\\\\Scripts\\\\python.exe\" -c \"\n# Quick syntax check  \nimport re\nwith open\\(''wiki_export.py'', ''r'', encoding=''utf-8''\\) as f:\n    code = f.read\\(\\)\n    if ''doc.doc_id'' in code and ''synthetic_entity'' in code:\n        print\\(''✓ Fallback code updated correctly''\\)\n    else:\n        print\\(''✗ Code not updated''\\)\n\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\joystick.html\")",
+      "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\petscii.html\")",
+      "PowerShell(Out-File *)"
     ]
   }
 }

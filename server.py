@@ -4,6 +4,7 @@ TDZ C64 Knowledge - MCP Server
 A Model Context Protocol server for searching C64 documentation.
 """
 
+import asyncio
 import os
 import sys
 import json
@@ -15187,10 +15188,18 @@ Important:
             model_name = os.getenv('SEMANTIC_MODEL', 'all-MiniLM-L6-v2')
             self.logger.info(f"Lazy loading embeddings model: {model_name} (first semantic search)")
             try:
-                # Fast path: model already cached on disk - no network at
-                # all, so this can't be affected by a blocked/filtered
-                # connection regardless of how long that would take to fail.
-                self.embeddings_model = SentenceTransformer(model_name, local_files_only=True)
+                # Fast path: model should already be cached on disk. In
+                # theory local_files_only=True means no network at all, but
+                # some sentence-transformers/huggingface_hub versions still
+                # issue a revision/etag check even with that flag set, and a
+                # blocked/filtered connection to that check hangs forever
+                # with no timeout of its own (see issue #14 - a single
+                # add_document call hung 28+ minutes here with zero CPU
+                # usage, despite the model already being fully cached).
+                # Bound it with the same socket timeout as the fallback path
+                # below so this can never hang the caller indefinitely.
+                with _network_timeout():
+                    self.embeddings_model = SentenceTransformer(model_name, local_files_only=True)
             except Exception:
                 # Not cached yet - fetch it, but bound the wait. Without
                 # this, an unreachable Hugging Face Hub (offline machine,
@@ -21057,7 +21066,19 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
         skip_duplicates = arguments.get("skip_duplicates", True)
 
         try:
-            results = kb.add_documents_bulk(directory, pattern, tags, recursive, skip_duplicates)
+            # add_documents_bulk is a synchronous method that itself uses a
+            # ThreadPoolExecutor internally, but its driving loop
+            # (`for future in as_completed(...)`) is a plain blocking call.
+            # Calling it directly here - as opposed to via to_thread - ran
+            # that blocking loop on the asyncio event loop thread itself,
+            # so every other request on this MCP session (even a trivial
+            # read-only kb_stats call) queued behind the entire batch and
+            # could hang for as long as the whole bulk operation took (see
+            # issue #13). Running it in a worker thread frees the event loop
+            # to keep servicing other requests concurrently.
+            results = await asyncio.to_thread(
+                kb.add_documents_bulk, directory, pattern, tags, recursive, skip_duplicates
+            )
         except Exception as e:
             return [TextContent(type="text", text=f"Error in bulk add: {str(e)}")]
 

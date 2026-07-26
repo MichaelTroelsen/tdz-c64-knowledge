@@ -550,6 +550,109 @@ def test_ensure_embeddings_degrades_instead_of_hanging_when_offline(data_dir):
     )
 
 
+def test_ensure_embeddings_degrades_when_cached_path_itself_hangs(data_dir):
+    """Issue #14: the model is already fully cached locally, but the
+    local_files_only=True call itself hangs.
+
+    Observed in production: a single add_document call (887-page PDF) fully
+    extracted, chunked, and committed to the database in ~4 minutes, then the
+    process hung for 28+ minutes with zero further CPU usage while "lazy
+    loading embeddings model" - despite the model already being present in
+    the huggingface cache. Some sentence-transformers/huggingface_hub
+    versions still issue a revision/etag check even with local_files_only=
+    True, and a silently dropped/filtered connection to that check has no
+    timeout of its own. Every add_document call in a fresh process hits this
+    path (server.py ~line 4243), so this is not a rare edge case.
+
+    Must return within the network timeout and disable semantic search
+    rather than hanging the caller (and therefore every other request on the
+    same single-threaded MCP session) indefinitely.
+    """
+    probe = (
+        "import server, socket, time\n"
+        "srv = socket.socket(); srv.bind(('127.0.0.1', 0)); srv.listen(1)\n"
+        "port = srv.getsockname()[1]\n"
+        "def fake_st(model_name, local_files_only=False):\n"
+        "    # Hangs the same way regardless of local_files_only - simulates\n"
+        "    # a version where the 'cached' path still reaches out to the\n"
+        "    # network and that connection is silently dropped/filtered.\n"
+        "    c = socket.socket()\n"
+        "    c.connect(('127.0.0.1', port))\n"
+        "    c.recv(1)  # never arrives\n"
+        "    raise AssertionError('unreachable')\n"
+        "server.SentenceTransformer = fake_st\n"
+        "kb = server.KnowledgeBase(server.os.environ['TDZ_DATA_DIR'])\n"
+        "assert kb.use_semantic, 'test setup: semantic search should be enabled'\n"
+        "start = time.time()\n"
+        "kb._ensure_embeddings_loaded()\n"
+        "elapsed = time.time() - start\n"
+        "print('RESULT', elapsed < 10, kb.use_semantic is False, kb._embeddings_loaded is False)\n"
+    )
+    env = _env(data_dir)
+    env["NETWORK_FETCH_TIMEOUT_S"] = "2"
+    out = subprocess.run(
+        [PYTHON, "-c", probe],
+        capture_output=True, env=env, cwd=str(REPO), timeout=30,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    line = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")][-1]
+    assert line == "RESULT True True True", (
+        f"_ensure_embeddings_loaded did not degrade when the local_files_only=True "
+        f"path itself hung: {line!r}. This is the exact hang reported in issue #14."
+    )
+
+
+def test_add_documents_bulk_does_not_block_the_event_loop(data_dir, tmp_path):
+    """Issue #13: add_documents_bulk blocked every other MCP request.
+
+    The call_tool handler invoked kb.add_documents_bulk(...) directly (no
+    await/to_thread). That method uses a ThreadPoolExecutor internally, but
+    its driving loop - a plain `for future in as_completed(...)` - is a
+    blocking call that ran on the asyncio event loop thread itself. Observed
+    in production: a 29-file bulk ingest of large PDFs blocked the entire
+    session for over 30 minutes, during which even a trivial, read-only
+    kb_stats call on the same session queued behind it and eventually timed
+    out client-side without ever being serviced.
+
+    Simulates a bulk add that takes a few seconds (monkeypatched) and asserts
+    a concurrent kb_stats call on the same event loop still completes well
+    before the bulk operation does, proving the loop was not blocked.
+    """
+    bulk_dir = tmp_path / "bulkdir"
+    bulk_dir.mkdir()
+    (bulk_dir / "a.txt").write_text("hello world")
+
+    probe = (
+        "import asyncio, sys, time, server\n"
+        "def slow_bulk(self, *a, **kw):\n"
+        "    time.sleep(3)\n"
+        "    return {'added': [], 'skipped': [], 'failed': []}\n"
+        "server.KnowledgeBase.add_documents_bulk = slow_bulk\n"
+        "async def main():\n"
+        "    t0 = time.time()\n"
+        "    bulk_task = asyncio.create_task(server.call_tool(\n"
+        "        'add_documents_bulk',\n"
+        "        {'directory': sys.argv[1], 'pattern': '*.txt', 'recursive': False},\n"
+        "    ))\n"
+        "    await asyncio.sleep(0)  # let bulk_task start and reach the blocking call\n"
+        "    await server.call_tool('kb_stats', {})\n"
+        "    kb_elapsed = time.time() - t0\n"
+        "    await bulk_task\n"
+        "    print('RESULT', kb_elapsed < 1.5, kb_elapsed)\n"
+        "asyncio.run(main())\n"
+    )
+    out = subprocess.run(
+        [PYTHON, "-c", probe, str(bulk_dir)],
+        capture_output=True, env=_env(data_dir), cwd=str(REPO), timeout=30,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    line = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")][-1]
+    assert line.startswith("RESULT True"), (
+        f"kb_stats did not run concurrently with add_documents_bulk: {line!r}. "
+        "This is the exact hang reported in issue #13."
+    )
+
+
 def test_bulk_add_default_pattern_actually_matches_files(data_dir, tmp_path):
     """The default bulk-ingest glob must not be a silent no-op.
 

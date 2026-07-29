@@ -93,3 +93,6 @@ htmlcov/
 # Generated wiki output
 wiki/
 wiki_test/
+
+# tokensave local index - rebuildable cache, not shared state.
+.tokensave/

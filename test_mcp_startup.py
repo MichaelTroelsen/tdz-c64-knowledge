@@ -177,12 +177,22 @@ def test_concurrent_sessions_all_connect(data_dir):
     results = {}
 
     def connect(i):
-        try:
-            with MCPSession(data_dir, client_name=f"session-{i}") as s:
-                response, elapsed = s.initialize(timeout=CONCURRENT_BUDGET_S)
-                results[i] = (response is not None and "result" in (response or {}), elapsed)
-        except Exception as e:  # pragma: no cover - diagnostic path
-            results[i] = (False, f"exception: {e!r}")
+        # Spawning several subprocesses from concurrent threads at once can hit
+        # a transient Windows pipe/handle error (observed: OSError(22) from
+        # stdin.write) that has nothing to do with the handshake-timeout race
+        # this test targets. One retry with a fresh subprocess absorbs that
+        # OS-level noise without masking a real handshake failure - a second
+        # occurrence still fails the test.
+        last_exc = None
+        for attempt in range(2):
+            try:
+                with MCPSession(data_dir, client_name=f"session-{i}") as s:
+                    response, elapsed = s.initialize(timeout=CONCURRENT_BUDGET_S)
+                    results[i] = (response is not None and "result" in (response or {}), elapsed)
+                return
+            except OSError as e:
+                last_exc = e
+        results[i] = (False, f"exception: {last_exc!r}")  # pragma: no cover - diagnostic path
 
     threads = [threading.Thread(target=connect, args=(i,)) for i in range(CONCURRENT_SESSIONS)]
     for t in threads:
@@ -293,11 +303,23 @@ def test_database_uses_wal_mode(data_dir):
     db = Path(data_dir) / "knowledge_base.db"
     assert db.exists(), "server did not create its database"
 
-    conn = sqlite3.connect(str(db))
-    try:
-        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-    finally:
-        conn.close()
+    # proc.kill() is TerminateProcess on Windows - abrupt, no orderly sqlite3
+    # close - and proc.wait() only confirms the process exited, not that
+    # Windows has finished releasing its handle on the WAL/SHM mmap. Opening
+    # the file in that gap can transiently raise "disk I/O error"; retry
+    # rather than treating it as a real WAL-mode regression.
+    for attempt in range(5):
+        try:
+            conn = sqlite3.connect(str(db))
+            try:
+                mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            finally:
+                conn.close()
+            break
+        except sqlite3.OperationalError:
+            if attempt == 4:
+                raise
+            time.sleep(0.2)
     assert str(mode).lower() == "wal", f"journal_mode is {mode!r}, expected 'wal'"
 
 

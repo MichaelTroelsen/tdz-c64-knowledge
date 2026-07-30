@@ -136,6 +136,112 @@ def test_stored_graph_is_json_not_pickle(kb):
     assert not bytes(blob).startswith(b'\x80'), "blob looks like a pickle stream"
 
 
+# --- the documents.tags column -----------------------------------------------
+#
+# Every reader parses this column with json.loads (see _load_documents /
+# _reload_documents). update_document_tags used to write ','.join(tags), which
+# is not valid JSON, so one call poisoned the row and the next document reload
+# - i.e. every new session - died with JSONDecodeError and loaded no documents.
+
+
+@pytest.fixture
+def tagged_doc(kb, tmp_path):
+    path = tmp_path / "tagme.txt"
+    path.write_text("VIC-II sprite notes.", encoding="utf-8")
+    return kb.add_document(str(path), tags=['sid'])
+
+
+def _stored_tags(kb, doc_id):
+    return kb.db_conn.execute(
+        "SELECT tags FROM documents WHERE doc_id = ?", (doc_id,)
+    ).fetchone()[0]
+
+
+def test_update_document_tags_writes_json(kb, tagged_doc):
+    import json
+
+    kb.update_document_tags(tagged_doc.doc_id, ['sid', 'music'])
+    raw = _stored_tags(kb, tagged_doc.doc_id)
+
+    assert json.loads(raw) == ['sid', 'music'], (
+        f"tags column is not valid JSON: {raw!r} - every reader uses json.loads"
+    )
+
+
+def test_documents_still_load_after_a_tag_update(kb, tagged_doc):
+    """The actual failure mode: a poisoned row broke loading for everyone."""
+    kb.update_document_tags(tagged_doc.doc_id, ['sid', 'music'])
+
+    kb._reload_documents()  # what a fresh session does on startup
+
+    assert tagged_doc.doc_id in kb.documents, "document vanished after reload"
+    assert kb.documents[tagged_doc.doc_id].tags == ['sid', 'music']
+
+
+def test_empty_tags_round_trip(kb, tagged_doc):
+    kb.update_document_tags(tagged_doc.doc_id, [])
+    kb._reload_documents()
+    assert kb.documents[tagged_doc.doc_id].tags == []
+
+
+def test_tags_containing_commas_survive(kb, tagged_doc):
+    """A comma-joined format could not represent these at all."""
+    kb.update_document_tags(tagged_doc.doc_id, ['sid, music', '6502'])
+    kb._reload_documents()
+    assert kb.documents[tagged_doc.doc_id].tags == ['sid, music', '6502']
+
+
+def test_add_tags_to_document_keeps_the_column_valid(kb, tagged_doc):
+    """The public wrapper delegates to update_document_tags."""
+    import json
+
+    kb.add_tags_to_document(tagged_doc.doc_id, ['music'])
+    raw = _stored_tags(kb, tagged_doc.doc_id)
+    assert set(json.loads(raw)) >= {'sid', 'music'}
+    kb._reload_documents()
+    assert tagged_doc.doc_id in kb.documents
+
+
+def test_bulk_tag_update_leaves_memory_and_db_in_agreement(kb, tagged_doc):
+    kb.update_tags_bulk(doc_ids=[tagged_doc.doc_id], add_tags=['assembly'])
+
+    in_memory = kb.documents[tagged_doc.doc_id].tags
+    kb._reload_documents()
+    from_db = kb.documents[tagged_doc.doc_id].tags
+
+    assert sorted(in_memory) == sorted(from_db), (
+        f"in-memory {in_memory} disagrees with persisted {from_db}"
+    )
+    assert 'assembly' in from_db
+
+
+def test_a_failed_tag_write_does_not_leave_stale_memory(kb, tagged_doc):
+    """On a write failure the in-memory tags must not report the new value."""
+    original = list(kb.documents[tagged_doc.doc_id].tags)
+
+    # sqlite3.Connection is an immutable C type, so swap the whole connection
+    # via the thread-local slot that the db_conn property reads.
+    real_conn = kb.db_conn
+
+    class _FailingConn:
+        def cursor(self):
+            raise RuntimeError("simulated DB failure")
+
+        def rollback(self):
+            pass
+
+    kb._thread_local.conn = _FailingConn()
+    try:
+        with pytest.raises(RuntimeError):
+            kb.update_document_tags(tagged_doc.doc_id, ['should-not-stick'])
+    finally:
+        kb._thread_local.conn = real_conn
+
+    assert kb.documents[tagged_doc.doc_id].tags == original, (
+        "in-memory tags kept a value the database never accepted"
+    )
+
+
 def test_a_fresh_database_gets_every_feature_table(kb):
     """Regression: schema creation and migration must agree on the table set.
 

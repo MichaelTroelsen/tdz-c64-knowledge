@@ -228,6 +228,15 @@ def http_get_polite(url: str, timeout: float = 15, max_attempts: int = 3,
         raise last_exc
 
 
+# socket.setdefaulttimeout is process-wide, so two threads entering
+# _network_timeout at once would interleave: the first to exit restores the
+# other's temporary value instead of the real original, leaving the default
+# permanently clamped. That is no longer hypothetical - the whole MCP dispatch
+# runs on worker threads now - so entry is serialised. An RLock (not Lock)
+# because the guarded regions can nest within one thread.
+_network_timeout_lock = threading.RLock()
+
+
 @contextmanager
 def _network_timeout(seconds: float = NETWORK_FETCH_TIMEOUT_S):
     """Temporarily cap the process-wide default socket timeout.
@@ -238,13 +247,19 @@ def _network_timeout(seconds: float = NETWORK_FETCH_TIMEOUT_S):
     the default socket timeout here gives those calls a real deadline; on
     expiry they raise (socket.timeout / URLError / requests exceptions),
     which the existing except-and-degrade logic at each call site handles.
+
+    Every guarded region is a one-time lazy initialisation (NLTK corpora, the
+    sentence-transformers model, a robots.txt fetch), so serialising them
+    costs nothing and additionally stops two threads racing to download the
+    same resource.
     """
-    previous = socket.getdefaulttimeout()
-    socket.setdefaulttimeout(seconds)
-    try:
-        yield
-    finally:
-        socket.setdefaulttimeout(previous)
+    with _network_timeout_lock:
+        previous = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(seconds)
+        try:
+            yield
+        finally:
+            socket.setdefaulttimeout(previous)
 
 
 @contextmanager
@@ -2353,7 +2368,7 @@ class KnowledgeBase:
             self.logger.info("Phase 3 temporal analysis tables created successfully")
 
         except Exception as e:
-            self.logger.error(f"Failed to create Phase 3 tables: {e}")
+            self.logger.exception("Failed to create Phase 3 tables")
             self.db_conn.rollback()
             raise
 
@@ -2687,7 +2702,10 @@ class KnowledgeBase:
                 except SystemError:
                     # Rollback may also fail with same bug, ignore
                     pass
-                self.logger.error(f"Error adding document to database: {e}")
+                # exception(), not error(): a failed write here means a bug or
+                # real DB fault, and the wrapped KnowledgeBaseError below keeps
+                # only the message - the traceback would otherwise be lost.
+                self.logger.exception("Error adding document to database")
                 raise KnowledgeBaseError(f"Failed to add document to database: {e}")
             # If it's the "not an error" bug, we already verified and returned above, so this shouldn't be reached
             # But if it is, don't wrap it again
@@ -2721,7 +2739,7 @@ class KnowledgeBase:
             except SystemError:
                 # Rollback may also fail with same bug, ignore
                 pass
-            self.logger.error(f"Error removing document from database: {e}")
+            self.logger.exception("Error removing document from database")
             raise KnowledgeBaseError(f"Failed to remove document from database: {e}")
 
     def _get_chunks_db(self, doc_id: Optional[str] = None) -> list[DocumentChunk]:
@@ -3188,15 +3206,23 @@ class KnowledgeBase:
         finally:
             pdf.close()
 
-        if force:
-            cursor.execute("DELETE FROM document_figures WHERE doc_id = ?", (doc_id,))
-        cursor.executemany("""
-            INSERT OR REPLACE INTO document_figures
-                (doc_id, page_number, image_index, ocr_text, char_count,
-                 image_path, width, height, extracted_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, rows)
-        self.db_conn.commit()
+        # force=True clears the previous rows first, so a failure between the
+        # DELETE and the INSERT would otherwise leave the document with no
+        # figures at all - worse than the state we started from.
+        try:
+            if force:
+                cursor.execute("DELETE FROM document_figures WHERE doc_id = ?", (doc_id,))
+            cursor.executemany("""
+                INSERT OR REPLACE INTO document_figures
+                    (doc_id, page_number, image_index, ocr_text, char_count,
+                     image_path, width, height, extracted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, rows)
+            self.db_conn.commit()
+        except Exception:
+            self.db_conn.rollback()
+            self.logger.exception(f"Storing figures for {doc_id} failed; rolled back")
+            raise
 
         self.logger.info(
             f"Figure OCR for {doc_id}: {found} figure(s), {with_text} with text, "
@@ -6236,16 +6262,25 @@ class KnowledgeBase:
         if doc_id not in self.documents:
             raise ValueError(f"Document not found: {doc_id}")
 
-        # Update in-memory
-        self.documents[doc_id].title = title
+        doc = self.documents[doc_id]
+        old_title = doc.title
 
-        # Update in database
-        cursor = self.db_conn.cursor()
-        cursor.execute(
-            "UPDATE documents SET title = ? WHERE doc_id = ?",
-            (title, doc_id)
-        )
-        self.db_conn.commit()
+        # DB first, memory second: mutating in-memory before the write meant a
+        # failed UPDATE left this process serving a title that was never saved.
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute(
+                "UPDATE documents SET title = ? WHERE doc_id = ?",
+                (title, doc_id)
+            )
+            self.db_conn.commit()
+        except Exception:
+            self.db_conn.rollback()
+            doc.title = old_title
+            self.logger.exception(f"Failed to update title for {doc_id}; rolled back")
+            raise
+
+        doc.title = title
 
         self.logger.info(f"Updated title for document {doc_id[:12]}: {title}")
 
@@ -6263,17 +6298,32 @@ class KnowledgeBase:
         if doc_id not in self.documents:
             raise ValueError(f"Document not found: {doc_id}")
 
-        # Update in-memory
-        self.documents[doc_id].tags = tags
+        doc = self.documents[doc_id]
+        old_tags = doc.tags
 
-        # Update in database
-        cursor = self.db_conn.cursor()
-        tags_str = ','.join(tags) if tags else ''
-        cursor.execute(
-            "UPDATE documents SET tags = ? WHERE doc_id = ?",
-            (tags_str, doc_id)
-        )
-        self.db_conn.commit()
+        # Write the DB first, then mutate memory only once it committed -
+        # otherwise a failed write leaves this process reporting tags that were
+        # never persisted.
+        #
+        # The column holds a JSON array: every reader parses it with
+        # json.loads (see _load_documents / _reload_documents). This method
+        # used to write ','.join(tags), which is not valid JSON, so a single
+        # call poisoned the row and the next document reload - i.e. every new
+        # session - died with JSONDecodeError and loaded no documents at all.
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute(
+                "UPDATE documents SET tags = ? WHERE doc_id = ?",
+                (json.dumps(tags or []), doc_id)
+            )
+            self.db_conn.commit()
+        except Exception:
+            self.db_conn.rollback()
+            doc.tags = old_tags
+            self.logger.exception(f"Failed to update tags for {doc_id}; rolled back")
+            raise
+
+        doc.tags = tags
 
         self.logger.info(f"Updated tags for document {doc_id[:12]}: {tags}")
 
@@ -6926,6 +6976,9 @@ Summary:"""
         self.logger.info(f"Bulk tag update: updating {len(ids_to_update)} documents")
 
         for doc_id in ids_to_update:
+            # Tracked outside the try so the handler can restore it: doc.tags is
+            # mutated in memory before the UPDATE lands.
+            old_tags = None
             try:
                 if doc_id not in self.documents:
                     results['failed'].append({
@@ -6969,6 +7022,16 @@ Summary:"""
                 self.logger.debug(f"Updated tags for {doc_id}: {old_tags} -> {doc.tags}")
 
             except Exception as e:
+                # Restore the pre-mutation tags. Without this, a failed write
+                # left this process reporting tags that were never persisted -
+                # they silently reverted on the next restart.
+                doc = self.documents.get(doc_id)
+                if doc is not None and old_tags is not None:
+                    try:
+                        self.db_conn.rollback()
+                    except Exception:
+                        pass
+                    doc.tags = old_tags
                 results['failed'].append({
                     'doc_id': doc_id,
                     'error': str(e)
@@ -7377,7 +7440,7 @@ Return ONLY the summary text, no preamble."""
             self.logger.info(f"Saved {summary_type} summary for {doc_id}")
 
         except Exception as e:
-            self.logger.error(f"Failed to save summary to database: {e}")
+            self.logger.exception("Failed to save summary to database")
             # Return summary even if save failed
             pass
 
@@ -7962,7 +8025,7 @@ Important:
 
         except Exception as e:
             self.db_conn.rollback()
-            self.logger.error(f"Failed to store entities in database: {e}")
+            self.logger.exception("Failed to store entities in database")
             # Return entities even if storage failed
             pass
 
@@ -24554,6 +24617,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return result
     except Exception as e:
         error_message = str(e)
+        # mcp_call_log only stores the message, and the client only sees a
+        # protocol-level error - without this the stack trace was lost
+        # entirely, leaving nothing in server.log to debug from.
+        kb.logger.exception(f"MCP tool {name!r} raised")
         raise
     finally:
         duration_ms = (time.time() - start_time) * 1000
@@ -24563,6 +24630,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             if first_text.startswith('Error'):
                 success = False
                 error_message = first_text[:300]
+                # A handler that caught its own exception and returned an
+                # "Error: ..." string logged nothing at all; record at least
+                # which tool degraded and why.
+                kb.logger.warning(f"MCP tool {name!r} returned an error: {error_message}")
         kb._log_mcp_call(name, duration_ms, success, error_message, arguments)
 
 

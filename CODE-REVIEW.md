@@ -282,7 +282,7 @@ breaks on trailing text).
 single entry point that delegates to `LLMClient`; harden `call_json` with a
 regex fence extraction and a single retry-on-parse-failure.
 
-### [ ] R15. Broad exception swallowing
+### [x] R15. Broad exception swallowing
 
 **Where:** 161 `except Exception`/bare `except` in `server.py`, 62 in
 `admin_gui.py`, ~234 handlers end in `pass`-like suppression patterns
@@ -359,7 +359,7 @@ rest, extend `.gitignore` (scraped-site dirs, `uploads/`, `*_results.json`).
 The scraped-site folders belong under `TDZ_DATA_DIR/scraped_docs`, not the
 repo.
 
-### [ ] R20. `_network_timeout` mutates process-wide socket default
+### [x] R20. `_network_timeout` mutates process-wide socket default
 
 **Where:** `server.py:128` — `socket.setdefaulttimeout` affects every socket
 in the process; if two threads overlap, the inner `finally` restores the
@@ -539,6 +539,49 @@ first."). Only `whats-next.md` (completed handoff) and `readme.txt` (superseded
 by README.md, its table markup collapsed into unreadable run-on text) were
 removed, plus `performance_phase2_results.json` untracked (it matches the
 existing `*_results.json` ignore rule but predated it).
+
+## Bugs found while fixing R15 / R20
+
+- **`update_document_tags` corrupted the database.** The `documents.tags`
+  column holds a JSON array — every reader parses it with `json.loads` (see
+  `_load_documents` / `_reload_documents`) — but this method wrote
+  `','.join(tags)`. Verified end to end: one call stored `'sid,music'`, and the
+  next `_reload_documents()` (what every new session does at startup) died with
+  `JSONDecodeError` and loaded **no documents at all**. `add_tags_to_document`
+  delegates to it, so that was poisoned too. Currently unreachable from MCP,
+  GUI, REST or CLI, which is why it went unnoticed — but it is a public method,
+  and `CONTEXT.md`/`docs/CHANGELOG.md` both advertise `add_tags_to_document`
+  as an MCP tool it no longer is. Now writes JSON, with tests covering
+  comma-containing tags (which the old format could not represent at all).
+- **In-memory state diverged from the database on failed writes.**
+  `update_document_tags`, `update_document_title` and `update_tags_bulk` all
+  mutated `self.documents[...]` *before* the `UPDATE`, with no restore in the
+  handler — so a failed write left the running process serving values that were
+  never persisted and silently reverted on restart. All three now write first
+  and mutate only after the commit succeeds (or roll back and restore).
+- **`_network_timeout` leaked a permanent socket clamp.** It mutates the
+  process-wide `socket.setdefaulttimeout`, so two threads entering it
+  concurrently interleave: the first to exit restores the *other* thread's
+  temporary value rather than the real original. Reproduced directly — two
+  threads left the process default permanently pinned at 5.0s instead of
+  `None`, which would silently start failing slow scrapes for the rest of the
+  process's life. This stopped being hypothetical the moment R5 moved the whole
+  dispatch onto worker threads. Entry is now serialised with an `RLock`
+  (re-entrant, since the guarded regions nest); verified that concurrent
+  threads each see their own timeout, nesting does not deadlock, and the
+  original is restored.
+- **`extract_document_figures` (added this session) had the same
+  delete-then-insert hazard** under `force=True`: a failure after the DELETE
+  left the document with no figures at all. Now rolls back.
+
+Deliberately *not* changed: the remaining ~27 `logger.error` failure paths are
+expected-failure cases (network probes, per-file loops in bulk operations)
+where a message is the right level. Only the DB-persistence handlers were
+upgraded to `logger.exception`, since a failure there means a real fault and
+the wrapped `KnowledgeBaseError` keeps only the message. `_mark_superseded`
+was left alone: its several separate commits are each independently meaningful
+and the methods it calls commit internally, so wrapping it in one transaction
+would be wrong.
 
 ## Suggested implementation order
 

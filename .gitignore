@@ -41,13 +41,21 @@ SIDin/
 # Binary dependencies
 poppler-*/
 
-# Temporary test files (the maintained suites below are tracked exceptions)
+# Temporary test files (the maintained suites below are tracked exceptions).
+# The exceptions are root-anchored (leading /) on purpose: an unanchored
+# `!test_rest_api.py` also un-ignores archive/tests/test_rest_api.py, which
+# drags the whole archived suite back into git status.
 test_*.py
-!test_card_updates.py
-!test_pdf_viewer.py
-!test_mcp_startup.py
-!test_embeddings_reliability.py
-!test_scrape_reliability.py
+!/test_card_updates.py
+!/test_pdf_viewer.py
+!/test_mcp_startup.py
+!/test_embeddings_reliability.py
+!/test_scrape_reliability.py
+!/test_mcp_tool_dispatch.py
+!/test_rest_api.py
+!/test_wiki_safety.py
+!/test_scrape_politeness.py
+!/test_figure_ocr.py
 check_*.py
 reimport_*.py
 debug_*.py

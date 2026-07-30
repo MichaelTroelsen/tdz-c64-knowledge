@@ -18,12 +18,17 @@ MCP server for searching Commodore 64 documentation. Ingests PDFs/text/web pages
 
 ## File Structure
 
-- `server.py` - MCP server, KnowledgeBase class, 87 tools
+- `server.py` - MCP server, KnowledgeBase class, 92 tools
 - `rest_server.py` - FastAPI REST API (18 endpoints, optional)
 - `cli.py` - Command-line interface
 - `admin_gui.py` - Streamlit web UI
 - `test_card_updates.py` - Pytest test suite
-- `test_mcp_startup.py` - MCP startup/connectivity regression tests (handshake speed, concurrent sessions, lazy imports, WAL)
+- `test_mcp_startup.py` - MCP startup/connectivity regression tests (handshake speed, concurrent sessions, lazy imports, WAL, DB thread-safety, extraction-job recovery)
+- `test_mcp_tool_dispatch.py` - Smoke-calls every registered MCP tool
+- `test_rest_api.py` - REST endpoint/auth tests
+- `test_figure_ocr.py` - Background figure-OCR batch pass
+- `test_wiki_safety.py` - Wiki export output-safety (URL scheme validation, escaping)
+- `test_scrape_politeness.py` - robots.txt, User-Agent, backoff
 - `knowledge_base.db` - SQLite database (in TDZ_DATA_DIR)
 
 ## Development Commands

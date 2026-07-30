@@ -8,6 +8,7 @@ Provides HTTP endpoints for all knowledge base operations.
 Run with: uvicorn rest_server:app --reload --port 8000
 """
 
+import logging
 import os
 import time
 import io
@@ -36,6 +37,14 @@ API_KEYS = os.getenv('TDZ_API_KEYS', '').split(',')
 API_KEYS = [key.strip() for key in API_KEYS if key.strip()]  # Remove empty strings
 CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*').split(',')
 CORS_ORIGINS = [origin.strip() for origin in CORS_ORIGINS if origin.strip()]
+
+# Defaults to loopback-only: this API can add/remove/scrape (scrape_url can
+# be pointed at an arbitrary internal URL - SSRF from the host) with no
+# authentication unless TDZ_API_KEYS is set. Binding it to every interface
+# by default would expose full read/write KB control to the whole LAN.
+REST_HOST = os.getenv('API_HOST', '127.0.0.1')
+REST_PORT = int(os.getenv('API_PORT', '8000'))
+ALLOW_INSECURE = os.getenv('TDZ_REST_ALLOW_INSECURE', '0') == '1'
 
 
 # ============================================================================
@@ -79,10 +88,15 @@ app = FastAPI(
 # CORS Middleware
 # ============================================================================
 
+# allow_origins=['*'] combined with allow_credentials=True is an invalid
+# CORS configuration - browsers reject it inconsistently, and it's also
+# strictly more permissive than intended (credentialed requests from any
+# origin). Only allow credentials when a specific origin allowlist is set.
+_cors_is_wildcard = CORS_ORIGINS == ['*'] or not CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS if CORS_ORIGINS != ['*'] else ['*'],
-    allow_credentials=True,
+    allow_origins=['*'] if _cors_is_wildcard else CORS_ORIGINS,
+    allow_credentials=not _cors_is_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -125,14 +139,25 @@ async def http_exception_handler(request, exc):
     )
 
 
+_logger = logging.getLogger("rest_server")
+
+
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
-    """Handle all other exceptions."""
+    """Handle all other (unhandled/unexpected) exceptions.
+
+    Unlike the HTTPException handler above - which returns deliberate,
+    caller-facing operation errors raised by endpoint code - this path
+    catches genuinely unexpected failures, which can include internal file
+    paths or other implementation detail. Log the detail server-side and
+    return a generic message rather than echoing str(exc) to the client.
+    """
+    _logger.exception(f"Unhandled exception on {request.method} {request.url.path}")
     return JSONResponse(
         status_code=500,
         content={
             "success": False,
-            "error": str(exc),
+            "error": "Internal server error",
             "error_type": "internal_error"
         }
     )
@@ -142,8 +167,18 @@ async def general_exception_handler(request, exc):
 # Health & Status Endpoints
 # ============================================================================
 
+# Every route handler below is a plain `def`, not `async def`, on purpose.
+# KnowledgeBase is entirely synchronous and some calls block for minutes to
+# hours (OCR on upload, a whole-site crawl in /scrape, entity extraction).
+# Declaring the handlers `async def` while calling those methods directly meant
+# they blocked uvicorn's single event loop, so one upload froze every other
+# request including /health. FastAPI runs synchronous handlers on its own
+# threadpool instead, which is safe now that KnowledgeBase gives each thread its
+# own SQLite connection (see KnowledgeBase.db_conn in server.py). `lifespan` and
+# the exception handlers stay async - they are not route handlers.
+
 @app.get("/api/v1/health", response_model=models.HealthResponse, tags=["Health"])
-async def health_check():
+def health_check():
     """
     Health check endpoint (no authentication required).
 
@@ -171,7 +206,7 @@ async def health_check():
 
 
 @app.get("/api/v1/stats", response_model=models.StatsResponse, tags=["Analytics"])
-async def get_stats(authenticated: bool = Depends(verify_api_key)):
+def get_stats(authenticated: bool = Depends(verify_api_key)):
     """
     Get knowledge base statistics.
 
@@ -226,7 +261,7 @@ async def get_stats(authenticated: bool = Depends(verify_api_key)):
 # ============================================================================
 
 @app.post("/api/v1/search", response_model=models.SearchResponse, tags=["Search"])
-async def search(
+def search(
     request: models.SearchRequest,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -270,7 +305,7 @@ async def search(
 
 
 @app.post("/api/v1/search/semantic", response_model=models.SearchResponse, tags=["Search"])
-async def semantic_search(
+def semantic_search(
     request: models.SemanticSearchRequest,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -321,7 +356,7 @@ async def semantic_search(
 
 
 @app.post("/api/v1/search/hybrid", response_model=models.SearchResponse, tags=["Search"])
-async def hybrid_search(
+def hybrid_search(
     request: models.HybridSearchRequest,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -372,7 +407,7 @@ async def hybrid_search(
 
 
 @app.post("/api/v1/search/faceted", response_model=models.SearchResponse, tags=["Search"])
-async def faceted_search(
+def faceted_search(
     request: models.FacetedSearchRequest,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -417,7 +452,7 @@ async def faceted_search(
 
 
 @app.get("/api/v1/documents/{doc_id}/similar", response_model=models.SearchResponse, tags=["Search"])
-async def find_similar_documents(
+def find_similar_documents(
     doc_id: str,
     max_results: int = 10,
     authenticated: bool = Depends(verify_api_key)
@@ -473,7 +508,7 @@ async def find_similar_documents(
 # ============================================================================
 
 @app.get("/api/v1/documents", response_model=models.DocumentListResponse, tags=["Documents"])
-async def list_documents(
+def list_documents(
     tags: Optional[str] = None,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -514,7 +549,7 @@ async def list_documents(
 
 
 @app.get("/api/v1/documents/{doc_id}", tags=["Documents"])
-async def get_document(
+def get_document(
     doc_id: str,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -548,7 +583,7 @@ async def get_document(
 
 
 @app.delete("/api/v1/documents/{doc_id}", tags=["Documents"])
-async def delete_document(
+def delete_document(
     doc_id: str,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -578,7 +613,7 @@ async def delete_document(
 # ============================================================================
 
 @app.post("/api/v1/scrape", response_model=models.ScrapeResponse, tags=["URL Scraping"])
-async def scrape_url(
+def scrape_url(
     request: models.ScrapeRequest,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -628,7 +663,7 @@ async def scrape_url(
 # ============================================================================
 
 @app.post("/api/v1/documents", tags=["Documents"])
-async def upload_document(
+def upload_document(
     file: UploadFile,
     title: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
@@ -643,8 +678,9 @@ async def upload_document(
         # Parse tags
         tag_list = [t.strip() for t in tags.split(',')] if tags else None
 
-        # Save uploaded file to temporary location within data_dir (allowed by security check)
-        # Create uploads directory if it doesn't exist
+        # Save uploaded file to data_dir/uploads, which is on the
+        # KnowledgeBase path whitelist by default (see default_allowed_dirs
+        # in server.py) so add_document's security check accepts it.
         uploads_dir = Path(kb.data_dir) / "uploads"
         uploads_dir.mkdir(exist_ok=True)
 
@@ -685,7 +721,7 @@ async def upload_document(
 
 
 @app.put("/api/v1/documents/{doc_id}", tags=["Documents"])
-async def update_document(
+def update_document(
     doc_id: str,
     request: models.DocumentUpdateRequest,
     authenticated: bool = Depends(verify_api_key)
@@ -734,7 +770,7 @@ async def update_document(
 # ============================================================================
 
 @app.post("/api/v1/documents/{doc_id}/summarize", tags=["AI Features"])
-async def summarize_document(
+def summarize_document(
     doc_id: str,
     summary_type: str = "brief",
     authenticated: bool = Depends(verify_api_key)
@@ -765,7 +801,7 @@ async def summarize_document(
 
 
 @app.post("/api/v1/documents/{doc_id}/entities/extract", tags=["AI Features"])
-async def extract_entities(
+def extract_entities(
     doc_id: str,
     confidence_threshold: float = 0.7,
     authenticated: bool = Depends(verify_api_key)
@@ -795,7 +831,7 @@ async def extract_entities(
 
 
 @app.get("/api/v1/documents/{doc_id}/entities", tags=["AI Features"])
-async def get_document_entities(
+def get_document_entities(
     doc_id: str,
     authenticated: bool = Depends(verify_api_key)
 ):
@@ -831,7 +867,7 @@ async def get_document_entities(
 # ============================================================================
 
 @app.get("/api/v1/export/entities", tags=["Export"])
-async def export_entities(
+def export_entities(
     format: str = "csv",
     min_confidence: float = 0.0,
     authenticated: bool = Depends(verify_api_key)
@@ -864,7 +900,7 @@ async def export_entities(
 
 
 @app.get("/api/v1/export/relationships", tags=["Export"])
-async def export_relationships(
+def export_relationships(
     format: str = "csv",
     min_strength: float = 0.0,
     authenticated: bool = Depends(verify_api_key)
@@ -901,15 +937,33 @@ async def export_relationships(
 # ============================================================================
 
 if __name__ == "__main__":
+    import sys
     import uvicorn
+
+    # This API can add/remove/update documents and trigger scrape_url
+    # (arbitrary-URL fetch from the host - SSRF risk) with zero
+    # authentication whenever TDZ_API_KEYS is unset. Binding that to a
+    # non-loopback address by default would expose full read/write KB
+    # control to the whole LAN/internet. Refuse to start rather than fail
+    # open; TDZ_REST_ALLOW_INSECURE=1 opts back in for a deliberately open
+    # deployment (e.g. behind its own reverse-proxy auth).
+    if REST_HOST not in ('127.0.0.1', 'localhost', '::1') and not API_KEYS and not ALLOW_INSECURE:
+        print(
+            f"Refusing to bind to {REST_HOST} with no API keys configured "
+            "(TDZ_API_KEYS is unset). This would expose unauthenticated "
+            "read/write access to the knowledge base. Either set "
+            "TDZ_API_KEYS, or set TDZ_REST_ALLOW_INSECURE=1 to override.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     print(f"Starting TDZ C64 Knowledge Base REST API v{__version__}")
     print(f"Data directory: {DATA_DIR}")
     print(f"API Keys configured: {len(API_KEYS) if API_KEYS else 'None (development mode)'}")
     print(f"CORS origins: {CORS_ORIGINS}")
     print("")
-    print("Starting server on http://localhost:8000")
-    print("API documentation: http://localhost:8000/api/docs")
+    print(f"Starting server on http://{REST_HOST}:{REST_PORT}")
+    print(f"API documentation: http://{REST_HOST}:{REST_PORT}/api/docs")
     print("")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=REST_HOST, port=REST_PORT)

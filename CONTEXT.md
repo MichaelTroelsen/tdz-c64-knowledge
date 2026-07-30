@@ -49,7 +49,7 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 
 ## Core Components
 
-- **server.py** - MCP server, KnowledgeBase class, 87 tools, AI features
+- **server.py** - MCP server, KnowledgeBase class, 92 tools, AI features
 - **rest_server.py** - FastAPI REST API (18 endpoints, optional)
 - **rest_models.py** - Pydantic v2 models
 - **cli.py** - Command-line interface
@@ -59,7 +59,7 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 
 ## MCP Tools Summary
 
-**87 tools total.** Representative categories (not exhaustive - see README.md for the complete reference):
+**92 tools total.** Representative categories (not exhaustive - see README.md for the complete reference):
 - Search (11): search_docs, semantic_search, hybrid_search, fuzzy_search, search_within_results, answer_question, translate_query, search_tables, search_code, find_similar, faceted_search
 - Documents (8): add_document, add_documents_bulk, remove_document, remove_documents_bulk, list_docs, get_document, get_chunk, check_updates
 - URL Scraping (3): scrape_url, rescrape_document, check_url_updates

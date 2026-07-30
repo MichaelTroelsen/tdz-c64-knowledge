@@ -263,13 +263,13 @@ filename = sys.argv[2]
 barrier_dir = sys.argv[3]
 nworkers = int(sys.argv[4])
 
-# `import server` already constructs a module-level `server.kb` singleton
-# (this is how the real MCP server's tool handlers all share one instance) -
-# reuse it rather than constructing a second KnowledgeBase against the same
-# fresh DB, which races the one-time table-migration checks against itself
-# within this single process and is unrelated to the cross-process
-# concurrency this test is actually about.
-kb = server.kb
+# server.get_kb() lazily builds and caches the module-wide singleton (this
+# is how the real MCP server's tool handlers all share one instance) - reuse
+# it rather than constructing a second KnowledgeBase against the same fresh
+# DB, which races the one-time table-migration checks against itself within
+# this single process and is unrelated to the cross-process concurrency this
+# test is actually about.
+kb = server.get_kb()
 assert kb.use_semantic
 
 path = os.path.join(os.environ['TDZ_DATA_DIR'], filename)

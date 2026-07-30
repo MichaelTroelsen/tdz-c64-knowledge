@@ -273,7 +273,7 @@ See [PHASE3_TEMPORAL_ANALYSIS.md](docs/PHASE3_TEMPORAL_ANALYSIS.md) for complete
 
 ## Tools
 
-87 MCP tools organized by category. Key tools listed below.
+92 MCP tools organized by category. Key tools listed below.
 
 ### Search Tools
 
@@ -300,6 +300,51 @@ answer_question(
   search_mode="auto"
 )
 ```
+
+**search_figures** - Search text OCR'd out of document figures
+```
+search_figures(query="raster interrupt", max_results=10)
+```
+Finds content that exists only inside images - memory-map diagrams, register
+tables, pinout drawings - which plain document search cannot reach. Requires a
+figure-OCR pass first (see below).
+
+### Figure OCR Tools
+
+Ingest-time OCR only runs on PDFs detected as *entirely* scanned. A normal text
+PDF gets its text layer indexed while its embedded figures are never read - and
+in C64 documentation those figures are often where the reference data actually
+lives. These tools run a background batch pass over PDFs already in the
+knowledge base, extracting each embedded image and OCRing it into searchable
+text stored separately from the document's own text.
+
+**batch_ocr_figures** - Queue the whole knowledge base
+```
+batch_ocr_figures(limit=50, reprocess=false)
+```
+Returns immediately; work proceeds on the background worker.
+
+**ocr_document_figures** - Queue one document
+```
+ocr_document_figures(doc_id="89d0943d6009")
+```
+
+**figure_ocr_status** - Coverage and pending-job report
+```
+figure_ocr_status()
+```
+
+**get_document_figures** - List one document's figures with OCR text
+```
+get_document_figures(doc_id="89d0943d6009", with_text_only=true)
+```
+
+Requires `PyMuPDF`, Tesseract, and `USE_OCR=1`. Note this path does **not**
+need Poppler - it rasterizes with PyMuPDF rather than pdf2image, unlike the
+scanned-page OCR fallback. `figure_ocr_status` reports exactly what is missing
+if the feature is unavailable. Tuning: `TDZ_FIGURE_MIN_WIDTH`,
+`TDZ_FIGURE_MIN_HEIGHT` (ignore images too small to be figures) and
+`TDZ_FIGURE_MIN_CHARS` (discard OCR noise).
 
 **fuzzy_search** - Typo-tolerant search
 ```

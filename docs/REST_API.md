@@ -45,8 +45,14 @@ TDZ_API_KEYS=key1,key2,key3           # Comma-separated API keys (optional)
 CORS_ORIGINS=http://localhost:3000,https://example.com  # Allowed origins
 
 # Server Settings
-API_HOST=0.0.0.0                      # Host to bind to (default: 0.0.0.0)
+API_HOST=127.0.0.1                    # Host to bind to (default: 127.0.0.1, loopback-only)
 API_PORT=8000                         # Port to bind to (default: 8000)
+
+# Binding to a non-loopback host (e.g. 0.0.0.0) with no TDZ_API_KEYS set is
+# refused at startup, since it would expose full read/write KB access
+# (including scrape_url, an arbitrary-URL fetch from the host) with no
+# authentication. Set TDZ_API_KEYS, or override explicitly:
+TDZ_REST_ALLOW_INSECURE=0             # Set to 1 to allow an unauthenticated non-loopback bind anyway
 ```
 
 ### Authentication

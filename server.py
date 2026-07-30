@@ -32,7 +32,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # Import version information
-from version import __build_date__, get_full_version_string
+from version import __build_date__, __version__, get_full_version_string
 
 # Anomaly detection support
 try:
@@ -122,6 +122,110 @@ _nltk_ready = False
 # filtered/unreachable network must fail fast here rather than hang the
 # calling tool indefinitely - see _ensure_nltk and _ensure_embeddings_loaded.
 NETWORK_FETCH_TIMEOUT_S = float(os.environ.get('NETWORK_FETCH_TIMEOUT_S', '15'))
+
+# Identify ourselves on every outbound scrape. The sources this tool targets
+# are small volunteer-run retro-computing wikis and archives; an unidentified
+# multi-threaded crawler is exactly what gets a client rate-limited or
+# IP-banned, and it denies operators any way to contact us or write a rule.
+USER_AGENT = os.environ.get(
+    'TDZ_USER_AGENT',
+    f"tdz-c64-knowledge/{__version__} (+https://github.com/Thordanielz/tdz-c64-knowledge)"
+)
+
+# Honour robots.txt unless explicitly disabled (a self-hosted mirror, say).
+RESPECT_ROBOTS = os.environ.get('TDZ_RESPECT_ROBOTS', '1') == '1'
+
+_robots_cache: dict[str, Any] = {}
+_robots_cache_lock = threading.Lock()
+
+
+def http_headers(extra: Optional[dict] = None) -> dict:
+    """Default headers for any outbound HTTP request this server makes."""
+    headers = {'User-Agent': USER_AGENT}
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def robots_allows(url: str) -> bool:
+    """Whether robots.txt permits USER_AGENT to fetch `url`.
+
+    Fails open: an unreachable or malformed robots.txt must not block a
+    scrape the user explicitly asked for. Results are cached per origin so a
+    crawl of N pages costs one robots.txt fetch, not N.
+    """
+    if not RESPECT_ROBOTS:
+        return True
+
+    from urllib.parse import urlparse
+    from urllib.robotparser import RobotFileParser
+
+    try:
+        parsed = urlparse(url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+    except Exception:
+        return True
+
+    with _robots_cache_lock:
+        parser = _robots_cache.get(origin)
+        cached = origin in _robots_cache
+
+    if not cached:
+        parser = RobotFileParser()
+        parser.set_url(f"{origin}/robots.txt")
+        try:
+            with _network_timeout(10):
+                parser.read()
+        except Exception:
+            parser = None  # no usable robots.txt -> allow
+        with _robots_cache_lock:
+            _robots_cache[origin] = parser
+
+    if parser is None:
+        return True
+    try:
+        return parser.can_fetch(USER_AGENT, url)
+    except Exception:
+        return True
+
+
+def http_get_polite(url: str, timeout: float = 15, max_attempts: int = 3,
+                    base_delay: float = 1.0, **kwargs):
+    """requests.get with our User-Agent and backoff on 429/5xx.
+
+    A bare single-shot GET treats a server's "slow down" (429) and its
+    transient 5xx exactly like a hard 404 - it drops the page and moves on,
+    hammering the next URL immediately. Backing off instead is both politer
+    and the only way those pages actually get fetched.
+    """
+    import requests
+
+    kwargs.setdefault('headers', http_headers())
+    kwargs.setdefault('allow_redirects', True)
+
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            response = requests.get(url, timeout=timeout, **kwargs)
+            if response.status_code in (429, 500, 502, 503, 504) and attempt < max_attempts - 1:
+                # Prefer the server's own Retry-After when it sends one.
+                retry_after = response.headers.get('Retry-After')
+                delay = base_delay * (2 ** attempt)
+                if retry_after:
+                    try:
+                        delay = max(delay, min(float(retry_after), 60.0))
+                    except ValueError:
+                        pass
+                time.sleep(delay)
+                continue
+            return response
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(base_delay * (2 ** attempt))
+    if last_exc:
+        raise last_exc
 
 
 @contextmanager
@@ -342,6 +446,14 @@ except ImportError:
     OCR_SUPPORT = False
     print("Warning: pytesseract/pdf2image/Pillow not installed. OCR disabled.", file=sys.stderr)
 
+# Embedded-figure extraction needs PyMuPDF. Detected without importing: fitz
+# pulls in a sizeable native library, and only the figure-OCR path uses it,
+# so paying that cost at startup would slow every session down for a feature
+# most calls never touch (see the startup budget notes in CLAUDE.md).
+FIGURE_SUPPORT = _module_available('fitz')
+if not FIGURE_SUPPORT:
+    print("Warning: PyMuPDF (fitz) not installed. Figure OCR disabled.", file=sys.stderr)
+
 
 # Custom Exceptions
 class KnowledgeBaseError(Exception):
@@ -474,7 +586,17 @@ class KnowledgeBase:
 
         # Database setup
         self.db_file = self.data_dir / "knowledge_base.db"
-        self.db_conn = None
+        # One sqlite3 connection per thread - see the db_conn property. A single
+        # shared connection was read *and committed* from the event-loop thread
+        # (_log_mcp_call on every MCP call), the background extraction worker,
+        # and asyncio.to_thread/ThreadPoolExecutor workers. sqlite3
+        # transactions are per-connection, so any thread's commit() committed
+        # whatever transaction another thread had only half-built: a trivial
+        # kb_stats call could commit a partial bulk ingest, whose subsequent
+        # rollback then rolled back nothing.
+        self._thread_local = threading.local()
+        self._all_conns: list[sqlite3.Connection] = []
+        self._conns_lock = threading.Lock()  # guards _all_conns only, never queries
         self._init_database()
 
         # Legacy file paths (for migration)
@@ -542,16 +664,30 @@ class KnowledgeBase:
 
         # Security: Allowed directories for document ingestion (optional)
         # Set via ALLOWED_DOCS_DIRS environment variable (comma-separated paths)
-        # Always include: scraped_docs directory and current working directory
+        # Always include: scraped_docs, downloads, temp, and uploads (all
+        # server-controlled subdirectories of data_dir).
+        #
+        # The current working directory is deliberately NOT included here.
+        # This server is commonly registered at Claude Code user scope, which
+        # means it is launched with the cwd of whatever project the caller
+        # happens to be in - unconditionally allowing cwd would make that
+        # entire project tree ingestible and defeat this whitelist. Opt in
+        # explicitly with TDZ_ALLOW_CWD=1 if the CLI/dev workflow needs it.
         allowed_dirs_env = os.getenv('ALLOWED_DOCS_DIRS', '')
 
-        # Start with scraped_docs, downloads, temp, and current working directory
         default_allowed_dirs = [
             self.data_dir / "scraped_docs",  # Always allow scraped documents
             self.data_dir / "downloads",     # Always allow downloaded files (Archive Search)
             self.data_dir / "temp",          # Always allow temp files (Quick Add)
-            Path.cwd()  # Always allow current working directory
+            self.data_dir / "uploads",       # Always allow REST API uploads
         ]
+        if os.getenv('TDZ_ALLOW_CWD', '0') == '1':
+            default_allowed_dirs.append(Path.cwd())
+
+        # Resolve all default dirs the same way user-supplied dirs are
+        # resolved, so is_relative_to() can't be defeated by case/symlink
+        # differences between the two sets.
+        default_allowed_dirs = [d.resolve() for d in default_allowed_dirs]
 
         if allowed_dirs_env:
             # Add user-specified directories
@@ -646,6 +782,9 @@ class KnowledgeBase:
         self._extraction_worker.start()
         self.logger.info("Background entity extraction worker started")
 
+        # Pick up jobs a previously-killed process left behind.
+        self._recover_extraction_jobs()
+
         # Initialize anomaly detection
         self.anomaly_detector = None
         if ANOMALY_SUPPORT and os.getenv('USE_ANOMALY_DETECTION', '1') == '1':
@@ -659,19 +798,70 @@ class KnowledgeBase:
             if ANOMALY_SUPPORT:
                 self.logger.info("Anomaly detection disabled via USE_ANOMALY_DETECTION=0")
 
-    def _init_database(self):
-        """Initialize SQLite database and create schema if needed."""
-        # Connect to database with enable foreign keys
-        self.db_conn = sqlite3.connect(str(self.db_file), check_same_thread=False)
-        self.db_conn.execute("PRAGMA foreign_keys = ON")
+    @property
+    def db_conn(self) -> sqlite3.Connection:
+        """This thread's SQLite connection, opened on first use.
+
+        Exposed as a property (rather than a _conn() helper) so that the ~190
+        existing `self.db_conn.execute(...)` / `.cursor()` / `.commit()` call
+        sites - plus external consumers like rest_server/admin_gui/wiki_export
+        that read `kb.db_conn` - keep working unchanged while each thread
+        transparently gets its own transaction scope.
+        """
+        conn = getattr(self._thread_local, 'conn', None)
+        if conn is None:
+            conn = self._make_conn()
+            self._thread_local.conn = conn
+        return conn
+
+    def _make_conn(self) -> sqlite3.Connection:
+        """Open one new connection and apply the per-connection PRAGMAs.
+
+        `journal_mode = WAL` is deliberately not set here: it is a property of
+        the database *file*, applied once under the cross-process schema lock
+        in _init_database_locked. foreign_keys and busy_timeout are
+        per-connection settings and so must be re-applied to every thread's
+        connection.
+        """
+        conn = sqlite3.connect(str(self.db_file), check_same_thread=False)
+        conn.execute("PRAGMA foreign_keys = ON")
         # A lingering orphaned process (e.g. a prior session's server that
         # never exited) can hold the file lock indefinitely; without a
         # timeout, a second process blocks on it forever with no log output
         # instead of failing fast with a clear "database is locked" error.
-        self.db_conn.execute(f"PRAGMA busy_timeout = {int(os.getenv('TDZ_DB_BUSY_TIMEOUT_MS', '30000'))}")
+        conn.execute(f"PRAGMA busy_timeout = {int(os.getenv('TDZ_DB_BUSY_TIMEOUT_MS', '30000'))}")
+        with self._conns_lock:
+            self._all_conns.append(conn)
+        return conn
+
+    def _close_all_conns(self):
+        """Close every connection handed out by db_conn, from any thread.
+
+        check_same_thread=False is what makes this legal: the owning thread may
+        already be gone (a retired ThreadPoolExecutor worker) and would
+        otherwise leak its file handle for the life of the process.
+        """
+        with self._conns_lock:
+            conns, self._all_conns = self._all_conns, []
+        # Threads keep their conn in _thread_local; swapping the whole object
+        # out makes every thread - including ones already parked in the pool -
+        # lazily re-open instead of reusing a connection we just closed.
+        self._thread_local = threading.local()
+        for conn in conns:
+            try:
+                conn.close()
+            except Exception:
+                pass  # already closed, or its thread died mid-transaction
+
+    def _init_database(self):
+        """Initialize SQLite database and create schema if needed."""
+        # restore_backup() calls this again after replacing the .db file, so any
+        # connection still open against the old file must go; the db_conn
+        # property then re-opens per thread against the new one on next use.
+        self._close_all_conns()
 
         # Serialise WAL-mode activation and the check-then-create-or-migrate
-        # sequence across processes. sqlite3.connect() above creates the
+        # sequence across processes. sqlite3.connect() creates the
         # physical .db file immediately even with zero tables, so a
         # file-existence check is not a reliable signal of "has the schema
         # been created" when two processes start against the same brand-new
@@ -1806,6 +1996,106 @@ class KnowledgeBase:
         # Always run migrations for schema updates (regardless of db_exists)
         self._migrate_phase3_schema()
         self._migrate_mcp_log_schema()
+        self._migrate_figures_schema()
+
+    def _migrate_figures_schema(self):
+        """Create the figure-OCR tables and add extraction_jobs.job_type.
+
+        Figures live in their own table rather than being appended to the
+        document's chunks: a chunk edit is indistinguishable from original
+        document text once merged, so OCR output could never be re-run or
+        corrected without reingesting the whole document. Keeping them
+        separate also preserves the page/index provenance needed to say
+        "figure 2 on page 7".
+        """
+        cursor = self.db_conn.cursor()
+
+        # extraction_jobs predates having more than one kind of job.
+        cols = {row[1] for row in cursor.execute("PRAGMA table_info(extraction_jobs)")}
+        if cols and 'job_type' not in cols:
+            self.logger.info("Adding job_type column to extraction_jobs")
+            cursor.execute(
+                "ALTER TABLE extraction_jobs ADD COLUMN job_type TEXT NOT NULL DEFAULT 'entities'"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_extraction_jobs_type ON extraction_jobs(job_type)"
+            )
+            self.db_conn.commit()
+
+        if cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='document_figures'"
+        ).fetchone():
+            return
+
+        self.logger.info("Creating document_figures tables for figure OCR")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS document_figures (
+                figure_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id TEXT NOT NULL,
+                page_number INTEGER,
+                image_index INTEGER NOT NULL,
+                ocr_text TEXT,
+                char_count INTEGER DEFAULT 0,
+                image_path TEXT,
+                width INTEGER,
+                height INTEGER,
+                extracted_at TEXT NOT NULL,
+                UNIQUE(doc_id, page_number, image_index),
+                FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_figures_doc ON document_figures(doc_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_figures_page ON document_figures(doc_id, page_number)")
+
+        # Mirror the chunks_fts5 arrangement so figure text is searchable by
+        # the same FTS5 machinery, kept in sync by triggers rather than by
+        # every writer remembering to update two tables.
+        if self._fts5_available_raw():
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS figures_fts5 USING fts5(
+                    doc_id UNINDEXED,
+                    figure_id UNINDEXED,
+                    ocr_text,
+                    tokenize='porter unicode61'
+                )
+            """)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS figures_fts5_insert AFTER INSERT ON document_figures BEGIN
+                    INSERT INTO figures_fts5(rowid, doc_id, figure_id, ocr_text)
+                    VALUES (new.rowid, new.doc_id, new.figure_id, new.ocr_text);
+                END
+            """)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS figures_fts5_delete AFTER DELETE ON document_figures BEGIN
+                    DELETE FROM figures_fts5 WHERE rowid = old.rowid;
+                END
+            """)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS figures_fts5_update AFTER UPDATE ON document_figures BEGIN
+                    DELETE FROM figures_fts5 WHERE rowid = old.rowid;
+                    INSERT INTO figures_fts5(rowid, doc_id, figure_id, ocr_text)
+                    VALUES (new.rowid, new.doc_id, new.figure_id, new.ocr_text);
+                END
+            """)
+
+        self.db_conn.commit()
+        self.logger.info("document_figures tables created")
+
+    def _fts5_available_raw(self) -> bool:
+        """Whether this SQLite build has the FTS5 extension compiled in.
+
+        Distinct from _fts5_available(), which reports whether the chunk
+        index actually exists and is populated.
+        """
+        try:
+            self.db_conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_probe USING fts5(x)"
+            )
+            self.db_conn.execute("DROP TABLE IF EXISTS _fts5_probe")
+            return True
+        except sqlite3.OperationalError:
+            return False
 
     def _migrate_mcp_log_schema(self):
         """Create the MCP call log table if it doesn't exist yet."""
@@ -2753,6 +3043,343 @@ class KnowledgeBase:
         except Exception as e:
             self.logger.error(f"OCR extraction failed: {e}")
             raise RuntimeError(f"OCR extraction failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Figure OCR
+    #
+    # The ingest-time OCR path above only fires for PDFs detected as
+    # *entirely* scanned. A normal text PDF gets its text layer indexed and
+    # its embedded figures - memory maps, register tables, schematics, which
+    # in C64 documentation is often where the actual reference data lives -
+    # are never read at all. This pass extracts those images and OCRs each
+    # one, as a background batch over documents already in the KB.
+    # ------------------------------------------------------------------
+
+    # Below these dimensions an embedded image is almost always a rule,
+    # bullet, gradient or logo fragment - never a figure with readable text.
+    FIGURE_MIN_WIDTH = int(os.getenv('TDZ_FIGURE_MIN_WIDTH', '120'))
+    FIGURE_MIN_HEIGHT = int(os.getenv('TDZ_FIGURE_MIN_HEIGHT', '120'))
+    # OCR on a figure with no text returns whitespace/punctuation noise;
+    # storing those rows just dilutes search results.
+    FIGURE_MIN_CHARS = int(os.getenv('TDZ_FIGURE_MIN_CHARS', '12'))
+
+    def figure_ocr_available(self) -> tuple[bool, Optional[str]]:
+        """Whether figure OCR can run, and if not, why not."""
+        if not FIGURE_SUPPORT:
+            return False, "PyMuPDF (fitz) is not installed. Install with: pip install PyMuPDF"
+        if not OCR_SUPPORT:
+            return False, "pytesseract/Pillow are not installed. Install with: pip install pytesseract Pillow"
+        if not self.use_ocr:
+            return False, "OCR is disabled (USE_OCR=0) or Tesseract was not found on PATH"
+        return True, None
+
+    def extract_document_figures(self, doc_id: str, force: bool = False) -> dict:
+        """Extract and OCR every embedded figure in one PDF document.
+
+        Returns a summary dict; raises KnowledgeBaseError only for conditions
+        the caller can act on (unknown doc, OCR unavailable). Per-figure
+        failures are counted, not raised - one unreadable image must not
+        abandon the rest of the document.
+        """
+        ok, reason = self.figure_ocr_available()
+        if not ok:
+            raise KnowledgeBaseError(f"Figure OCR unavailable: {reason}")
+
+        doc = self.documents.get(doc_id)
+        if doc is None:
+            raise DocumentNotFoundError(f"Document not found: {doc_id}")
+
+        if (doc.file_type or '').lower() != 'pdf':
+            return {
+                'doc_id': doc_id, 'status': 'skipped',
+                'reason': f"not a PDF (file_type={doc.file_type!r})",
+                'figures_found': 0, 'figures_with_text': 0, 'figures_failed': 0,
+            }
+
+        if not doc.filepath or not os.path.exists(doc.filepath):
+            return {
+                'doc_id': doc_id, 'status': 'skipped',
+                'reason': f"source file is no longer on disk: {doc.filepath}",
+                'figures_found': 0, 'figures_with_text': 0, 'figures_failed': 0,
+            }
+
+        cursor = self.db_conn.cursor()
+        if not force:
+            already = cursor.execute(
+                "SELECT COUNT(*) FROM document_figures WHERE doc_id = ?", (doc_id,)
+            ).fetchone()[0]
+            if already:
+                return {
+                    'doc_id': doc_id, 'status': 'skipped',
+                    'reason': f"{already} figure(s) already extracted (pass force=True to redo)",
+                    'figures_found': already, 'figures_with_text': 0, 'figures_failed': 0,
+                }
+
+        import fitz
+        from PIL import Image
+
+        figures_dir = self.data_dir / "figures" / doc_id
+        figures_dir.mkdir(parents=True, exist_ok=True)
+
+        found = with_text = failed = skipped_small = 0
+        rows = []
+
+        pdf = fitz.open(doc.filepath)
+        try:
+            for page_number in range(pdf.page_count):
+                page = pdf[page_number]
+                for image_index, img in enumerate(page.get_images(full=True)):
+                    xref = img[0]
+                    try:
+                        pix = fitz.Pixmap(pdf, xref)
+
+                        if pix.width < self.FIGURE_MIN_WIDTH or pix.height < self.FIGURE_MIN_HEIGHT:
+                            skipped_small += 1
+                            continue
+
+                        # CMYK/alpha pixmaps can't be handed to PIL directly.
+                        if pix.n - pix.alpha >= 4 or pix.alpha:
+                            pix = fitz.Pixmap(fitz.csRGB, pix)
+
+                        found += 1
+                        image_path = figures_dir / f"p{page_number + 1:04d}_i{image_index:02d}.png"
+                        pix.save(str(image_path))
+
+                        text = ''
+                        try:
+                            with Image.open(image_path) as im:
+                                text = pytesseract.image_to_string(im) or ''
+                        except Exception as e:
+                            failed += 1
+                            self.logger.debug(f"OCR failed for {image_path.name}: {e}")
+
+                        text = text.strip()
+                        if len(text) < self.FIGURE_MIN_CHARS:
+                            # Keep the row (it records that we looked) but with
+                            # no text, so it never pollutes search results.
+                            text = ''
+                        else:
+                            with_text += 1
+
+                        rows.append((
+                            doc_id, page_number + 1, image_index, text or None, len(text),
+                            str(image_path), pix.width, pix.height,
+                            datetime.now(timezone.utc).isoformat(),
+                        ))
+                    except Exception as e:
+                        failed += 1
+                        self.logger.debug(
+                            f"Could not extract image {image_index} on page {page_number + 1} "
+                            f"of {doc_id}: {e}"
+                        )
+        finally:
+            pdf.close()
+
+        if force:
+            cursor.execute("DELETE FROM document_figures WHERE doc_id = ?", (doc_id,))
+        cursor.executemany("""
+            INSERT OR REPLACE INTO document_figures
+                (doc_id, page_number, image_index, ocr_text, char_count,
+                 image_path, width, height, extracted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, rows)
+        self.db_conn.commit()
+
+        self.logger.info(
+            f"Figure OCR for {doc_id}: {found} figure(s), {with_text} with text, "
+            f"{failed} failed, {skipped_small} too small"
+        )
+        return {
+            'doc_id': doc_id,
+            'status': 'completed',
+            'figures_found': found,
+            'figures_with_text': with_text,
+            'figures_failed': failed,
+            'figures_skipped_small': skipped_small,
+        }
+
+    def get_document_figures(self, doc_id: str, with_text_only: bool = False) -> list[dict]:
+        """Every extracted figure for a document, in page order."""
+        sql = """
+            SELECT figure_id, page_number, image_index, ocr_text, char_count,
+                   image_path, width, height, extracted_at
+            FROM document_figures WHERE doc_id = ?
+        """
+        if with_text_only:
+            sql += " AND ocr_text IS NOT NULL AND ocr_text != ''"
+        sql += " ORDER BY page_number, image_index"
+
+        return [
+            {
+                'figure_id': r[0], 'page_number': r[1], 'image_index': r[2],
+                'ocr_text': r[3], 'char_count': r[4], 'image_path': r[5],
+                'width': r[6], 'height': r[7], 'extracted_at': r[8],
+            }
+            for r in self.db_conn.execute(sql, (doc_id,)).fetchall()
+        ]
+
+    def search_figures(self, query: str, max_results: int = 10,
+                       doc_id: Optional[str] = None) -> list[dict]:
+        """Search OCR'd figure text. Uses FTS5 when present, else LIKE."""
+        results = []
+        use_fts = False
+        try:
+            use_fts = self.db_conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='figures_fts5'"
+            ).fetchone() is not None
+        except sqlite3.Error:
+            pass
+
+        if use_fts:
+            try:
+                sql = """
+                    SELECT f.figure_id, f.doc_id, f.page_number, f.image_index,
+                           f.ocr_text, f.image_path, bm25(figures_fts5) AS score
+                    FROM figures_fts5
+                    JOIN document_figures f ON f.figure_id = figures_fts5.figure_id
+                    WHERE figures_fts5 MATCH ?
+                """
+                params: list = [query]
+                if doc_id:
+                    sql += " AND f.doc_id = ?"
+                    params.append(doc_id)
+                sql += " ORDER BY score LIMIT ?"
+                params.append(max_results)
+                rows = self.db_conn.execute(sql, params).fetchall()
+            except sqlite3.OperationalError as e:
+                # A malformed FTS5 query (unbalanced quote, bare operator) is
+                # a user-input problem, not a reason to return nothing.
+                self.logger.debug(f"FTS5 figure search failed, falling back to LIKE: {e}")
+                use_fts = False
+                rows = []
+        if not use_fts:
+            sql = """
+                SELECT figure_id, doc_id, page_number, image_index,
+                       ocr_text, image_path, 0.0 AS score
+                FROM document_figures
+                WHERE ocr_text LIKE ?
+            """
+            params = [f"%{query}%"]
+            if doc_id:
+                sql += " AND doc_id = ?"
+                params.append(doc_id)
+            sql += " ORDER BY char_count DESC LIMIT ?"
+            params.append(max_results)
+            rows = self.db_conn.execute(sql, params).fetchall()
+
+        for r in rows:
+            figure_doc = self.documents.get(r[1])
+            results.append({
+                'figure_id': r[0],
+                'doc_id': r[1],
+                'doc_title': figure_doc.title if figure_doc else None,
+                'page_number': r[2],
+                'image_index': r[3],
+                'snippet': self._extract_snippet(r[4] or '', query),
+                'image_path': r[5],
+                'score': round(r[6], 4) if r[6] else 0.0,
+            })
+        return results
+
+    def get_figure_ocr_coverage(self) -> dict:
+        """How much of the PDF corpus has been through figure OCR."""
+        cursor = self.db_conn.cursor()
+        pdf_ids = [d.doc_id for d in self.documents.values()
+                   if (d.file_type or '').lower() == 'pdf']
+
+        processed = cursor.execute(
+            "SELECT COUNT(DISTINCT doc_id) FROM document_figures"
+        ).fetchone()[0]
+        figures, with_text = cursor.execute(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN ocr_text IS NOT NULL AND ocr_text != '' "
+            "THEN 1 ELSE 0 END), 0) FROM document_figures"
+        ).fetchone()
+
+        pending = cursor.execute(
+            "SELECT COUNT(*) FROM extraction_jobs WHERE job_type = 'figures' "
+            "AND status IN ('queued', 'running')"
+        ).fetchone()[0]
+
+        return {
+            'pdf_documents': len(pdf_ids),
+            'documents_processed': processed,
+            'documents_remaining': max(0, len(pdf_ids) - processed),
+            'figures_extracted': figures,
+            'figures_with_text': with_text,
+            'jobs_pending': pending,
+            'available': self.figure_ocr_available()[0],
+            'unavailable_reason': self.figure_ocr_available()[1],
+        }
+
+    def queue_figure_ocr(self, doc_id: str, skip_if_exists: bool = True) -> dict:
+        """Queue one document for background figure OCR."""
+        if doc_id not in self.documents:
+            raise ValueError(f"Document not found: {doc_id}")
+
+        cursor = self.db_conn.cursor()
+        if skip_if_exists:
+            existing = cursor.execute(
+                "SELECT COUNT(*) FROM document_figures WHERE doc_id = ?", (doc_id,)
+            ).fetchone()[0]
+            if existing:
+                return {'queued': False, 'reason': f"already has {existing} extracted figure(s)"}
+
+            pending = cursor.execute(
+                "SELECT job_id FROM extraction_jobs WHERE doc_id = ? AND job_type = 'figures' "
+                "AND status IN ('queued', 'running') ORDER BY queued_at DESC LIMIT 1",
+                (doc_id,)
+            ).fetchone()
+            if pending:
+                return {'queued': False, 'reason': 'figure OCR already pending',
+                        'existing_job_id': pending[0]}
+
+        cursor.execute("""
+            INSERT INTO extraction_jobs (doc_id, status, confidence_threshold, queued_at, job_type)
+            VALUES (?, 'queued', 0.0, ?, 'figures')
+        """, (doc_id, datetime.now(timezone.utc).isoformat()))
+        self.db_conn.commit()
+        job_id = cursor.lastrowid
+
+        self._extraction_queue.put({
+            'job_id': job_id, 'doc_id': doc_id,
+            'confidence_threshold': 0.0, 'job_type': 'figures',
+        })
+        self.logger.info(f"Queued figure OCR job {job_id} for document {doc_id}")
+        return {'queued': True, 'job_id': job_id}
+
+    def queue_figure_ocr_all(self, limit: Optional[int] = None,
+                             skip_if_exists: bool = True) -> dict:
+        """Queue every PDF in the knowledge base for background figure OCR."""
+        ok, reason = self.figure_ocr_available()
+        if not ok:
+            raise KnowledgeBaseError(f"Figure OCR unavailable: {reason}")
+
+        pdf_docs = [d for d in self.documents.values()
+                    if (d.file_type or '').lower() == 'pdf']
+        pdf_docs.sort(key=lambda d: d.doc_id)
+
+        queued, skipped = [], []
+        for doc in pdf_docs:
+            if limit is not None and len(queued) >= limit:
+                break
+            try:
+                result = self.queue_figure_ocr(doc.doc_id, skip_if_exists=skip_if_exists)
+            except Exception as e:
+                skipped.append({'doc_id': doc.doc_id, 'reason': str(e)})
+                continue
+            if result.get('queued'):
+                queued.append({'doc_id': doc.doc_id, 'job_id': result['job_id']})
+            else:
+                skipped.append({'doc_id': doc.doc_id, 'reason': result.get('reason', '')})
+
+        self.logger.info(f"Figure OCR batch: queued {len(queued)}, skipped {len(skipped)}")
+        return {
+            'pdf_documents': len(pdf_docs),
+            'queued': len(queued),
+            'skipped': len(skipped),
+            'jobs': queued,
+            'skipped_details': skipped[:20],
+        }
 
     def _check_poppler_available(self) -> bool:
         """Check if poppler is available for pdf2image.
@@ -4302,11 +4929,11 @@ class KnowledgeBase:
             List of frame source URLs (relative URLs converted to absolute)
         """
         import re
-        import requests
+        import requests  # for the exception types in the handlers below
 
         try:
             # Fetch the HTML content with longer timeout
-            response = requests.get(url, timeout=30)
+            response = http_get_polite(url, timeout=30)
             response.raise_for_status()
             html_content = response.text
 
@@ -4348,7 +4975,7 @@ class KnowledgeBase:
     def scrape_url(self, url: str, title: Optional[str] = None, tags: Optional[list[str]] = None,
                    follow_links: bool = True, same_domain_only: bool = True,
                    max_pages: int = 50, depth: int = 3, limit: Optional[str] = None,
-                   threads: int = 10, delay: int = 100, selector: Optional[str] = None,
+                   threads: int = 3, delay: int = 500, selector: Optional[str] = None,
                    progress_callback: ProgressCallback = None) -> dict:
         """Scrape a URL using mdscrape and add resulting documents to knowledge base.
 
@@ -4363,8 +4990,9 @@ class KnowledgeBase:
             max_pages: Maximum number of pages to scrape (default: 50)
             depth: Maximum crawl depth - how many link levels to follow (default: 3)
             limit: Advanced: Limit scraping to URLs with this prefix (overrides same_domain_only)
-            threads: Number of concurrent threads (default: 10)
-            delay: Delay between requests in ms (default: 100)
+            threads: Number of concurrent threads (default: 3 - these sources are
+                small volunteer-run sites; a high thread count invites a ban)
+            delay: Delay between requests in ms (default: 500)
             selector: CSS selector for main content (optional)
             progress_callback: Optional callback for progress updates
 
@@ -4431,6 +5059,23 @@ class KnowledgeBase:
             # Don't follow any links - just scrape the single page
             depth = 1
             self.logger.info("follow_links=False: Scraping single page only (depth=1)")
+
+        # 3a-bis. Respect robots.txt before touching the site at all.
+        if not robots_allows(url):
+            self.logger.warning(f"robots.txt disallows scraping {url}")
+            return {
+                'status': 'failed',
+                'url': url,
+                'files_scraped': 0,
+                'docs_added': 0,
+                'docs_updated': 0,
+                'docs_failed': 0,
+                'error': (
+                    "robots.txt on this host disallows fetching this URL. "
+                    "Set TDZ_RESPECT_ROBOTS=0 to override if you have permission "
+                    "(e.g. your own mirror)."
+                ),
+            }
 
         # 3b. Detect and handle HTML frames
         frame_urls = self._detect_and_extract_frames(url)
@@ -4522,7 +5167,10 @@ class KnowledgeBase:
             '--output', str(output_dir),
             '--depth', str(depth),
             '--threads', str(threads),
-            '--delay', str(delay)
+            '--delay', str(delay),
+            # mdscrape otherwise announces itself as the generic "mdscrape/1.0",
+            # which tells a site operator nothing about who is crawling them.
+            '--user-agent', USER_AGENT,
         ]
 
         if limit:
@@ -5041,12 +5689,17 @@ class KnowledgeBase:
                     break
 
                 visited.add(url)
+
+                if not robots_allows(url):
+                    self.logger.info(f"robots.txt disallows, skipping: {url}")
+                    continue
+
                 total_fetched += 1
 
                 try:
                     # Fetch page with timeout
                     self.logger.debug(f"Fetching: {url}")
-                    response = requests.get(url, timeout=15, allow_redirects=True)
+                    response = http_get_polite(url, timeout=15)
 
                     if response.status_code != 200:
                         self.logger.debug(f"Non-200 status ({response.status_code}): {url}")
@@ -5209,7 +5862,10 @@ class KnowledgeBase:
                     import requests
 
                     # Try HEAD request first (faster)
-                    response = requests.head(doc.source_url, timeout=10, allow_redirects=True)
+                    response = requests.head(
+                        doc.source_url, timeout=10, allow_redirects=True,
+                        headers=http_headers(),
+                    )
 
                     # Update last_checked timestamp
                     with self._lock:
@@ -7330,66 +7986,167 @@ Important:
                 except queue.Empty:
                     continue
 
-                doc_id = job['doc_id']
-                job_id = job['job_id']
-                confidence_threshold = job['confidence_threshold']
-
-                self.logger.info(f"Processing extraction job {job_id} for document {doc_id}")
-
-                # Update job status to 'running'
-                cursor = self.db_conn.cursor()
-                cursor.execute("""
-                    UPDATE extraction_jobs
-                    SET status = 'running', started_at = ?
-                    WHERE job_id = ?
-                """, (datetime.now(timezone.utc).isoformat(), job_id))
-                self.db_conn.commit()
-
+                # task_done() must run on every path out of here. It used to
+                # sit after the work, so a failure *before* the inner
+                # try/except - the status='running' UPDATE hitting a locked
+                # DB, say - skipped it, and any later queue.join() then
+                # waited forever on a job nothing would retry.
                 try:
-                    # Extract entities (this calls the existing method)
-                    result = self.extract_entities(
-                        doc_id=doc_id,
-                        confidence_threshold=confidence_threshold,
-                        force_regenerate=False
-                    )
-
-                    # Update job status to 'completed'
-                    cursor.execute("""
-                        UPDATE extraction_jobs
-                        SET status = 'completed',
-                            completed_at = ?,
-                            entities_extracted = ?
-                        WHERE job_id = ?
-                    """, (
-                        datetime.now(timezone.utc).isoformat(),
-                        result.get('entity_count', 0),
-                        job_id
-                    ))
-                    self.db_conn.commit()
-
-                    self.logger.info(f"Completed extraction job {job_id}: {result.get('entity_count', 0)} entities extracted")
-
+                    self._process_extraction_job(job)
                 except Exception as e:
-                    # Update job status to 'failed'
-                    error_msg = str(e)
-                    self.logger.error(f"Extraction job {job_id} failed: {error_msg}")
-
-                    cursor.execute("""
-                        UPDATE extraction_jobs
-                        SET status = 'failed',
-                            completed_at = ?,
-                            error_message = ?
-                        WHERE job_id = ?
-                    """, (datetime.now(timezone.utc).isoformat(), error_msg, job_id))
-                    self.db_conn.commit()
-
-                # Mark job as done in the queue
-                self._extraction_queue.task_done()
+                    self.logger.error(
+                        f"Extraction job {job.get('job_id')} aborted: {e}", exc_info=True
+                    )
+                finally:
+                    self._extraction_queue.task_done()
 
             except Exception as e:
-                self.logger.error(f"Error in extraction worker loop: {e}")
+                self.logger.error(f"Error in extraction worker loop: {e}", exc_info=True)
 
         self.logger.info("Entity extraction worker stopped")
+
+    def _process_extraction_job(self, job: dict):
+        """Run one queued job and record its outcome in extraction_jobs.
+
+        Handles both job types the queue carries: 'entities' (LLM/regex entity
+        extraction) and 'figures' (OCR of embedded PDF images).
+        """
+        doc_id = job['doc_id']
+        job_id = job['job_id']
+        confidence_threshold = job['confidence_threshold']
+        job_type = job.get('job_type', 'entities')
+
+        cursor = self.db_conn.cursor()
+
+        # Claim the job atomically. Every Claude Code session runs its own
+        # server process against this shared database, so startup recovery
+        # (see _recover_extraction_jobs) can re-enqueue the same 'queued' row
+        # in several of them at once; the WHERE status='queued' guard makes
+        # exactly one process win the claim instead of both doing the work.
+        cursor.execute("""
+            UPDATE extraction_jobs
+            SET status = 'running', started_at = ?
+            WHERE job_id = ? AND status = 'queued'
+        """, (datetime.now(timezone.utc).isoformat(), job_id))
+        self.db_conn.commit()
+        if cursor.rowcount == 0:
+            self.logger.debug(f"Extraction job {job_id} already claimed elsewhere; skipping")
+            return
+
+        self.logger.info(f"Processing {job_type} job {job_id} for document {doc_id}")
+
+        try:
+            if job_type == 'figures':
+                result = self.extract_document_figures(doc_id)
+                # entities_extracted doubles as this job type's unit count -
+                # figures whose OCR actually yielded text.
+                produced = result.get('figures_with_text', 0)
+                summary = (
+                    f"{result.get('figures_found', 0)} figure(s), "
+                    f"{produced} with text"
+                )
+            else:
+                result = self.extract_entities(
+                    doc_id=doc_id,
+                    confidence_threshold=confidence_threshold,
+                    force_regenerate=False
+                )
+                produced = result.get('entity_count', 0)
+                summary = f"{produced} entities extracted"
+
+            cursor.execute("""
+                UPDATE extraction_jobs
+                SET status = 'completed',
+                    completed_at = ?,
+                    entities_extracted = ?
+                WHERE job_id = ?
+            """, (
+                datetime.now(timezone.utc).isoformat(),
+                produced,
+                job_id
+            ))
+            self.db_conn.commit()
+
+            self.logger.info(f"Completed {job_type} job {job_id}: {summary}")
+
+        except Exception as e:
+            error_msg = str(e)
+            self.logger.error(f"Extraction job {job_id} failed: {error_msg}")
+
+            cursor.execute("""
+                UPDATE extraction_jobs
+                SET status = 'failed',
+                    completed_at = ?,
+                    error_message = ?
+                WHERE job_id = ?
+            """, (datetime.now(timezone.utc).isoformat(), error_msg, job_id))
+            self.db_conn.commit()
+
+    def _recover_extraction_jobs(self):
+        """Re-queue extraction jobs orphaned by a process that exited mid-flight.
+
+        extraction_jobs rows outlive the in-memory queue that drives them, so
+        a 'queued' row whose process died was never retried by anyone - it sat
+        at 'queued' forever while get_extraction_status kept reporting it as
+        pending work that would never actually happen.
+        """
+        if os.getenv('TDZ_RECOVER_EXTRACTION_JOBS', '1') != '1':
+            return
+
+        stale_minutes = int(os.getenv('TDZ_EXTRACTION_STALE_MINUTES', '60'))
+        limit = int(os.getenv('TDZ_EXTRACTION_RECOVER_LIMIT', '100'))
+
+        try:
+            cursor = self.db_conn.cursor()
+            now = datetime.now(timezone.utc)
+
+            # A 'running' row can legitimately belong to a live sibling
+            # process, so only reap ones old enough that no plausible
+            # extraction could still be working on them.
+            cutoff = (now - timedelta(minutes=stale_minutes)).isoformat()
+            cursor.execute("""
+                UPDATE extraction_jobs
+                SET status = 'failed', completed_at = ?, error_message = ?
+                WHERE status = 'running' AND (started_at IS NULL OR started_at < ?)
+            """, (
+                now.isoformat(),
+                f"Interrupted: no progress for over {stale_minutes} minutes (process likely exited)",
+                cutoff,
+            ))
+            reaped = cursor.rowcount
+            self.db_conn.commit()
+
+            # Bounded: a data dir with a large backlog of stale 'queued' rows
+            # would otherwise kick off that entire backlog (potentially paid
+            # LLM calls) on every single session start.
+            cursor.execute("""
+                SELECT job_id, doc_id, confidence_threshold,
+                       COALESCE(job_type, 'entities')
+                FROM extraction_jobs
+                WHERE status = 'queued' ORDER BY queued_at LIMIT ?
+            """, (limit,))
+
+            requeued = 0
+            for job_id, doc_id, confidence_threshold, job_type in cursor.fetchall():
+                if doc_id not in self.documents:
+                    continue  # document is gone; the FK cascade clears the row
+                self._extraction_queue.put({
+                    'job_id': job_id,
+                    'doc_id': doc_id,
+                    'confidence_threshold': confidence_threshold,
+                    'job_type': job_type,
+                })
+                requeued += 1
+
+            if reaped or requeued:
+                self.logger.info(
+                    f"Extraction job recovery: re-queued {requeued}, "
+                    f"marked {reaped} stale 'running' job(s) failed"
+                )
+        except Exception as e:
+            # Never block startup on recovery - the server is fully usable
+            # without it.
+            self.logger.warning(f"Extraction job recovery skipped: {e}")
 
     def queue_entity_extraction(self, doc_id: str,
                                 confidence_threshold: float = 0.6,
@@ -7426,10 +8183,13 @@ Important:
                     'existing_entities': existing_count
                 }
 
-            # Check if job already queued or running
+            # Check if job already queued or running. Scoped to entity jobs:
+            # the same table now also holds 'figures' jobs, and a pending
+            # figure OCR must not look like pending entity extraction.
             cursor.execute("""
                 SELECT job_id, status FROM extraction_jobs
                 WHERE doc_id = ? AND status IN ('queued', 'running')
+                  AND COALESCE(job_type, 'entities') = 'entities'
                 ORDER BY queued_at DESC
                 LIMIT 1
             """, (doc_id,))
@@ -7455,7 +8215,8 @@ Important:
         self._extraction_queue.put({
             'job_id': job_id,
             'doc_id': doc_id,
-            'confidence_threshold': confidence_threshold
+            'confidence_threshold': confidence_threshold,
+            'job_type': 'entities',
         })
 
         self.logger.info(f"Queued entity extraction job {job_id} for document {doc_id}")
@@ -7485,10 +8246,13 @@ Important:
         cursor.execute("SELECT COUNT(*) FROM document_entities WHERE doc_id = ?", (doc_id,))
         entity_count = cursor.fetchone()[0]
 
-        # Get extraction jobs for this document
+        # Get extraction jobs for this document. job_type is surfaced because
+        # this table now carries figure-OCR jobs too, and a caller seeing a
+        # bare 'running' row would otherwise assume it was entity work.
         cursor.execute("""
             SELECT job_id, status, confidence_threshold, queued_at,
-                   started_at, completed_at, error_message, entities_extracted
+                   started_at, completed_at, error_message, entities_extracted,
+                   COALESCE(job_type, 'entities')
             FROM extraction_jobs
             WHERE doc_id = ?
             ORDER BY queued_at DESC
@@ -7504,7 +8268,8 @@ Important:
                 'started_at': row[4],
                 'completed_at': row[5],
                 'error_message': row[6],
-                'entities_extracted': row[7]
+                'entities_extracted': row[7],
+                'job_type': row[8]
             })
 
         return {
@@ -11994,28 +12759,34 @@ Important:
             >>> cache_id = kb._cache_graph(G)
             >>> print(f"Cached as: {cache_id}")
         """
-        import pickle
         import hashlib
+        import networkx as nx
         from datetime import datetime
 
         # Generate cache ID from graph properties and timestamp
         cache_str = f"{G.number_of_nodes()}_{G.number_of_edges()}_{datetime.now().isoformat()}"
         cache_id = hashlib.sha256(cache_str.encode()).hexdigest()[:16]
 
-        # Serialize graph
+        # Serialize graph as JSON (node_link_data), not pickle. graph_cache
+        # is a shared SQLite file that outlives this process (copied via
+        # create_backup/restore_from_backup) - unpickling arbitrary bytes
+        # from it would be remote-code-execution-by-file-tamper. JSON has no
+        # such risk and networkx graphs round-trip through it losslessly.
         try:
-            graph_data = pickle.dumps(G)
+            graph_data = json.dumps(nx.node_link_data(G)).encode('utf-8')
         except Exception as e:
-            self.logger.error(f"Failed to pickle graph: {e}")
+            self.logger.error(f"Failed to serialize graph: {e}")
             raise
 
-        # Store to database
+        # Store to database (graph_version=2 marks the JSON format; version 1
+        # rows, if any remain from before this change, are pickle and are
+        # treated as a cache miss on load rather than deserialized).
         cursor = self.db_conn.cursor()
         cursor.execute("""
             INSERT INTO graph_cache
             (cache_id, graph_version, graph_data, node_count, edge_count, created_date)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (cache_id, 1, graph_data, G.number_of_nodes(),
+        """, (cache_id, 2, graph_data, G.number_of_nodes(),
               G.number_of_edges(), datetime.now().isoformat()))
 
         self.db_conn.commit()
@@ -12038,16 +12809,27 @@ Important:
             >>> if G:
             >>>     print(f"Loaded: {G.number_of_nodes()} nodes")
         """
-        import pickle
+        import networkx as nx
         from datetime import datetime
 
         cursor = self.db_conn.cursor()
         row = cursor.execute("""
-            SELECT graph_data FROM graph_cache WHERE cache_id = ?
+            SELECT graph_data, graph_version FROM graph_cache WHERE cache_id = ?
         """, (cache_id,)).fetchone()
 
         if not row:
             self.logger.debug(f"Cache miss: {cache_id}")
+            return None
+
+        graph_data, graph_version = row
+        if graph_version != 2:
+            # Pre-existing pickle-format row (graph_version=1) from before
+            # the JSON migration - do not unpickle untrusted bytes from a
+            # shared database file. Drop it and treat as a miss so the
+            # caller rebuilds and re-caches in the current format.
+            self.logger.info(f"Discarding legacy pickle graph cache entry: {cache_id}")
+            cursor.execute("DELETE FROM graph_cache WHERE cache_id = ?", (cache_id,))
+            self.db_conn.commit()
             return None
 
         # Update last accessed timestamp
@@ -12058,11 +12840,11 @@ Important:
 
         # Deserialize graph
         try:
-            G = pickle.loads(row[0])
+            G = nx.node_link_graph(json.loads(graph_data.decode('utf-8')))
             self.logger.debug(f"Cache hit: {cache_id} ({G.number_of_nodes()} nodes, {G.number_of_edges()} edges)")
             return G
         except Exception as e:
-            self.logger.error(f"Failed to unpickle graph {cache_id}: {e}")
+            self.logger.error(f"Failed to deserialize graph {cache_id}: {e}")
             return None
 
     def analyze_pagerank(self, G: 'nx.Graph', alpha: float = 0.85,
@@ -17343,13 +18125,30 @@ Return ONLY valid JSON, no additional text.
             health['features']['fts5_enabled'] = os.environ.get('USE_FTS5', '0') == '1'
             health['features']['fts5_available'] = self._fts5_available()
             health['features']['semantic_search_enabled'] = self.use_semantic
-            # Check if embeddings are loaded OR if embeddings files exist (lazy loading)
-            health['features']['semantic_search_available'] = (
+            # Check if embeddings are loaded OR if embeddings files exist (lazy loading).
+            # self.embeddings_file/embeddings_map_file only exist as attributes when
+            # use_semantic is True (see __init__) - and USE_SEMANTIC_SEARCH defaults
+            # to off, so this raised AttributeError on every default-config health
+            # check before the use_semantic guard was added here.
+            health['features']['semantic_search_available'] = self.use_semantic and (
                 self.embeddings_index is not None or
                 (self.embeddings_file.exists() and self.embeddings_map_file.exists())
             )
             health['features']['bm25_enabled'] = os.environ.get('USE_BM25', '1') == '1'
             health['features']['query_preprocessing'] = os.environ.get('USE_QUERY_PREPROCESSING', '1') == '1'
+
+            # Background extraction worker: queued jobs are only ever drained
+            # by this thread, so if it has died every queue_entity_extraction
+            # call silently accumulates work that will never run.
+            worker = getattr(self, '_extraction_worker', None)
+            worker_alive = bool(worker and worker.is_alive())
+            health['features']['extraction_worker_alive'] = worker_alive
+            health['features']['extraction_queue_depth'] = self._extraction_queue.qsize()
+            if not worker_alive:
+                health['issues'].append(
+                    "Entity extraction worker is not running - queued extraction jobs will not be processed"
+                )
+                health['status'] = 'warning'
 
             # Check FTS5 index if enabled
             if health['features']['fts5_enabled']:
@@ -17980,10 +18779,9 @@ Return ONLY valid JSON, no additional text.
                 else:
                     self.logger.info("Entity extraction worker shutdown complete")
 
-        # Close database connection
-        if self.db_conn:
-            self.db_conn.close()
-            self.logger.info("Database connection closed")
+        # Close every per-thread database connection (see the db_conn property)
+        self._close_all_conns()
+        self.logger.info("Database connections closed")
 
 
 # Initialize the MCP server
@@ -17991,7 +18789,26 @@ server = Server("tdz-c64-knowledge")
 
 # Get data directory from environment or use default
 DATA_DIR = os.environ.get("TDZ_DATA_DIR", os.path.expanduser("~/.tdz-c64-knowledge"))
-kb = KnowledgeBase(DATA_DIR)
+
+# The KnowledgeBase is NOT constructed here at module level. Every consumer
+# that only wants the class (rest_server.py, admin_gui.py, cli.py,
+# wiki_export.py, the test suite) does `from server import KnowledgeBase` /
+# `import server`, which executes this entire module regardless of which
+# name it asks for - so a module-level `kb = KnowledgeBase(DATA_DIR)` here
+# used to build a full KnowledgeBase (DB connection, background extraction
+# worker thread, document load) as a side effect of every one of those
+# imports, in addition to whatever instance the consumer then built for
+# itself. get_kb() defers that cost to the one process that actually acts as
+# the MCP server, via main() below.
+kb: Optional['KnowledgeBase'] = None
+
+
+def get_kb() -> 'KnowledgeBase':
+    """Return the process-wide KnowledgeBase, constructing it on first call."""
+    global kb
+    if kb is None:
+        kb = KnowledgeBase(DATA_DIR)
+    return kb
 
 
 @server.list_tools()
@@ -18215,15 +19032,15 @@ async def list_tools() -> list[Tool]:
                     },
                     "threads": {
                         "type": "integer",
-                        "description": "Number of concurrent download threads (default: 10)",
-                        "default": 10,
+                        "description": "Number of concurrent download threads (default: 3 - keep this low, these sources are small volunteer-run sites)",
+                        "default": 3,
                         "minimum": 1,
                         "maximum": 20
                     },
                     "delay": {
                         "type": "integer",
-                        "description": "Delay between requests in milliseconds (default: 100)",
-                        "default": 100,
+                        "description": "Delay between requests in milliseconds (default: 500)",
+                        "default": 500,
                         "minimum": 0,
                         "maximum": 5000
                     },
@@ -19410,6 +20227,97 @@ async def list_tools() -> list[Tool]:
             }
         ),
         # ============================================================
+        # Figure OCR Tools
+        # ============================================================
+        Tool(
+            name="batch_ocr_figures",
+            description="Queue every PDF in the knowledge base for background figure OCR. Extracts embedded images (diagrams, memory maps, register tables, schematics) from each PDF and OCRs them into searchable text. Runs in the background - returns immediately with the jobs queued. Ingest-time OCR only covers fully-scanned PDFs, so this is what makes figures inside normal text PDFs searchable. Use figure_ocr_status to monitor progress and search_figures to query the results.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum number of documents to queue this call (default: all PDFs)",
+                        "minimum": 1
+                    },
+                    "reprocess": {
+                        "type": "boolean",
+                        "description": "Re-OCR documents that already have extracted figures (default: false)",
+                        "default": False
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="ocr_document_figures",
+            description="Queue a single document for background figure OCR. Use batch_ocr_figures to do the whole knowledge base instead.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID (must be a PDF)"
+                    },
+                    "reprocess": {
+                        "type": "boolean",
+                        "description": "Re-OCR even if figures were already extracted (default: false)",
+                        "default": False
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        Tool(
+            name="figure_ocr_status",
+            description="Report figure-OCR coverage across the knowledge base: how many PDFs have been processed, how many figures were extracted, how many yielded text, and how many jobs are still pending. Also reports whether figure OCR is available at all (needs PyMuPDF, Tesseract and USE_OCR=1).",
+            inputSchema={"type": "object", "properties": {}, "required": []}
+        ),
+        Tool(
+            name="search_figures",
+            description="Search text that was OCR'd out of document figures. Finds content that lives only inside images - memory-map diagrams, register tables, pinout drawings, schematics - which plain document search cannot reach. Returns the document, page number and figure index for each hit.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (keywords or phrases)"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 10)",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 100
+                    },
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Restrict the search to one document (optional)"
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
+            name="get_document_figures",
+            description="List every figure extracted from one document, in page order, with its OCR text and the path to the extracted image file.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID"
+                    },
+                    "with_text_only": {
+                        "type": "boolean",
+                        "description": "Only return figures whose OCR produced text (default: false)",
+                        "default": False
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        ),
+        # ============================================================
         # Knowledge Graph Tools (v2.24.0 - Phase 1, Task 1.4)
         # ============================================================
         Tool(
@@ -20172,8 +21080,13 @@ async def list_tools() -> list[Tool]:
     ]
 
 
-async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
-    """Handle tool calls (implementation - wrapped by call_tool() below for timing/logging)."""
+def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
+    """Handle tool calls (implementation - wrapped by call_tool() below for timing/logging).
+
+    Deliberately synchronous: call_tool() runs this whole dispatch on a worker
+    thread via asyncio.to_thread, so nothing in here may block the event loop
+    and nothing in here may await.
+    """
 
     if name == "search_docs":
         query = arguments.get("query", "")
@@ -20597,8 +21510,8 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
         max_pages = arguments.get("max_pages", 50)
         depth = arguments.get("depth", 3)
         limit = arguments.get("limit")
-        threads = arguments.get("threads", 10)
-        delay = arguments.get("delay", 100)
+        threads = arguments.get("threads", 3)
+        delay = arguments.get("delay", 500)
         selector = arguments.get("selector")
 
         try:
@@ -21066,19 +21979,16 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
         skip_duplicates = arguments.get("skip_duplicates", True)
 
         try:
-            # add_documents_bulk is a synchronous method that itself uses a
-            # ThreadPoolExecutor internally, but its driving loop
-            # (`for future in as_completed(...)`) is a plain blocking call.
-            # Calling it directly here - as opposed to via to_thread - ran
-            # that blocking loop on the asyncio event loop thread itself,
-            # so every other request on this MCP session (even a trivial
-            # read-only kb_stats call) queued behind the entire batch and
-            # could hang for as long as the whole bulk operation took (see
-            # issue #13). Running it in a worker thread frees the event loop
-            # to keep servicing other requests concurrently.
-            results = await asyncio.to_thread(
-                kb.add_documents_bulk, directory, pattern, tags, recursive, skip_duplicates
-            )
+            # add_documents_bulk's driving loop (`for future in
+            # as_completed(...)`) is a plain blocking call. Running it on the
+            # asyncio event loop thread made every other request on this MCP
+            # session (even a trivial read-only kb_stats call) queue behind the
+            # entire batch, hanging the session for as long as the whole bulk
+            # operation took (issue #13). The per-tool asyncio.to_thread that
+            # first fixed that is gone: this entire dispatch now runs on a
+            # worker thread (see call_tool), so a direct call is already
+            # off-loop.
+            results = kb.add_documents_bulk(directory, pattern, tags, recursive, skip_duplicates)
         except Exception as e:
             return [TextContent(type="text", text=f"Error in bulk add: {str(e)}")]
 
@@ -21087,7 +21997,11 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
         if results['added']:
             output += f"✓ {len(results['added'])} documents added:\n"
             for doc in results['added']:
-                output += f"  - {doc['title']} ({doc['filename']})\n"
+                # add_documents_bulk's returned dicts carry 'filepath', not
+                # 'filename' - unlike search results and other tool outputs
+                # in this dispatch. Every real (non-duplicate) call to this
+                # tool raised KeyError here before this fix.
+                output += f"  - {doc['title']} ({os.path.basename(doc['filepath'])})\n"
                 output += f"    ID: {doc['doc_id']}, Chunks: {doc['chunks']}\n"
             output += "\n"
 
@@ -22233,6 +23147,138 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
 
         except Exception as e:
             return [TextContent(type="text", text=f"Error getting extraction jobs: {str(e)}")]
+
+    # ============================================================
+    # Figure OCR Tool Handlers
+    # ============================================================
+
+    elif name == "batch_ocr_figures":
+        limit = arguments.get("limit")
+        reprocess = arguments.get("reprocess", False)
+
+        try:
+            result = kb.queue_figure_ocr_all(limit=limit, skip_if_exists=not reprocess)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error queueing figure OCR: {str(e)}")]
+
+        output = "**Batch Figure OCR Queued**\n\n"
+        output += f"- PDF documents in knowledge base: {result['pdf_documents']}\n"
+        output += f"- Queued for OCR: {result['queued']}\n"
+        output += f"- Skipped: {result['skipped']}\n\n"
+
+        if result['queued']:
+            output += (
+                "Work runs in the background - this call does not wait for it. "
+                "Use `figure_ocr_status` to watch progress and `search_figures` "
+                "to query the results.\n"
+            )
+        if result['skipped_details']:
+            output += f"\n**Skipped (first {len(result['skipped_details'])}):**\n"
+            for item in result['skipped_details']:
+                output += f"- {item['doc_id']}: {item['reason']}\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "ocr_document_figures":
+        doc_id = arguments.get("doc_id")
+        reprocess = arguments.get("reprocess", False)
+
+        try:
+            result = kb.queue_figure_ocr(doc_id, skip_if_exists=not reprocess)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error queueing figure OCR: {str(e)}")]
+
+        if result.get('queued'):
+            return [TextContent(type="text", text=(
+                f"Queued figure OCR for {doc_id} (job {result['job_id']}).\n"
+                "Runs in the background - check `figure_ocr_status` for progress."
+            ))]
+        return [TextContent(type="text", text=(
+            f"Not queued for {doc_id}: {result.get('reason', 'unknown reason')}"
+        ))]
+
+    elif name == "figure_ocr_status":
+        try:
+            stats = kb.get_figure_ocr_coverage()
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting figure OCR status: {str(e)}")]
+
+        output = "**Figure OCR Status**\n\n"
+        if not stats['available']:
+            output += f"[UNAVAILABLE] {stats['unavailable_reason']}\n\n"
+
+        output += f"- PDF documents: {stats['pdf_documents']}\n"
+        output += f"- Documents processed: {stats['documents_processed']}\n"
+        output += f"- Documents remaining: {stats['documents_remaining']}\n"
+        output += f"- Figures extracted: {stats['figures_extracted']}\n"
+        output += f"- Figures containing text: {stats['figures_with_text']}\n"
+        output += f"- Jobs pending: {stats['jobs_pending']}\n"
+
+        if stats['pdf_documents']:
+            pct = 100.0 * stats['documents_processed'] / stats['pdf_documents']
+            output += f"\nCoverage: {pct:.1f}% of PDFs\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "search_figures":
+        query = arguments.get("query", "")
+        max_results = arguments.get("max_results", 10)
+        doc_id = arguments.get("doc_id")
+
+        try:
+            results = kb.search_figures(query, max_results, doc_id)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Figure search error: {str(e)}")]
+
+        if not results:
+            return [TextContent(type="text", text=(
+                f"No figure text found for: {query}\n\n"
+                "If no figures have been OCR'd yet, run `batch_ocr_figures` first "
+                "(check with `figure_ocr_status`)."
+            ))]
+
+        output = f"Found {len(results)} figure match(es) for '{query}':\n\n"
+        for i, r in enumerate(results, 1):
+            output += f"--- Figure {i} ---\n"
+            output += f"Document: {r['doc_title'] or r['doc_id']}\n"
+            output += f"Doc ID: {r['doc_id']}, Page: {r['page_number']}, Figure: {r['image_index']}\n"
+            output += f"Image: {r['image_path']}\n"
+            output += f"Text:\n{r['snippet']}\n\n"
+
+        return [TextContent(type="text", text=output)]
+
+    elif name == "get_document_figures":
+        doc_id = arguments.get("doc_id")
+        with_text_only = arguments.get("with_text_only", False)
+
+        try:
+            figures = kb.get_document_figures(doc_id, with_text_only)
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting figures: {str(e)}")]
+
+        if not figures:
+            return [TextContent(type="text", text=(
+                f"No extracted figures for {doc_id}. "
+                "Run `ocr_document_figures` to extract them."
+            ))]
+
+        with_text = sum(1 for f in figures if f['ocr_text'])
+        output = f"**Figures in {doc_id}**\n\n"
+        output += f"- Total: {len(figures)}\n- With OCR text: {with_text}\n\n"
+
+        for f in figures:
+            output += f"**Page {f['page_number']}, figure {f['image_index']}** "
+            output += f"({f['width']}x{f['height']}px)\n"
+            output += f"  Image: {f['image_path']}\n"
+            if f['ocr_text']:
+                preview = f['ocr_text'][:300].replace('\n', ' ')
+                output += f"  Text ({f['char_count']} chars): {preview}"
+                output += "...\n" if f['char_count'] > 300 else "\n"
+            else:
+                output += "  Text: (none detected)\n"
+            output += "\n"
+
+        return [TextContent(type="text", text=output)]
 
     # ============================================================
     # Knowledge Graph Tool Handlers (v2.24.0 - Phase 1, Task 1.4)
@@ -23464,12 +24510,26 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     the real implementation. Kept separate from _call_tool_impl so the
     logging wrapper doesn't get lost in that function's ~3000-line dispatch
     body.
+
+    _call_tool_impl is synchronous and some of its handlers block for minutes
+    to hours (OCR in add_document, a whole-site crawl in scrape_url, topic
+    training, backup/restore). Awaiting it inline froze every other request on
+    the session - including MCP keep-alives - for that entire time, so the
+    whole dispatch runs on a worker thread. This is only safe because each
+    thread now gets its own SQLite connection (see KnowledgeBase.db_conn);
+    with the previously shared connection, concurrent tool calls committed
+    each other's half-built transactions.
     """
+    get_kb()  # idempotent; normally already initialized by main() before
+              # the server starts accepting requests, but callers that
+              # invoke call_tool()/_call_tool_impl directly (as some tests
+              # do) would otherwise see a None `kb` in every bare reference
+              # throughout the dispatch body below.
     start_time = time.time()
     error_message = None
     result = None
     try:
-        result = await _call_tool_impl(name, arguments)
+        result = await asyncio.to_thread(_call_tool_impl, name, arguments)
         return result
     except Exception as e:
         error_message = str(e)
@@ -23488,6 +24548,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 @server.list_resources()
 async def list_resources() -> list[Resource]:
     """List available resources."""
+    get_kb()
     resources = []
     for doc in kb.list_documents():
         resources.append(Resource(
@@ -23502,6 +24563,7 @@ async def list_resources() -> list[Resource]:
 @server.read_resource()
 async def read_resource(uri: str) -> str:
     """Read a resource."""
+    get_kb()
     if uri.startswith("c64kb://"):
         doc_id = uri[8:]
         content = kb.get_document_content(doc_id)
@@ -23519,6 +24581,11 @@ async def main():
     logger.info(f"Build Date: {__build_date__}")
     logger.info("=" * 60)
 
+    # Construct the process-wide KnowledgeBase now, before serving any
+    # requests, so every tool handler's bare `kb` reference resolves to the
+    # same already-initialized instance for the rest of this process's life.
+    get_kb()
+
     try:
         async with stdio_server() as (read_stream, write_stream):
             await server.run(
@@ -23530,9 +24597,14 @@ async def main():
         # Ensure the DB connection and worker thread are released whenever
         # the stdio loop exits (client disconnect, error, or Ctrl+C) so this
         # process doesn't linger and hold a lock for the next one to start.
-        kb.close()
+        if kb is not None:
+            kb.close()
+
+
+def cli_main():
+    """Synchronous entry point for the `tdz-c64-knowledge` console script."""
+    asyncio.run(main())
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    cli_main()

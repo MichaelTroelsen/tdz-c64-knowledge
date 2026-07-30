@@ -33,6 +33,7 @@ Run with:  pytest test_mcp_startup.py -v
 """
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -232,6 +233,33 @@ def test_heavy_modules_not_imported_at_startup(data_dir):
     )
 
 
+def test_importing_server_does_not_construct_a_knowledgebase(data_dir):
+    """`import server` must not build a KnowledgeBase as a side effect.
+
+    rest_server.py, admin_gui.py, cli.py and wiki_export.py all do
+    `from server import KnowledgeBase`, which - like any import - executes
+    the whole module regardless of which name is requested. A module-level
+    `kb = KnowledgeBase(DATA_DIR)` used to make every one of those imports
+    build a full second KnowledgeBase (DB connection, background extraction
+    worker thread, document load) in addition to the instance the consumer
+    then built for itself. server.get_kb() defers that cost to the one
+    process that actually calls it (real usage: main(), before serving any
+    MCP requests).
+    """
+    probe = "import server; print('KB_IS_NONE', server.kb is None)"
+    out = subprocess.run(
+        [PYTHON, "-c", probe],
+        capture_output=True, env=_env(data_dir), cwd=str(REPO), timeout=180,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    line = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("KB_IS_NONE")][-1]
+    assert line == "KB_IS_NONE True", (
+        f"importing server built a KnowledgeBase eagerly: {line!r}. "
+        "Every module-level consumer of `from server import KnowledgeBase` "
+        "now pays that cost redundantly."
+    )
+
+
 def test_optional_features_still_enabled(data_dir):
     """Lazy importing must not silently disable semantic search or NLTK."""
     probe = "import server; print('FLAGS', server.SEMANTIC_SUPPORT, server.NLTK_SUPPORT)"
@@ -331,7 +359,7 @@ filename = sys.argv[1]
 barrier_dir = sys.argv[2]
 nworkers = int(sys.argv[3])
 
-kb = server.kb  # import already constructed this module-level singleton
+kb = server.get_kb()  # lazily constructs and caches the module-level singleton
 
 path = os.path.join(os.environ['TDZ_DATA_DIR'], filename)
 with open(path, 'w') as f:
@@ -639,6 +667,10 @@ def test_add_documents_bulk_does_not_block_the_event_loop(data_dir, tmp_path):
     Simulates a bulk add that takes a few seconds (monkeypatched) and asserts
     a concurrent kb_stats call on the same event loop still completes well
     before the bulk operation does, proving the loop was not blocked.
+
+    The per-tool asyncio.to_thread that originally fixed this is gone: call_tool
+    now runs the whole _call_tool_impl dispatch on a worker thread, so this test
+    (and the scrape_url one below) exercise that single generic mechanism.
     """
     bulk_dir = tmp_path / "bulkdir"
     bulk_dir.mkdir()
@@ -672,6 +704,47 @@ def test_add_documents_bulk_does_not_block_the_event_loop(data_dir, tmp_path):
     assert line.startswith("RESULT True"), (
         f"kb_stats did not run concurrently with add_documents_bulk: {line!r}. "
         "This is the exact hang reported in issue #13."
+    )
+
+
+def test_a_slow_non_bulk_tool_also_does_not_block_the_event_loop(data_dir):
+    """R5: add_documents_bulk was not the only tool that froze the session.
+
+    Every other handler in the ~3300-line dispatch ran inline on the event loop
+    - add_document (OCR of a scanned PDF takes minutes), scrape_url (a
+    whole-site crawl can run for hours), topic training, backup/restore. Only
+    add_documents_bulk had been wrapped in asyncio.to_thread, so the class of
+    bug survived the fix for issue #13. scrape_url stands in for all of them
+    here; the mechanism under test is generic (the whole dispatch runs on a
+    worker thread), not per-tool.
+    """
+    probe = (
+        "import asyncio, time, server\n"
+        "def slow_scrape(self, *a, **kw):\n"
+        "    time.sleep(3)\n"
+        "    return {'success': True, 'pages_scraped': 0, 'documents_added': 0,\n"
+        "            'documents': [], 'failed': []}\n"
+        "server.KnowledgeBase.scrape_url = slow_scrape\n"
+        "async def main():\n"
+        "    t0 = time.time()\n"
+        "    slow = asyncio.create_task(server.call_tool(\n"
+        "        'scrape_url', {'url': 'https://example.invalid/', 'max_pages': 1}))\n"
+        "    await asyncio.sleep(0)\n"
+        "    await server.call_tool('kb_stats', {})\n"
+        "    kb_elapsed = time.time() - t0\n"
+        "    await slow\n"
+        "    print('RESULT', kb_elapsed < 1.5, kb_elapsed)\n"
+        "asyncio.run(main())\n"
+    )
+    out = subprocess.run(
+        [PYTHON, "-c", probe],
+        capture_output=True, env=_env(data_dir), cwd=str(REPO), timeout=60,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    line = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")][-1]
+    assert line.startswith("RESULT True"), (
+        f"kb_stats queued behind a slow scrape_url: {line!r} - the dispatch is "
+        "still running on the event loop thread"
     )
 
 
@@ -760,3 +833,314 @@ def test_health_check_bm25_not_built_is_not_reported_as_an_issue(data_dir):
     assert "✗ bm25_index_built" not in text, f"still reports the lazy build as a failure:\n{text}"
     assert "ⓘ bm25_index_built" in text
     assert "bm25" not in text.split("Issues")[-1].lower(), "bm25 lazy-build leaked into the Issues list"
+
+
+# ---------------------------------------------------------------------------
+# In-process thread safety of the SQLite connection (R1)
+#
+# The rest of this file drives real server subprocesses, because the startup
+# failures it guards are cross-process. The two tests below are the in-process
+# analog: one KnowledgeBase, several threads, one database.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def inproc_kb(tmp_path):
+    """A KnowledgeBase on a throwaway data dir, safe to write from threads."""
+    from server import KnowledgeBase
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    saved = {k: os.environ.get(k) for k in ("ALLOWED_DOCS_DIRS", "AUTO_EXTRACT_ENTITIES")}
+    os.environ["ALLOWED_DOCS_DIRS"] = str(docs)
+    # Offline and deterministic: no background LLM extraction jobs.
+    os.environ["AUTO_EXTRACT_ENTITIES"] = "0"
+    kb = KnowledgeBase(str(tmp_path / "data"))
+    try:
+        yield kb, docs
+    finally:
+        kb.close()
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_a_commit_on_one_thread_cannot_commit_another_threads_transaction(inproc_kb):
+    """R1: sqlite3 transactions are per-connection, so threads need own connections.
+
+    KnowledgeBase used to open one connection in __init__ and share it across
+    the event-loop thread, the extraction worker and every asyncio.to_thread /
+    ThreadPoolExecutor worker. Because a transaction belongs to the connection,
+    not the caller, a bare `self.db_conn.commit()` on any thread - e.g. the one
+    at the end of _log_mcp_call, which runs for *every* MCP tool call - landed
+    whatever transaction another thread had only half-built. The victim's later
+    rollback() then rolled back nothing and left partial data committed.
+
+    Reproduced deliberately without lock contention: the second thread only
+    commits, it does not write, so nothing here can be explained away as
+    SQLITE_BUSY timing.
+    """
+    kb, _ = inproc_kb
+    inserted = threading.Event()
+    outsider_committed = threading.Event()
+    conn_ids = {}
+    errors = []
+
+    def victim():
+        try:
+            conn_ids["victim"] = id(kb.db_conn)
+            kb.db_conn.execute(
+                "INSERT INTO mcp_call_log (tool_name, called_at, duration_ms, success) "
+                "VALUES ('SENTINEL_UNCOMMITTED', ?, 0, 1)",
+                (time.strftime("%Y-%m-%dT%H:%M:%S"),),
+            )
+            inserted.set()
+            assert outsider_committed.wait(30), "outsider thread never committed"
+            kb.db_conn.rollback()
+        except Exception as e:  # pragma: no cover - surfaced via `errors`
+            errors.append(repr(e))
+            inserted.set()
+
+    t = threading.Thread(target=victim, daemon=True)
+    t.start()
+    assert inserted.wait(30), "victim thread never reached its INSERT"
+
+    conn_ids["main"] = id(kb.db_conn)
+    kb.db_conn.commit()  # exactly what _log_mcp_call does on the event-loop thread
+    outsider_committed.set()
+    t.join(timeout=30)
+    assert not t.is_alive(), "victim thread hung"
+    assert not errors, errors
+
+    assert conn_ids["main"] != conn_ids["victim"], (
+        "both threads got the same sqlite3.Connection object - db_conn is not "
+        "thread-local, so every thread still shares one transaction scope"
+    )
+    row = kb.db_conn.execute(
+        "SELECT COUNT(*) FROM mcp_call_log WHERE tool_name = 'SENTINEL_UNCOMMITTED'"
+    ).fetchone()
+    assert row[0] == 0, (
+        "a rolled-back INSERT survived: another thread's commit() committed this "
+        "thread's open transaction"
+    )
+
+
+def test_bulk_ingest_thread_and_call_logging_thread_do_not_corrupt_each_other(inproc_kb):
+    """R1 under realistic load: ingest on a worker thread, call logging on the caller's.
+
+    This is the shape R5 made routine - the whole MCP dispatch now runs on an
+    asyncio.to_thread worker while _log_mcp_call and get_stats keep running on
+    the event-loop thread. Asserts the ingest's writes all land intact and that
+    _log_mcp_call never has to swallow a database error (it deliberately never
+    raises, so its failures are only visible in the log).
+    """
+    kb, docs = inproc_kb
+    n_docs = 12
+    for i in range(n_docs):
+        (docs / f"card_{i:02d}.md").write_text(
+            f"# Doc {i}\n\n" + f"VIC-II sprite collision register notes for doc {i}. " * 60,
+            encoding="utf-8",
+        )
+
+    class _Capture(logging.Handler):
+        def __init__(self):
+            super().__init__(level=logging.WARNING)
+            self.records = []
+
+        def emit(self, record):
+            self.records.append(record.getMessage())
+
+    capture = _Capture()
+    logging.getLogger("server").addHandler(capture)
+
+    bulk_result = {}
+    bulk_error = []
+    done = threading.Event()
+
+    def ingest():
+        try:
+            bulk_result.update(
+                kb.add_documents_bulk(str(docs), "**/*.md", ["concurrency-test"], True, True)
+            )
+        except Exception as e:  # pragma: no cover - surfaced via `bulk_error`
+            bulk_error.append(repr(e))
+        finally:
+            done.set()
+
+    t = threading.Thread(target=ingest, daemon=True)
+    hammer_errors = []
+    hammer_rounds = 0
+    try:
+        t.start()
+        while not done.wait(0.01):
+            try:
+                kb._log_mcp_call("kb_stats", 1.0, True, None, {})
+                kb.get_stats(use_cache=False)
+                hammer_rounds += 1
+            except Exception as e:
+                hammer_errors.append(repr(e))
+        t.join(timeout=300)
+    finally:
+        logging.getLogger("server").removeHandler(capture)
+
+    assert not t.is_alive(), "bulk ingest thread hung"
+    assert not bulk_error, bulk_error
+    assert not hammer_errors, f"concurrent _log_mcp_call/get_stats raised: {hammer_errors}"
+    assert hammer_rounds > 0, "test setup: ingest finished before any concurrent call ran"
+
+    db_errors = [
+        m for m in capture.records
+        if "Failed to log MCP call" in m
+        or any(marker in m.lower() for marker in ("cannot commit", "no transaction is active"))
+    ]
+    assert not db_errors, f"database errors were swallowed during concurrent access: {db_errors}"
+
+    assert len(bulk_result.get("added", [])) == n_docs, bulk_result
+    assert not bulk_result.get("failed"), bulk_result["failed"]
+
+    cur = kb.db_conn.cursor()
+    assert cur.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == n_docs
+    assert len(kb.documents) == n_docs
+    # Every document's chunks must be fully present: the old shared connection
+    # let an unrelated commit land a half-written chunk set.
+    mismatched = cur.execute(
+        """SELECT d.doc_id, d.total_chunks, COUNT(c.chunk_id)
+             FROM documents d LEFT JOIN chunks c ON c.doc_id = d.doc_id
+            GROUP BY d.doc_id
+           HAVING d.total_chunks != COUNT(c.chunk_id)"""
+    ).fetchall()
+    assert not mismatched, f"documents with a partial chunk set: {mismatched}"
+    orphans = cur.execute(
+        "SELECT COUNT(*) FROM chunks WHERE doc_id NOT IN (SELECT doc_id FROM documents)"
+    ).fetchone()[0]
+    assert orphans == 0, f"{orphans} orphaned chunks"
+
+
+# --- R9: extraction jobs orphaned by a killed process ---
+#
+# extraction_jobs rows outlive the in-memory queue that drives them. A row left
+# at 'queued' when its process died was never retried by anything, and a row
+# left at 'running' stayed 'running' forever - both showed up in
+# get_extraction_status as pending/in-flight work that would never happen.
+
+
+def _extraction_job_row(kb, job_id):
+    return kb.db_conn.execute(
+        "SELECT status, error_message FROM extraction_jobs WHERE job_id = ?", (job_id,)
+    ).fetchone()
+
+
+def test_orphaned_queued_job_is_requeued_on_startup(inproc_kb, monkeypatch):
+    """A 'queued' row from a dead process must be picked up by the next one."""
+    from server import KnowledgeBase
+
+    kb, docs = inproc_kb
+    (docs / "orphan.md").write_text("VIC-II sprite notes.", encoding="utf-8")
+    doc = kb.add_document(str(docs / "orphan.md"))
+
+    # Simulate the dead process: a committed 'queued' row that no live
+    # in-memory queue references.
+    kb.db_conn.execute(
+        "INSERT INTO extraction_jobs (doc_id, status, confidence_threshold, queued_at) "
+        "VALUES (?, 'queued', 0.6, ?)",
+        (doc.doc_id, time.strftime("%Y-%m-%dT%H:%M:%S")),
+    )
+    kb.db_conn.commit()
+    job_id = kb.db_conn.execute("SELECT MAX(job_id) FROM extraction_jobs").fetchone()[0]
+
+    # Keep the successor's worker from actually consuming the job, so the
+    # assertion is specifically "recovery enqueued it", not "it ran".
+    monkeypatch.setattr(KnowledgeBase, "_extraction_worker_loop", lambda self: None)
+    successor = KnowledgeBase(str(kb.data_dir))
+    try:
+        queued = []
+        while not successor._extraction_queue.empty():
+            queued.append(successor._extraction_queue.get_nowait())
+    finally:
+        successor.close()
+
+    assert any(j["job_id"] == job_id for j in queued), (
+        f"orphaned 'queued' job {job_id} was not re-queued on startup; got {queued}"
+    )
+
+
+def test_stale_running_job_is_failed_not_left_running_forever(inproc_kb, monkeypatch):
+    """A 'running' row older than the stale window is a dead process's leftover."""
+    from server import KnowledgeBase
+
+    kb, docs = inproc_kb
+    (docs / "stale.md").write_text("SID filter notes.", encoding="utf-8")
+    doc = kb.add_document(str(docs / "stale.md"))
+
+    long_ago = "2020-01-01T00:00:00+00:00"
+    kb.db_conn.execute(
+        "INSERT INTO extraction_jobs (doc_id, status, confidence_threshold, queued_at, started_at) "
+        "VALUES (?, 'running', 0.6, ?, ?)",
+        (doc.doc_id, long_ago, long_ago),
+    )
+    kb.db_conn.commit()
+    job_id = kb.db_conn.execute("SELECT MAX(job_id) FROM extraction_jobs").fetchone()[0]
+
+    monkeypatch.setattr(KnowledgeBase, "_extraction_worker_loop", lambda self: None)
+    successor = KnowledgeBase(str(kb.data_dir))
+    try:
+        status, error_message = _extraction_job_row(successor, job_id)
+    finally:
+        successor.close()
+
+    assert status == "failed", f"stale 'running' job was left at {status!r}"
+    assert "Interrupted" in (error_message or ""), error_message
+
+
+def test_a_recent_running_job_is_left_alone(inproc_kb, monkeypatch):
+    """Don't reap a 'running' row that a live sibling process may still own."""
+    from server import KnowledgeBase
+
+    kb, docs = inproc_kb
+    (docs / "fresh.md").write_text("CIA timer notes.", encoding="utf-8")
+    doc = kb.add_document(str(docs / "fresh.md"))
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    kb.db_conn.execute(
+        "INSERT INTO extraction_jobs (doc_id, status, confidence_threshold, queued_at, started_at) "
+        "VALUES (?, 'running', 0.6, ?, ?)",
+        (doc.doc_id, now, now),
+    )
+    kb.db_conn.commit()
+    job_id = kb.db_conn.execute("SELECT MAX(job_id) FROM extraction_jobs").fetchone()[0]
+
+    monkeypatch.setattr(KnowledgeBase, "_extraction_worker_loop", lambda self: None)
+    successor = KnowledgeBase(str(kb.data_dir))
+    try:
+        status, _ = _extraction_job_row(successor, job_id)
+    finally:
+        successor.close()
+
+    assert status == "running", (
+        f"a just-started job was reaped as stale (status={status!r}) - this would "
+        "yank jobs out from under a concurrently running sibling process"
+    )
+
+
+def test_worker_death_is_reported_by_health_check(inproc_kb):
+    """R21: a dead worker silently strands every queued job; health must say so."""
+    kb, _ = inproc_kb
+
+    # use_cache=False throughout: health_check memoises for 5 minutes, so a
+    # cached "healthy" would mask the liveness change this test is about.
+    healthy = kb.health_check(quick_check=True, use_cache=False)
+    assert healthy['features']['extraction_worker_alive'] is True
+    assert 'extraction_queue_depth' in healthy['features']
+
+    # Stop the worker the same way close() does, without tearing down the DB.
+    kb._extraction_shutdown.set()
+    kb._extraction_worker.join(timeout=15)
+    assert not kb._extraction_worker.is_alive(), "worker did not stop"
+
+    dead = kb.health_check(quick_check=True, use_cache=False)
+    assert dead['features']['extraction_worker_alive'] is False
+    assert dead['status'] == 'warning'
+    assert any('extraction worker' in i.lower() for i in dead['issues']), dead['issues']

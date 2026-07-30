@@ -5,6 +5,15 @@ All notable changes to the TDZ C64 Knowledge Base project.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> **See also [VERSION_HISTORY.md](VERSION_HISTORY.md).** A second, more
+> detailed release history grew in parallel inside `version.py` as a string
+> literal and has been extracted to that file. It is the more complete record
+> for 2.23.19 onward, which this file never received. The two have deliberately
+> not been merged - see the note at the top of that file.
+>
+> Known issue: this file currently contains two conflicting `[2.24.0]`
+> sections ("In Progress" and "In Planning") that need reconciling.
+
 ## [Unreleased]
 
 ## [2.24.0] - In Progress
@@ -12,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Knowledge Graph Database Schema (Phase 1, Task 1.1)** - Infrastructure for graph-based analysis
   - **New Tables**:
-    1. **graph_cache** - Stores pickled NetworkX graphs for quick reloading
+    1. **graph_cache** - Stores NetworkX graphs as JSON (node_link_data) for quick reloading
        - Fields: cache_id, graph_version, graph_data (BLOB), node_count, edge_count, created_date, last_accessed
        - Indexes: created_date, last_accessed (cache management)
     2. **graph_metrics** - Stores graph analysis metrics per entity

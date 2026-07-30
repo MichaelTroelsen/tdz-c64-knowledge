@@ -259,7 +259,7 @@ tooling. This is the single biggest tax on future work.
 Target: no file over ~2,500 lines. Do it as several PRs, tests green between
 each.
 
-### [ ] R13. `version.py` is 1,871 lines because the full changelog lives in a Python string
+### [x] R13. `version.py` is 1,871 lines because the full changelog lives in a Python string
 
 **Where:** `version.py:77` (`VERSION_HISTORY = """..."""`, ~75KB) — imported
 by `server.py` at startup on every session.
@@ -268,7 +268,7 @@ by `server.py` at startup on every session.
 `__version__`, `__build_date__`, and the couple of helper functions. If any
 tool surfaces the history at runtime, read the file lazily.
 
-### [ ] R14. LLM plumbing is duplicated and fragile
+### [x] R14. LLM plumbing is duplicated and fragile
 
 **Where:** `llm_integration.py` (providers) vs `server.py:5837` (`_call_llm`
 lazily builds another client) vs `_generate_answer_with_llm`
@@ -346,7 +346,7 @@ imports stabilize first.
 
 ## P3 — Hygiene & polish
 
-### [ ] R19. Repo-root clutter
+### [x] R19. Repo-root clutter
 
 Stray dev/debug scripts and outputs in the root: `check_files.py`,
 `check_tfidf.py`, `debug_nmf.py`, `migration_v2_21_0.py` (one-shot, done),
@@ -375,7 +375,7 @@ extraction worker thread is alive (it can die only via daemon teardown, but
 after R9's changes a liveness flag is cheap). **Fix:** include
 `extraction_worker_alive: self._extraction_worker.is_alive()` and queue depth.
 
-### [ ] R22. Documentation drift
+### [x] R22. Documentation drift
 
 Tool counts disagree (CLAUDE.md says 87 tools; older docs/handoffs say 59;
 `whats-next.md` is a stale one-off handoff that should be deleted or archived).
@@ -488,6 +488,57 @@ Two more latent bugs surfaced during this round, both fixed:
 Also note, for whoever picks up R12/R13: `version.py:102` has the same
 invalid-escape warning, inside the `VERSION_HISTORY` string. Moving that
 changelog out to `CHANGELOG.md` (R13) removes it for free.
+
+## Bugs found while fixing R13 / R14 / R19 / R22
+
+Four more, all fixed. The last two are the most serious findings of the whole
+review after R1:
+
+- **Cluster centroids were written and read in incompatible formats.**
+  `_store_clusters_to_db` wrote them with `pickle.dumps`, while
+  `visualize_cluster_dendrogram` read them back with
+  `np.frombuffer(blob, dtype=np.float32)`. Those do not round-trip: verified
+  that `np.frombuffer` on a pickled 4-element float32 array raises
+  `ValueError: buffer size must be a multiple of element size` (the pickle was
+  143 bytes, not a multiple of 4), so dendrogram visualization crashed
+  outright whenever centroids had been stored — and would have returned
+  silent garbage in the cases where the pickle length happened to divide by 4.
+  Now stored as a raw `float32` buffer matching the reader, which also removed
+  the last `pickle` call from the codebase.
+- **A fresh database never got four of its tables.** `topics`,
+  `document_topics`, `clusters` and `document_clusters` were created only
+  inside `_init_database_locked`'s `else:` (existing-database) branch, so a
+  brand-new install lacked them entirely and every topic-modelling and
+  clustering tool failed with `no such table`. Confirmed empirically: a fresh
+  data dir had 56 tables with all four missing, while the live 799-document
+  database (which had been through the migration path) had them. Moved into a
+  new always-run `_migrate_topics_clusters_schema()`; a fresh DB now has 60
+  tables. `test_serialization.py` asserts the full expected table set on a
+  fresh database so schema-creation and migration cannot drift apart again.
+  Note this is why the R17 dispatch smoke test did not catch it: those handlers
+  catch their own exceptions and return an `Error: ...` message, which the
+  smoke test accepts as a handled outcome.
+- **`validate_docs.py` was reporting false failures and hiding real ones.**
+  Its README tool pattern (`^#{3,4}\s+([a-z_]+)$`) matched none of README's
+  actual `**tool_name**` markup, so it reported 0 documented tools and all 92
+  as missing; it looked for `CHANGELOG.md`/`QUICKSTART.md` in the repo root
+  when both live under `docs/`; and its version-section regex terminated on
+  any `##`, including the section's own `### Added` subheading, so every
+  feature list came back empty while still printing a green tick. Fixed, plus
+  the pass/fail logic now flags *stale* README tool references (real drift)
+  rather than demanding all 92 tools appear in a README that says it documents
+  a curated subset.
+- **Version drift:** `docs/QUICKSTART.md` claimed 2.23.1 against 2.24.0
+  everywhere else — found only once the validator above actually worked.
+
+**Correction to R19:** `migration_v2_21_0.py` is **not** spent one-shot
+clutter and was left in the repo root. `anomaly_detector.py:106` actively
+directs users to run it, and the live database still lacks the anomaly tables
+it creates ("Anomaly detection tables not found. Run migration_v2_21_0.py
+first."). Only `whats-next.md` (completed handoff) and `readme.txt` (superseded
+by README.md, its table markup collapsed into unreadable run-on text) were
+removed, plus `performance_phase2_results.json` untracked (it matches the
+existing `*_results.json` ignore rule but predated it).
 
 ## Suggested implementation order
 

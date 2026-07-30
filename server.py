@@ -1881,122 +1881,135 @@ class KnowledgeBase:
             # Phase 2 Topic & Cluster Tables (v2.24.0 - Discovery)
             # ============================================================
 
-            # Check for topics table (v2.24.0 - Topic Modeling)
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='topics'")
-            if not cursor.fetchone():
-                self.logger.info("Creating topics table for topic modeling")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS topics (
-                        topic_id TEXT PRIMARY KEY,
-                        model_type TEXT NOT NULL,
-                        topic_number INTEGER NOT NULL,
-                        top_words TEXT NOT NULL,
-                        word_weights TEXT NOT NULL,
-                        num_documents INTEGER DEFAULT 0,
-                        coherence_score REAL,
-                        created_date TEXT NOT NULL,
-                        UNIQUE(model_type, topic_number)
-                    )
-                """)
-
-                # Create indexes for topic queries
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_model ON topics(model_type)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_number ON topics(model_type, topic_number)")
-
-                self.db_conn.commit()
-                self.logger.info("topics table created")
-
-            # Check for document_topics table (v2.24.0 - Topic Modeling)
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='document_topics'")
-            if not cursor.fetchone():
-                self.logger.info("Creating document_topics table for topic assignments")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS document_topics (
-                        assignment_id TEXT PRIMARY KEY,
-                        doc_id TEXT NOT NULL,
-                        topic_id TEXT NOT NULL,
-                        probability REAL NOT NULL,
-                        model_type TEXT NOT NULL,
-                        assigned_date TEXT NOT NULL,
-                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
-                        FOREIGN KEY (topic_id) REFERENCES topics(topic_id) ON DELETE CASCADE
-                    )
-                """)
-
-                # Create indexes for topic assignment queries
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_doc ON document_topics(doc_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_topic ON document_topics(topic_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_model ON document_topics(model_type)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_probability ON document_topics(probability DESC)")
-
-                self.db_conn.commit()
-                self.logger.info("document_topics table created")
-
-            # Check for clusters table (v2.24.0 - Document Clustering)
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='clusters'")
-            if not cursor.fetchone():
-                self.logger.info("Creating clusters table for clustering analysis")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS clusters (
-                        cluster_id TEXT PRIMARY KEY,
-                        algorithm TEXT NOT NULL,
-                        cluster_number INTEGER NOT NULL,
-                        centroid_vector BLOB,
-                        num_documents INTEGER DEFAULT 0,
-                        representative_docs TEXT,
-                        top_terms TEXT,
-                        silhouette_score REAL,
-                        created_date TEXT NOT NULL,
-                        UNIQUE(algorithm, cluster_number)
-                    )
-                """)
-
-                # Create indexes for cluster queries
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_clusters_algorithm ON clusters(algorithm)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_clusters_number ON clusters(algorithm, cluster_number)")
-
-                self.db_conn.commit()
-                self.logger.info("clusters table created")
-
-            # Check for document_clusters table (v2.24.0 - Document Clustering)
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='document_clusters'")
-            if not cursor.fetchone():
-                self.logger.info("Creating document_clusters table for cluster assignments")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS document_clusters (
-                        assignment_id TEXT PRIMARY KEY,
-                        doc_id TEXT NOT NULL,
-                        cluster_id TEXT NOT NULL,
-                        distance REAL,
-                        algorithm TEXT NOT NULL,
-                        assigned_date TEXT NOT NULL,
-                        FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
-                        FOREIGN KEY (cluster_id) REFERENCES clusters(cluster_id) ON DELETE CASCADE
-                    )
-                """)
-
-                # Phase 3 temporal analysis tables (events, document_events,
-                # timeline_entries) are NOT created here - _migrate_phase3_schema(),
-                # called unconditionally below regardless of db_exists, already
-                # creates them idempotently. Duplicating that here caused a crash
-                # the first time an existing (non-fresh) database reached this
-                # branch: _migrate_phase3_schema() had already created 'events' on
-                # the previous init, so the unconditional CREATE TABLE IF NOT EXISTS here raised
-                # "table events already exists".
-
-                # Create indexes for cluster assignment queries
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_doc ON document_clusters(doc_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_cluster ON document_clusters(cluster_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_algorithm ON document_clusters(algorithm)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_distance ON document_clusters(distance)")
-
-                self.db_conn.commit()
-                self.logger.info("document_clusters table created")
 
         # Always run migrations for schema updates (regardless of db_exists)
         self._migrate_phase3_schema()
         self._migrate_mcp_log_schema()
         self._migrate_figures_schema()
+        self._migrate_topics_clusters_schema()
+
+    def _migrate_topics_clusters_schema(self):
+        """Create the topic-modelling and clustering tables if absent.
+
+        These used to be created only in _init_database_locked's
+        existing-database branch, so a brand-new database never got them and
+        every topic/cluster tool failed with "no such table" until the next
+        schema migration happened to run. Kept as check-then-create so it is
+        safe to call on every startup.
+        """
+        cursor = self.db_conn.cursor()
+
+        # Check for topics table (v2.24.0 - Topic Modeling)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='topics'")
+        if not cursor.fetchone():
+            self.logger.info("Creating topics table for topic modeling")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS topics (
+                    topic_id TEXT PRIMARY KEY,
+                    model_type TEXT NOT NULL,
+                    topic_number INTEGER NOT NULL,
+                    top_words TEXT NOT NULL,
+                    word_weights TEXT NOT NULL,
+                    num_documents INTEGER DEFAULT 0,
+                    coherence_score REAL,
+                    created_date TEXT NOT NULL,
+                    UNIQUE(model_type, topic_number)
+                )
+            """)
+
+            # Create indexes for topic queries
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_model ON topics(model_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_number ON topics(model_type, topic_number)")
+
+            self.db_conn.commit()
+            self.logger.info("topics table created")
+
+        # Check for document_topics table (v2.24.0 - Topic Modeling)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='document_topics'")
+        if not cursor.fetchone():
+            self.logger.info("Creating document_topics table for topic assignments")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS document_topics (
+                    assignment_id TEXT PRIMARY KEY,
+                    doc_id TEXT NOT NULL,
+                    topic_id TEXT NOT NULL,
+                    probability REAL NOT NULL,
+                    model_type TEXT NOT NULL,
+                    assigned_date TEXT NOT NULL,
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
+                    FOREIGN KEY (topic_id) REFERENCES topics(topic_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Create indexes for topic assignment queries
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_doc ON document_topics(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_topic ON document_topics(topic_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_model ON document_topics(model_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_topics_probability ON document_topics(probability DESC)")
+
+            self.db_conn.commit()
+            self.logger.info("document_topics table created")
+
+        # Check for clusters table (v2.24.0 - Document Clustering)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='clusters'")
+        if not cursor.fetchone():
+            self.logger.info("Creating clusters table for clustering analysis")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS clusters (
+                    cluster_id TEXT PRIMARY KEY,
+                    algorithm TEXT NOT NULL,
+                    cluster_number INTEGER NOT NULL,
+                    centroid_vector BLOB,
+                    num_documents INTEGER DEFAULT 0,
+                    representative_docs TEXT,
+                    top_terms TEXT,
+                    silhouette_score REAL,
+                    created_date TEXT NOT NULL,
+                    UNIQUE(algorithm, cluster_number)
+                )
+            """)
+
+            # Create indexes for cluster queries
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_clusters_algorithm ON clusters(algorithm)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_clusters_number ON clusters(algorithm, cluster_number)")
+
+            self.db_conn.commit()
+            self.logger.info("clusters table created")
+
+        # Check for document_clusters table (v2.24.0 - Document Clustering)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='document_clusters'")
+        if not cursor.fetchone():
+            self.logger.info("Creating document_clusters table for cluster assignments")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS document_clusters (
+                    assignment_id TEXT PRIMARY KEY,
+                    doc_id TEXT NOT NULL,
+                    cluster_id TEXT NOT NULL,
+                    distance REAL,
+                    algorithm TEXT NOT NULL,
+                    assigned_date TEXT NOT NULL,
+                    FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE,
+                    FOREIGN KEY (cluster_id) REFERENCES clusters(cluster_id) ON DELETE CASCADE
+                )
+            """)
+
+            # Phase 3 temporal analysis tables (events, document_events,
+            # timeline_entries) are NOT created here - _migrate_phase3_schema(),
+            # called unconditionally below regardless of db_exists, already
+            # creates them idempotently. Duplicating that here caused a crash
+            # the first time an existing (non-fresh) database reached this
+            # branch: _migrate_phase3_schema() had already created 'events' on
+            # the previous init, so the unconditional CREATE TABLE IF NOT EXISTS here raised
+            # "table events already exists".
+
+            # Create indexes for cluster assignment queries
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_doc ON document_clusters(doc_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_cluster ON document_clusters(cluster_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_algorithm ON document_clusters(algorithm)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_doc_clusters_distance ON document_clusters(distance)")
+
+            self.db_conn.commit()
+            self.logger.info("document_clusters table created")
 
     def _migrate_figures_schema(self):
         """Create the figure-OCR tables and add extraction_jobs.job_type.
@@ -10213,7 +10226,7 @@ Important:
             algorithm: Clustering algorithm name (kmeans, dbscan, hdbscan)
         """
         import json
-        import pickle
+        import numpy as np
 
         cursor = self.db_conn.cursor()
 
@@ -10221,10 +10234,18 @@ Important:
         cursor.execute("DELETE FROM clusters WHERE algorithm = ?", (algorithm,))
 
         for cluster in clusters:
-            # Serialize centroid vector if present
+            # Serialize the centroid as a raw float32 buffer. This MUST match
+            # how visualize_cluster_dendrogram reads it back
+            # (np.frombuffer(blob, dtype=np.float32)) - it was written with
+            # pickle.dumps, and np.frombuffer cannot decode a pickle stream:
+            # it raises "buffer size must be a multiple of element size", or
+            # silently yields garbage when the pickle length happens to be a
+            # multiple of 4. Raw bytes also keep the DB free of pickle.
             centroid_blob = None
             if cluster.get('centroid') is not None:
-                centroid_blob = pickle.dumps(cluster['centroid'])
+                centroid_blob = np.asarray(
+                    cluster['centroid'], dtype=np.float32
+                ).tobytes()
 
             cursor.execute("""
                 INSERT INTO clusters

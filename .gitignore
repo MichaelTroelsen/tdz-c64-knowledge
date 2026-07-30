@@ -56,6 +56,8 @@ test_*.py
 !/test_wiki_safety.py
 !/test_scrape_politeness.py
 !/test_figure_ocr.py
+!/test_llm_integration.py
+!/test_serialization.py
 check_*.py
 reimport_*.py
 debug_*.py

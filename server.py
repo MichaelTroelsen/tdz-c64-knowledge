@@ -751,8 +751,19 @@ class KnowledgeBase:
         self.use_ocr = OCR_SUPPORT and os.getenv('USE_OCR', '1') == '1'
         self.poppler_path = os.getenv('POPPLER_PATH', None)  # Optional Poppler path for pdf2image
         self.poppler_available = False  # Track if poppler is actually available
+        # pytesseract only ever shells out to bare 'tesseract', so a perfectly
+        # good install that isn't on PATH looks identical to no install at all.
+        # TESSERACT_PATH accepts either the exe or its directory, mirroring
+        # POPPLER_PATH.
+        self.tesseract_path = os.getenv('TESSERACT_PATH', None)
 
         if self.use_ocr:
+            if self.tesseract_path:
+                tess = Path(self.tesseract_path)
+                if tess.is_dir():
+                    tess = tess / 'tesseract.exe' if os.name == 'nt' else tess / 'tesseract'
+                pytesseract.pytesseract.tesseract_cmd = str(tess)
+
             # Check if Tesseract is installed
             try:
                 pytesseract.get_tesseract_version()
@@ -2053,6 +2064,15 @@ class KnowledgeBase:
         if cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='document_figures'"
         ).fetchone():
+            # document_figures predates page rasterization, when every row was
+            # necessarily an embedded bitmap.
+            fig_cols = {row[1] for row in cursor.execute("PRAGMA table_info(document_figures)")}
+            if 'source' not in fig_cols:
+                self.logger.info("Adding source column to document_figures")
+                cursor.execute(
+                    "ALTER TABLE document_figures ADD COLUMN source TEXT NOT NULL DEFAULT 'embedded'"
+                )
+                self.db_conn.commit()
             return
 
         self.logger.info("Creating document_figures tables for figure OCR")
@@ -2069,6 +2089,7 @@ class KnowledgeBase:
                 width INTEGER,
                 height INTEGER,
                 extracted_at TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'embedded',
                 UNIQUE(doc_id, page_number, image_index),
                 FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
             )
@@ -3094,6 +3115,20 @@ class KnowledgeBase:
     # storing those rows just dilutes search results.
     FIGURE_MIN_CHARS = int(os.getenv('TDZ_FIGURE_MIN_CHARS', '12'))
 
+    # Typeset manuals draw schematics, memory maps and timing diagrams as
+    # vector paths rather than embedding them as bitmaps, so get_images()
+    # returns nothing for exactly the pages worth reading. Off by default:
+    # rendering page regions costs far more than pulling out a stored bitmap.
+    FIGURE_RASTERIZE_PAGES = os.getenv('TDZ_FIGURE_RASTERIZE_PAGES', '0') == '1'
+    FIGURE_RASTER_DPI = int(os.getenv('TDZ_FIGURE_RASTER_DPI', '200'))
+    # A drawing cluster this close to page-sized is a border or content frame.
+    # Rendering it would OCR the body text a second time, duplicating what the
+    # PDF's own text layer already put in the chunk index.
+    FIGURE_RASTER_MAX_AREA = float(os.getenv('TDZ_FIGURE_RASTER_MAX_AREA', '0.9'))
+    # OCR blocks in a tesseract subprocess, so the GIL is not what limits this
+    # and a pool scales with cores. Default 1 to keep the previous behaviour.
+    FIGURE_OCR_WORKERS = max(1, int(os.getenv('TDZ_FIGURE_OCR_WORKERS', '1')))
+
     def figure_ocr_available(self) -> tuple[bool, Optional[str]]:
         """Whether figure OCR can run, and if not, why not."""
         if not FIGURE_SUPPORT:
@@ -3152,14 +3187,20 @@ class KnowledgeBase:
         figures_dir = self.data_dir / "figures" / doc_id
         figures_dir.mkdir(parents=True, exist_ok=True)
 
-        found = with_text = failed = skipped_small = 0
-        rows = []
+        found = with_text = failed = skipped_small = vector = 0
+
+        # Two passes. PyMuPDF objects are not thread-safe, so every fitz call
+        # stays on this thread and only writes PNGs; the OCR pass below is
+        # what actually costs time, and that one parallelises freely.
+        pending: list[dict] = []
 
         pdf = fitz.open(doc.filepath)
         try:
             for page_number in range(pdf.page_count):
                 page = pdf[page_number]
-                for image_index, img in enumerate(page.get_images(full=True)):
+                images = page.get_images(full=True)
+
+                for image_index, img in enumerate(images):
                     xref = img[0]
                     try:
                         pix = fitz.Pixmap(pdf, xref)
@@ -3175,36 +3216,71 @@ class KnowledgeBase:
                         found += 1
                         image_path = figures_dir / f"p{page_number + 1:04d}_i{image_index:02d}.png"
                         pix.save(str(image_path))
-
-                        text = ''
-                        try:
-                            with Image.open(image_path) as im:
-                                text = pytesseract.image_to_string(im) or ''
-                        except Exception as e:
-                            failed += 1
-                            self.logger.debug(f"OCR failed for {image_path.name}: {e}")
-
-                        text = text.strip()
-                        if len(text) < self.FIGURE_MIN_CHARS:
-                            # Keep the row (it records that we looked) but with
-                            # no text, so it never pollutes search results.
-                            text = ''
-                        else:
-                            with_text += 1
-
-                        rows.append((
-                            doc_id, page_number + 1, image_index, text or None, len(text),
-                            str(image_path), pix.width, pix.height,
-                            datetime.now(timezone.utc).isoformat(),
-                        ))
+                        pending.append({
+                            'page_number': page_number + 1,
+                            'image_index': image_index,
+                            'image_path': image_path,
+                            'width': pix.width,
+                            'height': pix.height,
+                            'source': 'embedded',
+                        })
                     except Exception as e:
                         failed += 1
                         self.logger.debug(
                             f"Could not extract image {image_index} on page {page_number + 1} "
                             f"of {doc_id}: {e}"
                         )
+
+                if self.FIGURE_RASTERIZE_PAGES:
+                    # Numbered after this page's embedded images so the
+                    # UNIQUE(doc_id, page_number, image_index) key still holds.
+                    drawn, drawn_skipped, drawn_failed = self._extract_vector_figures(
+                        page, page_number, images, figures_dir, len(images)
+                    )
+                    pending.extend(drawn)
+                    found += len(drawn)
+                    vector += len(drawn)
+                    skipped_small += drawn_skipped
+                    failed += drawn_failed
         finally:
             pdf.close()
+
+        def _ocr(item: dict) -> dict:
+            text = ''
+            try:
+                with Image.open(item['image_path']) as im:
+                    text = pytesseract.image_to_string(im) or ''
+            except Exception as e:
+                item['ocr_failed'] = True
+                self.logger.debug(f"OCR failed for {item['image_path'].name}: {e}")
+            item['text'] = text.strip()
+            return item
+
+        if self.FIGURE_OCR_WORKERS > 1 and len(pending) > 1:
+            with ThreadPoolExecutor(max_workers=self.FIGURE_OCR_WORKERS) as pool:
+                pending = list(pool.map(_ocr, pending))
+        else:
+            pending = [_ocr(item) for item in pending]
+
+        rows = []
+        extracted_at = datetime.now(timezone.utc).isoformat()
+        for item in sorted(pending, key=lambda i: (i['page_number'], i['image_index'])):
+            if item.get('ocr_failed'):
+                failed += 1
+
+            text = item['text']
+            if len(text) < self.FIGURE_MIN_CHARS:
+                # Keep the row (it records that we looked) but with no text,
+                # so it never pollutes search results.
+                text = ''
+            else:
+                with_text += 1
+
+            rows.append((
+                doc_id, item['page_number'], item['image_index'], text or None, len(text),
+                str(item['image_path']), item['width'], item['height'],
+                extracted_at, item['source'],
+            ))
 
         # force=True clears the previous rows first, so a failure between the
         # DELETE and the INSERT would otherwise leave the document with no
@@ -3215,8 +3291,8 @@ class KnowledgeBase:
             cursor.executemany("""
                 INSERT OR REPLACE INTO document_figures
                     (doc_id, page_number, image_index, ocr_text, char_count,
-                     image_path, width, height, extracted_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     image_path, width, height, extracted_at, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, rows)
             self.db_conn.commit()
         except Exception:
@@ -3225,8 +3301,8 @@ class KnowledgeBase:
             raise
 
         self.logger.info(
-            f"Figure OCR for {doc_id}: {found} figure(s), {with_text} with text, "
-            f"{failed} failed, {skipped_small} too small"
+            f"Figure OCR for {doc_id}: {found} figure(s) ({vector} rasterized), "
+            f"{with_text} with text, {failed} failed, {skipped_small} skipped on size"
         )
         return {
             'doc_id': doc_id,
@@ -3235,13 +3311,92 @@ class KnowledgeBase:
             'figures_with_text': with_text,
             'figures_failed': failed,
             'figures_skipped_small': skipped_small,
+            'figures_rasterized': vector,
         }
+
+    def _extract_vector_figures(self, page, page_number: int, images: list,
+                                figures_dir: Path, first_index: int) -> tuple[list[dict], int, int]:
+        """Render the vector-drawing clusters on one page as figure images.
+
+        Only the clustered drawing regions are rendered, never the whole page:
+        a full-page render would OCR the body text a second time and duplicate
+        what the PDF's own text layer already contributed to the chunk index.
+
+        Returns (pending items, skipped, failed). Must stay on the thread that
+        owns `page` - PyMuPDF objects are not thread-safe.
+        """
+        import fitz
+
+        pending: list[dict] = []
+        skipped = failed = 0
+
+        page_area = abs(page.rect.get_area())
+        if not page_area:
+            return pending, skipped, failed
+
+        # Where this page's bitmaps sit, so a cluster that merely frames one
+        # is not OCR'd a second time as a "drawing".
+        image_rects = []
+        for img in images:
+            try:
+                image_rects.extend(page.get_image_rects(img[0]))
+            except Exception:
+                # A figure we can't locate just loses this dedup check.
+                pass
+
+        zoom = self.FIGURE_RASTER_DPI / 72.0
+        matrix = fitz.Matrix(zoom, zoom)
+        index = first_index
+
+        for cluster in page.cluster_drawings():
+            rect = fitz.Rect(cluster) & page.rect
+            if rect.is_empty:
+                continue
+
+            area = abs(rect.get_area())
+            if area / page_area > self.FIGURE_RASTER_MAX_AREA:
+                skipped += 1
+                continue
+
+            if any(abs((rect & ir).get_area()) >= 0.5 * area
+                   for ir in image_rects if not (rect & ir).is_empty):
+                continue
+
+            try:
+                pix = page.get_pixmap(matrix=matrix, clip=rect)
+
+                if pix.width < self.FIGURE_MIN_WIDTH or pix.height < self.FIGURE_MIN_HEIGHT:
+                    skipped += 1
+                    continue
+
+                if pix.n - pix.alpha >= 4 or pix.alpha:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+
+                image_path = figures_dir / f"p{page_number + 1:04d}_v{index:02d}.png"
+                pix.save(str(image_path))
+                pending.append({
+                    'page_number': page_number + 1,
+                    'image_index': index,
+                    'image_path': image_path,
+                    'width': pix.width,
+                    'height': pix.height,
+                    'source': 'vector',
+                })
+                index += 1
+            except Exception as e:
+                failed += 1
+                self.logger.debug(
+                    f"Could not rasterize drawing cluster {index} on page "
+                    f"{page_number + 1}: {e}"
+                )
+
+        return pending, skipped, failed
 
     def get_document_figures(self, doc_id: str, with_text_only: bool = False) -> list[dict]:
         """Every extracted figure for a document, in page order."""
         sql = """
             SELECT figure_id, page_number, image_index, ocr_text, char_count,
-                   image_path, width, height, extracted_at
+                   image_path, width, height, extracted_at, source
             FROM document_figures WHERE doc_id = ?
         """
         if with_text_only:
@@ -3253,6 +3408,7 @@ class KnowledgeBase:
                 'figure_id': r[0], 'page_number': r[1], 'image_index': r[2],
                 'ocr_text': r[3], 'char_count': r[4], 'image_path': r[5],
                 'width': r[6], 'height': r[7], 'extracted_at': r[8],
+                'source': r[9],
             }
             for r in self.db_conn.execute(sql, (doc_id,)).fetchall()
         ]
@@ -23352,7 +23508,7 @@ def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
 
         for f in figures:
             output += f"**Page {f['page_number']}, figure {f['image_index']}** "
-            output += f"({f['width']}x{f['height']}px)\n"
+            output += f"({f['width']}x{f['height']}px, {f.get('source') or 'embedded'})\n"
             output += f"  Image: {f['image_path']}\n"
             if f['ocr_text']:
                 preview = f['ocr_text'][:300].replace('\n', ' ')

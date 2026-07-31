@@ -159,6 +159,7 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | `USE_FUZZY_SEARCH` | Enable fuzzy search | `1` |
 | `FUZZY_THRESHOLD` | Fuzzy similarity (0-100) | `80` |
 | `USE_OCR` | Enable OCR for scanned PDFs | `1` |
+| `TESSERACT_PATH` | Tesseract exe or its directory, when not on PATH | *(unset)* |
 | `SEARCH_CACHE_SIZE` | Max cached results | `100` |
 | `SEARCH_CACHE_TTL` | Cache TTL (seconds) | `300` |
 | `ALLOWED_DOCS_DIRS` | Document directory whitelist | None |
@@ -342,9 +343,24 @@ get_document_figures(doc_id="89d0943d6009", with_text_only=true)
 Requires `PyMuPDF`, Tesseract, and `USE_OCR=1`. Note this path does **not**
 need Poppler - it rasterizes with PyMuPDF rather than pdf2image, unlike the
 scanned-page OCR fallback. `figure_ocr_status` reports exactly what is missing
-if the feature is unavailable. Tuning: `TDZ_FIGURE_MIN_WIDTH`,
-`TDZ_FIGURE_MIN_HEIGHT` (ignore images too small to be figures) and
-`TDZ_FIGURE_MIN_CHARS` (discard OCR noise).
+if the feature is unavailable. If Tesseract is installed but not on `PATH`,
+point `TESSERACT_PATH` at the executable or its directory. Tuning:
+`TDZ_FIGURE_MIN_WIDTH`, `TDZ_FIGURE_MIN_HEIGHT` (ignore images too small to be
+figures) and `TDZ_FIGURE_MIN_CHARS` (discard OCR noise).
+
+By default only *embedded* images are read. Typeset manuals usually draw their
+schematics, memory maps and timing diagrams as vector paths, which embed no
+image at all - set `TDZ_FIGURE_RASTERIZE_PAGES=1` to also render each page's
+drawing regions (at `TDZ_FIGURE_RASTER_DPI`, default 200) and OCR those. Only
+the clustered drawing regions are rendered, never the whole page: a full-page
+render would OCR the body text a second time on top of what the PDF's own text
+layer already contributed. Clusters covering more than
+`TDZ_FIGURE_RASTER_MAX_AREA` (default 0.9) of the page are treated as borders
+and skipped. Each row records its `source` (`embedded` or `vector`).
+
+Rasterizing is much more expensive per page, so pair it with
+`TDZ_FIGURE_OCR_WORKERS` (default 1): OCR blocks in a `tesseract` subprocess
+rather than in Python, so a pool scales roughly with core count.
 
 **fuzzy_search** - Typo-tolerant search
 ```

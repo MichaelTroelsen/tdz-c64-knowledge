@@ -393,3 +393,264 @@ def test_availability_is_reported_rather_than_crashing(figure_kb, monkeypatch):
 
     with pytest.raises(server_module.KnowledgeBaseError, match="Figure OCR unavailable"):
         kb.extract_document_figures("whatever")
+
+
+# ----------------------------------------------------------------------
+# Page rasterization
+#
+# The tuning knobs are class attributes read from the environment at import
+# time, so these tests patch the attribute rather than the env var - setting
+# TDZ_FIGURE_RASTERIZE_PAGES inside a test would have no effect.
+# ----------------------------------------------------------------------
+
+
+def _make_pdf_with_vector_drawing(pdf_path, rects):
+    """A PDF whose figures are *drawn*, not embedded - what get_images() misses."""
+    doc = fitz.open()
+    page = doc.new_page()
+    unique = os.path.splitext(os.path.basename(pdf_path))[0]
+    page.insert_text((72, 72), f"VIC-II register reference for {unique}. See diagram below.")
+
+    for rect in rects:
+        rect = fitz.Rect(*rect)
+        shape = page.new_shape()
+        shape.draw_rect(rect)
+        # A second path inside the same region, so this reads as one cluster
+        # of drawings rather than a lone stroked box.
+        shape.draw_line(
+            fitz.Point(rect.x0, (rect.y0 + rect.y1) / 2),
+            fitz.Point(rect.x1, (rect.y0 + rect.y1) / 2),
+        )
+        shape.finish(color=(0, 0, 0), width=1)
+        shape.commit()
+
+    doc.save(pdf_path)
+    doc.close()
+    return pdf_path
+
+
+def test_vector_diagram_is_invisible_to_the_embedded_image_pass(figure_kb):
+    """The gap that motivated rasterization: a drawn diagram yields nothing."""
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+
+    pdf = _make_pdf_with_vector_drawing(str(docs / "drawn.pdf"), [(100, 200, 320, 380)])
+    doc = kb.add_document(pdf)
+
+    result = kb.extract_document_figures(doc.doc_id)
+
+    assert result['figures_found'] == 0, "expected get_images() to miss a vector drawing"
+    assert result['figures_rasterized'] == 0
+
+
+def test_vector_diagram_is_rasterized_when_enabled(figure_kb, monkeypatch):
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+    monkeypatch.setattr(server_module.KnowledgeBase, 'FIGURE_RASTERIZE_PAGES', True)
+    monkeypatch.setattr(
+        server_module.pytesseract, "image_to_string",
+        lambda image, *a, **kw: "RASTER $D020 BORDER COLOR",
+    )
+
+    pdf = _make_pdf_with_vector_drawing(str(docs / "drawn2.pdf"), [(100, 200, 320, 380)])
+    doc = kb.add_document(pdf)
+
+    result = kb.extract_document_figures(doc.doc_id)
+
+    assert result['figures_found'] == 1, result
+    assert result['figures_rasterized'] == 1, result
+    assert result['figures_with_text'] == 1, result
+
+    figures = kb.get_document_figures(doc.doc_id)
+    assert figures[0]['source'] == 'vector'
+    assert os.path.exists(figures[0]['image_path'])
+    assert "BORDER COLOR" in figures[0]['ocr_text']
+    # Rendered at FIGURE_RASTER_DPI, so it is larger than the 220x180pt clip.
+    assert figures[0]['width'] > 220
+
+
+def test_rasterized_figure_text_is_searchable(figure_kb, monkeypatch):
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+    monkeypatch.setattr(server_module.KnowledgeBase, 'FIGURE_RASTERIZE_PAGES', True)
+    monkeypatch.setattr(
+        server_module.pytesseract, "image_to_string",
+        lambda image, *a, **kw: "SID filter cutoff schematic",
+    )
+
+    pdf = _make_pdf_with_vector_drawing(str(docs / "schematic.pdf"), [(100, 200, 320, 380)])
+    doc = kb.add_document(pdf)
+    kb.extract_document_figures(doc.doc_id)
+
+    hits = kb.search_figures("schematic")
+    assert hits, "rasterized figure text did not reach the figure index"
+    assert hits[0]['doc_id'] == doc.doc_id
+
+
+def test_page_sized_drawing_is_not_rasterized(figure_kb, monkeypatch):
+    """A border or content frame would re-OCR body text the text layer has."""
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+    monkeypatch.setattr(server_module.KnowledgeBase, 'FIGURE_RASTERIZE_PAGES', True)
+    monkeypatch.setattr(
+        server_module.pytesseract, "image_to_string",
+        lambda image, *a, **kw: "should never be stored",
+    )
+
+    # Very nearly the full A4 page (595x842pt).
+    pdf = _make_pdf_with_vector_drawing(str(docs / "framed.pdf"), [(5, 5, 590, 837)])
+    doc = kb.add_document(pdf)
+
+    result = kb.extract_document_figures(doc.doc_id)
+
+    assert result['figures_rasterized'] == 0, "page frame was treated as a figure"
+    assert result['figures_skipped_small'] == 1
+    assert kb.get_document_figures(doc.doc_id) == []
+
+
+def test_drawing_over_an_embedded_image_is_not_ocrd_twice(figure_kb, monkeypatch):
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+    monkeypatch.setattr(server_module.KnowledgeBase, 'FIGURE_RASTERIZE_PAGES', True)
+    monkeypatch.setattr(
+        server_module.pytesseract, "image_to_string",
+        lambda image, *a, **kw: "MEMORY MAP",
+    )
+
+    # An embedded bitmap with a drawn box around it: one figure, not two.
+    pdf_path = str(docs / "boxed.pdf")
+    doc_pdf = fitz.open()
+    page = doc_pdf.new_page()
+    page.insert_text((72, 72), "Boxed figure reference page.")
+    rect = fitz.Rect(72, 120, 472, 420)
+    png = _make_figure_png(str(docs / "_boxed.png"), (400, 300), "map")
+    page.insert_image(rect, filename=png)
+    shape = page.new_shape()
+    shape.draw_rect(rect)
+    shape.finish(color=(0, 0, 0), width=2)
+    shape.commit()
+    doc_pdf.save(pdf_path)
+    doc_pdf.close()
+
+    doc = kb.add_document(pdf_path)
+    result = kb.extract_document_figures(doc.doc_id)
+
+    assert result['figures_found'] == 1, result
+    assert result['figures_rasterized'] == 0, "the frame around the bitmap was OCR'd again"
+    assert kb.get_document_figures(doc.doc_id)[0]['source'] == 'embedded'
+
+
+# ----------------------------------------------------------------------
+# Parallel OCR
+# ----------------------------------------------------------------------
+
+
+def test_ocr_workers_run_concurrently(figure_kb, monkeypatch):
+    """OCR blocks in a subprocess, so the pool must actually overlap calls."""
+    import threading
+    import time
+
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+    monkeypatch.setattr(server_module.KnowledgeBase, 'FIGURE_OCR_WORKERS', 4)
+
+    lock = threading.Lock()
+    state = {'live': 0, 'peak': 0}
+
+    def slow_ocr(image, *a, **kw):
+        with lock:
+            state['live'] += 1
+            state['peak'] = max(state['peak'], state['live'])
+        try:
+            time.sleep(0.05)
+            return "REGISTER MAP"
+        finally:
+            with lock:
+                state['live'] -= 1
+
+    monkeypatch.setattr(server_module.pytesseract, "image_to_string", slow_ocr)
+
+    pdf = _make_pdf_with_figures(
+        str(docs / "many.pdf"),
+        [(0, (400, 300), "a"), (0, (401, 300), "b"),
+         (0, (402, 300), "c"), (0, (403, 300), "d")],
+    )
+    doc = kb.add_document(pdf)
+
+    result = kb.extract_document_figures(doc.doc_id)
+
+    assert result['figures_found'] == 4, result
+    assert result['figures_with_text'] == 4, result
+    assert state['peak'] > 1, f"OCR never overlapped (peak={state['peak']})"
+
+
+def test_parallel_and_serial_extraction_agree(figure_kb, monkeypatch):
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+    for i, size in enumerate([(400, 300), (401, 300), (402, 300)]):
+        FAKE_OCR_TEXT[size] = f"FIGURE TEXT NUMBER {i}"
+
+    specs = [(0, (400, 300), "a"), (1, (401, 300), "b"), (1, (402, 300), "c")]
+
+    serial_pdf = _make_pdf_with_figures(str(docs / "serial.pdf"), specs)
+    serial_doc = kb.add_document(serial_pdf)
+    kb.extract_document_figures(serial_doc.doc_id)
+    serial = [(f['page_number'], f['image_index'], f['ocr_text'], f['source'])
+              for f in kb.get_document_figures(serial_doc.doc_id)]
+
+    monkeypatch.setattr(server_module.KnowledgeBase, 'FIGURE_OCR_WORKERS', 4)
+    parallel_pdf = _make_pdf_with_figures(str(docs / "parallel.pdf"), specs)
+    parallel_doc = kb.add_document(parallel_pdf)
+    kb.extract_document_figures(parallel_doc.doc_id)
+    parallel = [(f['page_number'], f['image_index'], f['ocr_text'], f['source'])
+                for f in kb.get_document_figures(parallel_doc.doc_id)]
+
+    assert serial == parallel, "worker count changed the stored result"
+    assert len(serial) == 3
+
+
+def test_source_column_is_backfilled_on_an_existing_database(figure_kb):
+    """Databases predating rasterization must keep their rows, marked embedded."""
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+
+    pdf = _make_pdf_with_figures(str(docs / "legacy.pdf"), [(0, (400, 300), "old")])
+    doc = kb.add_document(pdf)
+
+    # Rebuild document_figures in its pre-rasterization shape, so the ALTER
+    # path runs for real rather than the CREATE TABLE a fresh install takes.
+    cur = kb.db_conn.cursor()
+    for trig in ('figures_fts5_insert', 'figures_fts5_delete', 'figures_fts5_update'):
+        cur.execute(f"DROP TRIGGER IF EXISTS {trig}")
+    cur.execute("DROP TABLE document_figures")
+    cur.execute("""
+        CREATE TABLE document_figures (
+            figure_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            doc_id TEXT NOT NULL,
+            page_number INTEGER,
+            image_index INTEGER NOT NULL,
+            ocr_text TEXT,
+            char_count INTEGER DEFAULT 0,
+            image_path TEXT,
+            width INTEGER,
+            height INTEGER,
+            extracted_at TEXT NOT NULL,
+            UNIQUE(doc_id, page_number, image_index),
+            FOREIGN KEY (doc_id) REFERENCES documents(doc_id) ON DELETE CASCADE
+        )
+    """)
+    cur.execute("""
+        INSERT INTO document_figures
+            (doc_id, page_number, image_index, ocr_text, char_count, image_path,
+             width, height, extracted_at)
+        VALUES (?, 1, 0, 'OLD ROW TEXT', 12, 'old.png', 400, 300, '2026-01-01T00:00:00')
+    """, (doc.doc_id,))
+    kb.db_conn.commit()
+    assert 'source' not in {r[1] for r in kb.db_conn.execute("PRAGMA table_info(document_figures)")}
+
+    kb._migrate_figures_schema()
+
+    row = kb.db_conn.execute(
+        "SELECT ocr_text, source FROM document_figures WHERE doc_id = ?", (doc.doc_id,)
+    ).fetchone()
+    assert row == ('OLD ROW TEXT', 'embedded'), "existing figure rows were lost or unlabelled"

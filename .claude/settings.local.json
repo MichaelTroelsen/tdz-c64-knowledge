@@ -313,7 +313,8 @@
       "Bash(\".venv\\\\Scripts\\\\python.exe\" -c \"\n# Quick syntax check  \nimport re\nwith open\\(''wiki_export.py'', ''r'', encoding=''utf-8''\\) as f:\n    code = f.read\\(\\)\n    if ''doc.doc_id'' in code and ''synthetic_entity'' in code:\n        print\\(''✓ Fallback code updated correctly''\\)\n    else:\n        print\\(''✗ Code not updated''\\)\n\")",
       "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\joystick.html\")",
       "Bash(start \"\" \"C:\\\\Users\\\\mit\\\\claude\\\\c64server\\\\tdz-c64-knowledge\\\\wiki\\\\articles\\\\petscii.html\")",
-      "PowerShell(Out-File *)"
+      "PowerShell(Out-File *)",
+      "Bash(rtk ls *)"
     ]
   }
 }

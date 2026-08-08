@@ -576,6 +576,10 @@ class ProgressUpdate:
 # Type alias for progress callback function
 ProgressCallback = Optional[Callable[[ProgressUpdate], None]]
 
+# Shared with _verify_answer_grounding so claim-splitting and snippet-boundary
+# splitting agree on what a "sentence" is.
+_SENTENCE_BOUNDARY_RE = re.compile(r'[.!?\n][\s\n]+')
+
 
 class KnowledgeBase:
     """Manages the document index and search."""
@@ -17264,7 +17268,8 @@ Important:
             {
                 'answer': str,              # Generated answer text
                 'sources': list[dict],      # Citations with metadata
-                'confidence': float,        # 0.0-1.0 confidence score
+                'confidence': float,        # 0.0-1.0, from claim verification when available
+                'unverified_claims': list,  # Claim sentences whose cited source didn't support them
                 'search_results': list,     # Top-N search results used
                 'reasoning': str,           # Explanation of how answer was derived
                 'model': str,               # LLM model used
@@ -17345,6 +17350,7 @@ Important:
                     'answer': answer_result['text'],
                     'sources': answer_result['citations'],
                     'confidence': answer_result.get('confidence', query_confidence),
+                    'unverified_claims': answer_result.get('unverified_claims', []),
                     'search_results': results[:max_context_chunks],
                     'reasoning': f"Question mode: {search_mode}. Retrieved {len(results[:max_context_chunks])} sources.",
                     'model': llm_client.provider.model,
@@ -17495,21 +17501,119 @@ Please provide your answer now:"""
             # Extract citations from answer
             citations = self._extract_citations(answer_text, search_results)
 
-            # Calculate confidence based on citations
-            if citations:
-                confidence = 0.85  # Higher confidence if LLM cited sources
+            if os.getenv('USE_ANSWER_VERIFICATION', '1') == '1':
+                verification = self._verify_answer_grounding(
+                    question, answer_text, citations, search_results, llm_client)
             else:
-                confidence = 0.70  # Lower if no explicit citations found
+                verification = {
+                    'confidence': 0.85 if citations else 0.70,
+                    'unverified_claims': [],
+                    'checked_claims': 0,
+                }
 
             return {
                 'text': answer_text,
                 'citations': citations,
-                'confidence': confidence
+                'confidence': verification['confidence'],
+                'unverified_claims': verification['unverified_claims'],
+                'checked_claims': verification['checked_claims'],
             }
 
         except Exception as e:
             self.logger.error(f"LLM answer generation failed: {e}")
             raise
+
+    def _verify_answer_grounding(self, question: str, answer_text: str, citations: list[dict],
+                                 search_results: list[dict], llm_client) -> dict:
+        """
+        Check whether the answer's cited claims are actually supported by the
+        passages they cite, instead of trusting the model's self-report.
+
+        The confidence this replaces was a hardcoded 0.85/0.70 keyed on
+        whether the literal string "Source N" appeared anywhere in the
+        output - which measures that the model claimed to cite something,
+        not that the citation holds up. A wrong answer naming "Source 2"
+        looked identical, in the response, to a right one.
+
+        Splits the answer into sentence-sized claims, asks the LLM once (not
+        once per claim) whether each cited passage supports its claim, and
+        derives confidence from the verdicts. Falls back to the old
+        citation-presence heuristic - with an empty unverified_claims list,
+        since the check never ran - if anything about the verification call
+        fails or there is nothing citable to check; a broken verifier must
+        never take down answer_question itself.
+
+        Returns:
+            {'confidence': float, 'unverified_claims': list[str], 'checked_claims': int}
+        """
+        fallback = {
+            'confidence': 0.85 if citations else 0.70,
+            'unverified_claims': [],
+            'checked_claims': 0,
+        }
+
+        sentences = [s.strip() for s in _SENTENCE_BOUNDARY_RE.split(answer_text) if s.strip()]
+        claims = []
+        for sentence in sentences:
+            source_indices = sorted({
+                int(m) for m in re.findall(r'[Ss]ource\s+(\d+)', sentence)
+                if 0 <= int(m) - 1 < len(search_results)
+            })
+            if source_indices:
+                claims.append({'text': sentence, 'sources': source_indices})
+
+        if not claims:
+            return fallback
+
+        # One passage per cited source, not per claim - a source cited by
+        # three claims still only needs fetching and encoding into the
+        # prompt once.
+        query_terms = {t for t in re.split(r'\W+', question.lower()) if t}
+        max_chars = int(os.getenv('VERIFY_PASSAGE_CHARS', '1000'))
+        passages = {}
+        for claim in claims:
+            for idx in claim['sources']:
+                if idx not in passages:
+                    passages[idx] = self._rerank_passage(search_results[idx - 1], query_terms, max_chars)
+
+        claim_blocks = []
+        for i, claim in enumerate(claims, 1):
+            cited_text = "\n---\n".join(passages[idx] for idx in claim['sources'])
+            claim_blocks.append(f"CLAIM {i}: {claim['text']}\nCITED SOURCE(S):\n{cited_text}\n")
+
+        prompt = f"""You are checking whether claims in a generated answer are actually supported by the documentation passages they cite.
+
+For each numbered claim below, decide whether its cited source(s) support it, contradict it, or don't mention it at all.
+
+{"".join(claim_blocks)}
+Respond with JSON only, in this exact shape:
+{{"verifications": [{{"claim": 1, "verdict": "supported"}}, {{"claim": 2, "verdict": "not_mentioned"}}]}}
+
+verdict must be exactly one of: "supported", "contradicted", "not_mentioned". Include exactly one entry per claim, in claim order."""
+
+        try:
+            response = llm_client.call_json(prompt, temperature=0.0, max_tokens=1024)
+            verdicts = {}
+            for entry in response.get('verifications', []):
+                idx = int(entry.get('claim'))
+                verdicts[idx] = str(entry.get('verdict', '')).strip().lower()
+        except Exception as e:
+            self.logger.warning(f"Answer grounding check failed, keeping heuristic confidence: {e}")
+            return fallback
+
+        unverified = []
+        supported = 0
+        for i, claim in enumerate(claims, 1):
+            if verdicts.get(i) == 'supported':
+                supported += 1
+            else:
+                unverified.append(claim['text'])
+
+        return {
+            'confidence': supported / len(claims),
+            'unverified_claims': unverified,
+            'checked_claims': len(claims),
+        }
 
     def _extract_citations(self, answer_text: str, search_results: list[dict]) -> list[dict]:
         """
@@ -22298,6 +22402,16 @@ def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
         output += f"- **Search Mode**: {result.get('reasoning', 'Unknown')}\n"
         output += f"- **LLM Model**: {result.get('model', 'Fallback')}\n"
         output += f"- **Sources Used**: {len(result['sources'])} documents\n"
+
+        # Flag claims the grounding check couldn't confirm against their
+        # cited source - the whole point of running the check is to surface
+        # this, not just fold it into a number nobody can act on.
+        unverified = result.get('unverified_claims')
+        if unverified:
+            output += f"\n## ⚠️ Unverified Claims ({len(unverified)})\n\n"
+            output += "These statements cited a source but the citation didn't check out against it:\n\n"
+            for claim in unverified:
+                output += f"- {claim}\n"
 
         # Add error note if applicable
         if result.get('error'):

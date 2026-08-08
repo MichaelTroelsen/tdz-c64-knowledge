@@ -171,6 +171,8 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | `USE_RERANKER` | Rerank hybrid/semantic results with a cross-encoder | `0` |
 | `RERANK_MODEL` | Cross-encoder model for reranking | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
 | `RERANK_CANDIDATES` | First-stage candidates fed to the reranker | `30` |
+| `USE_ANSWER_VERIFICATION` | Check `answer_question`'s cited claims against their source before trusting them | `1` |
+| `VERIFY_PASSAGE_CHARS` | Max characters per cited source shown to the grounding check | `1000` |
 
 ## Search Features
 

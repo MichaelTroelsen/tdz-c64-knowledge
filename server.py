@@ -15872,6 +15872,13 @@ Important:
         if use_fts5 and self._fts5_available():
             # Use SQLite FTS5 full-text search
             results = self._search_fts5(query, query_terms, phrases, tags, max_results, include_superseded)
+            if results is None:
+                # A backend failure, not an empty result set. Collapsing the
+                # two is what let a one-character syntax bug divert every
+                # question-shaped query into a ~265s BM25 index build.
+                self.logger.warning(
+                    f"FTS5 backend failed for query {query!r}; falling back to BM25/simple")
+                results = []
             # Fall back to BM25/simple if FTS5 returns no results
             if not results:
                 if use_bm25 and BM25_SUPPORT:
@@ -16033,28 +16040,69 @@ Important:
         results.sort(key=lambda x: x['score'], reverse=True)
         return results[:max_results]
 
+    # Words, optionally hyphenated (VIC-II, read-only). Everything else -
+    # '?', '*', ':', parentheses, quotes - is punctuation to a user typing a
+    # question but syntax to FTS5, so it never reaches the MATCH expression.
+    _FTS5_TOKEN_RE = re.compile(r'\w+(?:-\w+)*', re.UNICODE)
+
+    def _fts5_match_expressions(self, query: str, phrases: list) -> list[str]:
+        """Build safe FTS5 MATCH expressions for user text, most precise first.
+
+        The old builder passed the raw query string through with only hyphen
+        and colon words quoted. A query is user prose, not FTS5 syntax: a
+        trailing '?' - which is to say every natural-language question - is a
+        syntax error in operator position. FTS5 raised, the caller read the
+        empty return as "no matches", and fell through to BM25, whose index
+        costs ~265s to build on first use and ~4s per query after. FTS5 was
+        effectively dead for question-shaped input.
+
+        Returns the AND form first (precise) and the OR form second (recall).
+        Both execute in ~0ms, so trying both in turn is still orders of
+        magnitude cheaper than one BM25 build.
+        """
+        def quote(text: str) -> str:
+            # FTS5 string literal: an embedded double quote is escaped by
+            # doubling it. Quoting also stops a bare token like 'AND' or 'OR'
+            # in the user's prose being read as an operator.
+            return '"%s"' % text.replace('"', '""')
+
+        tokens = [quote(phrase) for phrase in phrases if phrase.strip()]
+
+        # Drop the quoted phrases before tokenising, so their words are not
+        # also required individually on top of the phrase match.
+        remainder = re.sub(r'"[^"]*"', ' ', query)
+        tokens += [quote(word) for word in self._FTS5_TOKEN_RE.findall(remainder)]
+
+        if not tokens:
+            return []
+        if len(tokens) == 1:
+            return tokens
+        return [' AND '.join(tokens), ' OR '.join(tokens)]
+
     def _search_fts5(self, query: str, query_terms: set, phrases: list,
-                     tags: Optional[list[str]], max_results: int, include_superseded: bool = False) -> list[dict]:
-        """Search using SQLite FTS5 full-text search."""
+                     tags: Optional[list[str]], max_results: int,
+                     include_superseded: bool = False) -> Optional[list[dict]]:
+        """Search using SQLite FTS5 full-text search.
+
+        Returns [] when the query genuinely matches nothing, and None when the
+        FTS5 backend itself failed. The caller needs to tell those apart: the
+        old code returned [] for both, so a malformed MATCH expression was
+        indistinguishable from an empty corpus hit and silently triggered the
+        expensive BM25 fallback.
+        """
         cursor = self.db_conn.cursor()
 
-        # Build FTS5 query (FTS5 supports boolean operators and phrases natively)
-        # Escape special characters that could cause syntax errors
-        # Quote terms with hyphens or other special chars to treat them as phrases
-        import re
-        words = query.split()
-        escaped_words = []
-        for word in words:
-            # If word contains hyphen or other special chars, quote it
-            if re.search(r'[-:]', word):
-                escaped_words.append(f'"{word}"')
-            else:
-                escaped_words.append(word)
-        fts_query = ' '.join(escaped_words)
+        expressions = self._fts5_match_expressions(query, phrases)
+        if not expressions:
+            # Nothing searchable in the input (punctuation only) - that is an
+            # empty result, not a backend failure.
+            return []
 
         try:
-            # Execute FTS5 search with BM25 ranking
-            cursor.execute("""
+            # Execute FTS5 search with BM25 ranking, narrowest expression first
+            rows = []
+            for expression in expressions:
+                cursor.execute("""
                 SELECT
                     c.doc_id,
                     c.chunk_id,
@@ -16070,10 +16118,13 @@ Important:
                 WHERE chunks_fts5 MATCH ?
                 ORDER BY rank
                 LIMIT ?
-            """, (fts_query, max_results * 2))  # Get 2x for tag filtering
+                """, (expression, max_results * 2))  # Get 2x for tag filtering
+                rows = cursor.fetchall()
+                if rows:
+                    break
 
             results = []
-            for row in cursor.fetchall():
+            for row in rows:
                 doc_id, chunk_id, content, word_count, page, filename, title, score = row
                 doc = self.documents.get(doc_id)
 
@@ -16109,10 +16160,9 @@ Important:
 
             return results
 
-        except Exception as e:
-            self.logger.error(f"FTS5 search failed: {e}")
-            # Fall back to simple search
-            return []
+        except Exception:
+            self.logger.exception(f"FTS5 search failed for query {query!r}")
+            return None
 
     def _extract_snippet(self, content: str, query_terms: set, snippet_size: int = 300) -> str:
         """
@@ -16195,6 +16245,67 @@ Important:
 
         return snippet
 
+    def _embedding_passages(self, text: str) -> list[str]:
+        """Split one chunk into windows that fit inside the encoder's input limit.
+
+        all-MiniLM-L6-v2 truncates at 256 word-pieces (~190 English words), but
+        chunks are 1500 words, so encoding a chunk whole discarded ~87% of it
+        before the model ever saw it - semantic search was effectively matching
+        on chunk openings only. Each chunk is therefore indexed as several
+        overlapping windows; semantic_search max-pools them back to one score
+        per chunk, so nothing downstream sees the extra vectors.
+
+        EMBEDDING_WINDOW_WORDS=0 restores the old whole-chunk behaviour.
+        """
+        window = int(os.getenv('EMBEDDING_WINDOW_WORDS', '200'))
+        if window <= 0:
+            return [text] if text.strip() else []
+
+        words = text.split()
+        if not words:
+            return []
+        if len(words) <= window:
+            return [text]
+
+        overlap = int(os.getenv('EMBEDDING_WINDOW_OVERLAP', '40'))
+        overlap = max(0, min(overlap, window - 1))
+        stride = window - overlap
+
+        passages = []
+        for start in range(0, len(words), stride):
+            passages.append(' '.join(words[start:start + window]))
+            if start + window >= len(words):
+                break
+        return passages
+
+    def _expand_chunks_to_passages(self, chunks: list) -> tuple[list[str], list[tuple]]:
+        """Flatten chunks into (texts, doc_map) where several texts may share a
+        (doc_id, chunk_id) key. The map keeps its historical 2-tuple shape so
+        every existing consumer keeps working unchanged."""
+        texts: list[str] = []
+        doc_map: list[tuple] = []
+        for chunk in chunks:
+            for passage in self._embedding_passages(chunk.content):
+                texts.append(passage)
+                doc_map.append((chunk.doc_id, chunk.chunk_id))
+        return texts, doc_map
+
+    def _passage_fanout(self) -> int:
+        """Average vectors per chunk in the live index, used to scale FAISS k.
+
+        Cached against the map length so a search doesn't rescan ~90k entries.
+        """
+        n = len(self.embeddings_doc_map)
+        if n == 0:
+            return 1
+        cached = getattr(self, '_fanout_cache', None)
+        if cached is not None and cached[0] == n:
+            return cached[1]
+        distinct = len({tuple(entry) for entry in self.embeddings_doc_map})
+        fanout = max(1, round(n / max(1, distinct)))
+        self._fanout_cache = (n, fanout)
+        return fanout
+
     def _ensure_embeddings_loaded(self):
         """
         Lazy load embeddings model and index on first use.
@@ -16259,7 +16370,10 @@ Important:
             if self.embeddings_file.exists() and self.embeddings_map_file.exists():
                 self.embeddings_index = faiss.read_index(str(self.embeddings_file))
                 with open(self.embeddings_map_file, 'r') as f:
-                    self.embeddings_doc_map = json.load(f)
+                    # json gives lists; _find_similar_semantic does a
+                    # .index((doc_id, chunk_id)) lookup that never matches a
+                    # list, so normalise back to tuples on the way in.
+                    self.embeddings_doc_map = [tuple(e) for e in json.load(f)]
                 self.logger.info(f"Loaded embeddings index with {len(self.embeddings_doc_map)} vectors")
             else:
                 self.embeddings_index = None
@@ -16321,6 +16435,7 @@ Important:
                 new_index.add(kept_vectors)
                 self.embeddings_index = new_index
                 self.embeddings_doc_map = [self.embeddings_doc_map[i] for i in keep_positions]
+                self._fanout_cache = None
                 self._save_embeddings_locked()
             else:
                 # Nothing left at all - clear in-memory state and remove the
@@ -16354,10 +16469,13 @@ Important:
         # Generate embeddings (CPU-bound; deliberately outside the lock below
         # so concurrent agent processes don't serialise behind each other's
         # encoding work, only behind the actual shared-file write).
-        texts = [chunk.content for chunk in chunks]
+        texts, doc_map = self._expand_chunks_to_passages(chunks)
+        if not texts:
+            self.logger.warning("No passages to embed")
+            return
+        self.logger.info(f"Encoding {len(texts)} passages from {len(chunks)} chunks")
         embeddings = self.embeddings_model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
         faiss.normalize_L2(embeddings)
-        doc_map = [(chunk.doc_id, chunk.chunk_id) for chunk in chunks]
 
         # This rebuild is authoritative - it re-derives from every chunk in
         # the database, not from a possibly-stale in-memory copy - so it just
@@ -16368,6 +16486,7 @@ Important:
             self.embeddings_index = faiss.IndexFlatIP(dimension)  # Inner product (cosine similarity)
             self.embeddings_index.add(embeddings)
             self.embeddings_doc_map = doc_map
+            self._fanout_cache = None
             self._save_embeddings_locked()
 
         # Invalidate similarity cache since embeddings changed
@@ -16404,17 +16523,24 @@ Important:
         # Encode every batch up front - CPU-bound work with no shared state,
         # so it happens outside the lock and doesn't serialise concurrent
         # agent processes against each other's model inference time.
+        # Batch over passages, not chunks: one 1500-word chunk expands to ~9
+        # encoder-sized windows, so batching by chunk would hand the model
+        # batches ~9x larger than EMBEDDING_BATCH_SIZE intends.
+        all_texts, all_keys = self._expand_chunks_to_passages(chunks)
+        if not all_texts:
+            self.logger.debug("No passages to add to embeddings")
+            return
+
         batch_vectors = []
-        total_chunks = len(chunks)
-        for batch_start in range(0, total_chunks, batch_size):
-            batch_end = min(batch_start + batch_size, total_chunks)
-            batch_chunks = chunks[batch_start:batch_end]
-            texts = [chunk.content for chunk in batch_chunks]
+        total_passages = len(all_texts)
+        for batch_start in range(0, total_passages, batch_size):
+            batch_end = min(batch_start + batch_size, total_passages)
+            texts = all_texts[batch_start:batch_end]
             embeddings = self.embeddings_model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
             faiss.normalize_L2(embeddings)
-            batch_vectors.append((embeddings, batch_chunks))
-            if total_chunks > batch_size:
-                self.logger.debug(f"Encoded batch {batch_start+1}-{batch_end}/{total_chunks}")
+            batch_vectors.append((embeddings, all_keys[batch_start:batch_end]))
+            if total_passages > batch_size:
+                self.logger.debug(f"Encoded batch {batch_start+1}-{batch_end}/{total_passages}")
 
         # Reload the latest committed state under the lock before appending -
         # not the possibly-stale copy this process loaded at startup or built
@@ -16430,11 +16556,11 @@ Important:
                 self.embeddings_index = faiss.IndexFlatIP(dimension)
                 self.embeddings_doc_map = []
 
-            for embeddings, batch_chunks in batch_vectors:
+            for embeddings, batch_keys in batch_vectors:
                 self.embeddings_index.add(embeddings)
-                for chunk in batch_chunks:
-                    self.embeddings_doc_map.append((chunk.doc_id, chunk.chunk_id))
+                self.embeddings_doc_map.extend(batch_keys)
 
+            self._fanout_cache = None
             self._save_embeddings_locked()
 
         # Invalidate similarity cache since embeddings changed
@@ -16516,17 +16642,29 @@ Important:
             pass
 
         # Search in FAISS index (get more results for filtering)
-        k = min(max_results * 5, len(self.embeddings_doc_map))
+        # Each chunk now occupies several index positions, so ask for
+        # proportionally more neighbours or a single verbose chunk could fill
+        # the whole result window on its own.
+        k = min(max_results * 5 * self._passage_fanout(), len(self.embeddings_doc_map))
         scores, indices = self.embeddings_index.search(query_embedding, k)
 
         # Build results
         results = []
+        seen_chunks = set()
 
         for score, idx in zip(scores[0], indices[0]):
             if idx < 0 or idx >= len(self.embeddings_doc_map):
                 continue
 
             doc_id, chunk_id = self.embeddings_doc_map[idx]
+
+            # FAISS returns hits in descending score order, so the first window
+            # seen for a chunk is its best one - skipping the rest max-pools the
+            # windows back to one result per chunk.
+            if (doc_id, chunk_id) in seen_chunks:
+                continue
+            seen_chunks.add((doc_id, chunk_id))
+
             doc = self.documents.get(doc_id)
 
             # Exclude superseded card versions by default
@@ -16997,7 +17135,7 @@ Important:
                 }
 
             # Step 4: Build context from top results
-            context = self._build_rag_context(results[:max_context_chunks])
+            context = self._build_rag_context(results[:max_context_chunks], question)
 
             # Step 5: Try to generate answer with LLM
             from llm_integration import get_llm_client
@@ -17047,22 +17185,46 @@ Important:
                 'error': str(e)
             }
 
-    def _build_rag_context(self, search_results: list[dict], max_tokens: int = 4000) -> str:
+    def _build_rag_context(self, search_results: list[dict], question: str = "",
+                           max_tokens: Optional[int] = None) -> str:
         """
         Build documentation context from search results for LLM prompt.
 
+        The search results carry a ~300-char display snippet, which used to be
+        the entire evidence the generator saw - roughly 1.5KB of text against a
+        4000-token budget that stayed 90% empty. A C64 register table or timing
+        diagram does not survive a 300-char window, so the answer was being
+        written from fragments. Each source is now re-excerpted from its full
+        chunk at a per-source share of the budget, centred on the densest
+        question-term region of that chunk.
+
         Args:
             search_results: Search results with snippets and metadata
-            max_tokens: Maximum tokens for context (~4 chars per token)
+            question: Original question, used to centre each excerpt
+            max_tokens: Context budget (~4 chars per token). Defaults to
+                RAG_CONTEXT_TOKENS, or 8000.
 
         Returns:
             Formatted documentation context string with source citations
         """
-        context = ""
-        token_count = 0
+        if max_tokens is None:
+            max_tokens = int(os.getenv('RAG_CONTEXT_TOKENS', '8000'))
+
         CHARS_PER_TOKEN = 4
         SECTION_OVERHEAD = 200
 
+        if not search_results:
+            return ""
+
+        # Split the budget evenly rather than spending it all on source 1 and
+        # dropping the rest: citation breadth is the point of retrieving N.
+        n = len(search_results)
+        body_tokens = max(0, max_tokens - SECTION_OVERHEAD * n)
+        per_source_chars = max(400, (body_tokens // n) * CHARS_PER_TOKEN)
+
+        query_terms = {t for t in re.split(r'\W+', question.lower()) if t}
+
+        context = ""
         for i, result in enumerate(search_results, 1):
             # Build section header
             header = f"## Source {i}: {result['title']}\n"
@@ -17074,22 +17236,29 @@ Important:
 
             header += f" - Relevance: {result['score']:.2f}\n\n"
 
-            # Get snippet (already highlighted by _extract_snippet)
-            snippet = result.get('snippet', '') + "\n\n"
+            # Prefer a wide excerpt of the real chunk; fall back to the display
+            # snippet if the chunk has since been removed from the database.
+            excerpt = ""
+            try:
+                chunk = self.get_chunk(result['doc_id'], result['chunk_id'])
+            except Exception:
+                self.logger.exception(
+                    f"Failed to load chunk {result['doc_id']}/{result['chunk_id']} for RAG context")
+                chunk = None
 
-            # Build full section
-            section = header + snippet
-            section_tokens = len(section) // CHARS_PER_TOKEN
+            if chunk and chunk.content:
+                if len(chunk.content) <= per_source_chars:
+                    excerpt = chunk.content
+                elif query_terms:
+                    excerpt = self._extract_snippet(chunk.content, query_terms,
+                                                    snippet_size=per_source_chars)
+                else:
+                    excerpt = chunk.content[:per_source_chars] + "..."
 
-            # Check token budget
-            if token_count + section_tokens + SECTION_OVERHEAD > max_tokens:
-                remaining = len(search_results) - i
-                if remaining > 0:
-                    context += f"\n... ({remaining} more sources available, truncated for token limit)\n"
-                break
+            if not excerpt:
+                excerpt = result.get('snippet', '')
 
-            context += section
-            token_count += section_tokens
+            context += header + excerpt + "\n\n"
 
         return context
 
@@ -17703,7 +17872,7 @@ Return ONLY valid JSON, no additional text.
         faiss.normalize_L2(target_embedding)
 
         # Search for similar chunks (get more for filtering)
-        k = min(max_results * 10, len(self.embeddings_doc_map))
+        k = min(max_results * 10 * self._passage_fanout(), len(self.embeddings_doc_map))
         scores, indices = self.embeddings_index.search(target_embedding, k)
 
         # Build results, aggregating by document

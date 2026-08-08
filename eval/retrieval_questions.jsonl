@@ -1,0 +1,40 @@
+{"id": "sid-base-address", "question": "What is the base address of the SID sound chip?", "must_contain": [["54272", "$D400", "D400"], ["SID"]]}
+{"id": "vic-base-address", "question": "Where does the VIC-II video chip start in memory?", "must_contain": [["53248", "$D000", "D000"], ["VIC"]]}
+{"id": "raster-register", "question": "Which register holds the current raster line?", "must_contain": [["53266", "$D012", "D012"], ["raster"]]}
+{"id": "border-colour", "question": "How do I change the border colour of the screen?", "must_contain": [["53280", "$D020", "D020"], ["border"]]}
+{"id": "background-colour", "question": "Which memory location sets the screen background colour?", "must_contain": [["53281", "$D021", "D021"], ["background"]]}
+{"id": "colour-ram", "question": "Where is colour RAM located?", "must_contain": [["55296", "$D800", "D800"], ["color", "colour"]]}
+{"id": "screen-memory", "question": "What is the default screen memory address?", "must_contain": [["1024", "$0400", "0400"], ["screen"]]}
+{"id": "cia1-address", "question": "What address is CIA chip 1 at?", "must_contain": [["56320", "$DC00", "DC00"], ["CIA"]]}
+{"id": "cia2-address", "question": "What address is CIA chip 2 at?", "must_contain": [["56576", "$DD00", "DD00"], ["CIA"]]}
+{"id": "processor-port", "question": "How does the 6510 processor port control memory banking?", "must_contain": [["6510"], ["bank", "banking"]]}
+{"id": "sprite-enable", "question": "Which register enables sprites?", "must_contain": [["53269", "$D015", "D015"], ["sprite"]]}
+{"id": "sprite-collision", "question": "How is sprite to sprite collision detected?", "must_contain": [["collision"], ["sprite"]]}
+{"id": "sprite-count", "question": "How many hardware sprites does the C64 have?", "must_contain": [["eight sprites", "8 sprites"]]}
+{"id": "sprite-dimensions", "question": "What are the pixel dimensions of a sprite?", "must_contain": [["sprite"], ["24 by 21", "24x21", "24 dots", "21 rows", "21 lines"]]}
+{"id": "raster-interrupt", "question": "How do I set up a raster interrupt?", "must_contain": [["raster"], ["interrupt"]]}
+{"id": "irq-vector", "question": "Where is the IRQ interrupt vector stored?", "must_contain": [["IRQ"], ["vector"]]}
+{"id": "nmi-handling", "question": "How are NMI interrupts handled?", "must_contain": [["NMI"], ["non-maskable", "FFFA", "RESTORE key"]]}
+{"id": "kernal-chrout", "question": "Which KERNAL routine prints a character to the screen?", "must_contain": [["CHROUT"]]}
+{"id": "kernal-getin", "question": "Which KERNAL routine reads a key from the keyboard buffer?", "must_contain": [["GETIN"]]}
+{"id": "kernal-rom-location", "question": "Where does the KERNAL ROM live in the memory map?", "must_contain": [["KERNAL", "Kernal"], ["57344", "$E000", "E000"]]}
+{"id": "basic-rom-location", "question": "Where is the BASIC ROM located?", "must_contain": [["BASIC"], ["40960", "$A000", "A000"]]}
+{"id": "character-rom", "question": "How do I access the character generator ROM?", "must_contain": [["character generator"]]}
+{"id": "sid-voices", "question": "How many independent voices does the SID have?", "must_contain": [["three voices", "3 voices"]]}
+{"id": "sid-waveforms", "question": "Which waveforms can a SID voice produce?", "must_contain": [["sawtooth"], ["noise"]]}
+{"id": "sid-adsr", "question": "How does the ADSR envelope work on the SID?", "must_contain": [["attack"], ["decay"], ["sustain"], ["release"]]}
+{"id": "sid-filter", "question": "How do I configure the SID filter cutoff frequency?", "must_contain": [["filter"], ["cutoff"], ["54293", "54294", "$D415", "$D416", "D415"]]}
+{"id": "bitmap-resolution", "question": "What is the high resolution bitmap resolution?", "must_contain": [["320 by 200", "320x200", "320 x 200"]]}
+{"id": "multicolour-mode", "question": "How does multicolour bitmap mode work?", "must_contain": [["multicolor", "multicolour"]]}
+{"id": "6510-cpu", "question": "What CPU does the Commodore 64 use?", "must_contain": [["6510"]]}
+{"id": "6581-sid-chip", "question": "What is the part number of the SID chip?", "must_contain": [["6581"]]}
+{"id": "vic-chip-numbers", "question": "What are the PAL and NTSC VIC-II chip part numbers?", "must_contain": [["6569", "6567"]]}
+{"id": "zero-page", "question": "How is zero page used on the 6510?", "must_contain": [["zero page", "zero-page"], ["addressing", "indirect"]]}
+{"id": "stack-page", "question": "Where is the 6510 hardware stack in memory?", "must_contain": [["stack"], ["256", "$0100", "0100", "page 1"]]}
+{"id": "tape-buffer", "question": "Where is the cassette tape buffer?", "must_contain": [["828", "$033C", "033C"], ["buffer"]]}
+{"id": "device-number-1541", "question": "What device number does the 1541 disk drive use?", "must_contain": [["1541"], ["device"]]}
+{"id": "illegal-opcodes", "question": "What are the undocumented 6502 opcodes?", "must_contain": [["opcode", "opcodes"], ["undocumented", "illegal"]]}
+{"id": "pal-ntsc-timing", "question": "How many raster lines does a PAL frame have?", "must_contain": [["PAL"], ["raster", "scan"]]}
+{"id": "clock-frequency", "question": "What is the C64 system clock frequency?", "must_contain": [["MHz"], ["clock"]]}
+{"id": "screen-editor", "question": "How does the screen editor handle scrolling?", "must_contain": [["scrolling"], ["smooth", "hardware"]]}
+{"id": "joystick-reading", "question": "How do I read the joystick ports?", "must_contain": [["joystick"]]}

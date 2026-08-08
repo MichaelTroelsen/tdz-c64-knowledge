@@ -438,6 +438,17 @@ def SentenceTransformer(*args, **kwargs):
     return _SentenceTransformer(*args, **kwargs)
 
 
+def CrossEncoder(*args, **kwargs):
+    """Lazily import and instantiate the real CrossEncoder class.
+
+    Same reasoning as SentenceTransformer above: importing this at module
+    level would put the transformers/torch import cost back on every MCP
+    handshake, which is exactly what test_mcp_startup.py forbids.
+    """
+    from sentence_transformers import CrossEncoder as _CrossEncoder
+    return _CrossEncoder(*args, **kwargs)
+
+
 # numpy is cheap (~0.3s) and used throughout, so it stays eager.
 try:
     import numpy as np
@@ -726,6 +737,12 @@ class KnowledgeBase:
         self.embeddings_index = None
         self.embeddings_doc_map = []  # Maps FAISS index positions to (doc_id, chunk_id)
         self._embeddings_loaded = False  # Track if model has been loaded
+
+        # Cross-encoder reranking. Off by default like the other heavy search
+        # backends: enabling it downloads a ~90MB model on first use.
+        self.use_reranker = SEMANTIC_SUPPORT and os.getenv('USE_RERANKER', '0') == '1'
+        self.reranker_model = None
+        self._reranker_loaded = False
 
         if self.use_semantic:
             # Don't load model yet - will load on first use for faster startup
@@ -16164,10 +16181,15 @@ Important:
             self.logger.exception(f"FTS5 search failed for query {query!r}")
             return None
 
-    def _extract_snippet(self, content: str, query_terms: set, snippet_size: int = 300) -> str:
+    def _extract_snippet(self, content: str, query_terms: set, snippet_size: int = 300,
+                         highlight: bool = True) -> str:
         """
         Extract a relevant snippet from content with highlighted search terms.
         Enhanced to extract complete sentences and find regions with high term density.
+
+        highlight=False returns the window as plain prose. The ** markers and
+        leading/trailing ellipses are display furniture; feeding them to a
+        model that scores the text (see rerank) measurably degrades it.
         """
         content_lower = content.lower()
 
@@ -16229,6 +16251,9 @@ Important:
                     break
             if code_end > 0:
                 snippet = '\n'.join(lines[:code_end])
+
+        if not highlight:
+            return snippet
 
         # Highlight matching terms (case-insensitive, whole words)
         for term in query_terms:
@@ -16571,8 +16596,122 @@ Important:
         elapsed = time.time() - start_time
         self.logger.info(f"Added {len(chunks)} chunks to embeddings index in {elapsed:.2f}s")
 
+    def _ensure_reranker_loaded(self):
+        """Lazy load the cross-encoder on first rerank, mirroring the
+        bi-encoder path in _ensure_embeddings_loaded (including its network
+        deadline - see issue #14 for what an unbounded HF fetch does)."""
+        if not self.use_reranker or self._reranker_loaded:
+            return
+
+        model_name = os.getenv('RERANK_MODEL', 'cross-encoder/ms-marco-MiniLM-L-6-v2')
+        max_length = int(os.getenv('RERANK_MAX_LENGTH', '512'))
+        try:
+            self.logger.info(f"Lazy loading reranker model: {model_name}")
+            try:
+                with _network_timeout():
+                    self.reranker_model = CrossEncoder(model_name, max_length=max_length,
+                                                       local_files_only=True)
+            except Exception:
+                with _network_timeout():
+                    self.reranker_model = CrossEncoder(model_name, max_length=max_length)
+            self._reranker_loaded = True
+            self.logger.info("Reranker model loaded successfully")
+        except Exception as e:
+            # Degrade to the first-stage ranking rather than failing the search.
+            self.logger.error(f"Failed to load reranker, continuing without it: {e}")
+            self.use_reranker = False
+            self.reranker_model = None
+            self._reranker_loaded = False
+
+    def _rerank_passage(self, result: dict, query_terms: set, max_chars: int) -> str:
+        """Pick the text the cross-encoder should score for one candidate.
+
+        The cross-encoder truncates at RERANK_MAX_LENGTH word-pieces, so
+        handing it a 1500-word chunk re-creates the bi-encoder's original
+        defect one stage later: the tail is never seen. Score the densest
+        query-term window of the real chunk instead, and only fall back to the
+        display snippet if the chunk has gone.
+        """
+        try:
+            chunk = self.get_chunk(result['doc_id'], result['chunk_id'])
+        except Exception:
+            self.logger.exception(
+                f"Failed to load chunk {result['doc_id']}/{result['chunk_id']} for reranking")
+            chunk = None
+
+        if not chunk or not chunk.content:
+            return result.get('snippet', '')
+        if len(chunk.content) <= max_chars:
+            return chunk.content
+        if query_terms:
+            return self._extract_snippet(chunk.content, query_terms,
+                                         snippet_size=max_chars, highlight=False)
+        return chunk.content[:max_chars]
+
+    def rerank(self, query: str, results: list[dict], top_k: Optional[int] = None) -> list[dict]:
+        """Reorder first-stage results with a cross-encoder, best first.
+
+        Bi-encoder retrieval embeds query and passage independently, so it can
+        only measure whether they land near each other in vector space. A
+        cross-encoder reads both together and scores the pair directly, which
+        is far more accurate but far too slow to run over the whole corpus -
+        hence retrieve-many-then-rerank-few.
+
+        Returns results unchanged (trimmed to top_k) when reranking is off or
+        the model failed to load, so callers never need to branch on it.
+        """
+        if top_k is None:
+            top_k = len(results)
+
+        if not results or not self.use_reranker:
+            return results[:top_k]
+
+        self._ensure_reranker_loaded()
+        if self.reranker_model is None:
+            return results[:top_k]
+
+        start_time = time.time()
+        max_chars = int(os.getenv('RERANK_PASSAGE_CHARS', '1400'))
+        query_terms = {t for t in re.split(r'\W+', query.lower()) if t}
+
+        try:
+            passages = [self._rerank_passage(r, query_terms, max_chars) for r in results]
+            scores = self.reranker_model.predict(
+                [(query, passage) for passage in passages],
+                show_progress_bar=False,
+            )
+        except Exception as e:
+            self.logger.exception(f"Reranking failed, keeping first-stage order: {e}")
+            return results[:top_k]
+
+        reranked = []
+        for result, score in zip(results, scores):
+            enriched = dict(result)
+            enriched['rerank_score'] = float(score)
+            # Keep the first-stage score visible; callers and the eval harness
+            # both read 'score', so overwriting it would hide the retrieval
+            # signal that put the candidate here in the first place.
+            enriched['retrieval_score'] = result.get('score')
+            reranked.append(enriched)
+
+        reranked.sort(key=lambda r: r['rerank_score'], reverse=True)
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        self.logger.info(f"Reranked {len(results)} candidates to {top_k} in {elapsed_ms:.0f}ms")
+        return reranked[:top_k]
+
+    def _rerank_depth(self, max_results: int) -> int:
+        """How many candidates to retrieve before reranking.
+
+        A reranker can only promote what the first stage returned, so the
+        depth is the ceiling on what it can fix.
+        """
+        depth = int(os.getenv('RERANK_CANDIDATES', '30'))
+        return max(depth, max_results)
+
     def semantic_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
-                        include_superseded: bool = False) -> list[dict]:
+                        include_superseded: bool = False,
+                        rerank: Optional[bool] = None) -> list[dict]:
         """
         Perform semantic search using embeddings and vector similarity.
 
@@ -16581,6 +16720,8 @@ Important:
             max_results: Maximum number of results to return
             tags: Optional list of tags to filter by
             include_superseded: If False (default), excludes superseded card versions
+            rerank: Rerank with the cross-encoder. None (default) follows
+                USE_RERANKER; True/False override it per call.
 
         Returns:
             List of search results with scores
@@ -16602,6 +16743,11 @@ Important:
             if self.embeddings_index is None:
                 return []
 
+        do_rerank = self.use_reranker if rerank is None else (rerank and self.use_reranker)
+        # Retrieve deeper than the caller asked for when a reranker will sort
+        # the candidates back down.
+        retrieve_n = self._rerank_depth(max_results) if do_rerank else max_results
+
         # Check cache first
         start_time = time.time()
         if self._semantic_cache is not None:
@@ -16609,7 +16755,8 @@ Important:
                                        query=query,
                                        max_results=max_results,
                                        tags=tuple(sorted(tags)) if tags else None,
-                                       include_superseded=include_superseded)
+                                       include_superseded=include_superseded,
+                                       rerank=do_rerank)
             if cache_key in self._semantic_cache:
                 results = self._semantic_cache[cache_key]
                 elapsed_ms = (time.time() - start_time) * 1000
@@ -16645,7 +16792,7 @@ Important:
         # Each chunk now occupies several index positions, so ask for
         # proportionally more neighbours or a single verbose chunk could fill
         # the whole result window on its own.
-        k = min(max_results * 5 * self._passage_fanout(), len(self.embeddings_doc_map))
+        k = min(retrieve_n * 5 * self._passage_fanout(), len(self.embeddings_doc_map))
         scores, indices = self.embeddings_index.search(query_embedding, k)
 
         # Build results
@@ -16697,8 +16844,11 @@ Important:
                 'similarity': float(score)  # Cosine similarity score
             })
 
-            if len(results) >= max_results:
+            if len(results) >= retrieve_n:
                 break
+
+        if do_rerank:
+            results = self.rerank(query, results, max_results)
 
         elapsed = (time.time() - start_time) * 1000
         self.logger.info(f"Semantic search completed: {len(results)} results in {elapsed:.2f}ms")
@@ -16712,7 +16862,8 @@ Important:
                                        query=query,
                                        max_results=max_results,
                                        tags=tuple(sorted(tags)) if tags else None,
-                                       include_superseded=include_superseded)
+                                       include_superseded=include_superseded,
+                                       rerank=do_rerank)
             self._semantic_cache[cache_key] = results
 
         return results
@@ -16784,7 +16935,8 @@ Important:
         return results[:max_results]
 
     def hybrid_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
-                     semantic_weight: float = 0.7) -> list[dict]:
+                     semantic_weight: float = 0.7,
+                     rerank: Optional[bool] = None) -> list[dict]:
         """
         Perform hybrid search combining FTS5 keyword search and semantic search.
 
@@ -16818,6 +16970,7 @@ Important:
         Env:
             HYBRID_FUSION=weighted restores the legacy normalised-score blend.
             RRF_K (default 60) damps how much the top ranks dominate.
+            USE_RERANKER=1 sorts the fused list with a cross-encoder.
         """
         self._sync_documents_if_needed()
 
@@ -16826,6 +16979,9 @@ Important:
             self.logger.warning("Semantic search not available, falling back to FTS5/BM25")
             return self.search(query, max_results, tags)
 
+        do_rerank = self.use_reranker if rerank is None else (rerank and self.use_reranker)
+        retrieve_n = self._rerank_depth(max_results) if do_rerank else max_results
+
         # Check cache first
         start_time = time.time()
         if self._hybrid_cache is not None:
@@ -16833,7 +16989,8 @@ Important:
                                        query=query,
                                        max_results=max_results,
                                        tags=tuple(sorted(tags)) if tags else None,
-                                       semantic_weight=semantic_weight)
+                                       semantic_weight=semantic_weight,
+                                       rerank=do_rerank)
             if cache_key in self._hybrid_cache:
                 results = self._hybrid_cache[cache_key]
                 elapsed_ms = (time.time() - start_time) * 1000
@@ -16846,8 +17003,9 @@ Important:
         # (FTS5 and semantic are independent operations)
         with ThreadPoolExecutor(max_workers=2) as executor:
             # Submit both searches concurrently
-            fts_future = executor.submit(self.search, query, max_results * 2, tags)
-            semantic_future = executor.submit(self.semantic_search, query, max_results * 2, tags)
+            fts_future = executor.submit(self.search, query, retrieve_n * 2, tags)
+            semantic_future = executor.submit(self.semantic_search, query, retrieve_n * 2, tags,
+                                              False, False)
 
             # Wait for both to complete
             fts_results = fts_future.result()
@@ -16856,7 +17014,10 @@ Important:
         self.logger.debug(f"Parallel search completed: FTS={len(fts_results)}, Semantic={len(semantic_results)}")
 
         results = self._fuse_rankings(fts_results, semantic_results,
-                                      semantic_weight, max_results)
+                                      semantic_weight, retrieve_n)
+
+        if do_rerank:
+            results = self.rerank(query, results, max_results)
 
         elapsed = (time.time() - start_time) * 1000
         self.logger.info(f"Hybrid search completed: {len(results)} results in {elapsed:.2f}ms")
@@ -16870,7 +17031,8 @@ Important:
                                        query=query,
                                        max_results=max_results,
                                        tags=tuple(sorted(tags)) if tags else None,
-                                       semantic_weight=semantic_weight)
+                                       semantic_weight=semantic_weight,
+                                       rerank=do_rerank)
             self._hybrid_cache[cache_key] = results
 
         return results
@@ -17141,7 +17303,11 @@ Important:
             elif search_mode == 'hybrid' and self.use_semantic:
                 results = self.hybrid_search(question, max_context_chunks * 2)
             else:
-                results = self.search(question, max_context_chunks * 2)
+                # The keyword path has no reranking of its own, so apply it
+                # here; the semantic and hybrid paths already reranked.
+                results = self.search(question, self._rerank_depth(max_context_chunks * 2)
+                                      if self.use_reranker else max_context_chunks * 2)
+                results = self.rerank(question, results, max_context_chunks * 2)
 
             if not results:
                 self.logger.warning(f"No search results found for question: {question}")

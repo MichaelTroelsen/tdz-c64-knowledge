@@ -107,7 +107,8 @@ def validate_questions(questions: list[dict], data_dir: Path) -> int:
 # Scoring
 # ---------------------------------------------------------------------------
 
-def build_kb(data_dir: Path, index_file: Path | None, map_file: Path | None):
+def build_kb(data_dir: Path, index_file: Path | None, map_file: Path | None,
+             rerank: bool = False):
     os.environ.setdefault("TDZ_DATA_DIR", str(data_dir))
     os.environ["USE_SEMANTIC_SEARCH"] = "1"
     os.environ["AUTO_EXTRACT_ENTITIES"] = "0"
@@ -115,6 +116,7 @@ def build_kb(data_dir: Path, index_file: Path | None, map_file: Path | None):
     # which takes ~2 minutes per query on this corpus and would make any
     # keyword or hybrid measurement meaningless. The MCP server config sets it.
     os.environ.setdefault("USE_FTS5", "1")
+    os.environ["USE_RERANKER"] = "1" if rerank else "0"
 
     from server import KnowledgeBase
 
@@ -240,6 +242,8 @@ def main() -> int:
                     choices=["semantic", "hybrid", "keyword"])
     ap.add_argument("-k", type=int, default=5, help="cutoff for recall@k / MRR@k")
     ap.add_argument("--verbose", action="store_true", help="per-question hit/miss")
+    ap.add_argument("--rerank", action="store_true",
+                    help="rerank first-stage results with the cross-encoder")
     ap.add_argument("--validate", action="store_true",
                     help="check every question is answerable, then exit")
     ap.add_argument("--compare", action="store_true", help="A/B two index files")
@@ -263,12 +267,12 @@ def main() -> int:
             raise SystemExit("--compare needs at least --index-a")
         # Separate processes would be cleaner, but a fresh KnowledgeBase per arm
         # is enough: the search caches are per-instance.
-        kb_a = build_kb(args.data_dir, args.index_a, args.map_a)
+        kb_a = build_kb(args.data_dir, args.index_a, args.map_a, args.rerank)
         res_a = score(kb_a, questions, args.mode, args.k, args.verbose)
         vectors_a = kb_a.embeddings_index.ntotal
         kb_a.close()
 
-        kb_b = build_kb(args.data_dir, args.index_b, args.map_b)
+        kb_b = build_kb(args.data_dir, args.index_b, args.map_b, args.rerank)
         res_b = score(kb_b, questions, args.mode, args.k, args.verbose)
         vectors_b = kb_b.embeddings_index.ntotal
         kb_b.close()
@@ -278,9 +282,9 @@ def main() -> int:
         print_comparison(res_a, res_b, args.label_a, args.label_b)
         return 0
 
-    kb = build_kb(args.data_dir, args.index_b, args.map_b)
+    kb = build_kb(args.data_dir, args.index_b, args.map_b, args.rerank)
     res = score(kb, questions, args.mode, args.k, args.verbose)
-    print_summary(res)
+    print_summary(res, "reranked" if args.rerank else "")
     kb.close()
     return 0
 

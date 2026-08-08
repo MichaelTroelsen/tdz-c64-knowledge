@@ -407,7 +407,7 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 **Search Methods:**
 - `search()` - Main entry point, dispatches to FTS5, BM25, or simple search based on environment variables
 - `semantic_search()` - Semantic/conceptual search using embeddings and FAISS
-- `hybrid_search()` - Combines FTS5 + semantic with configurable weighting (default: 0.3)
+- `hybrid_search()` - Combines FTS5 + semantic via RRF, configurable weighting (default: 0.7)
 - `search_tables()` - Search for tables in PDFs using FTS5 with tag filtering
 - `search_code()` - Search for code blocks (BASIC/Assembly/Hex) with type filtering
 
@@ -474,10 +474,18 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 ### Hybrid Search (v2.0.0)
 
 - Combines FTS5 keyword search with semantic search
-- Configurable weighting via `semantic_weight` parameter (0.0-1.0, default 0.3)
-- Score normalization for fair comparison (both normalized to 0-1 range)
+- Fused by default via Reciprocal Rank Fusion (RRF): `sum(weight / (RRF_K + rank))` over the
+  rankers that returned each result, weighted by `semantic_weight` (0.0-1.0, default 0.7)
+- Set `HYBRID_FUSION=weighted` to restore the legacy max-normalized score blend (each side scaled
+  to 0-1 by its own max, then combined by weight) - superseded because a single high-scoring FTS
+  hit could rescale, and so distort, the whole keyword side
+- `RRF_K` (default 60) damps how much the top rank dominates the fused score
 - Intelligent result merging by (doc_id, chunk_id)
-- Performance: ~60-180ms (combines two searches)
+- Optional cross-encoder reranking of the fused results: `USE_RERANKER=1` (default off - net
+  regresses recall/MRR on the project's retrieval eval, see `eval_retrieval.py`, though it does
+  promote some buried-answer cases a bi-encoder ranks low)
+- Performance: ~25ms (semantic-dominated queries) to ~260ms (combines two searches); +~1s if
+  reranking is enabled
 
 ### Enhanced Snippet Extraction (v2.0.0)
 

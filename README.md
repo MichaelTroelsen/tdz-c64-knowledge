@@ -163,6 +163,14 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | `SEARCH_CACHE_SIZE` | Max cached results | `100` |
 | `SEARCH_CACHE_TTL` | Cache TTL (seconds) | `300` |
 | `ALLOWED_DOCS_DIRS` | Document directory whitelist | None |
+| `EMBEDDING_WINDOW_WORDS` | Words per encoder window when building embeddings (0 = whole chunk, no windowing) | `200` |
+| `EMBEDDING_WINDOW_OVERLAP` | Word overlap between consecutive embedding windows | `40` |
+| `RAG_CONTEXT_TOKENS` | Token budget for `answer_question`'s LLM context | `8000` |
+| `HYBRID_FUSION` | `rrf` (rank fusion) or `weighted` (legacy normalized-score blend) | `rrf` |
+| `RRF_K` | Rank-fusion damping constant for `hybrid_search` | `60` |
+| `USE_RERANKER` | Rerank hybrid/semantic results with a cross-encoder | `0` |
+| `RERANK_MODEL` | Cross-encoder model for reranking | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
+| `RERANK_CANDIDATES` | First-stage candidates fed to the reranker | `30` |
 
 ## Search Features
 

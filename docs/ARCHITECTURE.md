@@ -487,14 +487,63 @@ Search is implemented in `KnowledgeBase.search()` starting at server.py line ~35
 - Performance: ~25ms (semantic-dominated queries) to ~260ms (combines two searches); +~1s if
   reranking is enabled
 
+### RAG Answer Grounding
+
+`answer_question()` no longer trusts its own citations. Before this, confidence was a
+hardcoded 0.85/0.70 keyed only on whether the literal string "Source N" appeared in the
+LLM's output - a self-report of citing, not evidence the cited passage actually supports
+the claim next to it.
+
+- `_extract_claims_for_verification` splits the generated answer into sentence-sized
+  claims and keeps only the ones with a resolvable "Source N" citation
+- `_passages_for_claims` builds one windowed excerpt per **(claim, cited source)** pair -
+  not one shared excerpt per source - since a single chunk can hold several distinct facts
+  scattered across it; sharing one window across every claim that cites the same source
+  means a claim about a fact outside that window gets judged against text that never
+  mentions it. Windowed on that claim's own words, with the question's words unioned in as
+  a fallback for pronoun-heavy claims ("It also has this feature.") with no distinguishing
+  words of their own
+- Two backends, dispatched by `_verify_answer_grounding`:
+  - **Tier 1 (default):** one extra LLM call (`_verify_claims_llm`) asking, for every
+    claim at once, whether its cited source supports/contradicts/doesn't mention it
+  - **Tier 2:** `USE_NLI_VERIFICATION=1` swaps in a local NLI entailment cross-encoder
+    (`_verify_claims_nli`, default `cross-encoder/nli-deberta-v3-base`) - near-zero
+    marginal cost per call once loaded, at the cost of a large one-time model download.
+    Its class-index-to-label mapping is read from the loaded model's own `config.id2label`
+    rather than hardcoded, so a differently-labelled checkpoint via `NLI_MODEL` can't
+    silently invert every verdict
+  - Cascades on failure: NLI unavailable/erroring falls back to the LLM check; either
+    backend failing falls back to the old citation-presence heuristic. A broken verifier
+    never takes down `answer_question` itself
+- `confidence` becomes `supported_claims / checked_claims`; unsupported claims are named
+  in the response (`unverified_claims`), not just folded into a number
+- `USE_ANSWER_VERIFICATION=0` disables the check outright; `VERIFY_PASSAGE_CHARS` (default
+  800) bounds how much of each cited source the check sees
+
+Verified live against real corpus content and a real LLM, which found and fixed five bugs
+no mock could have caught - see the "Fix five bugs found by live-testing" commit for the
+full account. One limitation was found and deliberately left unresolved: the passage
+windowing is a substring-density heuristic (see below), and can still miss a specific/rare
+term when most of a multi-term match set clusters together nearby but that one term sits
+just outside the window.
+
 ### Enhanced Snippet Extraction (v2.0.0)
 
 - Term density scoring via sliding window analysis
-- Complete sentence extraction (no mid-sentence cuts)
+- Complete sentence extraction, when it doesn't cost the match that won the density search -
+  otherwise the window falls back to the raw best-scoring span rather than a "clean" one that
+  excludes it (compares density, not raw length, so a legitimately shorter window in
+  uniform/repetitive text is left alone)
 - Code block preservation (detects and preserves indented blocks)
 - Whole word boundary highlighting for better accuracy
 - 80% size threshold ensures adequate context
 - More natural, readable snippets with proper sentence boundaries
+- Query terms passed to the reranker, RAG context builder, and answer-verification windowing
+  go through `_content_terms()` first, which drops stopwords and sub-3-character tokens - a
+  bare digit like "3" was found live to substring-match densely in unrelated regions
+  ("voice 3", "REG 3"), stealing the window from the sentence that actually said "three
+  voices". Not applied to the plain search-result display snippet path, which has its own
+  established behavior and test coverage this hasn't been checked against yet.
 
 ### Health Monitoring (v2.0.0)
 

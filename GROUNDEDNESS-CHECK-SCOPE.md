@@ -1,15 +1,58 @@
 # Scoping: groundedness/faithfulness check for `answer_question`
 
-**Status: both tiers built.** Tier 1 (LLM-based check) shipped first; Tier 2
-(local NLI cross-encoder, `USE_NLI_VERIFICATION=1`) shipped after, ahead of
-the "only if Tier 1 proves too slow" trigger below - built on request rather
-than after that measurement. `_verify_answer_grounding` now dispatches to
-NLI when enabled, cascading to the LLM check if the NLI model is unavailable
-or errors, and to the plain citation-presence heuristic if both fail. Label
-indices for the NLI model are resolved from the loaded model's own
-`config.id2label` rather than hardcoded (see `_ensure_nli_loaded`), verified
-against `cross-encoder/nli-deberta-v3-base`'s actual HuggingFace config
-before writing any of this code.
+**Status: both tiers built, and live-tested.** Tier 1 (LLM-based check) shipped first;
+Tier 2 (local NLI cross-encoder, `USE_NLI_VERIFICATION=1`) shipped after, ahead of the
+"only if Tier 1 proves too slow" trigger below - built on request rather than after that
+measurement. `_verify_answer_grounding` now dispatches to NLI when enabled, cascading to
+the LLM check if the NLI model is unavailable or errors, and to the plain citation-presence
+heuristic if both fail. Label indices for the NLI model are resolved from the loaded
+model's own `config.id2label` rather than hardcoded (see `_ensure_nli_loaded`), verified
+against `cross-encoder/nli-deberta-v3-base`'s actual HuggingFace config before writing any
+of this code.
+
+**Live-testing round (after both tiers shipped):** ran real `answer_question()` calls
+against the real corpus with a real Anthropic API key and a real downloaded NLI model,
+rather than trusting the mocked test suite alone. Found and fixed five real bugs no mock
+could have caught, since mocks always hand-construct clean inputs:
+
+1. `checked_claims` was computed but never forwarded through `answer_question`'s
+   top-level return dict - callers always saw `None`.
+2. `_passages_for_claims` shared one windowed excerpt per cited *source* across every
+   claim that cited it. A source cited for two different facts (a chunk's base-address
+   register table and its voice-count intro, 2,495 characters apart) only got windowed
+   once; whichever fact won the shared window, the other claim was judged against text
+   that never mentioned it - a genuinely well-cited claim came back "not_mentioned".
+   Now windows per (claim, source) pair.
+3. The underlying `_extract_snippet` density scorer is a raw, unweighted substring count
+   with no stopword/length filtering. A claim's term set including the bare digit "3"
+   matched inside unrelated numbers scattered through the chunk ("voice 3", "REG 3"),
+   stealing the window from the sentence that actually said "three voices". New
+   `_content_terms()` helper filters stopwords and sub-3-character tokens - applied to
+   all three `_extract_snippet`-windowing call sites (verification, reranking,
+   `_build_rag_context`), not just the one that surfaced it.
+4. Even with (3) fixed, `_extract_snippet`'s sentence-boundary alignment could still clip
+   a correctly-found match by walking the window's start back to the nearest prior
+   sentence boundary and re-extending by a fixed length - landing short of content near
+   the *original* winning window's far edge. Fixed by comparing density (score per
+   character) between the aligned window and the original, only overriding when density
+   dropped substantially (empirically: 1.0 for a legitimate shorter/uniform-content
+   trim, 0.14 for the real failure).
+5. `VERIFY_PASSAGE_CHARS`'s original default (2000) was large enough that (4)'s guard
+   couldn't help - at that size the density search picks an entirely wrong region of a
+   long chunk, not merely clips the right one. Reduced default to 800.
+
+**Known remaining limitation, found live and deliberately not chased further:** (4)'s
+density-ratio guard catches gross content loss, not surgical loss of one specific/rare
+term when most of a multi-term match set still clusters together nearby. A live claim
+citing a table-of-contents-style appendix listing showed this pattern - the claim was very
+plausibly accurate, but the windowing likely didn't reach the exact confirming line, and
+the check flagged it unverified anyway. A full fix would need TF-IDF-style term weighting
+or a semantic (embedding-based) passage-selection approach instead of substring-density
+counting - out of scope for this round.
+
+Full account, including the exact numbers behind each fix: the "Fix five bugs found by
+live-testing Tier 1/2 answer grounding" commit, and `docs/ARCHITECTURE.md`'s "RAG Answer
+Grounding" and "Enhanced Snippet Extraction" sections.
 
 ## Problem, precisely
 

@@ -38,3 +38,66 @@
 {"id": "clock-frequency", "question": "What is the C64 system clock frequency?", "must_contain": [["MHz"], ["clock"]]}
 {"id": "screen-editor", "question": "How does the screen editor handle scrolling?", "must_contain": [["scrolling"], ["smooth", "hardware"]]}
 {"id": "joystick-reading", "question": "How do I read the joystick ports?", "must_contain": [["joystick"]]}
+{"id": "basic-poke-syntax", "question": "How do I use POKE to write a value to a memory location in BASIC?", "must_contain": [["poke"], ["memory location", "address"]]}
+{"id": "basic-peek-syntax", "question": "How does the PEEK function read a memory location in BASIC?", "must_contain": [["peek"], ["memory location", "returns"]]}
+{"id": "basic-sys-call", "question": "How do I use SYS to call a machine language routine from BASIC?", "must_contain": [["sys"], ["machine language", "machine-language"]]}
+{"id": "basic-string-vars", "question": "How are string variables stored in BASIC?", "must_contain": [["string"], ["dollar sign", "$ suffix", "string variable"]]}
+{"id": "basic-line-numbers", "question": "How does BASIC tokenize program lines?", "must_contain": [["token", "tokeniz"]]}
+{"id": "float-format", "question": "How are floating point numbers represented internally on the C64?", "must_contain": [["floating point", "floating-point"]]}
+{"id": "disk-command-channel", "question": "How do I send a command to the 1541 disk drive command channel?", "must_contain": [["command channel"]]}
+{"id": "disk-load-syntax", "question": "What is the syntax for LOAD from disk in BASIC?", "must_contain": [["load"], ["device", "8"], ["filename", "program name"]]}
+{"id": "disk-directory", "question": "How do I get a directory listing from the disk drive?", "must_contain": [["directory"], ["$", "disk"], ["load"]]}
+{"id": "disk-error-channel", "question": "How do I read disk drive error status?", "must_contain": [["error channel", "error status"]]}
+{"id": "serial-bus", "question": "How does the IEC serial bus communicate with peripherals?", "must_contain": [["serial bus"], ["IEC"]]}
+{"id": "printer-device", "question": "What device number is normally used for a printer?", "must_contain": [["printer"], ["device"]]}
+{"id": "cassette-save", "question": "How do I save a program to cassette tape?", "must_contain": [["save"], ["cassette", "tape"], ["device 1", "datassette"]]}
+{"id": "expansion-port", "question": "What signals are available on the cartridge expansion port?", "must_contain": [["expansion port", "cartridge port"]]}
+{"id": "keyboard-matrix", "question": "How does the keyboard matrix scanning work?", "must_contain": [["keyboard"], ["matrix"]]}
+{"id": "petscii", "question": "What character encoding does the C64 use for screen codes?", "must_contain": [["PETSCII", "screen code"]]}
+{"id": "interrupt-vectors-ram", "question": "Where are the RAM-based interrupt vectors that BASIC and KERNAL use?", "must_contain": [["788", "$0314", "0314"]]}
+{"id": "stop-key", "question": "How does pressing the RUN/STOP key get detected?", "must_contain": [["stop key", "RUN/STOP", "run/stop"]]}
+{"id": "restore-key", "question": "What does the RESTORE key trigger when pressed with STOP?", "must_contain": [["restore"], ["nmi", "non-maskable"]]}
+{"id": "screen-clear", "question": "How do I clear the screen from BASIC or machine code?", "must_contain": [["clear"], ["147", "chr$(147)", "home"]]}
+{"id": "cursor-position", "question": "How do I move the text cursor to a specific row and column?", "must_contain": [["cursor"], ["column"], ["row", "line"]]}
+{"id": "vic-bank-select", "question": "How do I select which 16K VIC-II bank is used for video memory?", "must_contain": [["dd00", "$dd00", "56576"], ["bank"]]}
+{"id": "screen-vs-color-ram-relationship", "question": "How do screen memory and color RAM work together to display a character?", "must_contain": [["screen memory"], ["color ram", "colour ram"]]}
+{"id": "sprite-priority", "question": "How is sprite-to-background display priority controlled?", "must_contain": [["sprite"], ["priority"]]}
+{"id": "sprite-multicolor", "question": "How do I enable multicolor mode for a sprite?", "must_contain": [["sprite"], ["multicolor", "multicolour"]]}
+{"id": "sprite-pointer", "question": "How does the VIC-II know where sprite shape data is stored?", "must_contain": [["sprite"], ["pointer"]]}
+{"id": "sprite-x-expansion", "question": "How do I double the width of a sprite?", "must_contain": [["sprite"], ["expand", "expansion"]]}
+{"id": "badline", "question": "What is a bad line and how does it affect VIC-II timing?", "must_contain": [["bad line", "badline"]]}
+{"id": "raster-cycles", "question": "How many CPU cycles are there per raster line on PAL?", "must_contain": [["cycle"], ["raster"]]}
+{"id": "screen-40-columns", "question": "How many text columns and rows does the standard C64 screen display?", "must_contain": [["40 column", "40x25", "40 by 25"]]}
+{"id": "sid-frequency-registers", "question": "Which registers set the frequency of a SID voice?", "must_contain": [["frequency"], ["sid"], ["hertz", "hz", "register"]]}
+{"id": "sid-gate-bit", "question": "What does the gate bit in the SID control register do?", "must_contain": [["gate bit", "gate"], ["envelope"]]}
+{"id": "sid-ring-modulation", "question": "How does ring modulation work on the SID chip?", "must_contain": [["ring modulation", "ring-modulation"]]}
+{"id": "sid-sync", "question": "What does oscillator sync do on the SID?", "must_contain": [["sync"], ["oscillator"]]}
+{"id": "sid-volume-register", "question": "Which register controls the overall SID output volume?", "must_contain": [["54296", "$d418", "d418"], ["volume"]]}
+{"id": "cia-timer", "question": "How do the CIA timers work?", "must_contain": [["cia"], ["timer"]]}
+{"id": "cia-tod-clock", "question": "How does the CIA time-of-day clock work?", "must_contain": [["time of day", "tod clock"], ["hours", "minutes"]]}
+{"id": "6502-addressing-modes", "question": "What addressing modes does the 6502/6510 support?", "must_contain": [["addressing mode"]]}
+{"id": "6502-flags", "question": "What do the processor status flags mean on the 6502?", "must_contain": [["carry flag", "carry bit"], ["zero flag", "zero bit"]]}
+{"id": "6502-branch-instructions", "question": "What conditional branch instructions does the 6502 have?", "must_contain": [["bne"], ["beq"]]}
+{"id": "assembler-directives", "question": "What pseudo-ops or directives does a 6502 assembler typically support?", "must_contain": [["assembler"], [".byte", ".word", "pseudo-op", "directive"]]}
+{"id": "monitor-commands", "question": "What commands does the machine language monitor support?", "must_contain": [["monitor"], ["memory dump", "assemble", "disassemble"]]}
+{"id": "disassembly", "question": "How do I disassemble machine code back into assembly?", "must_contain": [["disassemb"], ["mnemonic", "opcode"]]}
+{"id": "hex-decimal-conversion", "question": "How do I convert between hex and decimal addresses?", "must_contain": [["hex"], ["decimal"], ["convert", "conversion"]]}
+{"id": "memory-map-overview", "question": "What is the overall memory map layout of the C64?", "must_contain": [["memory map"]]}
+{"id": "ram-under-rom", "question": "How can RAM underneath the ROM areas be accessed?", "must_contain": [["ram under", "ram beneath"]]}
+{"id": "free-ram-basic", "question": "How much RAM is available for a BASIC program by default?", "must_contain": [["bytes free", "free bytes"]]}
+{"id": "wedge-command", "question": "What is a BASIC wedge and how does it extend BASIC?", "must_contain": [["wedge"]]}
+{"id": "error-messages", "question": "What does an OUT OF MEMORY error mean in BASIC?", "must_contain": [["out of memory"]]}
+{"id": "syntax-error", "question": "What causes a SYNTAX ERROR in BASIC?", "must_contain": [["syntax error"]]}
+{"id": "device-not-present-error", "question": "What does a DEVICE NOT PRESENT error indicate?", "must_contain": [["device not present"]]}
+{"id": "power-on-reset", "question": "What happens during the power-on reset sequence?", "must_contain": [["reset"], ["power"], ["vector", "initialize", "initialise"]]}
+{"id": "kernal-jump-table", "question": "How does the KERNAL jump table let programs call ROM routines?", "must_contain": [["jump table"]]}
+{"id": "kernal-open-close", "question": "Which KERNAL routines open and close a logical file?", "must_contain": [["OPEN"], ["CLOSE"], ["kernal"]]}
+{"id": "kernal-setnam-setlfs", "question": "How do SETNAM and SETLFS prepare a KERNAL file operation?", "must_contain": [["setnam"], ["setlfs"]]}
+{"id": "screen-codes-vs-ascii", "question": "How do screen codes differ from ASCII/PETSCII character codes?", "must_contain": [["screen code"]]}
+{"id": "character-set-switch", "question": "How do I switch between upper/graphics and lower/upper character sets?", "must_contain": [["character set"]]}
+{"id": "hires-vs-multicolor", "question": "What is the difference between hi-res and multicolor bitmap modes?", "must_contain": [["hi-res", "hires", "high resolution"], ["multicolor", "multicolour"]]}
+{"id": "scroll-registers", "question": "Which VIC-II register controls horizontal fine scrolling?", "must_contain": [["53270", "$d016", "d016"], ["scroll"]]}
+{"id": "border-38-40-column", "question": "How can the 38/40 column display trick be used?", "must_contain": [["38 column", "40 column"]]}
+{"id": "light-pen", "question": "How does the VIC-II support a light pen?", "must_contain": [["light pen"]]}
+{"id": "paddle-input", "question": "How do I read paddle controller input?", "must_contain": [["paddle"]]}
+{"id": "game-port-registers", "question": "Which CIA registers correspond to the game/joystick ports?", "must_contain": [["56320", "$dc00", "dc00"], ["joystick", "port"]]}

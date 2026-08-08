@@ -580,6 +580,35 @@ ProgressCallback = Optional[Callable[[ProgressUpdate], None]]
 # splitting agree on what a "sentence" is.
 _SENTENCE_BOUNDARY_RE = re.compile(r'[.!?\n][\s\n]+')
 
+# _extract_snippet's density scoring is a raw, unweighted substring count with
+# no stopword or length filtering. Found live: a claim about "three ...
+# voices" lost its correct window to an unrelated ring-modulation/SYNC-bit
+# region because the bare digit "3" and function words like "is"/"as"/"the"
+# substring-matched repeatedly there ("voice 3", "oscillator 3", "REG 3"),
+# out-scoring the sentence that actually states the fact. _content_terms
+# filters those out before a term set is used for windowing.
+_LIGHTWEIGHT_STOPWORDS = frozenset({
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'and', 'or', 'but',
+    'if', 'of', 'to', 'in', 'on', 'at', 'for', 'with', 'as', 'by', 'it', 'its', 'this', 'that',
+    'these', 'those', 'we', 'you', 'he', 'she', 'they', 'i', 'has', 'have', 'had', 'do', 'does',
+    'did', 'not', 'no', 'so', 'than', 'then', 'also', 'what', 'how', 'many', 'which', 'who',
+    'whom', 'from', 'into', 'about', 'can', 'will', 'would', 'could', 'should', 'may', 'might',
+})
+
+
+def _content_terms(text: str, min_len: int = 3) -> set:
+    """Split text into lowercase words for passage-windowing density scoring,
+    dropping stopwords and anything shorter than min_len.
+
+    Not used by search()'s own query-term extraction (FTS5/BM25 have their
+    own tokenizers already) - this is specifically for the density-scoring
+    windows _extract_snippet builds for rerank/verification passage
+    selection, where an unfiltered term set can pull the window toward a
+    region that only superficially matches.
+    """
+    return {t for t in re.split(r'\W+', text.lower())
+           if len(t) >= min_len and t not in _LIGHTWEIGHT_STOPWORDS}
+
 
 class KnowledgeBase:
     """Manages the document index and search."""
@@ -16253,6 +16282,37 @@ Important:
         if end - start < snippet_size * 0.5:
             end = min(len(content), start + snippet_size)
 
+        # Sentence-alignment above can walk `start` back to the nearest prior
+        # boundary and then extend by a fixed snippet_size, which can shift
+        # the window just far enough that it no longer covers the FULL span
+        # that won the density search - best_pos is only that window's left
+        # edge, so a match sitting near its right edge is exactly what gets
+        # clipped. Found live: a claim about a SID register value lost its
+        # own citation's supporting text this way, by 43 characters, because
+        # the nearest sentence boundary sat close enough to pass the "too
+        # far" check but not close enough to leave room for what came after
+        # it.
+        #
+        # Compare DENSITY (score per character), not raw score - a shorter,
+        # cleanly-bounded window naturally has a lower raw count than the
+        # full-size window even when it is just as good throughout (uniform/
+        # repetitive text), and that shortening is exactly the sentence-
+        # boundary search's intended outcome once it clears the "at least 80%
+        # of desired size" threshold. Comparing raw scores would force every
+        # such window back out to the full window_size, silently defeating
+        # every caller's max_chars/token budget. Verified empirically against
+        # both failure classes before picking the threshold: a legitimately
+        # shortened window in uniform content scored a 1.0 density ratio; the
+        # live SID case that motivated this fix scored 0.14.
+        if best_score > 0:
+            aligned_len = end - start
+            aligned_score = sum(content_lower[start:end].count(term) for term in query_terms if term)
+            best_density = best_score / window_size
+            aligned_density = aligned_score / max(1, aligned_len)
+            if aligned_density < best_density * 0.5:
+                start = best_pos
+                end = min(len(content), best_pos + window_size)
+
         snippet = content[start:end].strip()
 
         # Preserve code blocks (lines starting with spaces/tabs)
@@ -16739,7 +16799,7 @@ Important:
 
         start_time = time.time()
         max_chars = int(os.getenv('RERANK_PASSAGE_CHARS', '1400'))
-        query_terms = {t for t in re.split(r'\W+', query.lower()) if t}
+        query_terms = _content_terms(query)
 
         try:
             passages = [self._rerank_passage(r, query_terms, max_chars) for r in results]
@@ -17333,6 +17393,7 @@ Important:
                 'sources': list[dict],      # Citations with metadata
                 'confidence': float,        # 0.0-1.0, from claim verification when available
                 'unverified_claims': list,  # Claim sentences whose cited source didn't support them
+                'checked_claims': int,      # How many claims the verification pass actually checked
                 'search_results': list,     # Top-N search results used
                 'reasoning': str,           # Explanation of how answer was derived
                 'model': str,               # LLM model used
@@ -17414,6 +17475,7 @@ Important:
                     'sources': answer_result['citations'],
                     'confidence': answer_result.get('confidence', query_confidence),
                     'unverified_claims': answer_result.get('unverified_claims', []),
+                    'checked_claims': answer_result.get('checked_claims', 0),
                     'search_results': results[:max_context_chunks],
                     'reasoning': f"Question mode: {search_mode}. Retrieved {len(results[:max_context_chunks])} sources.",
                     'model': llm_client.provider.model,
@@ -17478,7 +17540,7 @@ Important:
         body_tokens = max(0, max_tokens - SECTION_OVERHEAD * n)
         per_source_chars = max(400, (body_tokens // n) * CHARS_PER_TOKEN)
 
-        query_terms = {t for t in re.split(r'\W+', question.lower()) if t}
+        query_terms = _content_terms(question)
 
         context = ""
         for i, result in enumerate(search_results, 1):
@@ -17604,19 +17666,44 @@ Please provide your answer now:"""
                 claims.append({'text': sentence, 'sources': source_indices})
         return claims
 
-    def _passages_for_claims(self, claims: list[dict], search_results: list[dict], question: str) -> dict[int, str]:
-        """One passage per cited source, not per claim - a source cited by
-        three claims still only needs fetching and encoding once."""
-        query_terms = {t for t in re.split(r'\W+', question.lower()) if t}
-        max_chars = int(os.getenv('VERIFY_PASSAGE_CHARS', '1000'))
+    def _passages_for_claims(self, claims: list[dict], search_results: list[dict],
+                             question: str) -> dict[tuple[int, int], str]:
+        """One windowed excerpt per (claim, cited source) pair - not one
+        shared window per source.
+
+        Found live: a single 1500-word chunk can hold several distinct
+        facts scattered across it (a SID register-reference chunk covering
+        both waveform/noise behavior AND the base-address/register table,
+        in different regions). Windowing once per source - using the whole
+        question's terms, shared across every claim that cites it - picks
+        ONE region; a claim about a fact sitting outside that region gets
+        judged against text that never mentions it, and a true, correctly
+        cited claim comes back "not_mentioned". Windowing per claim, using
+        that claim's own words, tracks the fact actually being checked
+        instead: the claim and its real supporting text share vocabulary,
+        which is exactly what the density-scoring window needs to land in
+        the right place.
+
+        Question terms are unioned in rather than dropped, as a fallback for
+        pronoun-heavy claim sentences ("It also has this feature.") whose own
+        words are too generic to pull the window anywhere meaningful.
+        """
+        question_terms = _content_terms(question)
+        # 2000 was the original default; live testing found it too large -
+        # at that size the density search can pick an entirely wrong region
+        # of a long chunk (breadth of repeated common terms beating a single
+        # occurrence of the actual fact - see _extract_snippet). 800 stayed
+        # within the chunk's actual fact-bearing sentence in every case
+        # tested against a real ~8700-char chunk with two separate cited facts.
+        max_chars = int(os.getenv('VERIFY_PASSAGE_CHARS', '800'))
         passages = {}
-        for claim in claims:
+        for i, claim in enumerate(claims, 1):
+            claim_terms = _content_terms(claim['text']) | question_terms
             for idx in claim['sources']:
-                if idx not in passages:
-                    passages[idx] = self._rerank_passage(search_results[idx - 1], query_terms, max_chars)
+                passages[(i, idx)] = self._rerank_passage(search_results[idx - 1], claim_terms, max_chars)
         return passages
 
-    def _verify_claims_llm(self, claims: list[dict], passages: dict[int, str],
+    def _verify_claims_llm(self, claims: list[dict], passages: dict[tuple[int, int], str],
                            llm_client) -> Optional[dict[int, str]]:
         """Ask the LLM once (not once per claim) whether each cited passage
         supports its claim. Returns None - not a raised exception - on any
@@ -17624,7 +17711,7 @@ Please provide your answer now:"""
         answer_question."""
         claim_blocks = []
         for i, claim in enumerate(claims, 1):
-            cited_text = "\n---\n".join(passages[idx] for idx in claim['sources'])
+            cited_text = "\n---\n".join(passages[(i, idx)] for idx in claim['sources'])
             claim_blocks.append(f"CLAIM {i}: {claim['text']}\nCITED SOURCE(S):\n{cited_text}\n")
 
         prompt = f"""You are checking whether claims in a generated answer are actually supported by the documentation passages they cite.
@@ -17648,7 +17735,7 @@ verdict must be exactly one of: "supported", "contradicted", "not_mentioned". In
             self.logger.warning(f"LLM-based grounding check failed: {e}")
             return None
 
-    def _verify_claims_nli(self, claims: list[dict], passages: dict[int, str]) -> Optional[dict[int, str]]:
+    def _verify_claims_nli(self, claims: list[dict], passages: dict[tuple[int, int], str]) -> Optional[dict[int, str]]:
         """Score each claim against its cited passage(s) with a local NLI
         entailment cross-encoder instead of a second LLM call.
 
@@ -17669,7 +17756,7 @@ verdict must be exactly one of: "supported", "contradicted", "not_mentioned". In
 
         order = list(range(1, len(claims) + 1))
         pairs = [
-            ("\n---\n".join(passages[idx] for idx in claims[i - 1]['sources']), claims[i - 1]['text'])
+            ("\n---\n".join(passages[(i, idx)] for idx in claims[i - 1]['sources']), claims[i - 1]['text'])
             for i in order
         ]
 

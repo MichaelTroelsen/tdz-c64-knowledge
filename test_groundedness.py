@@ -293,7 +293,7 @@ def test_verify_claims_nli_returns_none_when_disabled(kb):
     None - the dispatcher must read that as 'try the next backend', not
     crash on a None model."""
     claims = [{'text': 'x', 'sources': [1]}]
-    assert kb._verify_claims_nli(claims, {1: 'passage'}) is None
+    assert kb._verify_claims_nli(claims, {(1, 1): 'passage'}) is None
 
 
 def test_nli_entailment_argmax_maps_to_supported(kb):
@@ -303,7 +303,7 @@ def test_nli_entailment_argmax_maps_to_supported(kb):
     kb.nli_model = FakeNLIModel([[0.05, 0.90, 0.05]])
 
     claims = [{'text': 'The SID has three voices.', 'sources': [1]}]
-    verdicts = kb._verify_claims_nli(claims, {1: 'The SID chip has three voices.'})
+    verdicts = kb._verify_claims_nli(claims, {(1, 1): 'The SID chip has three voices.'})
 
     assert verdicts == {1: 'supported'}
 
@@ -315,7 +315,7 @@ def test_nli_contradiction_argmax_maps_to_contradicted(kb):
     kb.nli_model = FakeNLIModel([[0.85, 0.10, 0.05]])
 
     claims = [{'text': 'The SID has nine voices.', 'sources': [1]}]
-    verdicts = kb._verify_claims_nli(claims, {1: 'The SID chip has three voices.'})
+    verdicts = kb._verify_claims_nli(claims, {(1, 1): 'The SID chip has three voices.'})
 
     assert verdicts == {1: 'contradicted'}
 
@@ -327,7 +327,7 @@ def test_nli_neutral_argmax_maps_to_not_mentioned(kb):
     kb.nli_model = FakeNLIModel([[0.10, 0.15, 0.75]])
 
     claims = [{'text': 'The SID was made by MOS Technology.', 'sources': [1]}]
-    verdicts = kb._verify_claims_nli(claims, {1: 'The SID chip has three voices.'})
+    verdicts = kb._verify_claims_nli(claims, {(1, 1): 'The SID chip has three voices.'})
 
     assert verdicts == {1: 'not_mentioned'}
 
@@ -344,7 +344,7 @@ def test_nli_respects_a_non_standard_label_order(kb):
     kb.nli_model = FakeNLIModel([[0.05, 0.90, 0.05]])
 
     claims = [{'text': 'claim', 'sources': [1]}]
-    verdicts = kb._verify_claims_nli(claims, {1: 'passage'})
+    verdicts = kb._verify_claims_nli(claims, {(1, 1): 'passage'})
 
     assert verdicts == {1: 'contradicted'}
 
@@ -360,7 +360,8 @@ def test_nli_multiple_claims_preserve_order(kb):
     ])
 
     claims = [{'text': f'claim {i}', 'sources': [1]} for i in range(1, 4)]
-    verdicts = kb._verify_claims_nli(claims, {1: 'passage'})
+    passages = {(i, 1): 'passage' for i in range(1, 4)}
+    verdicts = kb._verify_claims_nli(claims, passages)
 
     assert verdicts == {1: 'supported', 2: 'contradicted', 3: 'not_mentioned'}
 
@@ -372,7 +373,7 @@ def test_nli_predict_failure_returns_none_not_raises(kb):
     kb.nli_model = FakeNLIModel._ExplodingPredict()
 
     claims = [{'text': 'claim', 'sources': [1]}]
-    assert kb._verify_claims_nli(claims, {1: 'passage'}) is None
+    assert kb._verify_claims_nli(claims, {(1, 1): 'passage'}) is None
 
 
 # ---------------------------------------------------------------------------

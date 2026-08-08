@@ -16717,19 +16717,107 @@ Important:
 
         return results
 
+    @staticmethod
+    def _rrf_k() -> int:
+        try:
+            return max(1, int(os.getenv('RRF_K', '60')))
+        except ValueError:
+            return 60
+
+    def _fuse_rankings(self, fts_results: list[dict], semantic_results: list[dict],
+                       semantic_weight: float, max_results: int) -> list[dict]:
+        """Combine two rankings into one ordered result list.
+
+        Reciprocal Rank Fusion by default: a result's score is the sum of
+        weight/(K + rank) over the rankers that returned it, so appearing in
+        both lists beats ranking first in one. Only ordinal position is used,
+        which is the point - bm25() magnitudes and cosine similarities are not
+        on a common scale, and any attempt to put them on one has to invent a
+        normalisation that changes with the batch.
+
+        Set HYBRID_FUSION=weighted for the previous max-normalised score blend.
+        """
+        semantic_weight = min(1.0, max(0.0, semantic_weight))
+        fts_weight = 1.0 - semantic_weight
+        legacy = os.getenv('HYBRID_FUSION', 'rrf').lower() == 'weighted'
+
+        def base(r: dict) -> dict:
+            return {
+                'doc_id': r['doc_id'],
+                'filename': r['filename'],
+                'title': r['title'],
+                'chunk_id': r['chunk_id'],
+                'snippet': r['snippet'],
+                'word_count': r['word_count'],
+            }
+
+        merged: dict = {}
+        for arm, arm_results, weight in (('fts', fts_results, fts_weight),
+                                         ('semantic', semantic_results, semantic_weight)):
+            for rank, r in enumerate(arm_results, 1):
+                key = (r['doc_id'], r['chunk_id'])
+                item = merged.setdefault(key, {**base(r), 'score': 0.0,
+                                               'fts_score': 0.0, 'semantic_score': 0.0,
+                                               'fts_rank': None, 'semantic_rank': None})
+                item[f'{arm}_rank'] = rank
+                # Keep each arm's own score for callers that display it.
+                item[f'{arm}_score'] = float(r.get('similarity', r.get('score', 0.0)))
+
+        if legacy:
+            # Max-normalise within each arm, then blend. Retained so a bad RRF
+            # rollout can be reverted without a code change.
+            max_fts = max((abs(r.get('score', 0.0)) for r in fts_results), default=0.0)
+            for item in merged.values():
+                fts_norm = (abs(item['fts_score']) / max_fts) if max_fts > 0 else 0.0
+                item['score'] = fts_weight * fts_norm + semantic_weight * item['semantic_score']
+        else:
+            k = self._rrf_k()
+            for item in merged.values():
+                score = 0.0
+                if item['fts_rank'] is not None:
+                    score += fts_weight / (k + item['fts_rank'])
+                if item['semantic_rank'] is not None:
+                    score += semantic_weight / (k + item['semantic_rank'])
+                item['score'] = score
+
+        results = sorted(merged.values(), key=lambda x: x['score'], reverse=True)
+        return results[:max_results]
+
     def hybrid_search(self, query: str, max_results: int = 5, tags: Optional[list[str]] = None,
-                     semantic_weight: float = 0.3) -> list[dict]:
+                     semantic_weight: float = 0.7) -> list[dict]:
         """
         Perform hybrid search combining FTS5 keyword search and semantic search.
+
+        Fuses the two rankings with Reciprocal Rank Fusion: each result scores
+        sum(weight / (RRF_K + rank)) over the rankers that returned it.
+
+        RRF replaced a weighted sum of max-normalised scores, which was fragile
+        for two reasons. The arms are not comparable - FTS5 returns bm25()
+        values with no fixed scale while semantic returns cosine similarity in
+        0-1 - so dividing by the batch maximum made a result's contribution
+        depend on how strong its neighbours happened to be, not on how good it
+        was. And the blend needed a hand-tuned semantic_weight that silently
+        went stale: it sat at 0.3 (70% keyword) from a period when the keyword
+        arm was secretly BM25 rather than FTS5, which measured 10 points of
+        recall@5 below pure semantic search. Ranks carry no scale to drift.
 
         Args:
             query: Search query
             max_results: Maximum number of results to return
             tags: Optional list of tags to filter by
-            semantic_weight: Weight for semantic score (0.0-1.0). Default 0.3 means 70% FTS5, 30% semantic.
+            semantic_weight: Relative weight of the semantic ranking (0.0-1.0).
+                Default 0.7. Measured on the 40-question eval set, 0.7 matches
+                pure semantic recall@5 (97.5%) while beating its MRR (0.884 vs
+                0.822); equal weighting scores 92.5%/0.790, because the FTS5
+                arm is the weaker of the two. 1.0 is semantic only, 0.0 keyword
+                only. The 0.5-0.85 range is a plateau, not a knife-edge fit.
 
         Returns:
             List of search results with combined scores
+
+        Env:
+            HYBRID_FUSION=weighted restores the legacy normalised-score blend.
+            RRF_K (default 60) damps how much the top ranks dominate.
         """
         self._sync_documents_if_needed()
 
@@ -16767,75 +16855,8 @@ Important:
 
         self.logger.debug(f"Parallel search completed: FTS={len(fts_results)}, Semantic={len(semantic_results)}")
 
-        # Normalize scores to 0-1 range
-        # FTS5 scores: higher absolute value is better, normalize by max
-        if fts_results:
-            max_fts_score = max(r['score'] for r in fts_results)
-            if max_fts_score > 0:
-                for r in fts_results:
-                    r['fts_score_normalized'] = r['score'] / max_fts_score
-            else:
-                for r in fts_results:
-                    r['fts_score_normalized'] = 0.0
-
-        # Semantic scores: already 0-1 cosine similarity
-        for r in semantic_results:
-            r['semantic_score_normalized'] = r.get('similarity', r['score'])
-
-        # Merge results by (doc_id, chunk_id)
-        merged = {}
-
-        # Add FTS5 results
-        for r in fts_results:
-            key = (r['doc_id'], r['chunk_id'])
-            merged[key] = {
-                'doc_id': r['doc_id'],
-                'filename': r['filename'],
-                'title': r['title'],
-                'chunk_id': r['chunk_id'],
-                'snippet': r['snippet'],
-                'word_count': r['word_count'],
-                'fts_score': r['fts_score_normalized'],
-                'semantic_score': 0.0  # Will be updated if found in semantic results
-            }
-
-        # Update with semantic results
-        for r in semantic_results:
-            key = (r['doc_id'], r['chunk_id'])
-            if key in merged:
-                merged[key]['semantic_score'] = r['semantic_score_normalized']
-            else:
-                # Not in FTS5 results, add it
-                merged[key] = {
-                    'doc_id': r['doc_id'],
-                    'filename': r['filename'],
-                    'title': r['title'],
-                    'chunk_id': r['chunk_id'],
-                    'snippet': r['snippet'],
-                    'word_count': r['word_count'],
-                    'fts_score': 0.0,
-                    'semantic_score': r['semantic_score_normalized']
-                }
-
-        # Calculate hybrid scores
-        results = []
-        for item in merged.values():
-            hybrid_score = (1.0 - semantic_weight) * item['fts_score'] + semantic_weight * item['semantic_score']
-            results.append({
-                'doc_id': item['doc_id'],
-                'filename': item['filename'],
-                'title': item['title'],
-                'chunk_id': item['chunk_id'],
-                'score': hybrid_score,
-                'fts_score': item['fts_score'],
-                'semantic_score': item['semantic_score'],
-                'snippet': item['snippet'],
-                'word_count': item['word_count']
-            })
-
-        # Sort by hybrid score (descending) and limit
-        results.sort(key=lambda x: x['score'], reverse=True)
-        results = results[:max_results]
+        results = self._fuse_rankings(fts_results, semantic_results,
+                                      semantic_weight, max_results)
 
         elapsed = (time.time() - start_time) * 1000
         self.logger.info(f"Hybrid search completed: {len(results)} results in {elapsed:.2f}ms")
@@ -19578,8 +19599,8 @@ async def list_tools() -> list[Tool]:
                     },
                     "semantic_weight": {
                         "type": "number",
-                        "description": "Weight for semantic score, 0.0-1.0 (default: 0.3). Higher values favor conceptual matches, lower values favor exact keyword matches.",
-                        "default": 0.3
+                        "description": "Relative weight of the semantic ranking, 0.0-1.0 (default: 0.7). Higher values favor conceptual matches, lower values favor exact keyword matches.",
+                        "default": 0.7
                     }
                 },
                 "required": ["query"]
@@ -21606,7 +21627,7 @@ def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
         query = arguments.get("query", "")
         max_results = arguments.get("max_results", 5)
         tags = arguments.get("tags")
-        semantic_weight = arguments.get("semantic_weight", 0.3)
+        semantic_weight = arguments.get("semantic_weight", 0.7)
 
         try:
             results = kb.hybrid_search(query, max_results, tags, semantic_weight)

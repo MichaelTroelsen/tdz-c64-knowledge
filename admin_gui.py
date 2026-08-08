@@ -2815,9 +2815,9 @@ elif page == "🔍 Search":
             max_results = st.number_input("Max Results", min_value=1, max_value=50, value=10)
         with col2:
             if search_mode == "Hybrid":
-                semantic_weight = st.slider("Semantic Weight", 0.0, 1.0, 0.3, 0.1)
+                semantic_weight = st.slider("Semantic Weight", 0.0, 1.0, 0.7, 0.1)
             else:
-                semantic_weight = 0.3  # Default value when not shown
+                semantic_weight = 0.7  # Default value when not shown
         with col3:
             tag_filter = st.text_input("Filter by tags (comma-separated)", "")
 

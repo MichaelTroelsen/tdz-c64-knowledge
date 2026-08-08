@@ -77,14 +77,14 @@ class SemanticSearchRequest(SearchRequest):
 
 class HybridSearchRequest(SearchRequest):
     """Request model for hybrid search."""
-    semantic_weight: float = Field(default=0.5, description="Weight for semantic search (0.0-1.0)", ge=0.0, le=1.0)
+    semantic_weight: float = Field(default=0.7, description="Relative weight of the semantic ranking (0.0-1.0)", ge=0.0, le=1.0)
     top_k: int = Field(default=5, description="Number of semantic matches", ge=1, le=50)
 
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "query": "sprite collision detection",
             "max_results": 10,
-            "semantic_weight": 0.5,
+            "semantic_weight": 0.7,
             "top_k": 5
         }
     })

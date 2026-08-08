@@ -35,6 +35,21 @@ run through pytest) and was dropped rather than shipped flaky.
      stay above the threshold and the guard won't fire - a live claim citing
      a table-of-contents-style appendix listing showed exactly this pattern
      and was left unresolved rather than chased further.
+
+  3. Same stopword/digit pollution as (1), but in the user-facing
+     search-result snippet path - search()'s BM25/simple/FTS5 backends and
+     semantic_search() all build their own term set for _extract_snippet,
+     independently of _content_terms. _filter_snippet_terms() is the same
+     filter applied to an already-tokenized set (rather than raw text), so
+     every one of those call sites can reuse it without re-tokenizing terms
+     that search()'s own NLTK preprocessing already produced.
+
+  4. search_figures() passed the raw query STRING to _extract_snippet,
+     which expects a set of terms. Python iterates a string character by
+     character, so density scoring effectively scored windows by letter
+     frequency instead of word matches, and highlighting was silently
+     disabled entirely (single characters never clear _extract_snippet's
+     own len>=2 highlight threshold).
 """
 import os
 import shutil
@@ -42,7 +57,7 @@ import tempfile
 
 import pytest
 
-from server import KnowledgeBase, _content_terms
+from server import KnowledgeBase, _content_terms, _filter_snippet_terms
 
 
 @pytest.fixture
@@ -103,6 +118,46 @@ def test_content_terms_keeps_specific_technical_tokens():
 
 def test_content_terms_empty_for_pure_stopword_text():
     assert _content_terms('it is the of a') == set()
+
+
+# ---------------------------------------------------------------------------
+# _filter_snippet_terms: same filter, applied to an already-tokenized set
+# ---------------------------------------------------------------------------
+
+def test_filter_snippet_terms_drops_stopwords_and_short_tokens():
+    terms = {'the', 'sid', 'chip', 'is', '3', 'voices', 'a'}
+    filtered = _filter_snippet_terms(terms)
+    assert filtered == {'sid', 'chip', 'voices'}
+
+
+def test_filter_snippet_terms_keeps_specific_tokens():
+    terms = {'sid', '6581', 'd400', '54272', 'the', 'is'}
+    filtered = _filter_snippet_terms(terms)
+    assert filtered == {'sid', '6581', 'd400', '54272'}
+
+
+def test_filter_snippet_terms_survives_empty_input():
+    assert _filter_snippet_terms(set()) == set()
+
+
+# ---------------------------------------------------------------------------
+# search_figures: _extract_snippet needs a term set, not the raw query string
+# ---------------------------------------------------------------------------
+
+def test_extract_snippet_needs_a_term_set_not_a_raw_string(kb):
+    """search_figures used to pass the raw query STRING straight through -
+    _extract_snippet iterates whatever it's given as if it were a term set,
+    so a string gets iterated character by character. Density scoring then
+    scores windows by letter frequency instead of word matches, and
+    highlighting is silently disabled entirely (single characters never
+    clear the len>=2 highlight threshold)."""
+    content = 'The sprite collision register detects when two sprites overlap on screen.'
+
+    broken = kb._extract_snippet(content, 'sprite collision', highlight=True)
+    assert '**' not in broken  # highlighting did nothing
+
+    fixed = kb._extract_snippet(content, _content_terms('sprite collision'), highlight=True)
+    assert '**sprite**' in fixed
 
 
 def test_uniform_repetitive_content_keeps_its_shorter_trimmed_window(kb):

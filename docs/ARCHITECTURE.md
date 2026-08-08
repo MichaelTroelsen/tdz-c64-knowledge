@@ -538,12 +538,18 @@ just outside the window.
 - Whole word boundary highlighting for better accuracy
 - 80% size threshold ensures adequate context
 - More natural, readable snippets with proper sentence boundaries
-- Query terms passed to the reranker, RAG context builder, and answer-verification windowing
-  go through `_content_terms()` first, which drops stopwords and sub-3-character tokens - a
-  bare digit like "3" was found live to substring-match densely in unrelated regions
-  ("voice 3", "REG 3"), stealing the window from the sentence that actually said "three
-  voices". Not applied to the plain search-result display snippet path, which has its own
-  established behavior and test coverage this hasn't been checked against yet.
+- Every caller's query terms go through `_content_terms()` (raw text) or `_filter_snippet_terms()`
+  (an already-tokenized set, e.g. `search()`'s NLTK-preprocessed terms) before reaching this
+  function's density scoring - dropping stopwords and sub-3-character tokens. A bare digit like
+  "3" was found live to substring-match densely in unrelated regions ("voice 3", "REG 3"),
+  stealing the window from the sentence that actually said "three voices". Applies to every
+  `_extract_snippet` call site: the reranker, the RAG context builder, answer-verification
+  windowing, `search()`'s BM25/simple/FTS5 backends, `semantic_search()`, and `search_figures()`
+- `search_figures()` had a separate, more severe defect alongside this: it passed the raw query
+  **string** to `_extract_snippet`, which expects a term set - Python iterates a string character
+  by character, so density scoring scored windows by letter frequency and highlighting was
+  silently disabled outright (single characters never clear the function's own len>=2 highlight
+  threshold)
 
 ### Health Monitoring (v2.0.0)
 

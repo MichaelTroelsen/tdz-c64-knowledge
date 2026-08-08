@@ -596,18 +596,30 @@ _LIGHTWEIGHT_STOPWORDS = frozenset({
 })
 
 
-def _content_terms(text: str, min_len: int = 3) -> set:
-    """Split text into lowercase words for passage-windowing density scoring,
-    dropping stopwords and anything shorter than min_len.
+def _filter_snippet_terms(terms, min_len: int = 3) -> set:
+    """Drop stopwords and anything shorter than min_len from an already-
+    tokenized term set, before it is used for _extract_snippet's density
+    scoring.
 
-    Not used by search()'s own query-term extraction (FTS5/BM25 have their
-    own tokenizers already) - this is specifically for the density-scoring
-    windows _extract_snippet builds for rerank/verification passage
-    selection, where an unfiltered term set can pull the window toward a
-    region that only superficially matches.
+    Deliberately separate from each search backend's own query-term
+    extraction (FTS5 has its own tokenizer; search()/BM25's terms already go
+    through _preprocess_text's NLTK stopword removal when enabled) - this is
+    a second, narrower filter applied only to what gets handed to
+    _extract_snippet for windowing/highlighting, so it never changes what a
+    query actually matches. It matters even after NLTK stopword removal
+    because NLTK's English stopword list has no notion of digits: a bare "3"
+    survives that pass but still substring-matches inside unrelated numbers
+    scattered through a document ("voice 3", "REG 3"), which is exactly the
+    live-found defect this exists to prevent.
     """
-    return {t for t in re.split(r'\W+', text.lower())
-           if len(t) >= min_len and t not in _LIGHTWEIGHT_STOPWORDS}
+    return {t for t in terms if len(t) >= min_len and t not in _LIGHTWEIGHT_STOPWORDS}
+
+
+def _content_terms(text: str, min_len: int = 3) -> set:
+    """Tokenize raw text and apply _filter_snippet_terms - for callers that
+    only have a text string (a claim, a question, a rerank query), not an
+    already-tokenized term set."""
+    return _filter_snippet_terms(re.split(r'\W+', text.lower()), min_len)
 
 
 class KnowledgeBase:
@@ -3479,6 +3491,12 @@ class KnowledgeBase:
                        doc_id: Optional[str] = None) -> list[dict]:
         """Search OCR'd figure text. Uses FTS5 when present, else LIKE."""
         results = []
+        # _extract_snippet expects a set of terms, not the raw query string -
+        # passing the string iterates it character by character, scoring
+        # windows by letter frequency instead of word matches, and silently
+        # disabling highlighting entirely (single characters never clear its
+        # own len>=2 threshold).
+        query_terms = _content_terms(query)
         use_fts = False
         try:
             use_fts = self.db_conn.execute(
@@ -3532,7 +3550,7 @@ class KnowledgeBase:
                 'doc_title': figure_doc.title if figure_doc else None,
                 'page_number': r[2],
                 'image_index': r[3],
-                'snippet': self._extract_snippet(r[4] or '', query),
+                'snippet': self._extract_snippet(r[4] or '', query_terms),
                 'image_path': r[5],
                 'score': round(r[6], 4) if r[6] else 0.0,
             })
@@ -16020,7 +16038,7 @@ Important:
                         score *= 2  # 2x boost for phrase match
 
             # Combine query_terms and phrases for snippet extraction
-            all_terms = query_terms | {p.lower() for p in phrases}
+            all_terms = _filter_snippet_terms(query_terms | {p.lower() for p in phrases})
             snippet = self._extract_snippet(chunk.content, all_terms)
             results.append({
                 'doc_id': chunk.doc_id,
@@ -16086,7 +16104,7 @@ Important:
 
             if score > 0:
                 # Combine query_terms and phrases for snippet extraction
-                all_terms = query_terms | {p.lower() for p in phrases}
+                all_terms = _filter_snippet_terms(query_terms | {p.lower() for p in phrases})
                 snippet = self._extract_snippet(chunk.content, all_terms)
                 results.append({
                     'doc_id': chunk.doc_id,
@@ -16205,7 +16223,8 @@ Important:
                         continue
 
                 # Extract snippet with highlighting
-                snippet = self._extract_snippet(content, query_terms | {p.lower() for p in phrases})
+                snippet = self._extract_snippet(
+                    content, _filter_snippet_terms(query_terms | {p.lower() for p in phrases}))
 
                 results.append({
                     'doc_id': doc_id,
@@ -16956,7 +16975,7 @@ Important:
                 continue
 
             # Extract snippet (highlight query terms)
-            query_terms = set(query.lower().split())
+            query_terms = _content_terms(query)
             snippet = self._extract_snippet(chunk.content, query_terms)
 
             doc = self.documents.get(doc_id)

@@ -748,6 +748,18 @@ class KnowledgeBase:
         self.reranker_model = None
         self._reranker_loaded = False
 
+        # Local NLI entailment check for answer_question's grounding
+        # verification (Tier 2 - see GROUNDEDNESS-CHECK-SCOPE.md). Off by
+        # default: this replaces the always-on LLM-based check
+        # (_verify_claims_llm) with a local cross-encoder, which needs its
+        # own ~700MB model download on first use.
+        self.use_nli_verification = SEMANTIC_SUPPORT and os.getenv('USE_NLI_VERIFICATION', '0') == '1'
+        self.nli_model = None
+        self._nli_loaded = False
+        # (contradiction_idx, entailment_idx, neutral_idx) in the loaded
+        # model's own class order - read from its config, not assumed.
+        self._nli_label_indices = None
+
         if self.use_semantic:
             # Don't load model yet - will load on first use for faster startup
             self.embeddings_file = self.data_dir / "embeddings.faiss"
@@ -16627,6 +16639,57 @@ Important:
             self.reranker_model = None
             self._reranker_loaded = False
 
+    def _ensure_nli_loaded(self):
+        """Lazy load the local NLI entailment cross-encoder, mirroring
+        _ensure_reranker_loaded exactly (same network deadline, same
+        local-then-remote load order, same degrade-and-disable on failure).
+
+        Also resolves (contradiction_idx, entailment_idx, neutral_idx) from
+        the model's own config.id2label rather than assuming the class
+        order - a different NLI checkpoint than the default is one env var
+        away (NLI_MODEL), and a wrong assumption here would silently invert
+        every verdict instead of raising anything.
+        """
+        if not self.use_nli_verification or self._nli_loaded:
+            return
+
+        model_name = os.getenv('NLI_MODEL', 'cross-encoder/nli-deberta-v3-base')
+        max_length = int(os.getenv('NLI_MAX_LENGTH', '512'))
+        try:
+            self.logger.info(f"Lazy loading NLI verification model: {model_name}")
+            try:
+                with _network_timeout():
+                    self.nli_model = CrossEncoder(model_name, max_length=max_length,
+                                                  local_files_only=True)
+            except Exception:
+                with _network_timeout():
+                    self.nli_model = CrossEncoder(model_name, max_length=max_length)
+
+            id2label = {int(k): str(v).strip().lower()
+                       for k, v in self.nli_model.model.config.id2label.items()}
+            by_label = {v: k for k, v in id2label.items()}
+            if {'contradiction', 'entailment', 'neutral'} <= by_label.keys():
+                self._nli_label_indices = (
+                    by_label['contradiction'], by_label['entailment'], by_label['neutral'])
+            else:
+                # Standard order for the sentence-transformers NLI cross-encoders
+                # (nli-deberta-v3-*, nli-distilroberta-base, ...) - used only if
+                # a swapped-in model's labels don't match the expected strings.
+                self.logger.warning(
+                    f"NLI model {model_name} has unrecognised labels {id2label} - "
+                    "assuming the standard (contradiction, entailment, neutral) order")
+                self._nli_label_indices = (0, 1, 2)
+
+            self._nli_loaded = True
+            self.logger.info(f"NLI verification model loaded successfully (labels: {id2label})")
+        except Exception as e:
+            # Degrade to the LLM-based check (or the plain heuristic) rather
+            # than failing answer_question.
+            self.logger.error(f"Failed to load NLI model, continuing without it: {e}")
+            self.use_nli_verification = False
+            self.nli_model = None
+            self._nli_loaded = False
+
     def _rerank_passage(self, result: dict, query_terms: set, max_chars: int) -> str:
         """Pick the text the cross-encoder should score for one candidate.
 
@@ -17523,35 +17586,13 @@ Please provide your answer now:"""
             self.logger.error(f"LLM answer generation failed: {e}")
             raise
 
-    def _verify_answer_grounding(self, question: str, answer_text: str, citations: list[dict],
-                                 search_results: list[dict], llm_client) -> dict:
+    def _extract_claims_for_verification(self, answer_text: str, search_results: list[dict]) -> list[dict]:
+        """Split an answer into sentence-sized, citation-bearing claims.
+
+        A sentence with no "Source N" reference has nothing to check it
+        against, so it is dropped rather than treated as an unverified claim
+        - only sentences that actually cite something are checkable at all.
         """
-        Check whether the answer's cited claims are actually supported by the
-        passages they cite, instead of trusting the model's self-report.
-
-        The confidence this replaces was a hardcoded 0.85/0.70 keyed on
-        whether the literal string "Source N" appeared anywhere in the
-        output - which measures that the model claimed to cite something,
-        not that the citation holds up. A wrong answer naming "Source 2"
-        looked identical, in the response, to a right one.
-
-        Splits the answer into sentence-sized claims, asks the LLM once (not
-        once per claim) whether each cited passage supports its claim, and
-        derives confidence from the verdicts. Falls back to the old
-        citation-presence heuristic - with an empty unverified_claims list,
-        since the check never ran - if anything about the verification call
-        fails or there is nothing citable to check; a broken verifier must
-        never take down answer_question itself.
-
-        Returns:
-            {'confidence': float, 'unverified_claims': list[str], 'checked_claims': int}
-        """
-        fallback = {
-            'confidence': 0.85 if citations else 0.70,
-            'unverified_claims': [],
-            'checked_claims': 0,
-        }
-
         sentences = [s.strip() for s in _SENTENCE_BOUNDARY_RE.split(answer_text) if s.strip()]
         claims = []
         for sentence in sentences:
@@ -17561,13 +17602,11 @@ Please provide your answer now:"""
             })
             if source_indices:
                 claims.append({'text': sentence, 'sources': source_indices})
+        return claims
 
-        if not claims:
-            return fallback
-
-        # One passage per cited source, not per claim - a source cited by
-        # three claims still only needs fetching and encoding into the
-        # prompt once.
+    def _passages_for_claims(self, claims: list[dict], search_results: list[dict], question: str) -> dict[int, str]:
+        """One passage per cited source, not per claim - a source cited by
+        three claims still only needs fetching and encoding once."""
         query_terms = {t for t in re.split(r'\W+', question.lower()) if t}
         max_chars = int(os.getenv('VERIFY_PASSAGE_CHARS', '1000'))
         passages = {}
@@ -17575,7 +17614,14 @@ Please provide your answer now:"""
             for idx in claim['sources']:
                 if idx not in passages:
                     passages[idx] = self._rerank_passage(search_results[idx - 1], query_terms, max_chars)
+        return passages
 
+    def _verify_claims_llm(self, claims: list[dict], passages: dict[int, str],
+                           llm_client) -> Optional[dict[int, str]]:
+        """Ask the LLM once (not once per claim) whether each cited passage
+        supports its claim. Returns None - not a raised exception - on any
+        failure, so the caller can degrade instead of crashing
+        answer_question."""
         claim_blocks = []
         for i, claim in enumerate(claims, 1):
             cited_text = "\n---\n".join(passages[idx] for idx in claim['sources'])
@@ -17597,8 +17643,97 @@ verdict must be exactly one of: "supported", "contradicted", "not_mentioned". In
             for entry in response.get('verifications', []):
                 idx = int(entry.get('claim'))
                 verdicts[idx] = str(entry.get('verdict', '')).strip().lower()
+            return verdicts
         except Exception as e:
-            self.logger.warning(f"Answer grounding check failed, keeping heuristic confidence: {e}")
+            self.logger.warning(f"LLM-based grounding check failed: {e}")
+            return None
+
+    def _verify_claims_nli(self, claims: list[dict], passages: dict[int, str]) -> Optional[dict[int, str]]:
+        """Score each claim against its cited passage(s) with a local NLI
+        entailment cross-encoder instead of a second LLM call.
+
+        Near-zero marginal cost per call once the model is loaded, at the
+        cost of a large one-time model download and load. Premise is the
+        cited passage(s), hypothesis is the claim - i.e. "does the evidence
+        entail this claim", the same direction _verify_claims_llm's prompt
+        asks the model to judge.
+
+        Returns None - not a raised exception - on any failure (model
+        unavailable, predict() error), so the caller can degrade to the
+        LLM-based check or the plain heuristic exactly like an LLM failure
+        does.
+        """
+        self._ensure_nli_loaded()
+        if self.nli_model is None:
+            return None
+
+        order = list(range(1, len(claims) + 1))
+        pairs = [
+            ("\n---\n".join(passages[idx] for idx in claims[i - 1]['sources']), claims[i - 1]['text'])
+            for i in order
+        ]
+
+        try:
+            scores = self.nli_model.predict(pairs, apply_softmax=True, show_progress_bar=False)
+        except Exception as e:
+            self.logger.warning(f"NLI-based grounding check failed: {e}")
+            return None
+
+        contra_idx, entail_idx, _neutral_idx = self._nli_label_indices
+        verdicts = {}
+        for i, row in zip(order, scores):
+            top = int(row.argmax())
+            if top == entail_idx:
+                verdicts[i] = 'supported'
+            elif top == contra_idx:
+                verdicts[i] = 'contradicted'
+            else:
+                verdicts[i] = 'not_mentioned'
+        return verdicts
+
+    def _verify_answer_grounding(self, question: str, answer_text: str, citations: list[dict],
+                                 search_results: list[dict], llm_client) -> dict:
+        """
+        Check whether the answer's cited claims are actually supported by the
+        passages they cite, instead of trusting the model's self-report.
+
+        The confidence this replaces was a hardcoded 0.85/0.70 keyed on
+        whether the literal string "Source N" appeared anywhere in the
+        output - which measures that the model claimed to cite something,
+        not that the citation holds up. A wrong answer naming "Source 2"
+        looked identical, in the response, to a right one.
+
+        Splits the answer into sentence-sized claims and checks each against
+        its cited source, via a local NLI cross-encoder (USE_NLI_VERIFICATION=1)
+        or, by default, one extra LLM call. Falls back to the old
+        citation-presence heuristic - with an empty unverified_claims list,
+        since the check never ran - if there is nothing citable to check, or
+        if verification fails: NLI unavailable/erroring degrades to the LLM
+        check when an llm_client exists, and either backend failing degrades
+        to the heuristic. A broken verifier must never take down
+        answer_question itself.
+
+        Returns:
+            {'confidence': float, 'unverified_claims': list[str], 'checked_claims': int}
+        """
+        fallback = {
+            'confidence': 0.85 if citations else 0.70,
+            'unverified_claims': [],
+            'checked_claims': 0,
+        }
+
+        claims = self._extract_claims_for_verification(answer_text, search_results)
+        if not claims:
+            return fallback
+
+        passages = self._passages_for_claims(claims, search_results, question)
+
+        verdicts = None
+        if self.use_nli_verification:
+            verdicts = self._verify_claims_nli(claims, passages)
+        if verdicts is None:
+            verdicts = self._verify_claims_llm(claims, passages, llm_client)
+        if verdicts is None:
             return fallback
 
         unverified = []

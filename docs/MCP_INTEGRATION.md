@@ -12,6 +12,7 @@ Complete guide for integrating the TDZ C64 Knowledge Base with Claude Code, Clau
 - [Overview](#overview)
 - [Claude Code Integration](#claude-code-integration)
 - [Claude Desktop Integration](#claude-desktop-integration)
+- [Remote Access (HTTP Transport)](#-remote-access-http-transport)
 - [Configuration Options](#configuration-options)
 - [Testing & Verification](#testing--verification)
 - [Troubleshooting](#troubleshooting)
@@ -160,6 +161,67 @@ You can run multiple MCP servers simultaneously:
   }
 }
 ```
+
+---
+
+## 🌐 Remote Access (HTTP Transport)
+
+By default the server speaks **stdio**: the client launches `server.py` as a
+child process and talks over pipes, so the client and the knowledge base must
+live on the same machine. The **streamable-HTTP** transport lets one hosted
+instance serve clients on other machines, so `TDZ_DATA_DIR` exists in exactly
+one place and no copy has to be kept in step.
+
+### Start the host
+
+```cmd
+set TDZ_API_KEYS=some-long-random-string
+python server.py --transport http --host 0.0.0.0 --port 8765
+```
+
+`--transport`, `--host` and `--port` can also be set with `TDZ_MCP_TRANSPORT`,
+`TDZ_MCP_HOST` and `TDZ_MCP_PORT`. Omitting them all keeps stdio, so existing
+client configurations are unaffected.
+
+### Connect from another machine
+
+```cmd
+claude mcp add --transport http tdz-c64-knowledge http://<host>:8765/mcp --header "X-API-Key: some-long-random-string"
+```
+
+The API key may be sent as either `X-API-Key` or `Authorization: Bearer <key>`.
+
+### Security
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `TDZ_API_KEYS` | *(unset)* | Comma-separated keys. The same variable the REST API uses - one scheme for the whole knowledge base. |
+| `TDZ_MCP_HOST` | `127.0.0.1` | Loopback by default. |
+| `TDZ_MCP_ALLOW_INSECURE` | `0` | `1` permits a non-loopback bind with no keys. |
+| `TDZ_MCP_ALLOWED_HOSTS` | *(unset)* | Comma-separated `Host` values for DNS-rebinding protection; `*` disables it. |
+
+The server **refuses to start** when bound off loopback with no `TDZ_API_KEYS`,
+rather than failing open. This transport exposes every tool, including
+`add_document` and `scrape_url` (an arbitrary-URL fetch from the host, i.e. an
+SSRF primitive), so an unauthenticated network bind hands full read/write
+control of the knowledge base to anyone who can reach the port.
+
+DNS-rebinding protection is enabled automatically on a loopback bind. On a
+non-loopback bind the `Host` header clients will send is not knowable by the
+server, so it stays off unless `TDZ_MCP_ALLOWED_HOSTS` names those hostnames -
+API-key authentication, which the bind guard makes mandatory there, is the
+control in that case.
+
+### Limitations
+
+- Tool calls are **serialised**. One process now serves several clients, and
+  while each thread has its own SQLite connection, the in-memory catalogue,
+  search caches and FAISS index are shared state that has only ever been
+  exercised one client at a time. A long-running `scrape_url` or ingest will
+  block other clients until it finishes.
+- The client is useless when the host is unreachable. That is the trade for
+  never having two copies of the data.
+- Requires the `http` extra: `pip install -e ".[http]"`.
 
 ---
 

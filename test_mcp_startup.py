@@ -1144,3 +1144,167 @@ def test_worker_death_is_reported_by_health_check(inproc_kb):
     assert dead['features']['extraction_worker_alive'] is False
     assert dead['status'] == 'warning'
     assert any('extraction worker' in i.lower() for i in dead['issues']), dead['issues']
+
+
+# ---------------------------------------------------------------------------
+# HTTP transport (issue #16). stdio ties the client and the ~8 GB TDZ_DATA_DIR
+# to one machine; --transport http lets one hosted instance serve both. These
+# guard the two things that make that safe rather than merely working: the
+# handshake really completes over HTTP, and the server refuses to expose an
+# unauthenticated knowledge base to a network.
+# ---------------------------------------------------------------------------
+
+def _free_port():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def _wait_for_port(port, proc, timeout=180):
+    import socket
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return False
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return True
+        except OSError:
+            time.sleep(0.25)
+    return False
+
+
+class HTTPServerProc:
+    """Spawn server.py on the streamable-HTTP transport and wait for the port."""
+
+    def __init__(self, data_dir, api_keys=None, host="127.0.0.1"):
+        self.data_dir = data_dir
+        self.api_keys = api_keys
+        self.host = host
+        self.port = _free_port()
+        self.proc = None
+
+    def __enter__(self):
+        env = _env(self.data_dir)
+        env["TDZ_MCP_TRANSPORT"] = "http"
+        env["TDZ_MCP_HOST"] = self.host
+        env["TDZ_MCP_PORT"] = str(self.port)
+        env["TDZ_API_KEYS"] = self.api_keys or ""
+        self.proc = subprocess.Popen(
+            [PYTHON, str(SERVER)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            env=env, cwd=str(REPO),
+        )
+        # Drain the pipe from a thread: uvicorn and the KB both log here, and
+        # a full pipe buffer would block the server before it ever binds.
+        # It also means a failure can show what the server actually said,
+        # which a dead pipe cannot.
+        self._output = []
+        self._reader = threading.Thread(target=self._drain, daemon=True)
+        self._reader.start()
+        if not _wait_for_port(self.port, self.proc):
+            raise AssertionError(
+                f"server never listened on {self.port}: {self.output[-2000:]}"
+            )
+        return self
+
+    def _drain(self):
+        for line in iter(self.proc.stdout.readline, b""):
+            self._output.append(line)
+
+    @property
+    def output(self):
+        return b"".join(self._output).decode("utf-8", "replace")
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.port}/mcp"
+
+    def __exit__(self, *exc):
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+
+
+def _http_initialize(url, headers=None):
+    """Complete a real MCP handshake over HTTP and return (serverInfo, tool count)."""
+    import asyncio
+
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+
+    async def go():
+        async with streamablehttp_client(url, headers=headers, timeout=30) as (r, w, _):
+            async with ClientSession(r, w) as session:
+                init = await session.initialize()
+                tools = await session.list_tools()
+                return init.serverInfo.name, len(tools.tools)
+
+    return asyncio.run(go())
+
+
+def test_http_transport_completes_initialize(data_dir):
+    """A real MCP client must reach a usable session over HTTP, not just a socket."""
+    with HTTPServerProc(data_dir) as srv:
+        name, tool_count = _http_initialize(srv.url)
+    assert name == "tdz-c64-knowledge"
+    # The whole tool surface must survive the transport swap - server.run() is
+    # transport-agnostic, so a drop here means the registration path broke.
+    assert tool_count > 50, tool_count
+
+
+def test_http_transport_rejects_a_bad_api_key(data_dir):
+    """TDZ_API_KEYS must gate the transport, not just the REST API."""
+    import urllib.error
+    import urllib.request
+
+    with HTTPServerProc(data_dir, api_keys="right-key") as srv:
+        req = urllib.request.Request(
+            srv.url, method="POST", data=b'{"jsonrpc":"2.0","id":1,"method":"initialize"}',
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+                "X-API-Key": "wrong-key",
+            },
+        )
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(req, timeout=30)
+        assert excinfo.value.code == 401
+
+        # ...and the correct key still reaches a working session.
+        name, _ = _http_initialize(srv.url, headers={"X-API-Key": "right-key"})
+        assert name == "tdz-c64-knowledge"
+
+
+def test_http_transport_refuses_insecure_network_bind(data_dir):
+    """Binding off loopback with no keys would serve the whole KB to the LAN."""
+    env = _env(data_dir)
+    env["TDZ_MCP_TRANSPORT"] = "http"
+    env["TDZ_MCP_HOST"] = "0.0.0.0"
+    env["TDZ_MCP_PORT"] = str(_free_port())
+    env["TDZ_API_KEYS"] = ""
+    env.pop("TDZ_MCP_ALLOW_INSECURE", None)
+
+    proc = subprocess.run(
+        [PYTHON, str(SERVER)], env=env, cwd=str(REPO),
+        capture_output=True, timeout=180,
+    )
+    combined = (proc.stdout + proc.stderr).decode("utf-8", "replace")
+    assert proc.returncode != 0, combined[-1500:]
+    assert "Refusing to bind" in combined, combined[-1500:]
+
+
+def test_stdio_remains_the_default(data_dir):
+    """No argument and no env var must still mean stdio - existing client
+    configs launch `python server.py` with nothing else and must keep working."""
+    import server as server_module
+
+    args = server_module._resolve_transport_config([])
+    assert args.transport == "stdio"
+    assert args.host == "127.0.0.1"

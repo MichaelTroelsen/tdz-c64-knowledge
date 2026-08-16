@@ -313,3 +313,34 @@ def test_no_orphaned_chunks_after_remove(kb, temp_data_dir):
             os.environ.pop('USE_FTS5', None)
         else:
             os.environ['USE_FTS5'] = original_fts5
+
+
+# ---------------------------------------------------------------------------
+# 8. health_check flags documents whose recorded filepath has vanished from
+#    disk. Previously only discoverable by accident - figure OCR silently
+#    skips such a document ("source file is no longer on disk") and nothing
+#    else reported it, so a future re-chunk/re-OCR/page-image pass would hit
+#    the same wall silently.
+# ---------------------------------------------------------------------------
+
+def test_health_check_reports_missing_source_files(kb, temp_data_dir):
+    f1 = make_card_file(temp_data_dir, "present.md", "present-card",
+                         "This file stays on disk.")
+    kb.add_document(f1)
+
+    # use_cache=False throughout: health_check memoises for 5 minutes, so a
+    # cached result from before f2 is deleted below would mask the change
+    # and pass (or fail) for the wrong reason.
+    clean = kb.health_check(use_cache=False)
+    assert clean['metrics']['missing_source_files'] == 0
+    assert clean['status'] != 'warning'
+
+    f2 = make_card_file(temp_data_dir, "vanishing.md", "vanishing-card",
+                         "This file gets deleted after ingest.")
+    kb.add_document(f2)
+    os.remove(f2)
+
+    dirty = kb.health_check(use_cache=False)
+    assert dirty['metrics']['missing_source_files'] == 1
+    assert dirty['status'] == 'warning'
+    assert any('filepath' in i.lower() and 'disk' in i.lower() for i in dirty['issues']), dirty['issues']

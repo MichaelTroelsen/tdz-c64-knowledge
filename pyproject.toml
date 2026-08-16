@@ -5,7 +5,7 @@ description = "MCP server for C64 documentation knowledge base"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.24.0",
     "python-dotenv>=1.0.0",
     "pypdf>=4.0.0",
     "rank-bm25>=0.2.2",
@@ -46,6 +46,10 @@ gui = [
     "networkx>=3.0",
     "internetarchive>=5.7.0",
 ]
+http = [
+    "starlette>=0.40.0",
+    "uvicorn[standard]>=0.24.0",
+]
 rest = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
@@ -74,3 +78,8 @@ only-include = [
     "rest_models.py",
     "rest_server.py",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+norecursedirs = [".*", "venv", "node_modules", "*.egg", ".venv", "archive", ".git", "build", "dist", "*.egg-info"]
+python_files = ["test_*.py"]

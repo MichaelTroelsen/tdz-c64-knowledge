@@ -5,6 +5,7 @@ Complete guide for deploying the C64 Knowledge Base to production environments.
 ## Table of Contents
 - [Deployment Options](#deployment-options)
 - [Local Network Deployment](#local-network-deployment)
+- [Shared MCP Host (HTTP Transport)](#shared-mcp-host-http-transport)
 - [Cloud Deployment](#cloud-deployment)
 - [Docker Deployment](#docker-deployment)
 - [Streamlit Cloud Deployment](#streamlit-cloud-deployment)
@@ -133,6 +134,39 @@ netsh advfirewall firewall add rule name="C64 Knowledge Base GUI" dir=in action=
 sudo ufw allow 8501/tcp
 sudo ufw reload
 ```
+
+---
+
+## Shared MCP Host (HTTP Transport)
+
+The lowest-friction way to use one knowledge base from more than one machine.
+The host runs a single server process holding `TDZ_DATA_DIR`; every other
+machine connects to it as an MCP client, so there is never a second copy of the
+data to reconcile or repair.
+
+```cmd
+REM On the host
+set TDZ_DATA_DIR=C:\data\tdz-c64-knowledge
+set TDZ_API_KEYS=some-long-random-string
+python server.py --transport http --host 0.0.0.0 --port 8765
+```
+
+```cmd
+REM On every other machine
+claude mcp add --transport http tdz-c64-knowledge http://<host>:8765/mcp --header "X-API-Key: some-long-random-string"
+```
+
+The server refuses a non-loopback bind with no `TDZ_API_KEYS` set. Prefer a
+private network (Tailscale, WireGuard, a VPN) over a port forwarded to the
+public internet: the API key is the only thing between a caller and full
+read/write control of the knowledge base, and the transport is plain HTTP
+unless you terminate TLS in front of it.
+
+Compared with the alternatives - syncing the SQLite file (corrupts the moment
+both machines run at once), exporting and importing, or rebuilding from source
+on each machine - this is the only option where a fix applied once is applied
+everywhere. See `docs/MCP_INTEGRATION.md` for the full option list and the
+concurrency caveat.
 
 ---
 

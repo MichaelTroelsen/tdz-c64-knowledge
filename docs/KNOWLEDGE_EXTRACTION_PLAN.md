@@ -74,6 +74,19 @@ This plan implements 6 advanced knowledge extraction algorithms to unlock deeper
    );
    ```
 
+   > **Superseded (R10, see `CODE-REVIEW.md`):** the `-- Pickled NetworkX
+   > graph` comment above and the `pickle.dumps`/`pickle.loads` recipe in
+   > Task 1.2 below describe the *original* plan, not what shipped.
+   > `graph_cache` is populated and read via a shared, on-disk SQLite
+   > database that `restore_from_backup` can repopulate from an arbitrary
+   > file, so a tampered backup containing a crafted pickle became
+   > arbitrary code execution the moment any server process loaded a
+   > cached graph. The shipped design serializes with
+   > `networkx.node_link_data(G)` as JSON (`json.dumps`/`json.loads` +
+   > `nx.node_link_graph`), stamps the row `graph_version = 2`, and
+   > deletes (never unpickles) any legacy `graph_version = 1` row it
+   > encounters. Do not reimplement this table with pickle.
+
 2. **Create graph_metrics table** (30 min)
    ```sql
    CREATE TABLE IF NOT EXISTS graph_metrics (
@@ -235,6 +248,18 @@ assert 'graph_metrics' in [t[0] for t in cursor.execute("SELECT name FROM sqlite
            return pickle.loads(row[0])
        return None
    ```
+
+   > **Superseded (R10, see `CODE-REVIEW.md`):** do not implement
+   > `_cache_graph`/`_load_cached_graph` as shown above. `pickle.loads` on
+   > `graph_data` read back from `graph_cache` is arbitrary code execution
+   > on any DB file an attacker can get loaded — and `restore_from_backup`
+   > is exactly that path, since it can repopulate the shared,
+   > multi-process `knowledge_base.db` from an arbitrary backup file. The
+   > shipped `_cache_graph`/`_load_cached_graph` (`server.py`) serialize
+   > with `networkx.node_link_data(G)` as JSON instead of `pickle.dumps`,
+   > deserialize with `json.loads` + `nx.node_link_graph` instead of
+   > `pickle.loads`, write `graph_version = 2`, and delete any
+   > `graph_version = 1` row on read rather than unpickling it.
 
 3. **Add error handling and validation** (1 hour)
    - Validate graph is not empty
@@ -796,6 +821,17 @@ def test_graph_visualization():
    );
    CREATE INDEX idx_clusters_algorithm ON clusters(algorithm);
    ```
+
+   > **Note (see R10 in `CODE-REVIEW.md`):** don't pickle `centroid_vector`
+   > either. The graph cache in Task 1.2 originally used
+   > `pickle.dumps`/`pickle.loads` for the same reason — "it's just a
+   > BLOB in our own DB" — and that turned into arbitrary code execution
+   > because the DB file is shared across processes and can be replaced
+   > wholesale by `restore_from_backup`. Any BLOB column loaded back with
+   > `pickle.loads` has the same exposure regardless of what it holds. The
+   > shipped code stores cluster centroids as JSON (`json.dumps` of
+   > `centroid_vector.tolist()`), matching the JSON approach that replaced
+   > pickle for `graph_cache`.
 
 4. **Create document_clusters table** (30 min)
    ```sql

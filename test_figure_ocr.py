@@ -364,6 +364,34 @@ def test_coverage_reporting(figure_kb):
     assert after['figures_with_text'] == 1
 
 
+def test_coverage_splits_remaining_into_reachable_and_unreachable(figure_kb):
+    """Coverage can never hit 100% for a doc whose file is gone - the status
+    report must say so instead of implying a re-run would finish the job."""
+    kb, docs = figure_kb
+    FAKE_OCR_TEXT.clear()
+
+    processed = kb.add_document(
+        _make_pdf_with_figures(str(docs / "processed.pdf"), [(0, (400, 300), "x")]))
+    still_here = kb.add_document(
+        _make_pdf_with_figures(str(docs / "still_here.pdf"), [(0, (400, 300), "y")]))
+    gone_path = _make_pdf_with_figures(str(docs / "gone.pdf"), [(0, (400, 300), "z")])
+    gone = kb.add_document(gone_path)
+
+    kb.extract_document_figures(processed.doc_id)
+    os.remove(gone_path)
+
+    stats = kb.get_figure_ocr_coverage()
+
+    assert stats['pdf_documents'] == 3, stats
+    assert stats['documents_processed'] == 1, stats
+    assert stats['documents_remaining'] == 2, stats
+    assert stats['documents_remaining_reachable'] == 1, stats
+    assert stats['documents_remaining_unreachable'] == 1, stats
+    assert (stats['documents_remaining_reachable']
+            + stats['documents_remaining_unreachable']) == stats['documents_remaining']
+    assert still_here.doc_id != gone.doc_id  # sanity: two distinct unprocessed docs
+
+
 def test_removing_a_document_removes_its_figures(figure_kb):
     """FK cascade: orphaned figure rows would leak into every search."""
     kb, docs = figure_kb

@@ -655,6 +655,15 @@ CREATE TABLE topic_models (
     model_data BLOB,  -- Pickled model
     topics TEXT  -- JSON of topic info
 );
+-- Note (R10, see CODE-REVIEW.md): do not pickle model_data. The graph
+-- cache in this plan originally used pickle.dumps/pickle.loads on a BLOB
+-- column in this same shared, multi-process database, and that became
+-- arbitrary code execution because restore_from_backup can repopulate
+-- the DB file from an arbitrary backup -- a tampered backup's pickle
+-- runs on load. The fix that shipped for graph_cache serializes with
+-- networkx.node_link_data() as JSON instead; any model persisted here
+-- should use a non-pickle format (e.g. the model's own JSON/native
+-- export) for the same reason.
 
 -- Store document clusters
 CREATE TABLE document_clusters (

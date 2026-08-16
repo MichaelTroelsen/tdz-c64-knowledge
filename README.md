@@ -151,6 +151,12 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `TDZ_DATA_DIR` | Database directory | `~/.tdz-c64-knowledge` |
+| `TDZ_MCP_TRANSPORT` | `stdio` (client spawns the server) or `http` (one hosted instance serves several machines) | `stdio` |
+| `TDZ_MCP_HOST` | Bind address for the HTTP transport | `127.0.0.1` |
+| `TDZ_MCP_PORT` | Port for the HTTP transport | `8765` |
+| `TDZ_API_KEYS` | Comma-separated API keys; shared with the REST API. Required to bind the HTTP transport off loopback | *(unset)* |
+| `TDZ_MCP_ALLOW_INSECURE` | `1` permits a non-loopback bind with no API keys | `0` |
+| `TDZ_MCP_ALLOWED_HOSTS` | `Host` values accepted by DNS-rebinding protection; `*` disables it | *(unset)* |
 | `USE_FTS5` | Enable FTS5 search (recommended) | `0` |
 | `USE_SEMANTIC_SEARCH` | Enable semantic search | `0` |
 | `SEMANTIC_MODEL` | Sentence-transformers model | `all-MiniLM-L6-v2` |

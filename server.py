@@ -3556,15 +3556,23 @@ class KnowledgeBase:
             })
         return results
 
+    def _document_source_missing(self, filepath: Optional[str]) -> bool:
+        """True if `filepath` is empty/NULL or points at a file that is no
+        longer on disk. Shared by get_figure_ocr_coverage and health_check's
+        missing_source_files metric so the two never disagree about what
+        "missing" means."""
+        return not (filepath and os.path.exists(filepath))
+
     def get_figure_ocr_coverage(self) -> dict:
         """How much of the PDF corpus has been through figure OCR."""
         cursor = self.db_conn.cursor()
         pdf_ids = [d.doc_id for d in self.documents.values()
                    if (d.file_type or '').lower() == 'pdf']
 
-        processed = cursor.execute(
-            "SELECT COUNT(DISTINCT doc_id) FROM document_figures"
-        ).fetchone()[0]
+        processed_ids = {row[0] for row in cursor.execute(
+            "SELECT DISTINCT doc_id FROM document_figures"
+        ).fetchall()}
+        processed = len(processed_ids)
         figures, with_text = cursor.execute(
             "SELECT COUNT(*), COALESCE(SUM(CASE WHEN ocr_text IS NOT NULL AND ocr_text != '' "
             "THEN 1 ELSE 0 END), 0) FROM document_figures"
@@ -3575,10 +3583,29 @@ class KnowledgeBase:
             "AND status IN ('queued', 'running')"
         ).fetchone()[0]
 
+        # A queued-but-unprocessed PDF whose documents.filepath no longer
+        # exists on disk will never be processed - ocr_document_figures skips
+        # it with "source file is no longer on disk" (see above). Splitting
+        # documents_remaining keeps that number from implying a re-run can
+        # reach 100% coverage when 106/178 PDFs in the live KB are gone.
+        remaining_ids = [doc_id for doc_id in pdf_ids if doc_id not in processed_ids]
+        unreachable = sum(
+            1 for doc_id in remaining_ids
+            if self._document_source_missing(self.documents[doc_id].filepath)
+        )
+        reachable = len(remaining_ids) - unreachable
+
         return {
             'pdf_documents': len(pdf_ids),
             'documents_processed': processed,
-            'documents_remaining': max(0, len(pdf_ids) - processed),
+            # reachable + unreachable by construction (both derived from
+            # remaining_ids) - keep documents_remaining defined the same way
+            # rather than via len(pdf_ids) - processed, so the two never
+            # drift apart if a document_figures row references a doc_id
+            # that isn't (or is no longer) in pdf_ids.
+            'documents_remaining': reachable + unreachable,
+            'documents_remaining_reachable': reachable,
+            'documents_remaining_unreachable': unreachable,
             'figures_extracted': figures,
             'figures_with_text': with_text,
             'jobs_pending': pending,
@@ -19091,6 +19118,22 @@ Return ONLY valid JSON, no additional text.
                 )
                 health['status'] = 'warning'
 
+            # Documents whose recorded filepath no longer resolves on disk:
+            # previously only discoverable by accident (figure OCR silently
+            # skips them - see get_figure_ocr_coverage). Any future re-chunk,
+            # re-OCR or page-image feature would hit the same wall silently,
+            # so surface it here for the whole corpus, not just PDFs.
+            missing_source_files = sum(
+                1 for doc in self.documents.values()
+                if self._document_source_missing(doc.filepath)
+            )
+            health['metrics']['missing_source_files'] = missing_source_files
+            if missing_source_files > 0:
+                health['issues'].append(
+                    f"{missing_source_files} document(s) have a filepath that no longer exists on disk"
+                )
+                health['status'] = 'warning'
+
             # Check FTS5 index if enabled
             if health['features']['fts5_enabled']:
                 if not health['features']['fts5_available']:
@@ -24161,6 +24204,8 @@ def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
         output += f"- PDF documents: {stats['pdf_documents']}\n"
         output += f"- Documents processed: {stats['documents_processed']}\n"
         output += f"- Documents remaining: {stats['documents_remaining']}\n"
+        output += f"  - Reachable (file on disk): {stats['documents_remaining_reachable']}\n"
+        output += f"  - Unreachable (source file missing): {stats['documents_remaining_unreachable']}\n"
         output += f"- Figures extracted: {stats['figures_extracted']}\n"
         output += f"- Figures containing text: {stats['figures_with_text']}\n"
         output += f"- Jobs pending: {stats['jobs_pending']}\n"
@@ -25454,6 +25499,11 @@ def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 
+# Set to an asyncio.Lock only by the HTTP transport. stdio guarantees one
+# client per process, so its dispatch path stays unlocked and unchanged.
+_tool_call_lock = None
+
+
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """
@@ -25480,7 +25530,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     error_message = None
     result = None
     try:
-        result = await asyncio.to_thread(_call_tool_impl, name, arguments)
+        if _tool_call_lock is None:
+            result = await asyncio.to_thread(_call_tool_impl, name, arguments)
+        else:
+            # Over HTTP one process serves several clients, so two tool calls
+            # can now overlap. Thread-local connections keep SQLite safe (see
+            # KnowledgeBase.db_conn), but the in-memory catalogue, the search
+            # caches and the FAISS index are shared mutable state that has
+            # only ever been exercised one client at a time. Serialise until
+            # that is audited - a slow tool blocking a second client is a
+            # better failure than a corrupted index.
+            async with _tool_call_lock:
+                result = await asyncio.to_thread(_call_tool_impl, name, arguments)
         return result
     except Exception as e:
         error_message = str(e)
@@ -25531,7 +25592,198 @@ async def read_resource(uri: str) -> str:
     return f"Resource not found: {uri}"
 
 
-async def main():
+# ---------------------------------------------------------------------------
+# Transport selection
+#
+# stdio stays the default and its code path is unchanged: every existing MCP
+# client config launches this file as a child process and talks over pipes.
+# HTTP is opt-in (--transport http / TDZ_MCP_TRANSPORT=http) so one hosted
+# instance can serve clients on other machines without replicating the ~8 GB
+# TDZ_DATA_DIR. See issue #16.
+# ---------------------------------------------------------------------------
+
+_LOOPBACK_HOSTS = ('127.0.0.1', 'localhost', '::1')
+
+
+def _mcp_api_keys() -> list[str]:
+    # Same variable rest_server.py already documents in docs/REST_API.md; a
+    # second key scheme for the same knowledge base would be worse than none.
+    return [k.strip() for k in os.getenv('TDZ_API_KEYS', '').split(',') if k.strip()]
+
+
+def _resolve_transport_config(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog='server.py',
+        description='TDZ C64 knowledge base MCP server.',
+    )
+    parser.add_argument(
+        '--transport', choices=('stdio', 'http'),
+        default=os.getenv('TDZ_MCP_TRANSPORT', 'stdio'),
+        help='Transport to serve on (default: stdio).',
+    )
+    parser.add_argument(
+        '--host', default=os.getenv('TDZ_MCP_HOST', '127.0.0.1'),
+        help='Bind address for --transport http (default: 127.0.0.1).',
+    )
+    parser.add_argument(
+        '--port', type=int, default=int(os.getenv('TDZ_MCP_PORT', '8765')),
+        help='Port for --transport http (default: 8765).',
+    )
+    return parser.parse_args(argv)
+
+
+class _ApiKeyMiddleware:
+    """Reject unauthenticated requests before they reach the MCP session.
+
+    Raw ASGI rather than a Starlette BaseHTTPMiddleware: the streamable-HTTP
+    transport holds long-lived SSE responses open and BaseHTTPMiddleware
+    buffers the response body.
+    """
+
+    def __init__(self, app, api_keys: list[str]):
+        self.app = app
+        self.api_keys = api_keys
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http' or not self.api_keys:
+            await self.app(scope, receive, send)
+            return
+
+        import hmac
+
+        headers = {k.lower(): v for k, v in (scope.get('headers') or [])}
+        provided = headers.get(b'x-api-key', b'').decode('latin-1')
+        if not provided:
+            auth = headers.get(b'authorization', b'').decode('latin-1')
+            if auth.lower().startswith('bearer '):
+                provided = auth[7:].strip()
+
+        # compare_digest against each configured key: a plain `in` test leaks
+        # key length and prefix through timing.
+        if not any(hmac.compare_digest(provided, key) for key in self.api_keys):
+            body = b'{"error": "Invalid or missing API key"}'
+            await send({
+                'type': 'http.response.start',
+                'status': 401,
+                'headers': [
+                    (b'content-type', b'application/json'),
+                    (b'content-length', str(len(body)).encode()),
+                    (b'www-authenticate', b'ApiKey'),
+                ],
+            })
+            await send({'type': 'http.response.body', 'body': body})
+            return
+
+        await self.app(scope, receive, send)
+
+
+def _transport_security_settings(host: str, port: int, logger):
+    """DNS-rebinding settings for the streamable-HTTP endpoint.
+
+    The SDK treats "protection enabled with an empty allowed_hosts" as reject
+    every request, so this cannot simply be switched on. On a loopback bind
+    the allow-list is knowable and the attack is real (a browser on this
+    machine resolving an attacker domain to 127.0.0.1), so protection is on.
+    On a non-loopback bind the Host header is whatever name the client used -
+    a LAN IP, a Tailscale name - which this process cannot enumerate, so
+    protection stays off unless TDZ_MCP_ALLOWED_HOSTS names them. API-key
+    auth, which the bind guard already makes mandatory off loopback, is the
+    control there.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    configured = [h.strip() for h in os.getenv('TDZ_MCP_ALLOWED_HOSTS', '').split(',') if h.strip()]
+
+    if '*' in configured:
+        logger.warning('TDZ_MCP_ALLOWED_HOSTS=* - DNS rebinding protection disabled.')
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+    if not configured and host not in _LOOPBACK_HOSTS:
+        logger.warning(
+            'Binding to %s with no TDZ_MCP_ALLOWED_HOSTS - DNS rebinding '
+            'protection disabled because the Host header clients will send is '
+            'not knowable here. Set TDZ_MCP_ALLOWED_HOSTS to the hostnames '
+            'clients use to enable it.', host,
+        )
+        return TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+    allowed = set(configured)
+    for candidate in (host, *_LOOPBACK_HOSTS):
+        if candidate in ('0.0.0.0', '::'):
+            continue
+        allowed.add(f'{candidate}:{port}')
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=sorted(allowed),
+        allowed_origins=sorted(f'http://{a}' for a in allowed),
+    )
+
+
+async def _run_http(host: str, port: int) -> None:
+    # Imported here, not at module scope: every MCP session spawns this file
+    # and the client allows 30s for the initialize handshake, so nothing that
+    # only the HTTP path needs may cost import time on the stdio path.
+    # See CLAUDE.md, "MCP startup performance".
+    import contextlib
+
+    import uvicorn
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+    global _tool_call_lock
+
+    logger = logging.getLogger(__name__)
+    api_keys = _mcp_api_keys()
+
+    # This transport exposes every tool, including add_document and scrape_url
+    # (arbitrary-URL fetch from the host - SSRF). Refuse to serve that to a
+    # network with no authentication rather than failing open; mirrors
+    # rest_server.py's guard so the two behave the same way.
+    if host not in _LOOPBACK_HOSTS and not api_keys:
+        if os.getenv('TDZ_MCP_ALLOW_INSECURE', '0') != '1':
+            raise SystemExit(
+                f'Refusing to bind the MCP HTTP transport to {host} with no API '
+                'keys configured (TDZ_API_KEYS is unset). This would expose '
+                'unauthenticated read/write access to the knowledge base. Set '
+                'TDZ_API_KEYS, or set TDZ_MCP_ALLOW_INSECURE=1 to override.'
+            )
+        logger.warning('TDZ_MCP_ALLOW_INSECURE=1 - serving %s with no authentication.', host)
+
+    # Several clients now share one KnowledgeBase; see call_tool.
+    _tool_call_lock = asyncio.Lock()
+
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        event_store=None,
+        json_response=False,
+        stateless=False,
+        security_settings=_transport_security_settings(host, port, logger),
+    )
+
+    async def handle_mcp(scope, receive, send):
+        await session_manager.handle_request(scope, receive, send)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        async with session_manager.run():
+            yield
+
+    app = _ApiKeyMiddleware(
+        Starlette(routes=[Mount('/mcp', app=handle_mcp)], lifespan=lifespan),
+        api_keys,
+    )
+
+    logger.info(
+        'MCP streamable-HTTP transport on http://%s:%d/mcp (auth: %s)',
+        host, port, f'{len(api_keys)} API key(s)' if api_keys else 'none',
+    )
+    await uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level='info')).serve()
+
+
+async def main(argv=None):
     """Run the MCP server."""
     # Log version information
     logger = logging.getLogger(__name__)
@@ -25540,22 +25792,30 @@ async def main():
     logger.info(f"Build Date: {__build_date__}")
     logger.info("=" * 60)
 
+    args = _resolve_transport_config(argv)
+
     # Construct the process-wide KnowledgeBase now, before serving any
     # requests, so every tool handler's bare `kb` reference resolves to the
     # same already-initialized instance for the rest of this process's life.
     get_kb()
 
     try:
-        async with stdio_server() as (read_stream, write_stream):
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options()
-            )
+        if args.transport == 'http':
+            await _run_http(args.host, args.port)
+        else:
+            async with stdio_server() as (read_stream, write_stream):
+                await server.run(
+                    read_stream,
+                    write_stream,
+                    server.create_initialization_options()
+                )
     finally:
-        # Ensure the DB connection and worker thread are released whenever
-        # the stdio loop exits (client disconnect, error, or Ctrl+C) so this
-        # process doesn't linger and hold a lock for the next one to start.
+        # Release the DB connection and worker thread whenever serving stops so
+        # this process doesn't linger holding a lock. Under stdio that is the
+        # client disconnecting; under HTTP it is the server shutting down, NOT
+        # an individual client going away - the transport outlives any one
+        # client, and closing per-disconnect would pull the KB out from under
+        # everyone still connected.
         if kb is not None:
             kb.close()
 

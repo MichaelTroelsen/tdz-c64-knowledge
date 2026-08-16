@@ -18,22 +18,25 @@ class Colors:
     END = '\033[0m'
 
 def extract_mcp_tools_from_server() -> Set[str]:
-    """Extract all MCP tool names from server.py."""
-    server_path = Path("server.py")
+    """Extract all MCP tool names from the schema definitions.
+
+    R12 moved the Tool(...) literals out of server.py into
+    mcp_tools/schemas.py, so both are scanned: reading only server.py made
+    this report every documented tool as deleted.
+    """
+    sources = [Path("mcp_tools/schemas.py"), Path("server.py")]
+    present = [p for p in sources if p.exists()]
     tools = set()
 
-    if not server_path.exists():
-        print(f"{Colors.RED}Error: server.py not found{Colors.END}")
+    if not present:
+        print(f"{Colors.RED}Error: no tool schema source found "
+              f"({', '.join(str(p) for p in sources)}){Colors.END}")
         return tools
-
-    content = server_path.read_text(encoding='utf-8')
 
     # Find all Tool definitions with name parameter
     pattern = r'Tool\s*\(\s*name\s*=\s*"([^"]+)"'
-    matches = re.findall(pattern, content)
-
-    for match in matches:
-        tools.add(match)
+    for path in present:
+        tools.update(re.findall(pattern, path.read_text(encoding='utf-8')))
 
     return tools
 
@@ -208,7 +211,7 @@ def main():
         if '_' in t and t not in table_names
     }
 
-    print(f"   Tools in server.py: {len(server_tools)}")
+    print(f"   Tools defined: {len(server_tools)}")
     print(f"   Documented in README.md: {len(documented)}")
 
     # README deliberately documents a curated subset ("Key tools listed

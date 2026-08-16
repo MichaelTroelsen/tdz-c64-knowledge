@@ -77,6 +77,7 @@ only-include = [
     "llm_integration.py",
     "rest_models.py",
     "rest_server.py",
+    "mcp_tools",
 ]
 
 [tool.pytest.ini_options]

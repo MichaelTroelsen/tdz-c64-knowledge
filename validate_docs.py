@@ -17,6 +17,19 @@ class Colors:
     BLUE = '\033[94m'
     END = '\033[0m'
 
+def _python_sources() -> List[Path]:
+    """Every module the server is built from.
+
+    Do NOT hardcode server.py here. R12 moved the Tool(...) schemas into
+    mcp_tools/ and the CREATE TABLE statements into kb/, and each time this
+    validator reported everything as deleted because it was still reading one
+    file. Scanning the package dirs keeps it correct across the next move too.
+    """
+    roots = [Path('.'), Path('kb'), Path('mcp_tools')]
+    return [p for root in roots if root.is_dir()
+            for p in sorted(root.glob('*.py'))]
+
+
 def extract_mcp_tools_from_server() -> Set[str]:
     """Extract all MCP tool names from the schema definitions.
 
@@ -24,20 +37,14 @@ def extract_mcp_tools_from_server() -> Set[str]:
     mcp_tools/schemas.py, so both are scanned: reading only server.py made
     this report every documented tool as deleted.
     """
-    sources = [Path("mcp_tools/schemas.py"), Path("server.py")]
-    present = [p for p in sources if p.exists()]
     tools = set()
-
-    if not present:
-        print(f"{Colors.RED}Error: no tool schema source found "
-              f"({', '.join(str(p) for p in sources)}){Colors.END}")
-        return tools
-
-    # Find all Tool definitions with name parameter
     pattern = r'Tool\s*\(\s*name\s*=\s*"([^"]+)"'
-    for path in present:
+    for path in _python_sources():
         tools.update(re.findall(pattern, path.read_text(encoding='utf-8')))
 
+    if not tools:
+        print(f"{Colors.RED}Error: no Tool(name=...) definitions found in any "
+              f"module{Colors.END}")
     return tools
 
 
@@ -75,13 +82,11 @@ def extract_table_names_from_server() -> Set[str]:
     **entity_relationships**, ...) in exactly the same markup it uses for
     tools, so without this they get reported as tools that no longer exist.
     """
-    server_path = Path("server.py")
-    if not server_path.exists():
-        return set()
-
-    content = server_path.read_text(encoding='utf-8')
     pattern = r'CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)'
-    return set(re.findall(pattern, content, re.IGNORECASE))
+    names = set()
+    for path in _python_sources():
+        names.update(re.findall(pattern, path.read_text(encoding='utf-8'), re.IGNORECASE))
+    return names
 
 
 def _find_changelog() -> Path:

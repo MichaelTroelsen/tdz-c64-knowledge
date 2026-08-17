@@ -529,7 +529,11 @@ def test_ensure_nltk_degrades_instead_of_hanging_on_a_stalled_download(data_dir)
     search behind the same doomed download.
     """
     probe = (
-        "import server, socket, nltk.corpus, time\n"
+        # _ensure_nltk (and the _nltk_ready flag it reads/writes via `global`)
+        # live in features.py, not server.py - server.py only re-imports the
+        # function itself, so the readiness flag must be poked on the module
+        # that actually owns it or this setup/assertion silently no-ops.
+        "import server, features, socket, nltk.corpus, time\n"
         "srv = socket.socket(); srv.bind(('127.0.0.1', 0)); srv.listen(1)\n"
         "port = srv.getsockname()[1]\n"
         "def boom(*a, **k):\n"
@@ -540,11 +544,11 @@ def test_ensure_nltk_degrades_instead_of_hanging_on_a_stalled_download(data_dir)
         "    c.connect(('127.0.0.1', port))\n"
         "    c.recv(1)  # never arrives - simulates a filtered/dead connection\n"
         "nltk.download = fake_download\n"
-        "server._nltk_ready = False\n"
+        "features._nltk_ready = False\n"
         "start = time.time()\n"
         "result = server._ensure_nltk()\n"
         "elapsed = time.time() - start\n"
-        "print('RESULT', elapsed < 10, result is not None, server._nltk_ready)\n"
+        "print('RESULT', elapsed < 10, result is not None, features._nltk_ready)\n"
     )
     env = _env(data_dir)
     env["NETWORK_FETCH_TIMEOUT_S"] = "2"
@@ -578,7 +582,7 @@ def test_ensure_embeddings_degrades_instead_of_hanging_when_offline(data_dir):
         "    c = socket.socket()\n"
         "    c.connect(('127.0.0.1', port))\n"
         "    c.recv(1)  # never arrives - simulates a filtered/dead connection\n"
-        "server.SentenceTransformer = fake_st\n"
+        "import kb.search; kb.search.SentenceTransformer = fake_st\n"
         "kb = server.KnowledgeBase(server.os.environ['TDZ_DATA_DIR'])\n"
         "assert kb.use_semantic, 'test setup: semantic search should be enabled'\n"
         "start = time.time()\n"
@@ -630,7 +634,7 @@ def test_ensure_embeddings_degrades_when_cached_path_itself_hangs(data_dir):
         "    c.connect(('127.0.0.1', port))\n"
         "    c.recv(1)  # never arrives\n"
         "    raise AssertionError('unreachable')\n"
-        "server.SentenceTransformer = fake_st\n"
+        "import kb.search; kb.search.SentenceTransformer = fake_st\n"
         "kb = server.KnowledgeBase(server.os.environ['TDZ_DATA_DIR'])\n"
         "assert kb.use_semantic, 'test setup: semantic search should be enabled'\n"
         "start = time.time()\n"

@@ -16,6 +16,7 @@ import time
 import pytest
 
 import server as server_module
+import util as util_module
 
 
 class _PoliteHandler(http.server.BaseHTTPRequestHandler):
@@ -67,7 +68,7 @@ def local_site(monkeypatch):
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
 
     # robots.txt results are cached per origin for the process lifetime.
-    monkeypatch.setattr(server_module, '_robots_cache', {})
+    monkeypatch.setattr(util_module, '_robots_cache', {})
     try:
         yield base, _PoliteHandler
     finally:
@@ -107,14 +108,14 @@ def test_robots_result_is_cached_per_origin(local_site):
 
 def test_missing_robots_txt_fails_open(monkeypatch):
     """An unreachable robots.txt must not block a scrape the user asked for."""
-    monkeypatch.setattr(server_module, '_robots_cache', {})
+    monkeypatch.setattr(util_module, '_robots_cache', {})
     # Port 9 (discard) refuses/blackholes - stands in for "no robots.txt".
     assert server_module.robots_allows("http://127.0.0.1:9/page") is True
 
 
 def test_robots_can_be_disabled(local_site, monkeypatch):
     base, _ = local_site
-    monkeypatch.setattr(server_module, 'RESPECT_ROBOTS', False)
+    monkeypatch.setattr(util_module, 'RESPECT_ROBOTS', False)
     assert server_module.robots_allows(f"{base}/private/secret") is True
 
 

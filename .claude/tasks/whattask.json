@@ -1,263 +1,436 @@
 {
   "generated_from": {
-    "head": "b043e25",
+    "head": "ec976eb",
     "sources": [
       ".claude/tasks/runs.jsonl",
-      "previous whattask.json (head 5c6c541)",
+      "previous whattask.json (head b043e25)",
+      "TO-DOS.md",
+      "whats-next.md",
+      "docs/ROADMAP.md",
+      "CODE-REVIEW.md",
       "docs/ARCHITECTURE.md",
-      "CLAUDE.md",
+      "docs/CHANGELOG.md",
       "pyproject.toml",
-      "cli.py",
+      "wikigen/data.py",
       ".env",
       "git-log",
-      "working-tree",
-      "file-size-measurement"
+      "working-tree"
     ],
     "focus": null
   },
   "tasks": [
     {
-      "id": "architecture-md-stale-output-list",
-      "title": "Fix two verified-false claims in docs/ARCHITECTURE.md's wiki-output list: search-index.json and _generate_pdf_viewer_html()",
-      "source": "runs.jsonl#docs-architecture-wiki-export-citations",
+      "id": "architecture-md-json-output-list-incomplete",
+      "title": "docs/ARCHITECTURE.md's JSON output list names 10 files; the exporter writes 12 (navigation.json, stats.json missing)",
+      "source": "runs.jsonl#architecture-md-stale-output-list.opened",
       "model": "sonnet",
       "mode": "subtask",
-      "lane": "serial",
-      "touches": ["rw:docs/ARCHITECTURE.md", "r:wiki_export.py", "r:wikigen"],
+      "lane": "parallel",
+      "touches": [
+        "rw:docs/ARCHITECTURE.md",
+        "r:wiki_export.py"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "docs/ARCHITECTURE.md line ~768 names search.json (the file wiki_export.py:296 actually writes) rather than search-index.json, line ~780 no longer lists _generate_pdf_viewer_html() (which exists nowhere - 0 hits across wiki_export.py and wikigen/), and validate_docs.py passes",
-      "why_model": "two substitutions against facts already measured and recorded",
-      "why_mode": "self-contained single-file edit with a grep-checkable outcome",
-      "why_lane": "writes docs/ARCHITECTURE.md, shared with no other ready task but contended if another doc task runs"
+      "verify": "Every _save_json('X.json', ...) call in wiki_export.py appears in the ARCHITECTURE.md list and vice versa: the doc's section-2 bullet list must gain navigation.json (wiki_export.py:277) and stats.json (:279). Then `python validate_docs.py` still reports PASSED.",
+      "why_model": "a two-name doc correction against a verified grep, no design judgement",
+      "why_mode": "the conclusion is mechanical - the exporter's own _save_json calls are the ground truth",
+      "why_lane": "only writer of docs/ARCHITECTURE.md, and only reads wiki_export.py, which no other task writes"
     },
     {
-      "id": "sid-extension-surfaces",
-      "title": "Teach cli.py add-folder about .sid - its extension list silently skips every SID file",
-      "source": "runs.jsonl#sid-archive-ingestion",
+      "id": "refresh-handoff-doc-post-wiki-split",
+      "title": "whats-next.md is stale again: keyed to HEAD 5c6c541 and describing a 13-file uncommitted pile that landed in b043e25/ec976eb",
+      "source": "whats-next.md#603 vs git status at ec976eb",
       "model": "sonnet",
       "mode": "subtask",
-      "lane": "serial",
-      "touches": ["rw:cli.py", "r:kb/ingest", "rw:.pytest_cache"],
+      "lane": "parallel",
+      "touches": [
+        "rw:whats-next.md",
+        "r:.claude/tasks/runs.jsonl"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "cli.py:207's extension list includes .sid/.psid/.rsid and .zip, so `cli.py add-folder` over a tree of SID files ingests them instead of reporting nothing to do; the full suite stays at 309 passed / 3 skipped",
-      "why_model": "a one-line list extension against an ingestion path that already works",
-      "why_mode": "bounded and mechanically checkable",
-      "why_lane": "writes cli.py and runs pytest"
+      "verify": "whats-next.md's 'Complete and committed' heading names ec976eb; its 'Uncommitted' block reproduces `git status --porcelain` as measured during the refresh, verbatim, including the runner-owned .claude/tasks/ entries (do not hardcode an earlier snapshot - re-run the command); the file is still pure LF (zero CR bytes) and still untracked (`git ls-files whats-next.md` empty).",
+      "why_model": "reconciling prose against command output, with the previous two passes' format already established",
+      "why_mode": "self-contained and every claim is command-checkable, but the LF-only and stay-untracked discipline must be carried into the subagent prompt",
+      "why_lane": "sole writer of whats-next.md; reads only the runner-owned run log"
     },
     {
       "id": "figure-ocr-availability-discrepancy",
-      "title": "Resolve why figure_ocr_available() reports False when the records say Tesseract is installed and the OCR batch has run",
-      "source": "runs.jsonl#repoint-document-filepath-tool",
-      "model": "sonnet",
+      "title": "figure_ocr_available() reports False although USE_OCR=1, tesseract.exe exists at the documented path, and 14,397 figure rows were produced",
+      "source": "runs.jsonl#repoint-document-filepath-tool.opened",
+      "model": "opus",
       "mode": "main",
       "lane": "serial",
-      "touches": ["r:.env", "r:kb/figures.py", "r:~/.tdz-c64-knowledge/knowledge_base.db", "rw:whats-next.md"],
+      "touches": [
+        "rw:.env",
+        "r:kb/figures.py",
+        "r:features.py",
+        "r:test_figure_ocr.py"
+      ],
       "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
+      "needs_main": true,
+      "needs_main_reason": "the diagnosis matters more than the measurement - a previous pass wrote a green-but-vacuous test around this exact ambiguity, and the record holds two mutually contradicting claims about the same environment",
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "a stated, evidence-backed answer to why figure_ocr_available() returns 'OCR is disabled (USE_OCR=0) or Tesseract was not found on PATH' while document_figures holds 14,397 rows - naming which of the two conditions is actually false and whether the 14,397 rows predate it - with the conclusion recorded wherever the contradicted claim lives",
-      "why_model": "reading two config values and one table count against each other",
-      "why_mode": "the diagnosis is the deliverable and it contradicts an existing written claim, so it needs judgement rather than a measurement handed back",
-      "why_lane": "reads the live database and .env"
+      "verify": "Name which candidate cause holds, each falsifiable: (a) .env is not loaded in the pytest process, (b) TESSERACT_PATH is unset in .env (confirmed - only .env.example:78 mentions it, commented out) and the Tesseract directory is not on PATH, (c) figure_ocr_available() gates on something other than the binary. Then figure_ocr_available() returns True in the same interpreter environment `pytest test_figure_ocr.py -q` runs in, or every doc claiming OCR is available is corrected to match reality.",
+      "why_model": "a root-cause hunt across config loading, PATH and feature detection where a plausible-but-wrong answer is cheap to produce and already was once",
+      "why_mode": "needs the surrounding record - the contradiction sits between the run log, the docs and the live environment, not inside one file",
+      "why_lane": "writes .env, the global runtime config every concurrently-running task inherits"
     },
     {
       "id": "deepsid-json-api-ingestion",
       "title": "Ingest DeepSID metadata through its JSON API rather than scraping the SPA's HTML",
-      "source": "runs.jsonl#sid-archive-ingestion",
+      "source": "TO-DOS.md#SID-archive-ingestion; runs.jsonl#sid-archive-ingestion.opened",
       "model": "opus",
       "mode": "main",
       "lane": "serial",
-      "touches": ["rw:kb/ingest", "rw:mcp_tools/schemas.py", "rw:mcp_tools/documents.py", "rw:network:deepsid", "rw:.pytest_cache"],
+      "touches": [
+        "rw:kb/ingest/_extraction.py",
+        "rw:kb/ingest/__init__.py",
+        "rw:test_sid_ingest.py",
+        "r:kb/ingest/_documents.py"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "a DeepSID query returns structured tune metadata that ingests into searchable cards, with the API's real response shape captured in a fixture so the tests do not depend on the network",
-      "why_model": "a new network integration whose response shape must be discovered and pinned, where guessing the schema produces confident nonsense",
-      "why_mode": "the API contract has to be established against the live service before any of it can be delegated",
-      "why_lane": "writes kb/ingest and depends on an external service"
-    },
-    {
-      "id": "wiki-css-asset-oversized",
-      "title": "Decide whether wiki_assets/css/style.css (3,149 lines) should be split, or whether the line-count target applies only to Python",
-      "source": "runs.jsonl#wiki-export-oversized",
-      "model": "sonnet",
-      "mode": "requires-user",
-      "lane": "serial",
-      "touches": ["rw:wiki_assets/css", "rw:wiki_export.py", "rw:CODE-REVIEW.md"],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "The wiki split left one file over the ~2,500-line target: a 3,149-line stylesheet. It is data, not a god module, and fragmenting it into ordered concatenated parts to satisfy a count would make it harder to edit, not easier. Whether the target was ever meant to apply to assets is the user's call.",
-      "depends_on_user": true,
-      "verify": "either style.css is split into ordered fragments that concatenate byte-identically, or CODE-REVIEW.md records that the ~2,500-line target applies to Python modules and not to shipped assets",
-      "why_model": "mechanical either way once the call is made",
-      "why_mode": "a target's scope is a policy question, not a measurement",
-      "why_lane": "writes the asset the exporter emits byte-for-byte"
+      "verify": "A DeepSID JSON endpoint is fetched and turned into an ingestible card, covered by a test in test_sid_ingest.py against a recorded/stubbed response (no live network in the suite). `pytest test_sid_ingest.py -q` green, and kb/ingest/__init__.py's _EXPECTED_METHODS guard extended rather than weakened for any new mixin method.",
+      "why_model": "an unspecified third-party API contract plus a new network failure surface - the shape must be understood before it can be coded, and guessing an endpoint is cheap",
+      "why_mode": "the design call (which endpoints, one document per tune or per collection) reshapes the existing one-file-one-document ingest contract",
+      "why_lane": "writes kb/ingest/_extraction.py, shared with sid-lha-archive-support"
     },
     {
       "id": "pyproject-requires-python-understates-312",
-      "title": "Reconcile requires-python '>=3.10' with code that needs 3.12 (backslash inside an f-string expression)",
-      "source": "runs.jsonl#wiki-export-oversized",
+      "title": "requires-python is '>=3.10' but wikigen/data.py:326 puts a backslash inside an f-string expression, which needs 3.12",
+      "source": "runs.jsonl#wiki-export-oversized.opened; verified at wikigen/data.py:326",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
-      "touches": ["rw:pyproject.toml", "rw:wikigen/data.py", "rw:README.md", "rw:CLAUDE.md"],
+      "touches": [
+        "rw:pyproject.toml",
+        "rw:wikigen/data.py",
+        "r:README.md"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "wikigen/data.py:326 (inherited verbatim from wiki_export.py:730 at HEAD) puts a backslash inside an f-string expression, which is a syntax error before Python 3.12, while pyproject.toml declares requires-python '>=3.10' and CLAUDE.md says 3.10+. Either the floor rises to 3.12 or the line is rewritten to work on 3.10 - which one depends on who has to run this.",
+      "blocked_on": "Which way to reconcile: bump requires-python to >=3.12 (dropping 3.10/3.11 installs), or hoist the regex out of the f-string so the declared 3.10 floor becomes true again. The second is a two-line change; the first is a support-policy decision only the user can make.",
       "depends_on_user": true,
-      "verify": "either pyproject.toml and the docs declare >=3.12, or the offending expression is rewritten and `ruff check --target-version py310 --select E9` parses the whole tree clean",
-      "why_model": "a one-line change once the supported floor is decided",
-      "why_mode": "the minimum supported Python is a distribution decision",
-      "why_lane": "writes pyproject.toml and a wikigen module"
+      "verify": "Either pyproject.toml reads requires-python = \">=3.12\" and README.md/CLAUDE.md's 'Python 3.10+' claims are updated to match, or wikigen/data.py:326 holds no backslash inside an f-string expression and the file parses under a 3.10 ast.parse.",
+      "why_model": "once the policy is chosen the edit is one line plus doc follow-through",
+      "why_mode": "an install-floor decision - either answer is defensible and the user owns which Pythons this supports",
+      "why_lane": "writes pyproject.toml, shared with sid-lha-archive-support"
     },
     {
       "id": "sid-lha-archive-support",
       "title": "Decide whether to take a third-party LHA dependency so HVSC's .lha archives can be ingested",
-      "source": "runs.jsonl#sid-archive-ingestion",
+      "source": "TO-DOS.md#SID-archive-ingestion; runs.jsonl#sid-archive-ingestion.opened",
       "model": "sonnet",
       "mode": "requires-user",
-      "lane": "parallel",
-      "touches": ["rw:pyproject.toml.lha-decision"],
+      "lane": "serial",
+      "touches": [
+        "rw:pyproject.toml",
+        "rw:kb/ingest/_extraction.py",
+        "rw:test_sid_ingest.py"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "Python has no stdlib LHA support, so .lha ingestion means adding a third-party dependency to a project that currently parses SID headers with nothing but struct and zipfile. Whether that trade is worth it is the user's call.",
+      "blocked_on": "Python has no stdlib LHA support. Ingesting HVSC in its native distribution format means adding a third-party decompressor as a runtime dependency; the user owns whether this project takes one, or whether users are expected to unpack to .zip first.",
       "depends_on_user": true,
-      "verify": "either an LHA reader is added and a .lha archive ingests its members, or TO-DOS.md records that .lha is deliberately unsupported and why",
-      "why_model": "wiring an archive reader into an existing ingestion path once the dependency is agreed",
-      "why_mode": "taking on a dependency is a project decision",
-      "why_lane": "the decision itself touches nothing until it is made"
+      "verify": "Either .lha files ingest end-to-end with a covering test in test_sid_ingest.py, or TO-DOS.md records the decision not to support .lha and states what users should do instead.",
+      "why_model": "once the dependency call is made the implementation mirrors the existing .zip branch",
+      "why_mode": "adding a runtime dependency is the user's call, not a judgement to delegate",
+      "why_lane": "writes pyproject.toml (shared with pyproject-requires-python-understates-312) and kb/ingest/_extraction.py (shared with deepsid-json-api-ingestion)"
+    },
+    {
+      "id": "wiki-css-asset-oversized",
+      "title": "Decide whether wiki_assets/css/style.css (3,149 lines) should be split, or whether the line-count target applies only to Python",
+      "source": "runs.jsonl#wiki-export-oversized.opened",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": [
+        "rw:wiki_assets/css/style.css",
+        "r:wikigen"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "The R12/R18 decomposition target was stated for Python modules. style.css came out of the wiki split at 3,149 lines; whether that target binds a single shipped stylesheet at all is the user's call.",
+      "depends_on_user": true,
+      "verify": "Either wiki_assets/css/ holds several files each under the agreed target and an exported wiki renders byte-identically apart from the <link> tags, or the decision that the target is Python-only is recorded in CLAUDE.md.",
+      "why_model": "a mechanical split along existing section comments once the target is agreed",
+      "why_mode": "the open question is whether the convention applies at all, which is a convention decision",
+      "why_lane": "reads wikigen/, which pyproject-requires-python-understates-312 writes (wikigen/data.py)"
     },
     {
       "id": "archive-tests-untracked-in-git",
       "title": "Decide whether archive/tests/ should be tracked - three tasks' fixes live only in the working tree",
-      "source": "runs.jsonl#archive-tests-break-collection",
+      "source": "runs.jsonl#archive-tests-break-collection.opened",
       "model": "sonnet",
       "mode": "requires-user",
-      "lane": "serial",
-      "touches": ["rw:.gitignore", "r:archive/tests"],
+      "lane": "parallel",
+      "touches": [
+        "rw:.gitignore",
+        "rw:archive/tests"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "The six stream-corruption fixes and the test_rest_api_archived.py rename sit under .gitignore's blanket test_*.py ignore, so git cannot see them and b043e25 could not include them. They will not survive a fresh clone. Three separate tasks have now hit this.",
+      "blocked_on": ".gitignore blanket-ignores test_*.py with root-anchored exceptions only, so `git ls-files archive/tests/` returns 0 at ec976eb. The stream-corruption and basename-collision fixes made there will not survive a fresh clone. Tracking archived tests, or deleting them, is the user's call.",
       "depends_on_user": true,
-      "verify": "either git ls-files archive/tests/ returns the file list, or a comment in .gitignore records that archive/tests is deliberately untracked and its fixes are disposable",
-      "why_model": "a one-line .gitignore change once decided",
-      "why_mode": "keeping or discarding archived history is the user's call",
-      "why_lane": "writes .gitignore"
+      "verify": "Either `git ls-files archive/tests/` is non-empty and the fixes survive a fresh clone, or archive/tests/ is removed and TO-DOS.md records why.",
+      "why_model": "a .gitignore edit plus a commit once the direction is set",
+      "why_mode": "what belongs in version control is a repository-policy decision",
+      "why_lane": "sole writer of .gitignore and archive/tests on this list"
     },
     {
       "id": "changelog-2-24-0-duplicate",
-      "title": "Reconcile the two conflicting [2.24.0] sections in docs/CHANGELOG.md",
-      "source": "whats-next.md#work_remaining",
+      "title": "Reconcile the two conflicting [2.24.0] sections in docs/CHANGELOG.md (lines 19 and 89)",
+      "source": "previous whattask.json; verified at docs/CHANGELOG.md:19,89",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
-      "touches": ["rw:docs/CHANGELOG.md"],
+      "touches": [
+        "rw:docs/CHANGELOG.md"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "Two [2.24.0] headings still exist ('In Progress' and 'In Planning'); which is authoritative is release history only the user can settle",
+      "blocked_on": "Two '## [2.24.0]' headings exist, one 'In Progress' and one 'In Planning', with different content. Which is authoritative - and whether the other becomes 2.25.0 or is deleted - is a release-history decision.",
       "depends_on_user": true,
-      "verify": "grep -c '^## \\[2.24.0\\]' docs/CHANGELOG.md returns 1 AND validate_docs.py passes",
-      "why_model": "a merge of two prose sections once the user says which wins",
-      "why_mode": "picking the authoritative history is not derivable from the repo",
+      "verify": "Exactly one '## [2.24.0]' heading remains in docs/CHANGELOG.md and `python validate_docs.py` still reports PASSED.",
+      "why_model": "a merge of two prose sections once the user says which one is real",
+      "why_mode": "only the user knows which section records shipped work",
       "why_lane": "writes docs/CHANGELOG.md, shared with changelog-version-history-overlap"
     },
     {
       "id": "changelog-version-history-overlap",
       "title": "Decide whether 2.23.19-2.23.36 from docs/VERSION_HISTORY.md should be back-filled into docs/CHANGELOG.md",
-      "source": "whats-next.md#work_remaining",
+      "source": "previous whattask.json",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
-      "touches": ["rw:docs/CHANGELOG.md", "rw:docs/VERSION_HISTORY.md"],
+      "touches": [
+        "rw:docs/CHANGELOG.md",
+        "r:docs/VERSION_HISTORY.md"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": ["changelog-2-24-0-duplicate"],
-      "blocked_on": "Back-filling means rewriting release history that cannot be verified after the fact; the user must choose, and the duplicate 2.24.0 heading should be settled first",
+      "depends_on": [
+        "changelog-2-24-0-duplicate"
+      ],
+      "blocked_on": "Whether the two files are meant to be one history or deliberately different granularities. Also ordered behind the duplicate-heading fix: back-filling into a file with two 2.24.0 sections would have to be redone.",
       "depends_on_user": true,
-      "verify": "either both files keep their explanatory notes (decision: leave as is) or CHANGELOG.md gains an entry for every version present in VERSION_HISTORY.md",
-      "why_model": "mechanical once the call is made",
-      "why_mode": "unverifiable release history is a user decision",
+      "verify": "Either every version between 2.23.19 and 2.23.36 in docs/VERSION_HISTORY.md has a matching '## [x.y.z]' heading in docs/CHANGELOG.md, or a note in one file states the intended division of labour between them.",
+      "why_model": "bulk transcription between two documents once the policy is set",
+      "why_mode": "the division of labour between the two history files is the user's editorial call",
       "why_lane": "writes docs/CHANGELOG.md, shared with changelog-2-24-0-duplicate"
+    },
+    {
+      "id": "repoint-106-missing-pdfs",
+      "title": "Actually re-point or re-ingest the 106 PDFs whose recorded filepath no longer exists",
+      "source": "TO-DOS.md#Figure-OCR-2026-07-31, remaining half of item (b)/(c)",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": [
+        "rw:knowledge_base.db",
+        "r:kb/admin.py",
+        "r:cli.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "The repoint tool now exists (repoint-document-filepath-tool, done at 5c6c541) and health_check surfaces the count, but nobody knows where the 106 source files went. The user must supply the relocated directory, or authorise accepting the residual for documents whose text is already indexed.",
+      "depends_on_user": true,
+      "verify": "health_check reports metrics['missing_source_files'] == 0, or the accepted residual count is recorded in TO-DOS.md with the reason.",
+      "why_model": "a scripted loop over a tool that already exists, once the target directory is known",
+      "why_mode": "blocked on a filesystem location no amount of work inside this repo can discover",
+      "why_lane": "writes the live shared knowledge_base.db, exclusive by nature"
     },
     {
       "id": "verify-http-transport-across-machines",
       "title": "Verify the HTTP transport laptop-to-desktop over Tailscale, the scenario issue #16 existed for",
-      "source": "runs.jsonl#commit-r12-and-merge-branch",
+      "source": "runs.jsonl#commit-r12-and-merge-branch.notes",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
-      "touches": ["rw:~/.tdz-c64-knowledge/knowledge_base.db", "rw:network:host-port-8765"],
-      "mcp": [],
-      "needs_main": true,
-      "needs_main_reason": "Needs a second physical machine and an interactive Tailscale-authenticated session, so it is not safe to schedule unattended",
-      "depends_on": [],
-      "blocked_on": "Requires the user's second machine and an API key on both ends",
-      "depends_on_user": true,
-      "verify": "on the desktop, claude mcp add --transport http tdz-c64-knowledge http://<host>:8765/mcp --header \"X-API-Key: ...\" yields a working session that lists 93 tools and returns results from a search",
-      "why_model": "running a documented command and reading the result",
-      "why_mode": "blocked on hardware and a credential no amount of work here produces",
-      "why_lane": "binds a single host port and hits the live database - exclusive by nature"
-    },
-    {
-      "id": "plugin-system-phase-5-2",
-      "title": "Decide whether to build the Phase 5.2 plugin system (the only roadmap item never shipped or archived)",
-      "source": "docs/ROADMAP.md#5.2",
-      "model": "opus",
-      "mode": "requires-user",
-      "lane": "parallel",
-      "touches": ["rw:docs/ROADMAP.md"],
+      "touches": [
+        "r:server.py",
+        "rw:tcp:8765"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "Phase 5.2 is an unclaimed proposal (20-24h estimate) with no status marker, unlike every other roadmap section which is marked shipped or archived; whether a single-user knowledge base wants a third-party plugin surface is the user's call",
+      "blocked_on": "Only ever tested against 127.0.0.1. The real check needs a second physical machine on the Tailscale network and a human to start the client from it; issue #16 is already closed against the untested path.",
       "depends_on_user": true,
-      "verify": "docs/ROADMAP.md section 5.2 carries a status marker like every other section - either 'Shipped' with the module that implements it, or 'Archived / not pursued' with the reason",
-      "why_model": "if pursued it is a load-bearing extension surface over KnowledgeBase and the MCP tool registry",
-      "why_mode": "nothing in the repo says whether this is wanted",
-      "why_lane": "docs/ROADMAP.md appears in no other task's touches"
+      "verify": "From the second machine, a full MCP initialize handshake plus one tool call against `--transport http --host <tailscale-ip> --port 8765`, exercising the non-loopback bind path (server.py:352 _LOOPBACK_HOSTS) rather than skipping it.",
+      "why_model": "running a documented command and reading the handshake result",
+      "why_mode": "needs a second machine and a human sitting at it",
+      "why_lane": "binds a single dev port (8765), exclusive by nature"
+    },
+    {
+      "id": "plugin-system-phase-5-2",
+      "title": "Decide whether to build the Phase 5.2 plugin system (the only roadmap item never shipped or archived)",
+      "source": "docs/ROADMAP.md:901",
+      "model": "opus",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": [
+        "rw:docs/ROADMAP.md",
+        "rw:server.py",
+        "rw:mcp_tools",
+        "rw:kb"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "docs/ROADMAP.md:901 sketches Plugin/PluginManager/SlackNotificationPlugin. Nothing in the codebase implements them and no other roadmap phase remains open. Whether this is still wanted - given MCP tools already provide the extension surface it was designed for - is a product decision.",
+      "depends_on_user": true,
+      "verify": "Either a PluginManager loads a plugin in a passing test, or docs/ROADMAP.md marks 5.2 declined/superseded-by-MCP-tools with the reason.",
+      "why_model": "a new extension architecture cutting across server.py, mcp_tools/ and kb/, overlapping an extension mechanism that already exists",
+      "why_mode": "a product decision about whether to build it at all",
+      "why_lane": "writes server.py, which verify-http-transport-across-machines reads, and kb/, which deepsid-json-api-ingestion writes"
     }
   ],
   "closed": [
-    { "id": "commit-doc-reconciliation", "title": "Commit ten tasks' work - 36 files, +14,401/-13,311", "closed_by": "b043e25" },
-    { "id": "wiki-export-oversized", "title": "wiki_export.py 13,356 -> 594 lines; wikigen/ mixins and wiki_assets/ data files", "closed_by": "b043e25" },
-    { "id": "sid-archive-ingestion", "title": "PSID/RSID parser and zip ingestion, against the published HVSC spec", "closed_by": "b043e25" },
-    { "id": "repoint-document-filepath-tool", "title": "repoint_document + MCP tool, hash-verified; 92 -> 93 tools", "closed_by": "b043e25" },
-    { "id": "uploads-retention-policy", "title": "uploads/ is permanent storage - recorded in docs/ARCHITECTURE.md", "closed_by": "b043e25" },
-    { "id": "admin-gui-apptest-coverage", "title": "test_admin_gui.py - 16 pages, with a live-database guard", "closed_by": "b043e25" },
-    { "id": "docs-stale-after-decomposition", "title": "CLAUDE.md and docs/ARCHITECTURE.md repointed at the post-decomposition layout", "closed_by": "b043e25" },
-    { "id": "code-review-md-close-r12", "title": "R12 and R18 closed; CODE-REVIEW.md at 22 [x], 0 open", "closed_by": "b043e25" },
-    { "id": "code-review-md-stale-line-citations", "title": "55 dead citations rewritten as file+symbol", "closed_by": "b043e25" },
-    { "id": "docs-architecture-wiki-export-citations", "title": "13 bare 'Lines N-M' citations repointed", "closed_by": "b043e25" },
-    { "id": "refresh-handoff-doc-post-r12", "title": "whats-next.md refreshed; work_remaining now points at the plan", "closed_by": "working-tree (untracked)" },
-    { "id": "archive-tests-break-collection", "title": "Collection with archive un-excluded: 536 collected, exit 0", "closed_by": "untracked-working-tree" },
-    { "id": "archive-tests-basename-collision", "title": "test_rest_api.py basename collision resolved by rename", "closed_by": "untracked-working-tree" }
+    {
+      "id": "architecture-md-stale-output-list",
+      "title": "Fix two verified-false claims in docs/ARCHITECTURE.md's wiki-output list",
+      "closed_by": "b043e25"
+    },
+    {
+      "id": "commit-doc-reconciliation",
+      "title": "Commit the wiki-split / doc-reconciliation pile",
+      "closed_by": "b043e25"
+    },
+    {
+      "id": "sid-extension-surfaces",
+      "title": "Teach cli.py add-folder about .sid",
+      "closed_by": "ec976eb"
+    },
+    {
+      "id": "push-master-to-origin",
+      "title": "Push master to origin",
+      "closed_by": "ec976eb"
+    },
+    {
+      "id": "sid-archive-ingestion",
+      "title": "Build a SID-archive ingestion path (.sid + .zip)",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "repoint-document-filepath-tool",
+      "title": "Add a tool to re-point a document at a relocated file",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "uploads-retention-policy",
+      "title": "Decide whether uploads/ is permanent storage or staging",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "wiki-export-oversized",
+      "title": "Split wiki_export.py (13,356 lines) into wikigen/ + wiki_assets/",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "docs-architecture-wiki-export-citations",
+      "title": "Repoint docs/ARCHITECTURE.md's wiki_export.py line citations",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "admin-gui-apptest-coverage",
+      "title": "Streamlit AppTest coverage for admin_pages/",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "archive-tests-break-collection",
+      "title": "archive/tests broke pytest collection",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "archive-tests-basename-collision",
+      "title": "archive/tests/test_rest_api.py basename collision",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "code-review-md-stale-line-citations",
+      "title": "~52 stale file.py:NNNN citations in CODE-REVIEW.md",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "code-review-md-close-r12",
+      "title": "Mark R12 done in CODE-REVIEW.md",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "docs-stale-after-decomposition",
+      "title": "Repoint CLAUDE.md and docs/ at the post-decomposition layout",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "refresh-handoff-doc-post-r12",
+      "title": "Refresh whats-next.md after R12",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "split-server-py-mcp-layer",
+      "title": "Decompose server.py from 19,656 lines to 552",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "split-knowledge-base-domain-modules",
+      "title": "Split KnowledgeBase into kb/ domain mixins",
+      "closed_by": "9bcd8b1"
+    },
+    {
+      "id": "split-admin-gui-pages",
+      "title": "Split admin_gui.py into admin_pages/",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "mcp-http-concurrency-audit",
+      "title": "Audit the streamable-HTTP transport for concurrency",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "mcp-http-client-deprecated-alias",
+      "title": "Fix the deprecated HTTP client alias",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "to-dos-md-stale-entries",
+      "title": "Mark done entries in TO-DOS.md",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "gitattributes-jsonl-line-endings",
+      "title": "Pin .jsonl line endings in .gitattributes",
+      "closed_by": "dcffd52"
+    }
   ]
 }

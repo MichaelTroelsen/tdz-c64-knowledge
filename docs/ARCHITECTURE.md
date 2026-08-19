@@ -764,7 +764,9 @@ The wiki export system generates a static HTML wiki from the knowledge base, pro
    - `clusters.json` - Cluster assignments with member documents
    - `topics.json` - Topic models with top words
    - `events.json` - Timeline events with metadata
+   - `navigation.json` - Documents grouped by tag and by file type, plus the sorted list of all tags/types
    - `chunks.json` - Full chunk data
+   - `stats.json` - Summary counts (documents, chunks, entities, topics, clusters, events) and export date
    - `search.json` - Fuse.js search index
    - `similarities.json` - Document similarity matrix
 

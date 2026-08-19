@@ -204,7 +204,7 @@ Examples:
             print(f"Error: Folder not found: {folder}")
             sys.exit(1)
         
-        extensions = ['.pdf', '.txt', '.md', '.asm', '.bas', '.inc', '.s']
+        extensions = ['.pdf', '.txt', '.md', '.asm', '.bas', '.inc', '.s', '.sid', '.psid', '.rsid', '.zip']
         
         if args.recursive:
             files = [f for ext in extensions for f in folder.rglob(f"*{ext}")]
@@ -212,7 +212,7 @@ Examples:
             files = [f for ext in extensions for f in folder.glob(f"*{ext}")]
         
         if not files:
-            print("No PDF or text files found.")
+            print("No PDF, text, or SID files found.")
             return
         
         print(f"Found {len(files)} files to process...\n")

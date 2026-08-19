@@ -765,7 +765,7 @@ The wiki export system generates a static HTML wiki from the knowledge base, pro
    - `topics.json` - Topic models with top words
    - `events.json` - Timeline events with metadata
    - `chunks.json` - Full chunk data
-   - `search-index.json` - Fuse.js search index
+   - `search.json` - Fuse.js search index
    - `similarities.json` - Document similarity matrix
 
 3. **HTML Generation** (`wikigen/pages.py`, `wikigen/browsers.py`, `wikigen/visualizations.py`)
@@ -777,7 +777,7 @@ The wiki export system generates a static HTML wiki from the knowledge base, pro
    - `_generate_similarity_map_html()` - Canvas 2D similarity map (660 lines)
    - `_generate_topics_html()` - Topic/cluster browser
    - `_generate_timeline_html()` - Interactive horizontal timeline (750 lines)
-   - `_generate_pdf_viewer_html()` - PDF.js viewer integration
+   - No PDF viewer generator exists; `pdf-viewer.html` is a stale page from an older layout that `export()` actively deletes on each run rather than regenerates (see `_create_directories()` in `wiki_export.py`)
    - `_generate_doc_html()` - Individual document pages (parallelized)
 
 4. **Static Assets** (`wiki_export.py`, `_create_css`/`_create_javascript`/`_download_libraries`; content lives in `wiki_assets/`)

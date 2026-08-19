@@ -1797,6 +1797,89 @@ class _DocumentsMixin:
 
         self.logger.info(f"Updated title for document {doc_id[:12]}: {title}")
 
+    def repoint_document(self, doc_id: str, new_filepath: str, force: bool = False) -> dict:
+        """Point a document at a relocated source file, without reingesting.
+
+        `uploads/` is permanent storage (docs/ARCHITECTURE.md, Data Storage
+        Model), so a document whose filepath no longer resolves is a broken
+        record rather than expected housekeeping. This repairs the record. It
+        deliberately does not re-extract, re-chunk or re-embed: the content is
+        unchanged, which is the whole reason to re-point instead of re-adding.
+
+        The candidate file is verified against the document's recorded MD5
+        before anything is written. Without that check this method would
+        cheerfully bind a document's indexed text to an unrelated file - a
+        worse state than the missing filepath it set out to fix, and a silent
+        one. Pass force=True to accept a mismatch deliberately.
+
+        Returns a summary dict. Raises DocumentNotFoundError for an unknown
+        doc_id, SecurityError if the new path is outside ALLOWED_DOCS_DIRS,
+        and KnowledgeBaseError if the path is not a file or its content does
+        not match.
+        """
+        doc = self.documents.get(doc_id)
+        if doc is None:
+            raise DocumentNotFoundError(f"Document not found: {doc_id}")
+
+        resolved = Path(new_filepath).resolve()
+        if not resolved.is_file():
+            raise KnowledgeBaseError(
+                f"Cannot re-point {doc_id}: {resolved} is not a file on disk"
+            )
+
+        # Same whitelist that gates add_document. Re-pointing must not become
+        # a way to index a path ingestion would have refused.
+        if not self._is_path_allowed(str(resolved)):
+            raise SecurityError(
+                f"Path outside allowed directories. File must be within: {self.allowed_dirs}"
+            )
+
+        new_hash = self._compute_file_hash(str(resolved))
+        hash_verified = False
+        if doc.file_hash:
+            if doc.file_hash == new_hash:
+                hash_verified = True
+            elif not force:
+                raise KnowledgeBaseError(
+                    f"Content mismatch: {resolved} hashes to {new_hash[:12]} but "
+                    f"document {doc_id} recorded {doc.file_hash[:12]}. That is a "
+                    f"different file; pass force=True to re-point anyway."
+                )
+
+        old_filepath = doc.filepath
+
+        # DB first, memory second - the same ordering and the same reason as
+        # update_document_title: mutating in-memory before the write means a
+        # failed UPDATE leaves this process serving a path that was never saved.
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute(
+                "UPDATE documents SET filepath = ?, file_hash = ? WHERE doc_id = ?",
+                (str(resolved), new_hash, doc_id)
+            )
+            self.db_conn.commit()
+        except Exception:
+            self.db_conn.rollback()
+            self.logger.exception(f"Failed to re-point {doc_id}; rolled back")
+            raise
+
+        doc.filepath = str(resolved)
+        doc.file_hash = new_hash
+
+        # filename is left alone on purpose: it is the document's identity in
+        # search results and citations, and a moved file is still the same
+        # document even when it has been renamed on disk.
+        self.logger.info(
+            f"Re-pointed document {doc_id[:12]}: {old_filepath} -> {resolved}"
+        )
+        return {
+            "doc_id": doc_id,
+            "old_filepath": old_filepath,
+            "new_filepath": str(resolved),
+            "hash_verified": hash_verified,
+            "forced": bool(force and not hash_verified),
+        }
+
     def update_document_tags(self, doc_id: str, tags: list[str]) -> None:
         """
         Update the tags for a document.

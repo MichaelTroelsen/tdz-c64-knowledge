@@ -4,3 +4,10 @@
 # clone/checkout, diverging from what the tooling appends and producing a
 # mixed-ending file.
 .claude/tasks/* eol=lf
+
+# wiki_assets/ holds the CSS and JS the wiki export emits verbatim. The
+# exporter reads them with newline='' and writes them with the platform
+# translation, which is what gives the exported wiki its CRLF endings. If a
+# checkout materialised these as CRLF they would be translated a second time
+# and every emitted asset would gain doubled line endings.
+wiki_assets/** eol=lf

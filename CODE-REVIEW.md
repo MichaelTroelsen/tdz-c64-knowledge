@@ -18,20 +18,20 @@ Legend: `[ ]` open · `[x]` done
 
 ### [x] R1. Shared SQLite connection used from multiple threads without serialization
 
-**Where:** `server.py:665` (`sqlite3.connect(..., check_same_thread=False)`),
-`server.py:7321` (`_extraction_worker_loop` uses `self.db_conn` directly),
-`server.py:21079` (`add_documents_bulk` runs on an `asyncio.to_thread` worker),
-`server.py:1862` (`_log_mcp_call` commits on the event-loop thread).
-`self._lock` exists (`server.py:473`) but guards only 7 call sites vs ~188 uses
+**Where:** `kb/core.py`, `_make_conn` (`sqlite3.connect(..., check_same_thread=False)`),
+`kb/entities/_extraction.py`, `_extraction_worker_loop` (uses `self.db_conn` directly),
+`server.py`, `call_tool` (`add_documents_bulk` was the only tool run via an `asyncio.to_thread` worker),
+`kb/admin.py`, `_log_mcp_call` (commits on the event-loop thread).
+`self._lock` exists (`kb/core.py`, `CoreMixin.__init__`) but guards only 7 call sites vs ~188 uses
 of `self.db_conn`.
 
 **Failure scenario:** `add_documents_bulk` runs in a worker thread and is
 mid-transaction inserting chunks. A trivial `kb_stats` call finishes on the
 event-loop thread and its `_log_mcp_call` executes `self.db_conn.commit()`
-(`server.py:1881`) — committing the half-finished ingest transaction. If the
+(`kb/admin.py`, `_log_mcp_call`) — committing the half-finished ingest transaction. If the
 ingest then errors and rolls back, it rolls back nothing; the DB is left with a
 document row whose chunk set is partial. The extraction worker's own
-`UPDATE ... commit` (`server.py:7346`) can do the same at any moment. This is
+`UPDATE ... commit` (`kb/entities/_extraction.py`, `_extraction_worker_loop`) can do the same at any moment. This is
 latent today and becomes frequent once R5/R7 move more work onto threads.
 
 **Fix:** Give each thread its own connection. Wrap connection access in a
@@ -54,26 +54,26 @@ the in-process analog).
 
 ### [x] R2. `Path.cwd()` is always on the ingestion whitelist — defeats `ALLOWED_DOCS_DIRS`
 
-**Where:** `server.py:549-554` (`default_allowed_dirs` includes `Path.cwd()`),
-enforced at `server.py:3856` (`_is_path_allowed`) / `server.py:4074`.
+**Where:** `kb/core.py`, `CoreMixin.__init__` (`default_allowed_dirs` includes `Path.cwd()`),
+enforced at `kb/ingest/_documents.py`, `_is_path_allowed` (called from `add_document` and `update_document`).
 
 **Failure scenario:** the server is registered at user scope in Claude Code
 (it is — see `~/.claude.json`), so it is spawned with the cwd of *whatever
 project the user happens to be in*. That entire project tree silently becomes
 ingestible, making the whitelist decorative. The path-traversal protection log
-line (`server.py:570`) claims protection it isn't providing.
+log line (`kb/core.py`, `CoreMixin.__init__`) claims protection it isn't providing.
 
 **Fix:** drop `Path.cwd()` from the defaults. Gate it behind an explicit
 opt-in env var (`TDZ_ALLOW_CWD=1`) for the CLI/dev workflow that relied on it.
 Also `.resolve()` the default dirs the same way user dirs are resolved
-(`server.py:558`) so `is_relative_to` can't be defeated by case/symlink
+(`kb/core.py`, `CoreMixin.__init__`) so `is_relative_to` can't be defeated by case/symlink
 differences. Update `.env.example`/README to mention the flag.
 
 ### [x] R3. REST upload endpoint writes to a directory that is not on the whitelist
 
-**Where:** `rest_server.py:648` (`uploads_dir = data_dir / "uploads"`), comment
-at `rest_server.py:646` claims it's "allowed by security check" — it isn't:
-defaults are `scraped_docs`, `downloads`, `temp`, cwd (`server.py:549-553`).
+**Where:** `rest_server.py`, `upload_document` (`uploads_dir = data_dir / "uploads"`), comment
+at `rest_server.py`, `upload_document` claims it's "allowed by security check" — it isn't:
+defaults are `scraped_docs`, `downloads`, `temp`, cwd (`kb/core.py`, `CoreMixin.__init__`).
 
 **Failure scenario:** `POST /api/v1/documents` → `kb.add_document(tmp_path)`
 raises `SecurityError` → 500 "Upload failed" for every upload, *unless* the
@@ -88,10 +88,10 @@ endpoint (none exist — see R17).
 
 ### [x] R4. REST server: unauthenticated-by-default, bound to 0.0.0.0, CORS wildcard + credentials
 
-**Where:** `rest_server.py:915` (`host="0.0.0.0"`), `rest_server.py:95-99`
-(no API keys configured → all requests allowed), `rest_server.py:82-88`
+**Where:** `rest_server.py`, `REST_HOST` (`host="0.0.0.0"`), `rest_server.py`, `verify_api_key`
+(no API keys configured → all requests allowed), `rest_server.py`, `_cors_is_wildcard` (CORS middleware setup)
 (`allow_origins=['*']` together with `allow_credentials=True`),
-`rest_server.py:128-138` (500 handler returns raw `str(exc)`).
+`rest_server.py`, `general_exception_handler` (500 handler returns raw `str(exc)`).
 
 **Failure scenario:** default launch (`run_rest_api.bat`) exposes full
 read/write KB control (add/remove documents, scrape arbitrary URLs → SSRF from
@@ -108,23 +108,23 @@ message and log the detail server-side instead.
 
 ### [x] R5. Almost every heavy MCP tool still blocks the event loop (only `add_documents_bulk` was fixed)
 
-**Where:** `server.py:21079` is the only `asyncio.to_thread` in the 3,300-line
-dispatch. Direct synchronous calls include: `add_document` (`server.py:20559`,
-OCR of a scanned PDF can take minutes), `scrape_url` (`server.py:20605`, an
+**Where:** `server.py`, `call_tool` is the only `asyncio.to_thread` in the 3,300-line
+dispatch. Direct synchronous calls include: `add_document` (`mcp_tools/documents.py`, `handle_add_document`,
+OCR of a scanned PDF can take minutes), `scrape_url` (`mcp_tools/documents.py`, `handle_scrape_url`, an
 entire-site crawl can run for hours), `update_document`, `rescrape_document`,
 `extract_entities` / `extract_entities_bulk`, `summarize_all`, `auto_tag_all`,
 `train_lda_topics`/`train_nmf_topics`/`train_bertopic`, clustering tools,
 `create_backup`/`restore_from_backup`, `check_url_updates`.
 
 **Failure scenario:** exactly issue #13 again (see the comment at
-`server.py:21069-21078`): while `scrape_url` crawls, every other request on
+`server.py`, `call_tool`): while `scrape_url` crawls, every other request on
 the session — including trivial `kb_stats` — queues behind it; the session
 appears hung and MCP keep-alives stall. Commit `af95e77` fixed one tool; the
 class of bug remains.
 
 **Fix:** *after R1 lands* (per-thread connections make this safe), route the
 dispatch through `asyncio.to_thread` uniformly. Cleanest: in `call_tool`
-(`server.py:23461`), if `name` is in a `HEAVY_TOOLS` set, run
+(`server.py`, `call_tool`), if `name` is in a `HEAVY_TOOLS` set, run
 `await asyncio.to_thread(_dispatch_sync, name, arguments)`; or simpler and
 uniformly correct: run the *entire* `_call_tool_impl` body via `to_thread`
 (it is fully synchronous code — nothing in it needs the loop). Keep
@@ -133,15 +133,15 @@ uniformly correct: run the *entire* `_call_tool_impl` body via `to_thread`
 ### [x] R6. Packaging is broken: missing dependency, wheel omits required modules, dead console script
 
 **Where:** `pyproject.toml`.
-- `server.py:31` does `from dotenv import load_dotenv` unconditionally, but
+- `server.py` (top-level `from dotenv import load_dotenv`) does this unconditionally, but
   `python-dotenv` is not in `[project.dependencies]` → fresh
   `pip install tdz-c64-knowledge` crashes on import.
 - `[tool.hatch.build.targets.wheel] only-include = ["server.py", "cli.py"]`
   (`pyproject.toml:66`) omits `version.py`, `anomaly_detector.py`,
-  `llm_integration.py`, `rest_models.py`, `rest_server.py` — `server.py:35`
+  `llm_integration.py`, `rest_models.py`, `rest_server.py` — `server.py` (top-level `from version import ...`)
   (`from version import ...`) makes the installed wheel unimportable.
 - `[project.scripts] tdz-c64-knowledge = "server:main"` points at an
-  `async def main` (`server.py:23513`); the entry point calls it, gets a
+  `async def main` (`server.py`, `main`); the entry point calls it, gets a
   coroutine, never awaits it → the installed command silently does nothing.
 
 **Fix:** add `python-dotenv>=1.0.0` to dependencies; extend `only-include`
@@ -156,12 +156,12 @@ sync wrapper `def cli_main(): asyncio.run(main())` and point the script at
 
 ### [x] R7. Importing `server` instantiates a full KnowledgeBase as a module side effect
 
-**Where:** `server.py:17994` (`kb = KnowledgeBase(DATA_DIR)` at module level).
-Consumers: `rest_server.py:24`, `admin_gui.py:36`, `cli.py:15`,
-`wiki_export.py:20`, all test files — every one executes it on import.
+**Where (at review time):** `server.py` (`kb = KnowledgeBase(DATA_DIR)` at module level; since replaced by the lazy `get_kb()`).
+Consumers: `rest_server.py`, `admin_gui.py`, `cli.py`,
+`wiki_export.py` (each does `from server import KnowledgeBase`), all test files — every one executes it on import.
 
 **Failure scenario:** the REST server builds **two** KnowledgeBase instances
-(module-level one + its own at `rest_server.py:55`): two DB connections, two
+(module-level one + its own at `rest_server.py`, `lifespan`): two DB connections, two
 background extraction-worker threads, documents loaded twice. Same for the
 GUI, CLI, and wiki export — `python cli.py stats` pays double startup, and the
 orphan extraction worker of the module-level KB can process jobs concurrently
@@ -190,8 +190,8 @@ per call.
 
 ### [x] R9. Extraction worker robustness gaps
 
-**Where:** `server.py:7321-7392`.
-- `task_done()` (`server.py:7387`) is skipped if the *outer* try raises (e.g.
+**Where:** `kb/entities/_extraction.py`, `_extraction_worker_loop`.
+- `task_done()` (`kb/entities/_extraction.py`, `_extraction_worker_loop`) is skipped if the *outer* try raises (e.g.
   the status-UPDATE at 7341 hits a locked DB) → any future `queue.join()`
   hangs; the job also stays 'running' forever with no retry/timeout.
 - Jobs queued but not yet started are lost on restart with status stuck at
@@ -204,8 +204,8 @@ N minutes) as `failed: interrupted by restart`. Consider a max-runtime guard.
 
 ### [x] R10. Graph cache uses pickle from the database
 
-**Where:** `server.py:12061` (`G = pickle.loads(row[0])` in
-`_load_cached_graph`), written by `_cache_graph` (`server.py:11983`).
+**Where:** `kb/graph.py`, `_load_cached_graph` (`G = pickle.loads(row[0])` in
+`_load_cached_graph`), written by `_cache_graph` (`kb/graph.py`, `_cache_graph`).
 
 **Failure scenario:** anyone who can write the `knowledge_base.db` file (it's
 shared across processes, restored from backups, and lives in a user directory)
@@ -219,10 +219,10 @@ are discarded rather than parsed.
 
 ### [x] R11. Scraper politeness & enforcement (carried from TO-DOS.md, partially done)
 
-**Where:** `server.py:4348` (`scrape_url`), defaults `threads=10, delay=100`
-(`server.py:4351`); client-side `max_pages` stop exists now
-(`server.py:4648-4655`) but robots.txt, User-Agent, and retry/backoff are
-still absent; `_discover_urls` (`server.py:4984`) fetches with no UA either.
+**Where:** `kb/ingest/_documents.py`, `scrape_url`, defaults `threads=10, delay=100`
+(`kb/ingest/_documents.py`, `scrape_url`); client-side `max_pages` stop exists now
+(`kb/ingest/_documents.py`, `scrape_url`) but robots.txt, User-Agent, and retry/backoff are
+still absent; `_discover_urls` (`kb/ingest/_documents.py`, `_discover_urls`) fetches with no UA either.
 
 **Fix:** default `threads=2, delay=1000` for new domains; send a UA like
 `tdz-c64-knowledge/<version> (+repo URL)`; fetch and honor `robots.txt`
@@ -234,11 +234,11 @@ HVSC/DeepSID ingestion item, which is a feature, not a review fix).
 
 ## P2 — Architecture & maintainability
 
-### [ ] R12. `server.py` was a >20,000-line god file; `KnowledgeBase` had ~250 methods — now 552 lines, split into `util`/`models`/`text_utils`/`features`, `kb/` mixins, and `mcp_tools`
+### [x] R12. `server.py` was a >20,000-line god file; `KnowledgeBase` had ~250 methods — now 576 lines, split into `util`/`models`/`text_utils`/`features`, `kb/` mixins, and `mcp_tools`
 
-**Where (as originally found):** `server.py:442-17987` (one class, ~17.5k
-lines), `list_tools()` ~2,170 lines (`server.py:17998`), `_call_tool_impl`
-~3,290 lines of `elif name ==` chain (`server.py:20175`).
+**Where (as originally found):** `server.py` (at review time; this code was removed in the R12 decomposition below) (one class, ~17.5k
+lines), `list_tools()` ~2,170 lines (`server.py`, at review time; this code was removed in the R12 decomposition below), `_call_tool_impl`
+~3,290 lines of `elif name ==` chain (`server.py`, at review time; this code was removed in the R12 decomposition below).
 
 **Why it matters:** every change risks unrelated breakage, review is
 impossible, merge conflicts are constant, and the file defeats editor/CI
@@ -275,18 +275,20 @@ each.
   per-domain modules behind a checked aggregator; `kb/ingest.py`,
   `kb/search.py`, and `kb/entities.py` became packages composing their
   public mixin from private sub-mixins.
-- **Current sizes:** `server.py` is now **552 lines** (from 25,830 when this
-  entry was written). The largest file in the package is now
-  `kb/topics.py` at 2,406 lines, then `kb/core.py` (2,264) and
-  `kb/ingest/_documents.py` (2,233) — nothing exceeds the ~2,500 target.
-  Suite is 257 passed / 3 skipped; `list_tools()` returns 92 tools.
-- **Not yet done:** a separate task still has to run the umbrella
-  verification for this refactor formally, so the checkbox above stays
-  unchecked pending that pass — this entry records the state, not closure.
+- **Current sizes:** `server.py` is now **576 lines** (552 when this entry
+  was written, from 25,830 originally; grown by a comment-only change
+  since). The largest file in the package is now `kb/topics.py` at 2,406
+  lines, then `mcp_tools/schemas.py` (2,272), `kb/core.py` (2,264) and
+  `kb/ingest/_documents.py` (2,233)
+  — nothing exceeds the ~2,500 target. Suite is 257 passed / 3 skipped;
+  `list_tools()` returns 92 tools.
+- **Verified:** the umbrella verification pass for this refactor has
+  since run and passed; the checkbox above is now checked to reflect
+  closure.
 
 ### [x] R13. `version.py` is 1,871 lines because the full changelog lives in a Python string
 
-**Where:** `version.py:77` (`VERSION_HISTORY = """..."""`, ~75KB) — imported
+**Where:** `version.py` (at review time; `VERSION_HISTORY` has since been moved to `docs/CHANGELOG.md`, see the fix below) (`VERSION_HISTORY = """..."""`, ~75KB) — imported
 by `server.py` at startup on every session.
 
 **Fix:** move the history to `CHANGELOG.md`; keep `version.py` to
@@ -295,11 +297,11 @@ tool surfaces the history at runtime, read the file lazily.
 
 ### [x] R14. LLM plumbing is duplicated and fragile
 
-**Where:** `llm_integration.py` (providers) vs `server.py:5837` (`_call_llm`
+**Where:** `llm_integration.py` (providers) vs `kb/ingest/_tagging.py`, `_call_llm` (`_call_llm`
 lazily builds another client) vs `_generate_answer_with_llm`
-(`server.py:16074`). A new `anthropic.Anthropic()` client is constructed per
-call (`llm_integration.py:49`); no request timeout or retry policy;
-`call_json` strips markdown fences by line-slicing (`llm_integration.py:172`,
+(`kb/search/_rag.py`, `_generate_answer_with_llm`). A new `anthropic.Anthropic()` client is constructed per
+call (`llm_integration.py`, `AnthropicProvider._build_client`); no request timeout or retry policy;
+`call_json` strips markdown fences by line-slicing (`llm_integration.py`, `LLMClient.call_json`,
 breaks on trailing text).
 
 **Fix:** one client instance cached on `LLMClient`; pass
@@ -320,17 +322,17 @@ stack traces land in `server.log`. Leave cosmetic ones alone.
 
 ### [x] R16. Wiki export: 13k lines of HTML/CSS/JS inside Python strings; two escaping gaps; CDN deps break offline use
 
-**Where:** `wiki_export.py:4353` (`_create_css` — ~3,100 lines of CSS in a
-string), `:7510` (`_create_javascript` — ~1,800 lines incl. `BookmarkManager`
-and `AIChatbot` JS classes), doc pages at `:1254`.
+**Where (at review time):** `wiki_export.py`, `_create_css` (~3,100 lines of CSS in a
+string), `wiki_export.py`, `_create_javascript` (~1,800 lines incl. `BookmarkManager`
+and `AIChatbot` JS classes), doc pages at `wikigen/pages.py`, `_generate_doc_html`.
 - Escaping: `doc["file_path_in_wiki"]` is interpolated into an `href`
-  unescaped (`wiki_export.py:1321`); `source_url` is HTML-escaped but not
-  scheme-validated (`wiki_export.py:1320`) — a scraped page whose recorded
+  unescaped (`wikigen/pages.py`, `_generate_doc_html`); `source_url` is HTML-escaped but not
+  scheme-validated (`wikigen/pages.py`, `_generate_doc_html`) — a scraped page whose recorded
   source URL is `javascript:...` becomes a live XSS link in the generated
   wiki.
-- Offline: `knowledge-graph.html` loads d3 from CDN (`wiki_export.py:1858`)
-  and the file viewer loads `marked` from CDN (`:3999`), while fuse/pdf.js are
-  vendored via `_download_libraries` (`:9941`) — so two pages break without
+- Offline: `knowledge-graph.html` loads d3 from CDN (`wiki_export.py`, `_JS_LIBRARIES`)
+  and the file viewer loads `marked` from CDN (`wiki_export.py`, `_JS_LIBRARIES`), while fuse/pdf.js are
+  vendored via `_download_libraries` (`wiki_export.py`, `_download_libraries`) — so two pages break without
   internet even though the wiki is otherwise self-contained.
 
 **Fix:** validate `source_url` scheme (`http/https` only) and
@@ -357,7 +359,7 @@ correctness (FTS5/BM25/hybrid ranking), entity extraction, backup/restore.
 3. A search-correctness test with a 3-doc fixture asserting known-hit ranking
    for FTS5 and BM25 paths.
 
-### [ ] R18. `admin_gui.py` is a 5,336-line single script
+### [x] R18. `admin_gui.py` was a 5,336-line single script — now 193 lines, split into `admin_pages/<slug>.py` modules plus `admin_common.py`
 
 **Where:** `admin_gui.py` — one file with 62 broad exception handlers and
 inline HTML via `unsafe_allow_html` (spot-checked: interpolations are
@@ -366,6 +368,19 @@ internal values, no user-content injection found).
 **Fix:** split into Streamlit multipage layout (`pages/` directory — the
 mechanical split Streamlit natively supports). Low urgency; do after R12 so
 imports stabilize first.
+
+**Status update — the fix landed in `5c6c541`, with one deliberate
+deviation from the plan above:**
+- The 16-branch page chain was extracted into `admin_pages/<slug>.py`
+  modules, each exposing `render(kb)`, with four shared helpers moved to
+  `admin_common.py`; dispatch is now `PAGES[page](kb)`.
+- **Not** a native Streamlit multipage `pages/` layout as originally
+  proposed above: that would swap the sidebar radio for Streamlit's own
+  navigation, changing URLs and nav UX in a tool people already use
+  daily. The sidebar radio was kept and only the page bodies were
+  extracted; `st.navigation`/`st.Page` remain available if native
+  multipage is wanted later.
+- **Current size:** `admin_gui.py` is now **193 lines** (from 5,336).
 
 ---
 
@@ -386,7 +401,7 @@ repo.
 
 ### [x] R20. `_network_timeout` mutates process-wide socket default
 
-**Where:** `server.py:128` — `socket.setdefaulttimeout` affects every socket
+**Where:** `util.py`, `_network_timeout` — `socket.setdefaulttimeout` affects every socket
 in the process; if two threads overlap, the inner `finally` restores the
 outer's temporary value. Benign today (rare paths), racy after R5 adds
 threading. **Fix:** note-and-accept, or scope timeouts per-library (nltk
@@ -395,7 +410,7 @@ versions — verify before switching).
 
 ### [x] R21. `health_check` should report worker liveness
 
-**Where:** `server.py:17266`. It checks DB and disk but not whether the
+**Where:** `kb/admin.py`, `health_check`. It checks DB and disk but not whether the
 extraction worker thread is alive (it can die only via daemon teardown, but
 after R9's changes a liveness flag is cheap). **Fix:** include
 `extraction_worker_alive: self._extraction_worker.is_alive()` and queue depth.
@@ -510,7 +525,7 @@ Two more latent bugs surfaced during this round, both fixed:
   jobs had been sitting permanently in limbo, reported by
   `get_extraction_status` as pending work that nothing would ever pick up.
 
-Also note, for whoever picks up R12/R13: `version.py:102` has the same
+Also note, for whoever picks up R12/R13: `version.py` (at review time, inside `VERSION_HISTORY` — since moved to `docs/CHANGELOG.md`) has the same
 invalid-escape warning, inside the `VERSION_HISTORY` string. Moving that
 changelog out to `CHANGELOG.md` (R13) removes it for free.
 
@@ -557,7 +572,7 @@ review after R1:
   everywhere else — found only once the validator above actually worked.
 
 **Correction to R19:** `migration_v2_21_0.py` is **not** spent one-shot
-clutter and was left in the repo root. `anomaly_detector.py:106` actively
+clutter and was left in the repo root. `anomaly_detector.py:106` (`_ensure_tables_exist`) actively
 directs users to run it, and the live database still lacks the anomaly tables
 it creates ("Anomaly detection tables not found. Run migration_v2_21_0.py
 first."). Only `whats-next.md` (completed handoff) and `readme.txt` (superseded

@@ -1,119 +1,98 @@
 {
   "generated_from": {
-    "head": "dcffd52",
+    "head": "5c6c541",
     "sources": [
       ".claude/tasks/runs.jsonl",
+      "whats-next.md",
       "TO-DOS.md",
       "CODE-REVIEW.md",
-      "github-issues",
+      "docs/ROADMAP.md",
+      "docs/ARCHITECTURE.md",
+      "docs/CHANGELOG.md",
+      "CLAUDE.md",
+      "git-log",
       "working-tree",
-      "git-remote-state",
-      "ast-dependency-measurement",
-      "file-size-measurement"
+      "file-size-measurement",
+      "pytest-collection-measurement"
     ],
     "focus": null
   },
   "tasks": [
     {
-      "id": "split-oversized-kb-modules",
-      "title": "Split kb/ingest.py (3,977), kb/search.py (3,565) and kb/entities.py (2,554) so no module exceeds ~2,500 lines",
-      "source": "runs.jsonl#split-knowledge-base-domain-modules",
+      "id": "code-review-md-stale-line-citations",
+      "title": "Verify or correct the ~12 remaining source line citations left in CODE-REVIEW.md after the class split",
+      "source": "runs.jsonl#code-review-md-restore-backup-identifier",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
-      "touches": [
-        "rw:kb",
-        "rw:.pytest_cache"
-      ],
-      "mcp": [
-        "tokensave"
-      ],
+      "touches": ["rw:CODE-REVIEW.md", "r:kb", "r:mcp_tools", "r:server.py"],
+      "mcp": ["tokensave"],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "no file under kb/ exceeds ~2500 lines AND .venv/Scripts/python.exe -m pytest -q stays at 257 passed / 3 skipped AND all 253 method names remain reachable on the assembled KnowledgeBase",
-      "why_model": "moving whole methods between sibling mixins, with reachability making completeness checkable",
-      "why_mode": "self-contained, and the conclusion is a line count plus a method-name set comparison",
-      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit (+7 more)"
+      "verify": "every 'file.py:NNNN' citation in CODE-REVIEW.md resolves to the symbol the surrounding text names, each checked with sed -n 'NNNNp' on the cited file; any citation that cannot be resolved is rewritten as a symbol name rather than a guessed number",
+      "why_model": "lookup-and-substitute against the current tree, no design call",
+      "why_mode": "delegable because each citation is independently checkable; two prior runs on this file deliberately left unresolvable ones alone rather than inventing numbers - keep that",
+      "why_lane": "writes CODE-REVIEW.md, shared with commit-doc-reconciliation, and reads kb/ which sid-archive-ingestion rewrites"
     },
     {
-      "id": "split-server-py-mcp-layer",
-      "title": "R12 umbrella: confirm every file is under ~2,500 lines (steps 1-3 done; only the oversized kb modules remain)",
-      "source": "CODE-REVIEW.md#R12",
-      "model": "sonnet",
-      "mode": "main",
-      "lane": "serial",
-      "touches": [
-        "r:kb",
-        "r:server.py",
-        "r:mcp_tools",
-        "rw:.pytest_cache"
-      ],
-      "mcp": [
-        "tokensave"
-      ],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [
-        "split-oversized-kb-modules"
-      ],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": ".venv/Scripts/python.exe -m pytest -q green (257/3) AND list_tools() returns 92 AND no .py file in the package exceeds ~2500 lines",
-      "why_model": "by this point it is a measurement over work already done, not a design decision",
-      "why_mode": "the judgement of when R12 is finished belongs with the whole tree in view",
-      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit (+9 more)"
-    },
-    {
-      "id": "split-admin-gui-pages",
-      "title": "R18: split the 5,336-line admin_gui.py into a Streamlit multipage pages/ layout",
-      "source": "CODE-REVIEW.md#R18",
-      "model": "sonnet",
-      "mode": "main",
-      "lane": "serial",
-      "touches": [
-        "rw:admin_gui.py",
-        "r:server.py"
-      ],
-      "mcp": [
-        "tokensave"
-      ],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "python -m streamlit run admin_gui.py starts and every page renders without exception; no automated coverage exists, so this is a manual launch check",
-      "why_model": "a mechanical file split against an existing UI structure",
-      "why_mode": "verification is launching the GUI and looking at it, which is not a mechanical subtask conclusion",
-      "why_lane": "contends on server.py vs mcp-http-concurrency-audit"
-    },
-    {
-      "id": "mcp-http-concurrency-audit",
-      "title": "Audit whether the HTTP transport's global tool-call lock can be narrowed to the state that actually needs it",
-      "source": "runs.jsonl#mcp-streamable-http-transport",
+      "id": "wiki-export-oversized",
+      "title": "Split wiki_export.py (13,356 lines, with ~3,100 lines of CSS inside _create_css at :4353)",
+      "source": "runs.jsonl#split-server-py-mcp-layer",
       "model": "opus",
       "mode": "main",
       "lane": "serial",
-      "touches": [
-        "rw:server.py",
-        "r:kb",
-        "rw:.pytest_cache"
-      ],
-      "mcp": [
-        "tokensave"
-      ],
+      "touches": ["rw:wiki_export.py", "r:test_wiki_safety.py", "rw:.pytest_cache"],
+      "mcp": ["tokensave"],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "a written list of which shared structures (self.documents, the search caches, the FAISS index) are unsafe under concurrent tool calls and why, plus either a narrowed lock with a concurrency test or a recorded decision to keep the global one",
-      "why_model": "a falsification pass over shared mutable state where a plausible-but-wrong \"this is safe\" is cheap to produce",
-      "why_mode": "the diagnosis is the deliverable, not the edit",
-      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs repoint-document-filepath-tool (+8 more)"
+      "verify": "no file in the wiki-export unit exceeds ~2,500 lines, .venv/Scripts/python.exe -m pytest test_wiki_safety.py -q stays green, and an export of the same input is byte-identical to the pre-split output (diff two exports)",
+      "why_model": "a 13k-line module nobody has read end to end; the split boundary and the CSS-extraction format are design calls where a plausible-but-wrong answer silently changes emitted output",
+      "why_mode": "the byte-identical-output check is the point of the task and needs surrounding context to judge, not a subagent's summary",
+      "why_lane": "rewrites wiki_export.py, which docs-architecture-wiki-export-citations reads, and runs pytest"
+    },
+    {
+      "id": "archive-tests-break-collection",
+      "title": "Close out the archived-test collection fix: its verify has already been observed passing, but no run has formally recorded it",
+      "source": "runs.jsonl#archive-tests-break-collection",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": ["rw:archive/tests", "rw:pyproject.toml", "rw:.pytest_cache"],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "depends_on_user": false,
+      "verify": "with 'archive' removed from norecursedirs, .venv/Scripts/python.exe -m pytest --collect-only -q exits 0 - the root cause fixed rather than only excluded",
+      "why_model": "a re-run of a check that has already been observed to pass",
+      "why_mode": "purely a measurement; nothing left to diagnose",
+      "why_lane": "reads and may write archive/tests and pyproject.toml, shared with archive-tests-untracked-in-git"
+    },
+    {
+      "id": "admin-gui-apptest-coverage",
+      "title": "Land permanent Streamlit AppTest coverage for admin_pages/ (the harness that verified R18 lives only in a scratchpad)",
+      "source": "runs.jsonl#split-admin-gui-pages",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": ["rw:test_admin_gui.py", "rw:.gitignore", "r:admin_pages", "r:admin_gui.py", "rw:.pytest_cache"],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "depends_on_user": false,
+      "verify": ".venv/Scripts/python.exe -m pytest test_admin_gui.py -q passes with one case per entry in the PAGES dict (16), and git check-ignore test_admin_gui.py exits 1 so the file is trackable",
+      "why_model": "boilerplate against an AppTest harness that already worked once",
+      "why_mode": "self-contained; pass/fail is the whole conclusion",
+      "why_lane": "writes .gitignore, shared with archive-tests-untracked-in-git, and runs pytest"
     },
     {
       "id": "sid-archive-ingestion",
@@ -122,24 +101,55 @@
       "model": "opus",
       "mode": "main",
       "lane": "serial",
-      "touches": [
-        "rw:kb/ingest.py",
-        "rw:mcp_tools/schemas.py",
-        "rw:mcp_tools/documents.py",
-        "rw:.pytest_cache"
-      ],
-      "mcp": [
-        "tokensave"
-      ],
+      "touches": ["rw:kb/ingest", "rw:mcp_tools/schemas.py", "rw:mcp_tools/documents.py", "rw:.pytest_cache"],
+      "mcp": ["tokensave"],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "a .sid file ingests into a searchable card carrying title/author/released/chip model, checked against the real PSID header spec, and a HVSC .zip ingests its contents",
-      "why_model": "a new file-type subsystem plus an external binary format whose spec must be verified, not inferred",
-      "why_mode": "spans the ingestion dispatch and the tool surface",
-      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit (+11 more)"
+      "verify": "a .sid file ingests into a searchable card carrying title/author/released/chip model, each field checked against the published PSID/RSID header spec rather than inferred from one sample, and a HVSC .zip ingests its members without writing outside the sandbox",
+      "why_model": "a new subsystem spanning ingestion, schemas and handlers, against a binary spec where a plausible-but-wrong header offset produces confident garbage",
+      "why_mode": "the spec verification is exactly the judgement that must not be delegated",
+      "why_lane": "rewrites kb/ingest, which code-review-md-stale-line-citations reads and repoint-document-filepath-tool also writes"
+    },
+    {
+      "id": "refresh-handoff-doc-post-r12",
+      "title": "Refresh whats-next.md, which still describes R12 and R18 as open and server.py as 24,702 lines",
+      "source": "whats-next.md#work_remaining",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "parallel",
+      "touches": ["rw:whats-next.md"],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "depends_on_user": false,
+      "verify": "whats-next.md carries no unannotated claim contradicted by HEAD: the server.py line count matches wc -l server.py (576), R12 and R18 are recorded complete with their commits (dcffd52, 5c6c541) and their CODE-REVIEW.md checkboxes now read [x], and the pytest figure matches the 260 tests collected today",
+      "why_model": "reconciling a doc against measurements already recorded in the run log",
+      "why_mode": "single untracked file, every claim independently checkable",
+      "why_lane": "whats-next.md appears in no other task's touches - it is deliberately untracked, so even the commit task does not name it"
+    },
+    {
+      "id": "docs-architecture-wiki-export-citations",
+      "title": "Repoint docs/ARCHITECTURE.md's 13 bare 'Lines N-M' citations into wiki_export.py and cli.py to file+symbol",
+      "source": "runs.jsonl#docs-stale-after-decomposition",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": ["rw:docs/ARCHITECTURE.md", "r:wiki_export.py", "r:cli.py"],
+      "mcp": ["tokensave"],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": ["wiki-export-oversized"],
+      "blocked_on": "wiki-export-oversized is unmet, and it rewrites the very file these citations point into - doing this first guarantees redoing it. The two cli.py citations are independent of that split but are not worth a separate pass.",
+      "depends_on_user": false,
+      "verify": "every 'Lines N-M' and 'cli.py ~line N-M' citation in docs/ARCHITECTURE.md either names a file+symbol instead of a number, or has been checked with sed -n against the file it refers to; grep -cE 'Lines [0-9]+-[0-9]+' docs/ARCHITECTURE.md reflects only citations verified in this pass",
+      "why_model": "the same lookup-and-substitute pass that docs-stale-after-decomposition already ran successfully on the server.py citations",
+      "why_mode": "each citation is independently checkable against a file",
+      "why_lane": "writes docs/ARCHITECTURE.md, shared with uploads-retention-policy and commit-doc-reconciliation, and reads wiki_export.py which wiki-export-oversized rewrites"
     },
     {
       "id": "repoint-document-filepath-tool",
@@ -148,201 +158,17 @@
       "model": "sonnet",
       "mode": "main",
       "lane": "serial",
-      "touches": [
-        "rw:kb/ingest.py",
-        "rw:mcp_tools/schemas.py",
-        "rw:mcp_tools/documents.py",
-        "rw:~/.tdz-c64-knowledge/knowledge_base.db",
-        "rw:.pytest_cache"
-      ],
-      "mcp": [
-        "tokensave"
-      ],
+      "touches": ["rw:kb/ingest", "rw:kb/admin.py", "rw:mcp_tools/schemas.py", "rw:mcp_tools/documents.py", "rw:~/.tdz-c64-knowledge/knowledge_base.db", "rw:.pytest_cache"],
+      "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": [
-        "uploads-retention-policy"
-      ],
-      "blocked_on": null,
+      "depends_on": ["uploads-retention-policy"],
+      "blocked_on": "uploads-retention-policy is unmet - whether uploads/ is permanent storage or staging determines what a re-pointed path is allowed to be",
       "depends_on_user": false,
-      "verify": "re-pointing a document at a moved file updates documents.filepath, passes the ALLOWED_DOCS_DIRS whitelist, makes extract_document_figures reach it, and drops health_check's missing_source_files count; test in test_figure_ocr.py",
-      "why_model": "a bounded new tool once the retention policy fixes its semantics",
-      "why_mode": "it rewrites rows in the live 1,144-document KB, so what a safe re-point means matters more than the edit",
-      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit (+13 more)"
-    },
-    {
-      "id": "code-review-md-restore-backup-identifier",
-      "title": "Sync CODE-REVIEW.md: R10 names a method that does not exist, and R12 is now four refactors out of date",
-      "source": "runs.jsonl#pickle-design-in-plan-docs",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:CODE-REVIEW.md"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "CODE-REVIEW.md has 0 bare uses of restore_backup (real name restore_from_backup) AND R12 no longer says \"23,538-line god file\" but records server.py at 552 lines with the util/models/text_utils/features extraction, the kb/ mixins and the mcp_tools split",
-      "why_model": "correcting an identifier and a set of numbers against already-verified facts",
-      "why_mode": "bounded to one file with a greppable done-condition",
-      "why_lane": "no declared path overlaps another task's, and none is exclusive by nature"
-    },
-    {
-      "id": "mcp-http-client-deprecated-alias",
-      "title": "Switch the HTTP tests from the deprecated streamablehttp_client alias to streamable_http_client",
-      "source": "runs.jsonl#mcp-streamable-http-transport",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:test_mcp_startup.py",
-        "rw:.pytest_cache"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": ".venv/Scripts/python.exe -m pytest test_mcp_startup.py -q -k http passes with no DeprecationWarning about streamable_http_client; both names exist in the pinned mcp 1.24.0",
-      "why_model": "a two-call rename with an existing test to prove it",
-      "why_mode": "self-contained, and the conclusion is the absence of a warning",
-      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-concurrency-audit; .pytest_cache vs repoint-document-filepath-tool (+3 more)"
-    },
-    {
-      "id": "archive-tests-break-collection",
-      "title": "Fix archive/tests/test_advanced_visualizations.py, which corrupts pytest's capture streams on import",
-      "source": "runs.jsonl#pytest-testpaths",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:archive/tests",
-        "rw:pyproject.toml",
-        "rw:.pytest_cache"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "with 'archive' removed from norecursedirs in pyproject.toml, pytest --collect-only -q still exits 0 - the root cause fixed rather than only excluded (restore norecursedirs afterwards either way)",
-      "why_model": "a contained root-cause fix in one archived test file",
-      "why_mode": "narrow, with an exit code as the conclusion",
-      "why_lane": "contends on .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit; .pytest_cache vs repoint-document-filepath-tool (+3 more)"
-    },
-    {
-      "id": "gitattributes-jsonl-line-endings",
-      "title": "Pin .claude/tasks/* to LF via .gitattributes so the run log does not become mixed-ending on the second machine",
-      "source": "working-tree",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:.gitattributes"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "a .gitattributes exists with an eol=lf rule scoped to .claude/tasks/*, `git check-attr eol .claude/tasks/runs.jsonl` reports lf, and git status shows no other file newly modified by renormalisation",
-      "why_model": "a two-line file with a checkable git attribute",
-      "why_mode": "self-contained, and the conclusion is a git check-attr result",
-      "why_lane": "no declared path overlaps another task's, and none is exclusive by nature"
-    },
-    {
-      "id": "commit-todos-and-runlog",
-      "title": "Commit the TO-DOS.md reconciliation and the run log",
-      "source": "working-tree",
-      "model": "sonnet",
-      "mode": "requires-user",
-      "lane": "serial",
-      "touches": [
-        "rw:TO-DOS.md",
-        "rw:.claude/tasks",
-        "rw:git-branch:master"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "Committing is the user's call. TO-DOS.md carries the reconciliation from to-dos-md-stale-entries and .claude/tasks/runs.jsonl has grown by several records, both uncommitted on master.",
-      "depends_on_user": true,
-      "verify": "git status is clean of TO-DOS.md and .claude/tasks/, and git log shows the commit",
-      "why_model": "a commit, no design",
-      "why_mode": "the repo's convention is not to commit unasked",
-      "why_lane": "contends on git-branch:master is exclusive by nature"
-    },
-    {
-      "id": "uploads-retention-policy",
-      "title": "Decide whether uploads/ is permanent document storage or a staging area",
-      "source": "TO-DOS.md#figure-ocr",
-      "model": "sonnet",
-      "mode": "requires-user",
-      "lane": "parallel",
-      "touches": [
-        "rw:docs/ARCHITECTURE.md"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "A policy call: ingest records a path into uploads/ as if permanent, but 106 of 178 PDFs have since vanished from it. Whether to keep originals forever, or accept indexed-text-only and stop recording the path, is the user's decision about their own disk.",
-      "depends_on_user": true,
-      "verify": "the decision is written into docs/ARCHITECTURE.md so the next reader does not have to re-derive it",
-      "why_model": "no code until the policy exists",
-      "why_mode": "a storage policy over the user's own data cannot be inferred from the repo",
-      "why_lane": "no declared path overlaps another task's, and none is exclusive by nature"
-    },
-    {
-      "id": "verify-http-transport-across-machines",
-      "title": "Verify the HTTP transport laptop-to-desktop over Tailscale, the scenario issue #16 existed for",
-      "source": "runs.jsonl#commit-r12-and-merge-branch",
-      "model": "sonnet",
-      "mode": "requires-user",
-      "lane": "serial",
-      "touches": [
-        "rw:~/.tdz-c64-knowledge/knowledge_base.db",
-        "rw:network:host-port"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "Needs the second machine and the real network. Everything so far was verified against 127.0.0.1 only; the laptop must host with TDZ_API_KEYS set and the desktop must connect as a client.",
-      "depends_on_user": true,
-      "verify": "on the desktop, `claude mcp add --transport http tdz-c64-knowledge http://<host>:8765/mcp --header \"X-API-Key: ...\"` yields a working session listing 92 tools, with TDZ_MCP_ALLOWED_HOSTS set to the hostname actually used",
-      "why_model": "running a documented command and reading the result",
-      "why_mode": "requires physical access to a second machine",
-      "why_lane": "contends on network:host-port is exclusive by nature; ~/.tdz-c64-knowledge/knowledge_base.db is exclusive by nature; ~/.tdz-c64-knowledge/knowledge_base.db vs repoint-document-filepath-tool"
-    },
-    {
-      "id": "changelog-2-24-0-duplicate",
-      "title": "Reconcile the two conflicting [2.24.0] sections in docs/CHANGELOG.md",
-      "source": "whats-next.md#work_remaining",
-      "model": "sonnet",
-      "mode": "requires-user",
-      "lane": "serial",
-      "touches": [
-        "rw:docs/CHANGELOG.md"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "Which of the two [2.24.0] sections is authoritative ('In Progress' at line 19 vs 'In Planning' at line 89). Only the person who wrote the release plan knows; merging them by guess would misstate what shipped.",
-      "depends_on_user": true,
-      "verify": "exactly one '## [2.24.0]' heading remains in docs/CHANGELOG.md AND .venv/Scripts/python.exe validate_docs.py passes",
-      "why_model": "a doc edit once the human has said which section wins",
-      "why_mode": "blocked on a fact about release intent not recoverable from the repo",
-      "why_lane": "contends on docs/CHANGELOG.md vs changelog-version-history-overlap"
+      "verify": "re-pointing a document at a moved file updates documents.filepath, is rejected when the new path fails the ALLOWED_DOCS_DIRS whitelist, makes extract_document_figures reach it, and drops health_check's missing_source_files metric by exactly one",
+      "why_model": "a bounded feature against an existing tool/handler pattern",
+      "why_mode": "it writes the live database and crosses the security whitelist; deciding what a valid target path is matters more than the edit",
+      "why_lane": "writes kb/ and the live knowledge_base.db, both contended"
     },
     {
       "id": "changelog-version-history-overlap",
@@ -351,144 +177,198 @@
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
-      "touches": [
-        "rw:docs/CHANGELOG.md",
-        "rw:docs/VERSION_HISTORY.md"
-      ],
+      "touches": ["rw:docs/CHANGELOG.md", "rw:docs/VERSION_HISTORY.md"],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": [
-        "changelog-2-24-0-duplicate"
-      ],
-      "blocked_on": "Whether to rewrite release history that cannot be verified after the fact. A previous session deliberately declined and left explanatory notes in both files instead.",
+      "depends_on": ["changelog-2-24-0-duplicate"],
+      "blocked_on": "Back-filling means rewriting release history that cannot be verified after the fact; the user must choose, and the duplicate 2.24.0 heading should be settled first",
       "depends_on_user": true,
       "verify": "either both files keep their explanatory notes (decision: leave as is) or CHANGELOG.md gains an entry for every version present in VERSION_HISTORY.md",
-      "why_model": "mechanical transcription once the call is made",
-      "why_mode": "the question is what the project wants its history to claim",
-      "why_lane": "contends on docs/CHANGELOG.md vs changelog-2-24-0-duplicate"
+      "why_model": "mechanical once the call is made",
+      "why_mode": "unverifiable release history is a user decision",
+      "why_lane": "writes docs/CHANGELOG.md, shared with changelog-2-24-0-duplicate"
+    },
+    {
+      "id": "commit-doc-reconciliation",
+      "title": "Commit the three doc-reconciliation tasks now sitting uncommitted (CLAUDE.md, CODE-REVIEW.md, docs/ARCHITECTURE.md)",
+      "source": "working-tree",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": ["rw:CLAUDE.md", "rw:CODE-REVIEW.md", "rw:docs/ARCHITECTURE.md", "rw:.claude/tasks", "rw:git-branch:master"],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "Committing to master (and whether to push) is the user's authorisation to give; the same gate applied to every previous commit task in this repo's run log",
+      "depends_on_user": true,
+      "verify": "git status --porcelain over tracked paths returns 0 lines, git log shows the commit, and .venv/Scripts/python.exe validate_docs.py passes against the committed tree",
+      "why_model": "staging and committing files whose content is already verified",
+      "why_mode": "writing to master needs the user's say-so, not a derivable answer",
+      "why_lane": "writes three doc files that four other tasks also write, plus the branch itself"
+    },
+    {
+      "id": "archive-tests-untracked-in-git",
+      "title": "Decide whether archive/tests/ should be tracked - the collection fixes live only in the working tree today",
+      "source": "runs.jsonl#archive-tests-break-collection",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": ["rw:.gitignore", "r:archive/tests"],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "The user must decide whether an archived suite belongs in git at all: .gitignore line 48 blanket-ignores test_*.py with root-anchored exceptions, git ls-files archive/tests/ returns 0, so BOTH the six-file stream-corruption fix and the test_rest_api_archived.py rename will vanish on a fresh clone",
+      "depends_on_user": true,
+      "verify": "either git ls-files archive/tests/ returns the full file list (decision: track), or a comment in .gitignore records that archive/tests is deliberately untracked and the working-tree fixes are disposable",
+      "why_model": "once decided, a one-line .gitignore change",
+      "why_mode": "keeping or discarding archived history is the user's call, not derivable from the repo",
+      "why_lane": "writes .gitignore, shared with admin-gui-apptest-coverage"
+    },
+    {
+      "id": "uploads-retention-policy",
+      "title": "Decide whether uploads/ is permanent document storage or a staging area",
+      "source": "TO-DOS.md#figure-ocr",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": ["rw:docs/ARCHITECTURE.md"],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "Only the user knows whether files dropped into uploads/ are meant to persist; ingest records a path into it, so the answer decides whether the 106 missing sources are a bug or expected",
+      "depends_on_user": true,
+      "verify": "the decision is written into docs/ARCHITECTURE.md so the next reader does not have to re-derive it",
+      "why_model": "recording a decision, not making a technical one",
+      "why_mode": "a retention policy is a user decision",
+      "why_lane": "writes docs/ARCHITECTURE.md, shared with docs-architecture-wiki-export-citations and commit-doc-reconciliation"
+    },
+    {
+      "id": "verify-http-transport-across-machines",
+      "title": "Verify the HTTP transport laptop-to-desktop over Tailscale, the scenario issue #16 existed for",
+      "source": "runs.jsonl#commit-r12-and-merge-branch",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": ["rw:~/.tdz-c64-knowledge/knowledge_base.db", "rw:network:host-port-8765"],
+      "mcp": [],
+      "needs_main": true,
+      "needs_main_reason": "Needs a second physical machine and an interactive Tailscale-authenticated session, so it is not safe to schedule unattended",
+      "depends_on": [],
+      "blocked_on": "Requires the user's second machine and an API key on both ends",
+      "depends_on_user": true,
+      "verify": "on the desktop, claude mcp add --transport http tdz-c64-knowledge http://<host>:8765/mcp --header \"X-API-Key: ...\" yields a working session that lists 92 tools and returns results from a search",
+      "why_model": "running a documented command and reading the result",
+      "why_mode": "blocked on hardware and a credential no amount of work here produces",
+      "why_lane": "binds a single host port and hits the live database - exclusive by nature"
+    },
+    {
+      "id": "changelog-2-24-0-duplicate",
+      "title": "Reconcile the two conflicting [2.24.0] sections in docs/CHANGELOG.md",
+      "source": "whats-next.md#work_remaining",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": ["rw:docs/CHANGELOG.md"],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "Two [2.24.0] headings still exist ('In Progress' and 'In Planning'); which is authoritative is release history only the user can settle",
+      "depends_on_user": true,
+      "verify": "grep -c '^## \\[2.24.0\\]' docs/CHANGELOG.md returns 1 AND .venv/Scripts/python.exe validate_docs.py passes",
+      "why_model": "a merge of two prose sections once the user says which one wins",
+      "why_mode": "picking the authoritative history is not derivable from the repo",
+      "why_lane": "writes docs/CHANGELOG.md, shared with changelog-version-history-overlap"
+    },
+    {
+      "id": "plugin-system-phase-5-2",
+      "title": "Decide whether to build the Phase 5.2 plugin system (the only roadmap item never shipped or archived)",
+      "source": "docs/ROADMAP.md#5.2",
+      "model": "opus",
+      "mode": "requires-user",
+      "lane": "parallel",
+      "touches": ["rw:docs/ROADMAP.md"],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "Phase 5.2 is an unclaimed proposal (20-24h estimate) with no status marker, unlike every other roadmap section which is marked shipped or archived; whether a single-user knowledge base wants a third-party plugin surface is the user's call, not a derivable one",
+      "depends_on_user": true,
+      "verify": "docs/ROADMAP.md section 5.2 carries a status marker like every other section - either 'Shipped' with the module that implements it, or 'Archived / not pursued' with the reason",
+      "why_model": "if pursued it is a load-bearing extension surface over KnowledgeBase and the MCP tool registry, where a wrong seam is expensive to undo",
+      "why_mode": "nothing in the repo says whether this is wanted; only the user can commit to it",
+      "why_lane": "docs/ROADMAP.md appears in no other task's touches"
     }
   ],
   "closed": [
     {
+      "id": "code-review-md-close-r12",
+      "title": "Flip the R12 and R18 checkboxes in CODE-REVIEW.md - 0 open items remain, 22 closed",
+      "closed_by": "uncommitted-working-tree"
+    },
+    {
+      "id": "docs-stale-after-decomposition",
+      "title": "Re-point ARCHITECTURE.md and CLAUDE.md at the post-decomposition layout - 17 citations rewritten as file+symbol",
+      "closed_by": "uncommitted-working-tree"
+    },
+    {
+      "id": "archive-tests-basename-collision",
+      "title": "Resolve archive/tests/test_rest_api.py colliding with the root test_rest_api.py - renamed, 536 collected exit 0",
+      "closed_by": "untracked-working-tree"
+    },
+    {
+      "id": "split-oversized-kb-modules",
+      "title": "Split kb/ingest.py, kb/search.py and kb/entities.py so no module exceeds ~2,500 lines",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "split-server-py-mcp-layer",
+      "title": "R12 umbrella: server.py 25,830 -> 576 lines, nothing over ~2,500 in the package",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "split-admin-gui-pages",
+      "title": "R18: admin_gui.py 5,337 -> 193 lines with admin_pages/ and admin_common.py",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "mcp-http-concurrency-audit",
+      "title": "Audit whether the HTTP transport's global tool-call lock can be narrowed - decision: keep it, recorded at the lock",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "code-review-md-restore-backup-identifier",
+      "title": "Sync CODE-REVIEW.md: restore_from_backup identifier and the stale R12 heading",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "mcp-http-client-deprecated-alias",
+      "title": "Adapt the HTTP tests off the deprecated streamablehttp_client (not an alias - different signature)",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "gitattributes-jsonl-line-endings",
+      "title": "Pin .claude/tasks/* to LF via .gitattributes",
+      "closed_by": "5c6c541"
+    },
+    {
+      "id": "commit-todos-and-runlog",
+      "title": "Commit the TO-DOS.md reconciliation and the run log",
+      "closed_by": "5c6c541"
+    },
+    {
       "id": "to-dos-md-stale-entries",
-      "title": "Update TO-DOS.md's stale items and counts",
-      "closed_by": "runs.jsonl: done (UNCOMMITTED; 131/168 -> 106/178, two items marked DONE)"
-    },
-    {
-      "id": "split-knowledge-base-domain-modules",
-      "title": "R12 step 2: KnowledgeBase's 253 methods into 9 domain mixins",
+      "title": "Reconcile TO-DOS.md against the shipped code",
       "closed_by": "dcffd52"
-    },
-    {
-      "id": "extract-server-models-and-flags",
-      "title": "Extract the 26 blocking names into models/text_utils/features",
-      "closed_by": "dcffd52"
-    },
-    {
-      "id": "extract-server-helpers-to-util",
-      "title": "R12 step 3: helpers to util.py",
-      "closed_by": "dcffd52"
-    },
-    {
-      "id": "split-handlers-by-domain",
-      "title": "Split mcp_tools/handlers.py into 8 domain modules",
-      "closed_by": "dcffd52"
-    },
-    {
-      "id": "commit-r12-steps-2-3-work",
-      "title": "Commit the R12 steps 2-3 work",
-      "closed_by": "dcffd52"
-    },
-    {
-      "id": "push-master-to-origin",
-      "title": "Push master to origin",
-      "closed_by": "dcffd52 pushed; origin/master == master, 0 unpushed"
-    },
-    {
-      "id": "mcp-streamable-http-transport",
-      "title": "Streamable-HTTP transport (issue #16)",
-      "closed_by": "2a3ebee; github#16 CLOSED. Caveat: only verified against 127.0.0.1."
-    },
-    {
-      "id": "commit-r12-and-merge-branch",
-      "title": "Commit R12 step 1 and merge to master",
-      "closed_by": "4d683c2"
     },
     {
       "id": "pytest-testpaths",
-      "title": "Add [tool.pytest.ini_options] testpaths",
-      "closed_by": "2a3ebee"
-    },
-    {
-      "id": "figure-ocr-status-reachability",
-      "title": "Split figure_ocr_status into reachable/unreachable",
-      "closed_by": "2a3ebee"
-    },
-    {
-      "id": "health-metric-missing-source-files",
-      "title": "health_check missing_source_files metric",
-      "closed_by": "2a3ebee"
-    },
-    {
-      "id": "pickle-design-in-plan-docs",
-      "title": "Annotate the superseded pickle graph_cache design",
-      "closed_by": "2a3ebee"
-    },
-    {
-      "id": "refresh-stale-handoff-doc",
-      "title": "Mark whats-next.md superseded",
-      "closed_by": "runs.jsonl: done (file deliberately untracked)"
-    },
-    {
-      "id": "track-task-plan-and-run-log",
-      "title": "Track whattask.json and runs.jsonl in git",
-      "closed_by": "9bcd8b1"
-    },
-    {
-      "id": "merge-hardening-branch",
-      "title": "Merge hardening-and-figure-ocr",
-      "closed_by": "1dc4611"
-    },
-    {
-      "id": "install-tesseract",
-      "title": "Install Tesseract",
-      "closed_by": "installed at C:/Program Files/Tesseract-OCR"
-    },
-    {
-      "id": "figure-ocr-batch-run",
-      "title": "Run the figure-OCR batch",
-      "closed_by": "live DB document_figures holds 14,397 rows"
-    },
-    {
-      "id": "run-anomaly-migration",
-      "title": "Create the anomaly-detection tables",
-      "closed_by": "live DB has anomaly_patterns and anomaly_baselines"
-    },
-    {
-      "id": "figure-rasterize-pages",
-      "title": "Rasterize pages as well as embedded images",
-      "closed_by": "47f652f"
-    },
-    {
-      "id": "parallelise-figure-ocr",
-      "title": "Parallelise the figure-OCR batch",
-      "closed_by": "47f652f"
-    },
-    {
-      "id": "polite-crawl-defaults",
-      "title": "Polite-crawl defaults (R11)",
-      "closed_by": "afaa424"
-    },
-    {
-      "id": "sync-kb-across-machines",
-      "title": "Sync the KB across two machines",
-      "closed_by": "github#15 closed, superseded by #16"
-    },
-    {
-      "id": "doc-audit-findings",
-      "title": "The 14 DOC-AUDIT.md findings",
-      "closed_by": "github issues #3-#8 all closed"
+      "title": "Add [tool.pytest.ini_options] so bare pytest collects",
+      "closed_by": "4b61705"
     }
   ]
 }

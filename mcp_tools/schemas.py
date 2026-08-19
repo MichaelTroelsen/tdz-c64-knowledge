@@ -274,6 +274,36 @@ TOOL_SCHEMAS: list[Tool] = [
             }
         ),
         Tool(
+            name="repoint_document",
+            description=(
+                "Point an existing document at a relocated source file without reingesting. "
+                "Use when a document's recorded filepath no longer exists on disk (see the "
+                "missing_source_files metric in health_check). The candidate file is verified "
+                "against the document's recorded content hash and the ALLOWED_DOCS_DIRS "
+                "whitelist before anything is written; a hash mismatch is refused unless force "
+                "is set, because binding a document to the wrong file is worse than a missing path."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "string",
+                        "description": "Document ID whose filepath should be repaired"
+                    },
+                    "new_filepath": {
+                        "type": "string",
+                        "description": "Path the document now lives at (must be inside ALLOWED_DOCS_DIRS)"
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "Re-point even when the file content does not match the recorded hash (default false)",
+                        "default": False
+                    }
+                },
+                "required": ["doc_id", "new_filepath"]
+            }
+        ),
+        Tool(
             name="remove_document",
             description="Remove a document from the knowledge base.",
             inputSchema={

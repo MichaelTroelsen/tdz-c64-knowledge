@@ -710,6 +710,15 @@ class _ExtractionMixin:
                 text = self._extract_text_file(filepath)
                 file_type = 'text'
                 self.logger.info(f"Extracted text file ({len(text)} characters)")
+            elif file_ext in ['.sid', '.psid', '.rsid']:
+                text = self._extract_sid_file(filepath)
+                file_type = 'sid'
+                self.logger.info(f"Extracted SID header ({len(text)} characters)")
+            elif file_ext == '.zip':
+                text, tune_count = self._extract_sid_archive(filepath)
+                file_type = 'sid-archive'
+                total_pages = tune_count  # tunes, the way excel counts sheets
+                self.logger.info(f"Extracted {tune_count} SID tunes from archive")
             else:
                 raise UnsupportedFileTypeError(f"Unsupported file type: {file_ext}")
         except (UnsupportedFileTypeError, DocumentNotFoundError):
@@ -719,6 +728,56 @@ class _ExtractionMixin:
             raise KnowledgeBaseError(f"Error extracting document: {e}")
 
         return text, file_type, total_pages, pdf_metadata
+
+    def _extract_sid_file(self, filepath: str) -> str:
+        """Read one PSID/RSID tune into a searchable text card.
+
+        A malformed SID raises SidHeaderError, which the caller wraps as a
+        KnowledgeBaseError - deliberately not UnsupportedFileTypeError, since
+        the type IS supported and this particular file is broken.
+        """
+        from ._sid import MAX_MEMBER_BYTES, parse_sid_header, sid_card_text
+
+        with open(filepath, 'rb') as fh:
+            data = fh.read(MAX_MEMBER_BYTES)
+        meta = parse_sid_header(data)
+        return sid_card_text(meta, os.path.basename(filepath))
+
+    def _extract_sid_archive(self, filepath: str) -> tuple[str, int]:
+        """Read every SID tune in a zip (HVSC's distribution format).
+
+        Nothing is written to disk: members are read in memory, so hostile
+        member names have no path to act on. See kb/ingest/_sid.py.
+
+        One archive becomes ONE document, because add_document's contract is
+        one file in, one DocumentMeta out. The text is the concatenation of
+        every tune's card, so each tune's title/author/released is searchable.
+        """
+        from ._sid import parse_sid_zip, sid_card_text
+
+        parsed, failures = parse_sid_zip(filepath)
+        if not parsed:
+            raise UnsupportedFileTypeError(
+                f"zip holds no readable SID tunes: {os.path.basename(filepath)}"
+            )
+
+        name = os.path.basename(filepath)
+        parts = [
+            f"# SID archive: {name}",
+            "",
+            f"{len(parsed)} tune(s) parsed from `{name}`.",
+            "",
+        ]
+        for meta in parsed:
+            parts.append(sid_card_text(meta, meta.get('member', name)))
+            parts.append("")
+        if failures:
+            parts.append("## Members that could not be parsed")
+            parts.append("")
+            for member, reason in failures:
+                parts.append(f"- `{member}`: {reason}")
+            parts.append("")
+        return "\n".join(parts), len(parsed)
 
     def _extract_card_id(self, text: str) -> Optional[str]:
         """Parse the logical `id` out of a knowledge card's fenced ```json block.

@@ -18,10 +18,15 @@ MCP server for searching Commodore 64 documentation. Ingests PDFs/text/web pages
 
 ## File Structure
 
-- `server.py` - MCP server, KnowledgeBase class, 92 tools
+- `server.py` - MCP server entry point (576 lines): transports (stdio + streamable HTTP) and tool dispatch
+- `kb/` - `KnowledgeBase` class, split into domain mixins (`core.py`, `ingest/`, `search/`, `entities/`, `graph.py`, `topics.py`, `temporal.py`, `figures.py`, `admin.py`)
+- `mcp_tools/` - MCP tool layer: `schemas.py` (the 93 `Tool(...)` literals), `handlers.py` (aggregator), plus 8 domain handler modules (`admin.py`, `documents.py`, `entities.py`, `figures.py`, `knowledge_graph.py`, `search.py`, `temporal.py`, `topics.py`)
+- `util.py`, `models.py`, `text_utils.py`, `features.py` - shared module preamble (formerly the top of server.py)
 - `rest_server.py` - FastAPI REST API (18 endpoints, optional)
 - `cli.py` - Command-line interface
-- `admin_gui.py` - Streamlit web UI
+- `admin_gui.py` - Streamlit entry point (193 lines), dispatches to `admin_pages/`
+- `admin_pages/` - 16 page bodies, each exposing `render(kb)`
+- `admin_common.py` - 4 shared helpers used by `admin_pages/`
 - `test_card_updates.py` - Pytest test suite
 - `test_mcp_startup.py` - MCP startup/connectivity regression tests (handshake speed, concurrent sessions, lazy imports, WAL, DB thread-safety, extraction-job recovery)
 - `test_mcp_tool_dispatch.py` - Smoke-calls every registered MCP tool
@@ -89,8 +94,8 @@ See docs/ARCHITECTURE.md for detailed technical documentation.
 ## Common Code Patterns
 
 ### Adding MCP Tools
-1. Add definition in `list_tools()` with inputSchema
-2. Implement handler in `call_tool()`
+1. Add a `Tool(...)` schema to `TOOL_SCHEMAS` in `mcp_tools/schemas.py`
+2. Implement the handler in the relevant `mcp_tools/<domain>.py` module and register it in that module's `HANDLERS_<DOMAIN>` dict
 3. Return list of `TextContent` objects
 
 ### Database Operations
@@ -100,9 +105,9 @@ Use KnowledgeBase methods (ACID transactions):
 - `_get_chunks_db(doc_id)` - Lazy load chunks
 
 ### Extending File Types
-1. Add extension check in `add_document()` (~line 2230)
-2. Implement `_extract_X_file()` method
-3. Update README.md and admin_gui.py
+1. Add extension check in `add_document()` (`kb/ingest/_documents.py`)
+2. Implement `_extract_X_file()` method (`kb/ingest/_extraction.py`)
+3. Update README.md and `admin_pages/documents.py`
 
 See docs/ARCHITECTURE.md "Extending File Type Support" for details.
 

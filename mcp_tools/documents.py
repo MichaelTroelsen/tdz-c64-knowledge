@@ -352,6 +352,38 @@ def handle_answer_question(kb, name: str, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=output)]
 
 
+def handle_repoint_document(kb, name: str, arguments: dict) -> list[TextContent]:
+    """Repair a document whose source file has moved, without reingesting."""
+    doc_id = arguments.get("doc_id")
+    new_filepath = arguments.get("new_filepath")
+    force = bool(arguments.get("force", False))
+
+    if not doc_id or not new_filepath:
+        return [TextContent(type="text", text="Error: doc_id and new_filepath are both required")]
+
+    try:
+        result = kb.repoint_document(doc_id, new_filepath, force=force)
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error re-pointing document: {e}")]
+
+    if result["hash_verified"]:
+        provenance = "content hash matches the recorded hash"
+    elif result["forced"]:
+        provenance = "WARNING: forced past a content-hash mismatch"
+    else:
+        provenance = "no recorded hash was available to verify against"
+
+    output = (
+        f"# Re-pointed {result['doc_id']}\n\n"
+        f"- Was: {result['old_filepath']}\n"
+        f"- Now: {result['new_filepath']}\n"
+        f"- Verification: {provenance}\n\n"
+        "The document's text, chunks and embeddings were not touched - only the "
+        "recorded source path. Run health_check to confirm missing_source_files dropped."
+    )
+    return [TextContent(type="text", text=output)]
+
+
 HANDLERS_DOCUMENTS = {
     "get_chunk": handle_get_chunk,
     "get_document": handle_get_document,
@@ -363,6 +395,7 @@ HANDLERS_DOCUMENTS = {
     "rescrape_document": handle_rescrape_document,
     "check_url_updates": handle_check_url_updates,
     "remove_document": handle_remove_document,
+    "repoint_document": handle_repoint_document,
     "find_similar": handle_find_similar,
     "answer_question": handle_answer_question,
 }

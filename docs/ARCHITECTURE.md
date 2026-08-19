@@ -8,24 +8,60 @@ For user-facing documentation, see [README.md](README.md).
 
 ### Main Components
 
-**server.py** - MCP server implementation
-- `KnowledgeBase` class: Core data management (index + chunks storage + tables + code blocks + URL scraping)
-- MCP tool handlers: `search_docs`, `semantic_search`, `hybrid_search`, `add_document`, `scrape_url`, `rescrape_document`, `check_url_updates`, `get_chunk`, `get_document`, `list_docs`, `remove_document`, `kb_stats`, `health_check`, `find_similar`, `check_updates`, `add_documents_bulk`, `remove_documents_bulk`, `search_tables`, `search_code`
+**server.py** - MCP server entry point (576 lines)
+- Transports: stdio and streamable HTTP
+- `list_tools()` returns `mcp_tools/schemas.py`'s `TOOL_SCHEMAS` (93 `Tool(...)` literals)
+- `call_tool()` dispatches via `mcp_tools/handlers.py`'s `HANDLERS` dict (a lookup, not an `elif` chain)
 - MCP resource handlers: Exposes documents as `c64kb://` URIs
-- Async server running on stdio transport
+
+**kb/** - `KnowledgeBase` class, split into domain mixins
+- `kb/core.py` - base class, schema/connection setup, `_add_document_db()`
+- `kb/ingest/` - `_documents.py` (`add_document()`, `add_documents_bulk()`), `_extraction.py`, `_tagging.py`
+- `kb/search/` - `_retrieval.py` (`search()`), `_query.py`, `_rag.py`
+- `kb/entities/` - `_extraction.py`, `_relationships.py`
+- `kb/graph.py`, `kb/topics.py`, `kb/temporal.py`, `kb/figures.py`, `kb/admin.py` - remaining domain mixins
+
+**mcp_tools/** - MCP tool layer
+- `schemas.py` - the `Tool(...)` literals (`TOOL_SCHEMAS`)
+- `handlers.py` - aggregates `HANDLERS` from 8 domain modules: `admin.py`, `documents.py`, `entities.py`, `figures.py`, `knowledge_graph.py`, `search.py`, `temporal.py`, `topics.py`
 
 **cli.py** - Command-line interface for batch operations
 - Wraps `KnowledgeBase` for CLI usage
 - Commands: `add`, `add-folder`, `search`, `list`, `remove`, `stats`
 - Useful for bulk importing documents
 
-**admin_gui.py** - Streamlit web interface
-- Document management UI
-- Search interface with filters
-- Statistics and health monitoring
-- URL scraping interface
+**admin_gui.py** - Streamlit entry point (193 lines); dispatches to `admin_pages/`
+- `admin_pages/` - 16 page bodies, each exposing `render(kb)`; dispatch is `PAGES[page](kb)`
+- `admin_common.py` - 4 shared helpers (`build_bm25_index_background`, `trigger_background_reindex`, `format_bytes`, `format_timestamp`)
+- Document management UI, search interface with filters, statistics/health monitoring, URL scraping interface
 
 ### Data Storage Model
+
+#### Source-file retention: `uploads/` is permanent storage
+
+**Decision (2026-08-19):** files placed in `<TDZ_DATA_DIR>/uploads/` are
+**permanent document storage**, not a staging area. Ingest records the
+uploads path in `documents.filepath` and that path is expected to keep
+resolving for the life of the document. Nothing in the system should delete,
+prune or rotate `uploads/`.
+
+This is recorded because the answer is not derivable from the code, and two
+behaviours depend on it:
+
+- **A missing source file is a defect, not housekeeping.** 106 of the 178
+  PDFs in the live knowledge base no longer resolve at their recorded
+  `documents.filepath`. Under this policy that is a real fault to repair,
+  which is why `health_check` reports `missing_source_files` and raises its
+  status to `warning` when the count is non-zero - that metric is an alarm,
+  not noise.
+- **Re-pointing is repair, not relocation.** A tool that re-points a document
+  at a moved file is fixing a broken record; the new path must still pass the
+  `ALLOWED_DOCS_DIRS` whitelist, and `uploads/` remains a legitimate target
+  rather than somewhere files are only passing through.
+
+The indexed text is therefore not the only artifact. Anything that needs the
+original bytes - figure OCR, page rasterisation, re-chunking, the PDF viewer
+in the exported wiki - depends on the source file still being there.
 
 The knowledge base uses **SQLite database** for efficient storage and querying:
 
@@ -151,7 +187,7 @@ Documents are split into overlapping chunks (default 1500 words, 200 word overla
 #### extract_entities(doc_id, confidence_threshold=0.6, force_regenerate=False)
 Extract named entities from a single document using LLM.
 
-**Implementation** (server.py ~line 4350):
+**Implementation** (`kb/entities/_extraction.py`, `extract_entities`):
 1. **Validation** - Check document exists
 2. **Cache check** - Return existing entities unless force_regenerate
 3. **Content sampling** - Sample first 5 chunks (up to 5000 chars for cost control)
@@ -195,7 +231,7 @@ Extract named entities from a single document using LLM.
 #### get_entities(doc_id, entity_types=None, min_confidence=0.0)
 Retrieve stored entities from database with optional filtering.
 
-**Implementation** (server.py ~line 4564):
+**Implementation** (`kb/entities/_extraction.py`, `get_entities`):
 - Query document_entities table
 - Filter by entity_types array (optional)
 - Filter by min_confidence threshold
@@ -205,7 +241,7 @@ Retrieve stored entities from database with optional filtering.
 #### search_entities(query, entity_types=None, min_confidence=0.0, max_results=20)
 Search entities across all documents using FTS5 full-text search.
 
-**Implementation** (server.py ~line 4641):
+**Implementation** (`kb/entities/_extraction.py`, `search_entities`):
 1. **FTS5 query** - Search entities_fts virtual table
 2. **Filtering** - Apply entity_types and min_confidence filters
 3. **Ranking** - Order by FTS5 rank (relevance)
@@ -242,7 +278,7 @@ Search entities across all documents using FTS5 full-text search.
 #### find_docs_by_entity(entity_text, entity_type=None, min_confidence=0.0, max_results=20)
 Find all documents containing a specific entity (exact match).
 
-**Implementation** (server.py ~line 4762):
+**Implementation** (`kb/entities/_extraction.py`, `find_docs_by_entity`):
 - Exact text matching on entity_text field
 - Optional entity_type and min_confidence filtering
 - Order by confidence DESC, occurrence_count DESC
@@ -251,7 +287,7 @@ Find all documents containing a specific entity (exact match).
 #### get_entity_stats(entity_type=None)
 Get comprehensive statistics about extracted entities.
 
-**Implementation** (server.py ~line 4858):
+**Implementation** (`kb/entities/_extraction.py`, `get_entity_stats`):
 - Total entities and documents with entities
 - Breakdown by entity type (7 categories)
 - Top 20 entities by document count with avg confidence
@@ -261,7 +297,7 @@ Get comprehensive statistics about extracted entities.
 #### extract_entities_bulk(confidence_threshold=0.6, force_regenerate=False, max_docs=None, skip_existing=True)
 Bulk extract entities from multiple documents with progress tracking.
 
-**Implementation** (server.py ~line 4995):
+**Implementation** (`kb/entities/_extraction.py`, `extract_entities_bulk`):
 1. **Document selection** - Get all documents or limit with max_docs
 2. **Existing check** - Skip documents that already have entities (unless force_regenerate)
 3. **Batch processing** - Process each document with error handling
@@ -362,14 +398,14 @@ CREATE VIRTUAL TABLE entities_fts USING fts5(
 
 ### MCP Tools (5 tools)
 
-**Tool Definitions** (server.py ~line 7989-8125):
+**Tool Definitions** (`mcp_tools/schemas.py`, `TOOL_SCHEMAS` entries for `extract_entities`, `list_entities`, `search_entities`, `entity_stats`, `extract_entities_bulk`):
 1. `extract_entities` - Extract from single document
 2. `list_entities` - List entities with filtering
 3. `search_entities` - Search across all documents
 4. `entity_stats` - Statistics dashboard
 5. `extract_entities_bulk` - Bulk extraction
 
-**Tool Handlers** (server.py ~line 8941-9329):
+**Tool Handlers** (`mcp_tools/entities.py`: `handle_extract_entities`, `handle_list_entities`, `handle_search_entities`, `handle_entity_stats`, `handle_extract_entities_bulk`):
 - Formatted markdown output
 - Error handling with helpful LLM configuration messages
 - Sample results (first N per category)
@@ -377,13 +413,13 @@ CREATE VIRTUAL TABLE entities_fts USING fts5(
 
 ### CLI Commands (4 commands)
 
-**Command Definitions** (cli.py ~line 108-130):
+**Command Definitions** (`cli.py`, `main()`: `extract-entities`, `extract-all-entities`, `search-entity`, `entity-stats` subparsers):
 1. `extract-entities <doc_id>` - Single document extraction
 2. `extract-all-entities` - Bulk extraction
 3. `search-entity <query>` - Search for entities
 4. `entity-stats` - Show statistics
 
-**Command Handlers** (cli.py ~line 361-497):
+**Command Handlers** (`cli.py`, `main()`: `extract-entities`, `extract-all-entities`, `search-entity`, `entity-stats` handlers):
 - Formatted console output
 - Progress indicators
 - Error messages with LLM setup instructions
@@ -393,7 +429,7 @@ CREATE VIRTUAL TABLE entities_fts USING fts5(
 
 ### Search Algorithm Architecture
 
-Search is implemented in `KnowledgeBase.search()` starting at server.py line ~350.
+Search is implemented in `KnowledgeBase.search()` (`kb/search/_retrieval.py`, `_RetrievalMixin.search`).
 
 **Current Implementation:**
 - SQLite FTS5 via `_search_fts5()` method (when USE_FTS5=1, recommended)
@@ -609,7 +645,7 @@ All database operations go through KnowledgeBase methods:
 ### Adding Documents
 
 ```python
-# server.py add_document() -> _add_document_db()
+# kb/ingest/_documents.py add_document() -> kb/core.py _add_document_db()
 # Uses transaction for ACID guarantees
 cursor.execute("BEGIN TRANSACTION")
 # Insert document + chunks
@@ -655,8 +691,8 @@ chunks = self._get_chunks_db()        # Load all chunks (for BM25)
 
 ### Adding New MCP Tools
 
-1. Add tool definition in `list_tools()` with proper inputSchema
-2. Implement handler in `call_tool()` function
+1. Add a `Tool(...)` schema to `TOOL_SCHEMAS` in `mcp_tools/schemas.py`
+2. Implement the handler function in the relevant `mcp_tools/<domain>.py` module and register it in that module's `HANDLERS_<DOMAIN>` dict (picked up by `mcp_tools/handlers.py`'s aggregation)
 3. Use KnowledgeBase methods for data operations
 4. Return list of `TextContent` objects
 
@@ -670,10 +706,10 @@ Currently supported formats:
 - **Excel** (.xlsx, .xls) - via openpyxl, method: `_extract_excel_file()`
 
 **To add new formats:**
-1. Add file extension to condition check in `add_document()` at server.py:~2230
+1. Add file extension to condition check in `add_document()` (`kb/ingest/_documents.py`)
 2. Implement extraction method (like `_extract_pdf_text` or `_extract_excel_file`)
 3. Update tool description and README
-4. Update GUI file uploaders in admin_gui.py
+4. Update GUI file uploaders in `admin_pages/documents.py`
 5. Update bulk add pattern default in `add_documents_bulk()`
 
 ## Version History
@@ -710,7 +746,7 @@ The wiki export system generates a static HTML wiki from the knowledge base, pro
 
 ### Export Pipeline
 
-1. **Data Extraction** (Lines 50-125)
+1. **Data Extraction** (`wikigen/data.py`)
    - `_export_documents()` - Document metadata with enhanced file type detection
    - `_export_entities()` - Entity groupings by type
    - `_export_graph()` - Graph nodes (178) and edges (20) for knowledge graph
@@ -720,7 +756,7 @@ The wiki export system generates a static HTML wiki from the knowledge base, pro
    - `_export_events()` - Timeline events (8 types)
    - `_export_chunks()` - All text chunks with document references
 
-2. **JSON Data Files** (Lines 88-110)
+2. **JSON Data Files** (`wiki_export.py`, `export()`)
    - `documents.json` - Full document metadata
    - `entities.json` - Grouped entities with occurrences
    - `graph.json` - Knowledge graph structure
@@ -732,7 +768,7 @@ The wiki export system generates a static HTML wiki from the knowledge base, pro
    - `search-index.json` - Fuse.js search index
    - `similarities.json` - Document similarity matrix
 
-3. **HTML Generation** (Lines 713-758)
+3. **HTML Generation** (`wikigen/pages.py`, `wikigen/browsers.py`, `wikigen/visualizations.py`)
    - `_generate_index_html()` - Home page with stats
    - `_generate_documents_browser_html()` - Document list with filters
    - `_generate_chunks_browser_html()` - Chunk browser with pagination
@@ -744,14 +780,14 @@ The wiki export system generates a static HTML wiki from the knowledge base, pro
    - `_generate_pdf_viewer_html()` - PDF.js viewer integration
    - `_generate_doc_html()` - Individual document pages (parallelized)
 
-4. **Static Assets** (Lines 3622-9175)
+4. **Static Assets** (`wiki_export.py`, `_create_css`/`_create_javascript`/`_download_libraries`; content lives in `wiki_assets/`)
    - `_create_css()` - Complete stylesheet (~5500 lines)
    - `_create_javascript()` - All JS modules (9 files, ~1650 lines total)
    - `_download_libraries()` - Fuse.js, PDF.js from CDN
 
 ### Enhanced File Type Detection (v2.23.15)
 
-Lines 170-177 in `_export_documents()`:
+In `wikigen/data.py`, `_export_documents()`:
 ```python
 # Detect file type from extension for better display
 file_type = doc_meta.file_type
@@ -767,7 +803,7 @@ Enables proper filtering on documents page (PDF, HTML, Markdown, Text separate).
 
 ### Document Similarity Map
 
-**Implementation** (Lines 323-433):
+**Implementation** (`wikigen/data.py`, `_export_document_coordinates`):
 
 Uses dimensionality reduction to visualize document relationships in 2D:
 1. Loads document embeddings from FAISS index
@@ -776,7 +812,7 @@ Uses dimensionality reduction to visualize document relationships in 2D:
 4. Retrieves k-means cluster assignments from database
 5. Exports to `coordinates.json`
 
-**Visualization** (Lines 1838-2498):
+**Visualization** (`wikigen/visualizations.py`, `_generate_similarity_map_html`):
 - Canvas-based rendering with pan/zoom
 - Color-coded by cluster (15 colors)
 - Hover tooltips show document details
@@ -794,7 +830,7 @@ Uses dimensionality reduction to visualize document relationships in 2D:
 - Added to Documents, Chunks, Topics pages
 - Gradient background, left border accent
 - Explains page purpose and features
-- CSS class: `.explanation-box` (Lines 5415-5461)
+- CSS class: `.explanation-box` (`wiki_assets/css/style.css`)
 
 **ASK AI Button:**
 - Changed icon: 💬 → 🤖 with "Ask AI" label
@@ -802,18 +838,18 @@ Uses dimensionality reduction to visualize document relationships in 2D:
 - Gradient background
 - Pulse animation (2s, infinite)
 - Enhanced hover effects (scale 1.1, rotate 5deg)
-- CSS classes: `.chat-toggle`, `.bot-icon`, `.bot-label` (Lines 5095-5146)
+- CSS classes: `.chat-toggle`, `.bot-icon`, `.bot-label` (`wiki_assets/css/style.css`)
 
 **Clickable Clusters:**
 - Topics page shows up to 10 documents per cluster
 - Clickable links to document pages
 - "...and N more" indicator for large clusters
-- JavaScript: `displayClusters()` function (Lines 7425-7468)
+- JavaScript: `displayClusters()` function (`wiki_assets/js/topics.js`)
 
 **Timeline Viewport:**
 - Height: `calc(100vh - 400px)` with `min-height: 500px`
 - Better utilizes available browser space
-- CSS: `.timeline-container` (Lines 2668-2678)
+- CSS: `.timeline-container` (`wikigen/pages.py`, `_generate_timeline_html`)
 
 ### Visualization Libraries
 

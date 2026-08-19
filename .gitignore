@@ -58,6 +58,9 @@ test_*.py
 !/test_figure_ocr.py
 !/test_llm_integration.py
 !/test_serialization.py
+!/test_admin_gui.py
+!/test_sid_ingest.py
+!/test_repoint_document.py
 check_*.py
 reimport_*.py
 debug_*.py

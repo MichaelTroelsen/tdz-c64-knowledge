@@ -423,6 +423,38 @@ def test_availability_is_reported_rather_than_crashing(figure_kb, monkeypatch):
         kb.extract_document_figures("whatever")
 
 
+def test_availability_reason_names_the_missing_binary_when_use_ocr_is_1(figure_kb, monkeypatch):
+    """USE_OCR=1 but Tesseract could not be found: must not blame USE_OCR=0.
+
+    This is the exact discrepancy that sat unresolved across three records:
+    the old message led with "USE_OCR=0" even when the env var was 1 and the
+    real cause was a missing binary.
+    """
+    kb, _ = figure_kb
+    monkeypatch.setenv("USE_OCR", "1")
+    kb.use_ocr = False  # simulates core.py's except-branch: binary not found
+
+    ok, reason = kb.figure_ocr_available()
+
+    assert ok is False
+    assert "USE_OCR=0" not in reason, f"still blaming USE_OCR=0 with USE_OCR=1: {reason!r}"
+    assert "tesseract" in reason.lower(), f"does not name the missing binary: {reason!r}"
+
+
+def test_availability_reason_says_use_ocr_0_when_that_is_the_actual_cause(figure_kb, monkeypatch):
+    kb, _ = figure_kb
+    monkeypatch.setenv("USE_OCR", "0")
+    kb.use_ocr = False
+
+    ok, reason = kb.figure_ocr_available()
+
+    assert ok is False
+    assert "USE_OCR=0" in reason, f"disabled case must say so explicitly: {reason!r}"
+    assert "tesseract" not in reason.lower(), (
+        f"disabled case should not blame a missing binary: {reason!r}"
+    )
+
+
 # ----------------------------------------------------------------------
 # Page rasterization
 #

@@ -29,7 +29,17 @@ class FiguresMixin:
         if not OCR_SUPPORT:
             return False, "pytesseract/Pillow are not installed. Install with: pip install pytesseract Pillow"
         if not self.use_ocr:
-            return False, "OCR is disabled (USE_OCR=0) or Tesseract was not found on PATH"
+            # self.use_ocr collapses two distinct causes (kb/core.py): the env
+            # var was 0, or Tesseract's binary could not be found. Re-read the
+            # env var here to tell them apart rather than repeating whichever
+            # one happens to be listed first.
+            if os.getenv('USE_OCR', '1') == '0':
+                return False, "OCR is disabled (USE_OCR=0)"
+            return False, (
+                "USE_OCR is enabled but the Tesseract binary was not found"
+                + (f" at TESSERACT_PATH={self.tesseract_path!r}" if self.tesseract_path else " on PATH")
+                + ". Install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki"
+            )
         return True, None
 
     def extract_document_figures(self, doc_id: str, force: bool = False) -> dict:

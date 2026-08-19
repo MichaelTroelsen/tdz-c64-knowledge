@@ -1,10 +1,10 @@
 {
   "generated_from": {
-    "head": "341508b",
+    "head": "f9780a9",
     "sources": [
-      ".claude/tasks/runs.jsonl (48 lines)",
-      "previous whattask.json (head ec976eb)",
-      "whats-next.md (refreshed at ec976eb)",
+      ".claude/tasks/runs.jsonl (50 lines, 41 distinct ids)",
+      "previous whattask.json (head 341508b)",
+      "whats-next.md (keyed to ec976eb, now stale)",
       "TO-DOS.md",
       "docs/ROADMAP.md",
       "CODE-REVIEW.md",
@@ -14,35 +14,11 @@
       ".env",
       "git-log",
       "git branch --merged",
-      "working-tree",
-      "runs.jsonl#figure-ocr-availability-discrepancy (opened 2)"
+      "working-tree"
     ],
     "focus": null
   },
   "tasks": [
-    {
-      "id": "bm25-empty-vocabulary-zerodivision",
-      "title": "search() raises ZeroDivisionError instead of returning no results when the BM25 corpus tokenises to nothing",
-      "source": "runs.jsonl#figure-ocr-availability-discrepancy.opened",
-      "model": "opus",
-      "mode": "main",
-      "lane": "serial",
-      "touches": [
-        "rw:kb/search/_retrieval.py",
-        "r:test_figure_ocr.py",
-        "rw:test_retrieval_quality.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "`pytest test_figure_ocr.py::test_search_finds_text_that_exists_only_inside_a_figure -q` passes because the crash is fixed, NOT because the test was weakened - the test file must be byte-identical unless a new test is ADDED. Then the full `pytest -q` returns to 309+ passed with 0 failed.",
-      "why_model": "shared search-path code every query flows through, and the cheap wrong answer - weakening the failing test - would restore a green suite while leaving the crash in place",
-      "why_mode": "the diagnosis is already in this session's context and the guard location is a judgement, not a mechanical edit",
-      "why_lane": "writes kb/search/_retrieval.py, under kb/ which plugin-system-phase-5-2 declares"
-    },
     {
       "id": "figure-ocr-unavailable-message-misleading",
       "title": "figure_ocr_available()'s failure message leads with USE_OCR=0 even when USE_OCR is 1 and the real cause is a missing binary",
@@ -316,8 +292,8 @@
     },
     {
       "id": "whats-next-md-drift",
-      "title": "whats-next.md's 'Uncommitted' block is one commit stale: it lists docs/ARCHITECTURE.md and serial.lock, both since committed or removed",
-      "source": "whats-next.md:741 vs git status at 341508b",
+      "title": "whats-next.md is keyed to HEAD ec976eb and two commits behind: its 'Uncommitted' block lists files landed in 341508b and f9780a9",
+      "source": "whats-next.md:687,741 vs git status at f9780a9",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
@@ -332,13 +308,18 @@
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "whats-next.md's 'Complete and committed' heading names the then-current HEAD and its 'Uncommitted' block reproduces `git status --porcelain` re-run at that moment; the file is still 0 CR bytes and `git ls-files whats-next.md` is still empty.",
+      "verify": "whats-next.md's 'Complete and committed' heading names f9780a9 (or the then-current HEAD) and its 'Uncommitted' block reproduces `git status --porcelain` re-run at that moment; the file is still 0 CR bytes and `git ls-files whats-next.md` is still empty.",
       "why_model": "reconciling prose against command output in a format two prior passes established",
       "why_mode": "self-contained and command-checkable, but it must run LAST in a session - refreshing it before other work lands just re-stales it",
       "why_lane": "it snapshots the whole working tree via `git status --porcelain`, so it is exclusive by nature and conflicts with any concurrent writer - the under-declaration that forced a two-stage split in the last batch, now declared"
     }
   ],
   "closed": [
+    {
+      "id": "bm25-empty-vocabulary-zerodivision",
+      "title": "search() raised ZeroDivisionError on a corpus with no tokenisable text",
+      "closed_by": "f9780a9"
+    },
     {
       "id": "figure-ocr-availability-discrepancy",
       "title": "figure_ocr_available() returned False because TESSERACT_PATH was absent from .env (fix is in .env, which is gitignored, so it carries no commit)",

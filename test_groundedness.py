@@ -404,7 +404,7 @@ def test_ensure_nli_loaded_reads_label_order_from_model_config(kb, monkeypatch):
     hardcoded default."""
     kb.use_nli_verification = True
     swapped = {0: 'entailment', 1: 'neutral', 2: 'contradiction'}
-    monkeypatch.setattr('kb.search.CrossEncoder', lambda *a, **kw: _FakeCrossEncoder(swapped))
+    monkeypatch.setattr('kb.search._retrieval.CrossEncoder', lambda *a, **kw: _FakeCrossEncoder(swapped))
 
     kb._ensure_nli_loaded()
 
@@ -415,7 +415,7 @@ def test_ensure_nli_loaded_reads_label_order_from_model_config(kb, monkeypatch):
 def test_ensure_nli_loaded_falls_back_to_standard_order_for_unrecognised_labels(kb, monkeypatch):
     kb.use_nli_verification = True
     weird = {0: 'LABEL_0', 1: 'LABEL_1', 2: 'LABEL_2'}
-    monkeypatch.setattr('kb.search.CrossEncoder', lambda *a, **kw: _FakeCrossEncoder(weird))
+    monkeypatch.setattr('kb.search._retrieval.CrossEncoder', lambda *a, **kw: _FakeCrossEncoder(weird))
 
     kb._ensure_nli_loaded()
 
@@ -429,7 +429,7 @@ def test_ensure_nli_loaded_degrades_on_load_failure(kb, monkeypatch):
     def fail(*a, **kw):
         raise RuntimeError("model download failed")
 
-    monkeypatch.setattr('kb.search.CrossEncoder', fail)
+    monkeypatch.setattr('kb.search._retrieval.CrossEncoder', fail)
     kb._ensure_nli_loaded()
 
     assert kb.use_nli_verification is False
@@ -441,7 +441,7 @@ def test_ensure_nli_loaded_is_a_noop_when_disabled(kb, monkeypatch):
     def fail(*a, **kw):
         raise AssertionError("CrossEncoder should not be called while disabled")
 
-    monkeypatch.setattr('kb.search.CrossEncoder', fail)
+    monkeypatch.setattr('kb.search._retrieval.CrossEncoder', fail)
     kb._ensure_nli_loaded()  # use_nli_verification is False by default
 
     assert kb._nli_loaded is False

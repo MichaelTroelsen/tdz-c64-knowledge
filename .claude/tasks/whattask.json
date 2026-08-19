@@ -1,28 +1,94 @@
 {
   "generated_from": {
-    "head": "9bcd8b1",
-    "sources": [".claude/tasks/runs.jsonl", "TO-DOS.md", "CODE-REVIEW.md", "whats-next.md", "github-issues", "working-tree", "git-remote-state", "ast-dependency-measurement"],
+    "head": "dcffd52",
+    "sources": [
+      ".claude/tasks/runs.jsonl",
+      "TO-DOS.md",
+      "CODE-REVIEW.md",
+      "github-issues",
+      "working-tree",
+      "git-remote-state",
+      "ast-dependency-measurement",
+      "file-size-measurement"
+    ],
     "focus": null
   },
   "tasks": [
     {
-      "id": "extract-server-models-and-flags",
-      "title": "Extract the remaining 26 blocking names from server.py's preamble - 4 dataclasses, 4 exceptions, 3 text helpers, 3 lazy factories, 13 feature flags",
+      "id": "split-oversized-kb-modules",
+      "title": "Split kb/ingest.py (3,977), kb/search.py (3,565) and kb/entities.py (2,554) so no module exceeds ~2,500 lines",
       "source": "runs.jsonl#split-knowledge-base-domain-modules",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
-      "touches": ["server.py"],
-      "mcp": ["tokensave"],
+      "touches": [
+        "rw:kb",
+        "rw:.pytest_cache"
+      ],
+      "mcp": [
+        "tokensave"
+      ],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "an ast pass shows KnowledgeBase's 253 methods reference ZERO names still defined in server.py itself (the 'defined here' bucket drops from 13 to 0 and the flags bucket from 13 to 0) AND .venv/Scripts/python.exe -m pytest -q stays at 257 passed / 3 skipped AND the MCP handshake stays in budget (test_mcp_startup.py green)",
-      "why_model": "a bounded move of a known, enumerated 26-name list against an existing suite",
-      "why_mode": "the done-condition is a re-run of the same ast measurement that produced the list, so the conclusion is mechanical",
-      "why_lane": "edits server.py's preamble, contended by every other server.py task"
+      "verify": "no file under kb/ exceeds ~2500 lines AND .venv/Scripts/python.exe -m pytest -q stays at 257 passed / 3 skipped AND all 253 method names remain reachable on the assembled KnowledgeBase",
+      "why_model": "moving whole methods between sibling mixins, with reachability making completeness checkable",
+      "why_mode": "self-contained, and the conclusion is a line count plus a method-name set comparison",
+      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit (+7 more)"
+    },
+    {
+      "id": "split-server-py-mcp-layer",
+      "title": "R12 umbrella: confirm every file is under ~2,500 lines (steps 1-3 done; only the oversized kb modules remain)",
+      "source": "CODE-REVIEW.md#R12",
+      "model": "sonnet",
+      "mode": "main",
+      "lane": "serial",
+      "touches": [
+        "r:kb",
+        "r:server.py",
+        "r:mcp_tools",
+        "rw:.pytest_cache"
+      ],
+      "mcp": [
+        "tokensave"
+      ],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [
+        "split-oversized-kb-modules"
+      ],
+      "blocked_on": null,
+      "depends_on_user": false,
+      "verify": ".venv/Scripts/python.exe -m pytest -q green (257/3) AND list_tools() returns 92 AND no .py file in the package exceeds ~2500 lines",
+      "why_model": "by this point it is a measurement over work already done, not a design decision",
+      "why_mode": "the judgement of when R12 is finished belongs with the whole tree in view",
+      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit (+9 more)"
+    },
+    {
+      "id": "split-admin-gui-pages",
+      "title": "R18: split the 5,336-line admin_gui.py into a Streamlit multipage pages/ layout",
+      "source": "CODE-REVIEW.md#R18",
+      "model": "sonnet",
+      "mode": "main",
+      "lane": "serial",
+      "touches": [
+        "rw:admin_gui.py",
+        "r:server.py"
+      ],
+      "mcp": [
+        "tokensave"
+      ],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "depends_on_user": false,
+      "verify": "python -m streamlit run admin_gui.py starts and every page renders without exception; no automated coverage exists, so this is a manual launch check",
+      "why_model": "a mechanical file split against an existing UI structure",
+      "why_mode": "verification is launching the GUI and looking at it, which is not a mechanical subtask conclusion",
+      "why_lane": "contends on server.py vs mcp-http-concurrency-audit"
     },
     {
       "id": "mcp-http-concurrency-audit",
@@ -31,17 +97,23 @@
       "model": "opus",
       "mode": "main",
       "lane": "serial",
-      "touches": ["server.py"],
-      "mcp": ["tokensave"],
+      "touches": [
+        "rw:server.py",
+        "r:kb",
+        "rw:.pytest_cache"
+      ],
+      "mcp": [
+        "tokensave"
+      ],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
       "verify": "a written list of which shared structures (self.documents, the search caches, the FAISS index) are unsafe under concurrent tool calls and why, plus either a narrowed lock with a concurrency test or a recorded decision to keep the global one",
-      "why_model": "a falsification pass over shared mutable state where a plausible-but-wrong 'this is safe' is cheap to produce and expensive to be wrong about",
+      "why_model": "a falsification pass over shared mutable state where a plausible-but-wrong \"this is safe\" is cheap to produce",
       "why_mode": "the diagnosis is the deliverable, not the edit",
-      "why_lane": "would change locking in server.py"
+      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs repoint-document-filepath-tool (+8 more)"
     },
     {
       "id": "sid-archive-ingestion",
@@ -50,8 +122,15 @@
       "model": "opus",
       "mode": "main",
       "lane": "serial",
-      "touches": ["server.py"],
-      "mcp": ["tokensave"],
+      "touches": [
+        "rw:kb/ingest.py",
+        "rw:mcp_tools/schemas.py",
+        "rw:mcp_tools/documents.py",
+        "rw:.pytest_cache"
+      ],
+      "mcp": [
+        "tokensave"
+      ],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
@@ -59,46 +138,58 @@
       "depends_on_user": false,
       "verify": "a .sid file ingests into a searchable card carrying title/author/released/chip model, checked against the real PSID header spec, and a HVSC .zip ingests its contents",
       "why_model": "a new file-type subsystem plus an external binary format whose spec must be verified, not inferred",
-      "why_mode": "spans the ingestion dispatch and the scraper",
-      "why_lane": "adds a branch to _extract_text_for_file in server.py"
+      "why_mode": "spans the ingestion dispatch and the tool surface",
+      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit (+11 more)"
     },
     {
-      "id": "to-dos-md-stale-entries",
-      "title": "Update TO-DOS.md: two of its three open items are now fixed and its counts are wrong",
-      "source": "TO-DOS.md",
+      "id": "repoint-document-filepath-tool",
+      "title": "Add a way to re-point a document at a relocated source file without reingesting (106 of 178 PDFs unreachable)",
+      "source": "TO-DOS.md#figure-ocr",
       "model": "sonnet",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": ["TO-DOS.md"],
-      "mcp": [],
+      "mode": "main",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/ingest.py",
+        "rw:mcp_tools/schemas.py",
+        "rw:mcp_tools/documents.py",
+        "rw:~/.tdz-c64-knowledge/knowledge_base.db",
+        "rw:.pytest_cache"
+      ],
+      "mcp": [
+        "tokensave"
+      ],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": [],
+      "depends_on": [
+        "uploads-retention-policy"
+      ],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "TO-DOS.md's 'figure_ocr_status overstates what is reachable' item is marked DONE, the health_check-metric sub-item (a) is marked DONE with (b) and (c) still open, and the '131 of 168 PDFs' figures read 106 of 178",
-      "why_model": "striking through completed items and correcting two numbers",
-      "why_mode": "bounded to one file with a greppable done-condition",
-      "why_lane": "TO-DOS.md is touched by no other open task"
+      "verify": "re-pointing a document at a moved file updates documents.filepath, passes the ALLOWED_DOCS_DIRS whitelist, makes extract_document_figures reach it, and drops health_check's missing_source_files count; test in test_figure_ocr.py",
+      "why_model": "a bounded new tool once the retention policy fixes its semantics",
+      "why_mode": "it rewrites rows in the live 1,144-document KB, so what a safe re-point means matters more than the edit",
+      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit (+13 more)"
     },
     {
       "id": "code-review-md-restore-backup-identifier",
-      "title": "Sync CODE-REVIEW.md: R10 names a method that does not exist, and R12's status and line counts are three refactors out of date",
+      "title": "Sync CODE-REVIEW.md: R10 names a method that does not exist, and R12 is now four refactors out of date",
       "source": "runs.jsonl#pickle-design-in-plan-docs",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "parallel",
-      "touches": ["CODE-REVIEW.md"],
+      "touches": [
+        "rw:CODE-REVIEW.md"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "CODE-REVIEW.md has 0 bare uses of restore_backup (real method is restore_from_backup) AND R12 no longer says '23,538-line god file' but records: step 1 done (MCP layer -> mcp_tools/, now 8 domain modules), helpers -> util.py done, server.py at 19,913 lines, steps for models/flags and the KnowledgeBase split still open",
+      "verify": "CODE-REVIEW.md has 0 bare uses of restore_backup (real name restore_from_backup) AND R12 no longer says \"23,538-line god file\" but records server.py at 552 lines with the util/models/text_utils/features extraction, the kb/ mixins and the mcp_tools split",
       "why_model": "correcting an identifier and a set of numbers against already-verified facts",
       "why_mode": "bounded to one file with a greppable done-condition",
-      "why_lane": "CODE-REVIEW.md is touched by no other open task"
+      "why_lane": "no declared path overlaps another task's, and none is exclusive by nature"
     },
     {
       "id": "mcp-http-client-deprecated-alias",
@@ -106,37 +197,44 @@
       "source": "runs.jsonl#mcp-streamable-http-transport",
       "model": "sonnet",
       "mode": "subtask",
-      "lane": "parallel",
-      "touches": ["test_mcp_startup.py"],
+      "lane": "serial",
+      "touches": [
+        "rw:test_mcp_startup.py",
+        "rw:.pytest_cache"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": ".venv/Scripts/python.exe -m pytest test_mcp_startup.py -q -k http passes with no DeprecationWarning about streamable_http_client; both names exist in the pinned mcp 1.24.0, so the new one is safe against the declared floor",
+      "verify": ".venv/Scripts/python.exe -m pytest test_mcp_startup.py -q -k http passes with no DeprecationWarning about streamable_http_client; both names exist in the pinned mcp 1.24.0",
       "why_model": "a two-call rename with an existing test to prove it",
       "why_mode": "self-contained, and the conclusion is the absence of a warning",
-      "why_lane": "test_mcp_startup.py is touched by no other open task"
+      "why_lane": "contends on .pytest_cache vs archive-tests-break-collection; .pytest_cache vs mcp-http-concurrency-audit; .pytest_cache vs repoint-document-filepath-tool (+3 more)"
     },
     {
       "id": "archive-tests-break-collection",
-      "title": "Decide the fate of archive/tests/test_advanced_visualizations.py, which corrupts pytest's capture streams on import",
+      "title": "Fix archive/tests/test_advanced_visualizations.py, which corrupts pytest's capture streams on import",
       "source": "runs.jsonl#pytest-testpaths",
       "model": "sonnet",
       "mode": "subtask",
-      "lane": "parallel",
-      "touches": ["archive/tests/"],
+      "lane": "serial",
+      "touches": [
+        "rw:archive/tests",
+        "rw:pyproject.toml",
+        "rw:.pytest_cache"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "with 'archive' removed from norecursedirs in pyproject.toml, .venv/Scripts/python.exe -m pytest --collect-only -q still exits 0 - the root cause fixed rather than only excluded (restore norecursedirs afterwards either way)",
+      "verify": "with 'archive' removed from norecursedirs in pyproject.toml, pytest --collect-only -q still exits 0 - the root cause fixed rather than only excluded (restore norecursedirs afterwards either way)",
       "why_model": "a contained root-cause fix in one archived test file",
       "why_mode": "narrow, with an exit code as the conclusion",
-      "why_lane": "archive/tests/ is touched by no other open task"
+      "why_lane": "contends on .pytest_cache vs mcp-http-client-deprecated-alias; .pytest_cache vs mcp-http-concurrency-audit; .pytest_cache vs repoint-document-filepath-tool (+3 more)"
     },
     {
       "id": "gitattributes-jsonl-line-endings",
@@ -145,150 +243,42 @@
       "model": "sonnet",
       "mode": "subtask",
       "lane": "parallel",
-      "touches": [".gitattributes"],
+      "touches": [
+        "rw:.gitattributes"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "a .gitattributes exists with an eol=lf rule scoped to .claude/tasks/*, `git check-attr eol .claude/tasks/runs.jsonl` reports lf, and `git status` shows no other file newly modified by renormalisation",
+      "verify": "a .gitattributes exists with an eol=lf rule scoped to .claude/tasks/*, `git check-attr eol .claude/tasks/runs.jsonl` reports lf, and git status shows no other file newly modified by renormalisation",
       "why_model": "a two-line file with a checkable git attribute",
       "why_mode": "self-contained, and the conclusion is a git check-attr result",
-      "why_lane": ".gitattributes does not yet exist and no other task touches it"
+      "why_lane": "no declared path overlaps another task's, and none is exclusive by nature"
     },
     {
-      "id": "split-knowledge-base-domain-modules",
-      "title": "R12 step 2: split KnowledgeBase's 253 methods (server.py lines 389-19532) into domain modules behind the existing facade",
-      "source": "runs.jsonl#split-server-py-mcp-layer",
-      "model": "opus",
-      "mode": "main",
-      "lane": "serial",
-      "touches": ["server.py"],
-      "mcp": ["tokensave"],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": ["extract-server-models-and-flags"],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": ".venv/Scripts/python.exe -m pytest -q stays at 257 passed / 3 skipped AND external readers of kb.db_conn (rest_server, admin_gui, wiki_export) still import AND health_check output is unchanged",
-      "why_model": "253 methods over shared mutable state and a thread-local connection property, where the failure mode is a subtle behaviour change rather than a syntax error",
-      "why_mode": "the domain boundaries are a design decision needing the file in view, not a mechanical move",
-      "why_lane": "rewrites server.py wholesale"
-    },
-    {
-      "id": "split-server-py-mcp-layer",
-      "title": "R12 umbrella: get every file under ~2500 lines (steps 1 and 3 done, the KnowledgeBase split remains)",
-      "source": "CODE-REVIEW.md#R12",
-      "model": "opus",
-      "mode": "main",
-      "lane": "serial",
-      "touches": ["server.py"],
-      "mcp": ["tokensave"],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": ["split-knowledge-base-domain-modules"],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": ".venv/Scripts/python.exe -m pytest -q stays green (257 passed / 3 skipped) AND list_tools() still returns 92 tools AND no file over ~2500 lines",
-      "why_model": "a structural move across the whole file where a silently dropped method is cheap to produce",
-      "why_mode": "the umbrella judgement of when the split is done needs the whole file in view",
-      "why_lane": "rewrites server.py; nothing else may touch it concurrently"
-    },
-    {
-      "id": "split-admin-gui-pages",
-      "title": "R18: split the 5,336-line admin_gui.py into a Streamlit multipage pages/ layout",
-      "source": "CODE-REVIEW.md#R18",
-      "model": "sonnet",
-      "mode": "main",
-      "lane": "parallel",
-      "touches": ["admin_gui.py"],
-      "mcp": ["tokensave"],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": ["split-knowledge-base-domain-modules"],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "python -m streamlit run admin_gui.py starts and every page renders without exception; no automated coverage exists, so this is a manual launch check",
-      "why_model": "a mechanical file split against an existing UI structure",
-      "why_mode": "verification is launching the GUI and looking at it, which is not a mechanical subtask conclusion",
-      "why_lane": "writes only admin_gui.py and a new pages/ dir"
-    },
-    {
-      "id": "repoint-document-filepath-tool",
-      "title": "Add a way to re-point a document at a relocated source file without reingesting (106 of 178 PDFs are unreachable)",
-      "source": "TO-DOS.md#figure-ocr",
-      "model": "sonnet",
-      "mode": "main",
-      "lane": "serial",
-      "touches": ["server.py", "~/.tdz-c64-knowledge/knowledge_base.db"],
-      "mcp": ["tokensave"],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": ["uploads-retention-policy"],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "re-pointing a document at a moved file updates documents.filepath, passes the ALLOWED_DOCS_DIRS whitelist, makes extract_document_figures reach it, and drops health_check's missing_source_files count; test in test_figure_ocr.py",
-      "why_model": "a bounded new tool once the retention policy fixes its semantics",
-      "why_mode": "it rewrites rows in the live 1,144-document KB, so what a safe re-point means matters more than the edit",
-      "why_lane": "edits server.py and mutates the production database"
-    },
-    {
-      "id": "commit-r12-steps-2-3-work",
-      "title": "Commit the util.py extraction and the mcp_tools domain split - two verified tasks sitting uncommitted",
+      "id": "commit-todos-and-runlog",
+      "title": "Commit the TO-DOS.md reconciliation and the run log",
       "source": "working-tree",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
-      "touches": ["server.py", "util.py", "mcp_tools/", "test_scrape_politeness.py"],
+      "touches": [
+        "rw:TO-DOS.md",
+        "rw:.claude/tasks",
+        "rw:git-branch:master"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "Committing is the user's call. Two completed tasks are uncommitted: extract-server-helpers-to-util (new util.py, server.py, test_scrape_politeness.py) and split-handlers-by-domain (mcp_tools/handlers.py plus 8 new domain modules). Both verified green at 257 passed / 3 skipped.",
+      "blocked_on": "Committing is the user's call. TO-DOS.md carries the reconciliation from to-dos-md-stale-entries and .claude/tasks/runs.jsonl has grown by several records, both uncommitted on master.",
       "depends_on_user": true,
-      "verify": "git status is clean of those paths and git log shows the work committed",
+      "verify": "git status is clean of TO-DOS.md and .claude/tasks/, and git log shows the commit",
       "why_model": "a commit, no design",
       "why_mode": "the repo's convention is not to commit unasked",
-      "why_lane": "moves the branch every other server.py task builds on"
-    },
-    {
-      "id": "push-master-to-origin",
-      "title": "Push master to origin - 3 commits ahead, including the ones the closed issue #16 cites",
-      "source": "git-remote-state",
-      "model": "sonnet",
-      "mode": "requires-user",
-      "lane": "serial",
-      "touches": ["git-remote:origin/master"],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "Pushing is outward-facing and publishes to a public GitHub repo, so it needs an explicit instruction. origin/master is at 4b61705 while local master is at 9bcd8b1. Issue #16 is closed citing commits not yet visible on GitHub.",
-      "depends_on_user": true,
-      "verify": "git rev-parse origin/master equals git rev-parse master, and `git log --oneline origin/master..master` is empty",
-      "why_model": "a single push once authorised",
-      "why_mode": "publishing to a public remote is the user's call, not a default",
-      "why_lane": "moves the shared remote branch"
-    },
-    {
-      "id": "verify-http-transport-across-machines",
-      "title": "Verify the HTTP transport laptop-to-desktop over Tailscale, the scenario issue #16 actually existed for",
-      "source": "runs.jsonl#commit-r12-and-merge-branch",
-      "model": "sonnet",
-      "mode": "requires-user",
-      "lane": "serial",
-      "touches": ["~/.tdz-c64-knowledge/knowledge_base.db", "network:host-port"],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "Needs the second machine and the real network. Everything so far was verified against 127.0.0.1 only; the laptop must host with TDZ_API_KEYS set and the desktop must connect as a client, which no amount of work in this session can substitute for.",
-      "depends_on_user": true,
-      "verify": "on the desktop, `claude mcp add --transport http tdz-c64-knowledge http://<host>:8765/mcp --header \"X-API-Key: ...\"` yields a working session listing 92 tools, with TDZ_MCP_ALLOWED_HOSTS set to the hostname actually used",
-      "why_model": "running a documented command and reading the result",
-      "why_mode": "requires physical access to a second machine",
-      "why_lane": "serves the live database over a real network port"
+      "why_lane": "contends on git-branch:master is exclusive by nature"
     },
     {
       "id": "uploads-retention-policy",
@@ -297,7 +287,9 @@
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "parallel",
-      "touches": [],
+      "touches": [
+        "rw:docs/ARCHITECTURE.md"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
@@ -307,7 +299,29 @@
       "verify": "the decision is written into docs/ARCHITECTURE.md so the next reader does not have to re-derive it",
       "why_model": "no code until the policy exists",
       "why_mode": "a storage policy over the user's own data cannot be inferred from the repo",
-      "why_lane": "writes nothing until decided"
+      "why_lane": "no declared path overlaps another task's, and none is exclusive by nature"
+    },
+    {
+      "id": "verify-http-transport-across-machines",
+      "title": "Verify the HTTP transport laptop-to-desktop over Tailscale, the scenario issue #16 existed for",
+      "source": "runs.jsonl#commit-r12-and-merge-branch",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": [
+        "rw:~/.tdz-c64-knowledge/knowledge_base.db",
+        "rw:network:host-port"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "Needs the second machine and the real network. Everything so far was verified against 127.0.0.1 only; the laptop must host with TDZ_API_KEYS set and the desktop must connect as a client.",
+      "depends_on_user": true,
+      "verify": "on the desktop, `claude mcp add --transport http tdz-c64-knowledge http://<host>:8765/mcp --header \"X-API-Key: ...\"` yields a working session listing 92 tools, with TDZ_MCP_ALLOWED_HOSTS set to the hostname actually used",
+      "why_model": "running a documented command and reading the result",
+      "why_mode": "requires physical access to a second machine",
+      "why_lane": "contends on network:host-port is exclusive by nature; ~/.tdz-c64-knowledge/knowledge_base.db is exclusive by nature; ~/.tdz-c64-knowledge/knowledge_base.db vs repoint-document-filepath-tool"
     },
     {
       "id": "changelog-2-24-0-duplicate",
@@ -316,7 +330,9 @@
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
-      "touches": ["docs/CHANGELOG.md"],
+      "touches": [
+        "rw:docs/CHANGELOG.md"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
@@ -326,7 +342,7 @@
       "verify": "exactly one '## [2.24.0]' heading remains in docs/CHANGELOG.md AND .venv/Scripts/python.exe validate_docs.py passes",
       "why_model": "a doc edit once the human has said which section wins",
       "why_mode": "blocked on a fact about release intent not recoverable from the repo",
-      "why_lane": "shares docs/CHANGELOG.md with changelog-version-history-overlap"
+      "why_lane": "contends on docs/CHANGELOG.md vs changelog-version-history-overlap"
     },
     {
       "id": "changelog-version-history-overlap",
@@ -335,39 +351,144 @@
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
-      "touches": ["docs/CHANGELOG.md", "docs/VERSION_HISTORY.md"],
+      "touches": [
+        "rw:docs/CHANGELOG.md",
+        "rw:docs/VERSION_HISTORY.md"
+      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": ["changelog-2-24-0-duplicate"],
+      "depends_on": [
+        "changelog-2-24-0-duplicate"
+      ],
       "blocked_on": "Whether to rewrite release history that cannot be verified after the fact. A previous session deliberately declined and left explanatory notes in both files instead.",
       "depends_on_user": true,
       "verify": "either both files keep their explanatory notes (decision: leave as is) or CHANGELOG.md gains an entry for every version present in VERSION_HISTORY.md",
       "why_model": "mechanical transcription once the call is made",
       "why_mode": "the question is what the project wants its history to claim",
-      "why_lane": "writes docs/CHANGELOG.md, shared with the task above"
+      "why_lane": "contends on docs/CHANGELOG.md vs changelog-2-24-0-duplicate"
     }
   ],
   "closed": [
-    { "id": "extract-server-helpers-to-util", "title": "R12 step 3: move the self-contained helpers to util.py", "closed_by": "runs.jsonl: done (UNCOMMITTED in the working tree). util.py 283 lines; server.py 20,150 -> 19,913; single-lock proof passed; 257/3 unchanged." },
-    { "id": "split-handlers-by-domain", "title": "Split mcp_tools/handlers.py into per-domain modules", "closed_by": "runs.jsonl: done (UNCOMMITTED). handlers.py 3,624 -> 48 as an aggregator plus 8 domain modules; all 92 bodies byte-identical to HEAD; 257/3 unchanged." },
-    { "id": "commit-r12-and-merge-branch", "title": "Commit the R12 step-1 work and merge to master", "closed_by": "4d683c2, fast-forwarded onto master" },
-    { "id": "mcp-streamable-http-transport", "title": "Add a streamable-HTTP transport to the MCP server (issue #16)", "closed_by": "2a3ebee; github#16 CLOSED. Caveat: verified only against 127.0.0.1." },
-    { "id": "pytest-testpaths", "title": "Add [tool.pytest.ini_options] testpaths to pyproject.toml", "closed_by": "2a3ebee" },
-    { "id": "figure-ocr-status-reachability", "title": "Split figure_ocr_status documents_remaining into reachable vs unreachable", "closed_by": "2a3ebee" },
-    { "id": "health-metric-missing-source-files", "title": "Add a health_check metric counting documents whose filepath no longer exists", "closed_by": "2a3ebee" },
-    { "id": "pickle-design-in-plan-docs", "title": "Annotate the superseded pickle graph_cache design in the plan docs", "closed_by": "2a3ebee" },
-    { "id": "refresh-stale-handoff-doc", "title": "Mark whats-next.md superseded", "closed_by": "runs.jsonl: done (file is deliberately untracked)" },
-    { "id": "track-task-plan-and-run-log", "title": "Track .claude/tasks/whattask.json and runs.jsonl in git", "closed_by": "9bcd8b1" },
-    { "id": "merge-hardening-branch", "title": "Merge branch hardening-and-figure-ocr to master", "closed_by": "1dc4611" },
-    { "id": "install-tesseract", "title": "Install Tesseract so figure OCR can run", "closed_by": "installed at C:/Program Files/Tesseract-OCR/tesseract.exe" },
-    { "id": "figure-ocr-batch-run", "title": "Run the figure-OCR batch over the waiting PDFs", "closed_by": "live DB document_figures holds 14,397 rows" },
-    { "id": "run-anomaly-migration", "title": "Run migration_v2_21_0.py to create the anomaly-detection tables", "closed_by": "live DB has anomaly_patterns and anomaly_baselines" },
-    { "id": "settings-local-json-uncommitted", "title": "Decide what to do with the tracked .claude/settings.local.json change", "closed_by": "7e3cade" },
-    { "id": "figure-rasterize-pages", "title": "Rasterize pages instead of only extracting embedded images", "closed_by": "47f652f" },
-    { "id": "parallelise-figure-ocr", "title": "Parallelise the figure-OCR batch", "closed_by": "47f652f" },
-    { "id": "polite-crawl-defaults", "title": "Add polite-crawl defaults before scraping volunteer wikis (R11)", "closed_by": "afaa424" },
-    { "id": "sync-kb-across-machines", "title": "No supported way to sync the knowledge base across two machines", "closed_by": "github#15 closed, superseded by #16" },
-    { "id": "doc-audit-findings", "title": "The 14 DOC-AUDIT.md findings filed as issues #3-#8", "closed_by": "github issues #3,#4,#5,#6,#7,#8 all closed" }
+    {
+      "id": "to-dos-md-stale-entries",
+      "title": "Update TO-DOS.md's stale items and counts",
+      "closed_by": "runs.jsonl: done (UNCOMMITTED; 131/168 -> 106/178, two items marked DONE)"
+    },
+    {
+      "id": "split-knowledge-base-domain-modules",
+      "title": "R12 step 2: KnowledgeBase's 253 methods into 9 domain mixins",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "extract-server-models-and-flags",
+      "title": "Extract the 26 blocking names into models/text_utils/features",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "extract-server-helpers-to-util",
+      "title": "R12 step 3: helpers to util.py",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "split-handlers-by-domain",
+      "title": "Split mcp_tools/handlers.py into 8 domain modules",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "commit-r12-steps-2-3-work",
+      "title": "Commit the R12 steps 2-3 work",
+      "closed_by": "dcffd52"
+    },
+    {
+      "id": "push-master-to-origin",
+      "title": "Push master to origin",
+      "closed_by": "dcffd52 pushed; origin/master == master, 0 unpushed"
+    },
+    {
+      "id": "mcp-streamable-http-transport",
+      "title": "Streamable-HTTP transport (issue #16)",
+      "closed_by": "2a3ebee; github#16 CLOSED. Caveat: only verified against 127.0.0.1."
+    },
+    {
+      "id": "commit-r12-and-merge-branch",
+      "title": "Commit R12 step 1 and merge to master",
+      "closed_by": "4d683c2"
+    },
+    {
+      "id": "pytest-testpaths",
+      "title": "Add [tool.pytest.ini_options] testpaths",
+      "closed_by": "2a3ebee"
+    },
+    {
+      "id": "figure-ocr-status-reachability",
+      "title": "Split figure_ocr_status into reachable/unreachable",
+      "closed_by": "2a3ebee"
+    },
+    {
+      "id": "health-metric-missing-source-files",
+      "title": "health_check missing_source_files metric",
+      "closed_by": "2a3ebee"
+    },
+    {
+      "id": "pickle-design-in-plan-docs",
+      "title": "Annotate the superseded pickle graph_cache design",
+      "closed_by": "2a3ebee"
+    },
+    {
+      "id": "refresh-stale-handoff-doc",
+      "title": "Mark whats-next.md superseded",
+      "closed_by": "runs.jsonl: done (file deliberately untracked)"
+    },
+    {
+      "id": "track-task-plan-and-run-log",
+      "title": "Track whattask.json and runs.jsonl in git",
+      "closed_by": "9bcd8b1"
+    },
+    {
+      "id": "merge-hardening-branch",
+      "title": "Merge hardening-and-figure-ocr",
+      "closed_by": "1dc4611"
+    },
+    {
+      "id": "install-tesseract",
+      "title": "Install Tesseract",
+      "closed_by": "installed at C:/Program Files/Tesseract-OCR"
+    },
+    {
+      "id": "figure-ocr-batch-run",
+      "title": "Run the figure-OCR batch",
+      "closed_by": "live DB document_figures holds 14,397 rows"
+    },
+    {
+      "id": "run-anomaly-migration",
+      "title": "Create the anomaly-detection tables",
+      "closed_by": "live DB has anomaly_patterns and anomaly_baselines"
+    },
+    {
+      "id": "figure-rasterize-pages",
+      "title": "Rasterize pages as well as embedded images",
+      "closed_by": "47f652f"
+    },
+    {
+      "id": "parallelise-figure-ocr",
+      "title": "Parallelise the figure-OCR batch",
+      "closed_by": "47f652f"
+    },
+    {
+      "id": "polite-crawl-defaults",
+      "title": "Polite-crawl defaults (R11)",
+      "closed_by": "afaa424"
+    },
+    {
+      "id": "sync-kb-across-machines",
+      "title": "Sync the KB across two machines",
+      "closed_by": "github#15 closed, superseded by #16"
+    },
+    {
+      "id": "doc-audit-findings",
+      "title": "The 14 DOC-AUDIT.md findings",
+      "closed_by": "github issues #3-#8 all closed"
+    }
   ]
 }

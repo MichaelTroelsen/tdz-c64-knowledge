@@ -258,11 +258,35 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             # Over HTTP one process serves several clients, so two tool calls
             # can now overlap. Thread-local connections keep SQLite safe (see
-            # KnowledgeBase.db_conn), but the in-memory catalogue, the search
-            # caches and the FAISS index are shared mutable state that has
-            # only ever been exercised one client at a time. Serialise until
-            # that is audited - a slow tool blocking a second client is a
-            # better failure than a corrupted index.
+            # KnowledgeBase.db_conn); everything else the tools touch is shared
+            # mutable state. This lock is deliberately global. Audited, and the
+            # obvious narrowing does not work:
+            #
+            #   - A reader/writer split fails because there are almost no
+            #     readers. search, semantic_search, faceted_search,
+            #     find_similar_documents, the entity queries and even
+            #     health_check all WRITE a cache on the way out - 10 distinct
+            #     `_cache[cache_key] = ...` sites across kb/. cachetools is not
+            #     internally synchronised (TTLCache.__setitem__ takes no lock,
+            #     checked against cachetools 6.2.4), so two "read-only" tools
+            #     racing on one TTLCache corrupt it.
+            #   - self.documents is iterated at 26 sites across kb/ and written
+            #     in kb/core.py. Iterating it while another thread inserts
+            #     raises "dictionary changed size during iteration" - a crash,
+            #     not a subtle wrong answer.
+            #   - self.embeddings_index is both mutated (.add) and REPLACED
+            #     (= faiss.IndexFlatIP(...)) while searches read it; a faiss
+            #     index is not safe for concurrent add and search.
+            #
+            # Narrowing is possible in principle - a lock per structure, taken
+            # at each of those ~36 sites - and it would buy something real: a
+            # long scrape_url or add_document would then hold the documents
+            # lock only while mutating, not for the whole crawl. It is not
+            # worth it yet. There is no concurrency test in the suite to catch
+            # a missed site, and one missed site is a corrupted index rather
+            # than a slow one. Revisit if multi-client HTTP use makes the
+            # serialisation actually painful; write the concurrency tests
+            # first.
             async with _tool_call_lock:
                 result = await asyncio.to_thread(_call_tool_impl, name, arguments)
         return result

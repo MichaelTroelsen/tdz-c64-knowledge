@@ -1,0 +1,6 @@
+# .claude/tasks/runs.jsonl and whattask.json are append-only tooling output,
+# always written with bare LF, and shared between machines via git. Without
+# this, core.autocrlf=true here would materialise them as CRLF on a fresh
+# clone/checkout, diverging from what the tooling appends and producing a
+# mixed-ending file.
+.claude/tasks/* eol=lf

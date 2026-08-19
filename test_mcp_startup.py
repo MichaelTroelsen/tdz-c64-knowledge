@@ -582,7 +582,7 @@ def test_ensure_embeddings_degrades_instead_of_hanging_when_offline(data_dir):
         "    c = socket.socket()\n"
         "    c.connect(('127.0.0.1', port))\n"
         "    c.recv(1)  # never arrives - simulates a filtered/dead connection\n"
-        "import kb.search; kb.search.SentenceTransformer = fake_st\n"
+        "import kb.search._retrieval as _r; _r.SentenceTransformer = fake_st\n"
         "kb = server.KnowledgeBase(server.os.environ['TDZ_DATA_DIR'])\n"
         "assert kb.use_semantic, 'test setup: semantic search should be enabled'\n"
         "start = time.time()\n"
@@ -634,7 +634,7 @@ def test_ensure_embeddings_degrades_when_cached_path_itself_hangs(data_dir):
         "    c.connect(('127.0.0.1', port))\n"
         "    c.recv(1)  # never arrives\n"
         "    raise AssertionError('unreachable')\n"
-        "import kb.search; kb.search.SentenceTransformer = fake_st\n"
+        "import kb.search._retrieval as _r; _r.SentenceTransformer = fake_st\n"
         "kb = server.KnowledgeBase(server.os.environ['TDZ_DATA_DIR'])\n"
         "assert kb.use_semantic, 'test setup: semantic search should be enabled'\n"
         "start = time.time()\n"
@@ -1240,15 +1240,31 @@ def _http_initialize(url, headers=None):
     """Complete a real MCP handshake over HTTP and return (serverInfo, tool count)."""
     import asyncio
 
+    import httpx
+
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
+    from mcp.client.streamable_http import streamable_http_client
+    # create_mcp_http_client is private, and that is a deliberate trade rather
+    # than an oversight. streamable_http_client is not a rename of
+    # streamablehttp_client: it dropped headers/timeout in favour of a
+    # caller-built client, and this helper is what applies the defaults the
+    # transport expects - notably follow_redirects, which matters here because
+    # POST /mcp answers 307 to /mcp/. Hand-rolling an httpx.AsyncClient would
+    # risk silently missing that. If an mcp bump moves this helper, the import
+    # breaks loudly, which is the failure mode to prefer.
+    from mcp.shared._httpx_utils import create_mcp_http_client
 
     async def go():
-        async with streamablehttp_client(url, headers=headers, timeout=30) as (r, w, _):
-            async with ClientSession(r, w) as session:
-                init = await session.initialize()
-                tools = await session.list_tools()
-                return init.serverInfo.name, len(tools.tools)
+        # The SDK closes only a client it created itself ("if not
+        # client_provided"), so a caller-supplied one is owned here.
+        async with create_mcp_http_client(
+            headers=headers, timeout=httpx.Timeout(30)
+        ) as http_client:
+            async with streamable_http_client(url, http_client=http_client) as (r, w, _):
+                async with ClientSession(r, w) as session:
+                    init = await session.initialize()
+                    tools = await session.list_tools()
+                    return init.serverInfo.name, len(tools.tools)
 
     return asyncio.run(go())
 

@@ -114,7 +114,7 @@ OCR of a scanned PDF can take minutes), `scrape_url` (`server.py:20605`, an
 entire-site crawl can run for hours), `update_document`, `rescrape_document`,
 `extract_entities` / `extract_entities_bulk`, `summarize_all`, `auto_tag_all`,
 `train_lda_topics`/`train_nmf_topics`/`train_bertopic`, clustering tools,
-`create_backup`/`restore_backup`, `check_url_updates`.
+`create_backup`/`restore_from_backup`, `check_url_updates`.
 
 **Failure scenario:** exactly issue #13 again (see the comment at
 `server.py:21069-21078`): while `scrape_url` crawls, every other request on
@@ -210,7 +210,7 @@ N minutes) as `failed: interrupted by restart`. Consider a max-runtime guard.
 **Failure scenario:** anyone who can write the `knowledge_base.db` file (it's
 shared across processes, restored from backups, and lives in a user directory)
 gets arbitrary code execution in every server process that loads a cached
-graph. Backup/restore (`restore_from_backup`, `server.py:17850`) makes
+graph. Backup/restore (`restore_from_backup`, `kb/admin.py:852`) makes
 foreign DB files a realistic input.
 
 **Fix:** serialize with `networkx.node_link_data(G)` → JSON, load with
@@ -234,11 +234,11 @@ HVSC/DeepSID ingestion item, which is a feature, not a review fix).
 
 ## P2 — Architecture & maintainability
 
-### [ ] R12. `server.py` is a 23,538-line god file; `KnowledgeBase` has ~250 methods
+### [ ] R12. `server.py` was a >20,000-line god file; `KnowledgeBase` had ~250 methods — now 552 lines, split into `util`/`models`/`text_utils`/`features`, `kb/` mixins, and `mcp_tools`
 
-**Where:** `server.py:442-17987` (one class, ~17.5k lines), `list_tools()`
-~2,170 lines (`server.py:17998`), `_call_tool_impl` ~3,290 lines of
-`elif name ==` chain (`server.py:20175`).
+**Where (as originally found):** `server.py:442-17987` (one class, ~17.5k
+lines), `list_tools()` ~2,170 lines (`server.py:17998`), `_call_tool_impl`
+~3,290 lines of `elif name ==` chain (`server.py:20175`).
 
 **Why it matters:** every change risks unrelated breakage, review is
 impossible, merge conflicts are constant, and the file defeats editor/CI
@@ -258,6 +258,31 @@ tooling. This is the single biggest tax on future work.
 3. Move helpers (`_LazyModule`, locks, retry, atomic write) into `util.py`.
 Target: no file over ~2,500 lines. Do it as several PRs, tests green between
 each.
+
+**Status update — the fix above has been carried out, across four commits:**
+- **`4d683c2`** — the MCP layer left `server.py`: `list_tools()`'s
+  `Tool(...)` literals moved to `mcp_tools/schemas.py` (2,272 lines) and the
+  92-branch `elif name ==` dispatch moved to per-tool handler functions;
+  `_call_tool_impl` is now a dict lookup.
+- **`dcffd52`** — the preamble left `server.py`: `util.py` (283 lines — the
+  locks, retry, atomic write, `http_*`/robots `allows` helpers), `models.py`
+  (105 lines — 4 dataclasses + 4 exceptions), `text_utils.py` (86 lines),
+  `features.py` (171 lines — the 11 feature flags, faiss, the lazy-model
+  factories). All 253 `KnowledgeBase` methods then moved into 9 domain
+  mixins under `kb/`, leaving `class KnowledgeBase(IngestMixin, ...,
+  CoreMixin)` in `server.py` with only its docstring and 9 class attributes.
+- **Uncommitted, verified green** — `mcp_tools/handlers.py` split into 8
+  per-domain modules behind a checked aggregator; `kb/ingest.py`,
+  `kb/search.py`, and `kb/entities.py` became packages composing their
+  public mixin from private sub-mixins.
+- **Current sizes:** `server.py` is now **552 lines** (from 25,830 when this
+  entry was written). The largest file in the package is now
+  `kb/topics.py` at 2,406 lines, then `kb/core.py` (2,264) and
+  `kb/ingest/_documents.py` (2,233) — nothing exceeds the ~2,500 target.
+  Suite is 257 passed / 3 skipped; `list_tools()` returns 92 tools.
+- **Not yet done:** a separate task still has to run the umbrella
+  verification for this refactor formally, so the checkbox above stays
+  unchecked pending that pass — this entry records the state, not closure.
 
 ### [x] R13. `version.py` is 1,871 lines because the full changelog lives in a Python string
 
@@ -425,7 +450,7 @@ catches immediately.
   `self.db_conn = ...` had to change: `_init_database()` no longer connects at
   all (the first statement inside `_init_database_locked` triggers the lazy
   open) and `close()` routes through the new `_close_all_conns()`.
-- **`restore_backup()` calls `_init_database()` a second time**, after the .db
+- **`restore_from_backup()` (now `kb/admin.py:852`) calls `_init_database()` a second time**, after the .db
   file on disk has been replaced. With one shared connection that just
   reconnected; with per-thread connections every stale connection has to be
   dropped, so `_init_database()` now begins with `_close_all_conns()` (which

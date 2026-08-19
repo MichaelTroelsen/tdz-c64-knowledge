@@ -1,91 +1,69 @@
 {
   "generated_from": {
-    "head": "ec976eb",
+    "head": "341508b",
     "sources": [
-      ".claude/tasks/runs.jsonl",
-      "previous whattask.json (head b043e25)",
+      ".claude/tasks/runs.jsonl (48 lines)",
+      "previous whattask.json (head ec976eb)",
+      "whats-next.md (refreshed at ec976eb)",
       "TO-DOS.md",
-      "whats-next.md",
       "docs/ROADMAP.md",
       "CODE-REVIEW.md",
-      "docs/ARCHITECTURE.md",
       "docs/CHANGELOG.md",
       "pyproject.toml",
       "wikigen/data.py",
       ".env",
       "git-log",
-      "working-tree"
+      "git branch --merged",
+      "working-tree",
+      "runs.jsonl#figure-ocr-availability-discrepancy (opened 2)"
     ],
     "focus": null
   },
   "tasks": [
     {
-      "id": "architecture-md-json-output-list-incomplete",
-      "title": "docs/ARCHITECTURE.md's JSON output list names 10 files; the exporter writes 12 (navigation.json, stats.json missing)",
-      "source": "runs.jsonl#architecture-md-stale-output-list.opened",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:docs/ARCHITECTURE.md",
-        "r:wiki_export.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "Every _save_json('X.json', ...) call in wiki_export.py appears in the ARCHITECTURE.md list and vice versa: the doc's section-2 bullet list must gain navigation.json (wiki_export.py:277) and stats.json (:279). Then `python validate_docs.py` still reports PASSED.",
-      "why_model": "a two-name doc correction against a verified grep, no design judgement",
-      "why_mode": "the conclusion is mechanical - the exporter's own _save_json calls are the ground truth",
-      "why_lane": "only writer of docs/ARCHITECTURE.md, and only reads wiki_export.py, which no other task writes"
-    },
-    {
-      "id": "refresh-handoff-doc-post-wiki-split",
-      "title": "whats-next.md is stale again: keyed to HEAD 5c6c541 and describing a 13-file uncommitted pile that landed in b043e25/ec976eb",
-      "source": "whats-next.md#603 vs git status at ec976eb",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:whats-next.md",
-        "r:.claude/tasks/runs.jsonl"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "depends_on_user": false,
-      "verify": "whats-next.md's 'Complete and committed' heading names ec976eb; its 'Uncommitted' block reproduces `git status --porcelain` as measured during the refresh, verbatim, including the runner-owned .claude/tasks/ entries (do not hardcode an earlier snapshot - re-run the command); the file is still pure LF (zero CR bytes) and still untracked (`git ls-files whats-next.md` empty).",
-      "why_model": "reconciling prose against command output, with the previous two passes' format already established",
-      "why_mode": "self-contained and every claim is command-checkable, but the LF-only and stay-untracked discipline must be carried into the subagent prompt",
-      "why_lane": "sole writer of whats-next.md; reads only the runner-owned run log"
-    },
-    {
-      "id": "figure-ocr-availability-discrepancy",
-      "title": "figure_ocr_available() reports False although USE_OCR=1, tesseract.exe exists at the documented path, and 14,397 figure rows were produced",
-      "source": "runs.jsonl#repoint-document-filepath-tool.opened",
+      "id": "bm25-empty-vocabulary-zerodivision",
+      "title": "search() raises ZeroDivisionError instead of returning no results when the BM25 corpus tokenises to nothing",
+      "source": "runs.jsonl#figure-ocr-availability-discrepancy.opened",
       "model": "opus",
       "mode": "main",
       "lane": "serial",
       "touches": [
-        "rw:.env",
-        "r:kb/figures.py",
-        "r:features.py",
-        "r:test_figure_ocr.py"
+        "rw:kb/search/_retrieval.py",
+        "r:test_figure_ocr.py",
+        "rw:test_retrieval_quality.py"
       ],
       "mcp": [],
-      "needs_main": true,
-      "needs_main_reason": "the diagnosis matters more than the measurement - a previous pass wrote a green-but-vacuous test around this exact ambiguity, and the record holds two mutually contradicting claims about the same environment",
+      "needs_main": false,
+      "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
       "depends_on_user": false,
-      "verify": "Name which candidate cause holds, each falsifiable: (a) .env is not loaded in the pytest process, (b) TESSERACT_PATH is unset in .env (confirmed - only .env.example:78 mentions it, commented out) and the Tesseract directory is not on PATH, (c) figure_ocr_available() gates on something other than the binary. Then figure_ocr_available() returns True in the same interpreter environment `pytest test_figure_ocr.py -q` runs in, or every doc claiming OCR is available is corrected to match reality.",
-      "why_model": "a root-cause hunt across config loading, PATH and feature detection where a plausible-but-wrong answer is cheap to produce and already was once",
-      "why_mode": "needs the surrounding record - the contradiction sits between the run log, the docs and the live environment, not inside one file",
-      "why_lane": "writes .env, the global runtime config every concurrently-running task inherits"
+      "verify": "`pytest test_figure_ocr.py::test_search_finds_text_that_exists_only_inside_a_figure -q` passes because the crash is fixed, NOT because the test was weakened - the test file must be byte-identical unless a new test is ADDED. Then the full `pytest -q` returns to 309+ passed with 0 failed.",
+      "why_model": "shared search-path code every query flows through, and the cheap wrong answer - weakening the failing test - would restore a green suite while leaving the crash in place",
+      "why_mode": "the diagnosis is already in this session's context and the guard location is a judgement, not a mechanical edit",
+      "why_lane": "writes kb/search/_retrieval.py, under kb/ which plugin-system-phase-5-2 declares"
+    },
+    {
+      "id": "figure-ocr-unavailable-message-misleading",
+      "title": "figure_ocr_available()'s failure message leads with USE_OCR=0 even when USE_OCR is 1 and the real cause is a missing binary",
+      "source": "runs.jsonl#figure-ocr-availability-discrepancy.opened",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/figures.py",
+        "r:kb/core.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "depends_on_user": false,
+      "verify": "With USE_OCR=1 and no Tesseract reachable, figure_ocr_available()'s reason names the missing binary and does NOT claim USE_OCR=0; with USE_OCR=0 it says so. Both branches covered by a test in test_figure_ocr.py, and `pytest test_figure_ocr.py -q` green.",
+      "why_model": "splitting one disjunctive string into the two branches the caller already distinguishes",
+      "why_mode": "self-contained, and the two branches are enumerable from kb/core.py:236-275",
+      "why_lane": "writes kb/figures.py, under kb/ which plugin-system-phase-5-2 declares"
     },
     {
       "id": "deepsid-json-api-ingestion",
@@ -314,9 +292,68 @@
       "why_model": "a new extension architecture cutting across server.py, mcp_tools/ and kb/, overlapping an extension mechanism that already exists",
       "why_mode": "a product decision about whether to build it at all",
       "why_lane": "writes server.py, which verify-http-transport-across-machines reads, and kb/, which deepsid-json-api-ingestion writes"
+    },
+    {
+      "id": "stale-merged-branches",
+      "title": "Five branches remain in the repo and all five are fully merged into master",
+      "source": "git branch --merged master at 341508b; runs.jsonl#push-master-to-origin.notes",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "parallel",
+      "touches": [
+        "rw:git-refs/heads"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "fix/mcp-startup-timeout, hardening-and-figure-ocr, mcp-http-transport-and-fixes, retrieval-quality and wiki-split-sid-ingest-docs are all ancestors of master (`git branch --no-merged master` is empty), so all five are redundant. Deleting a branch is destructive and the user has not asked; the run log already records leaving one in place for exactly this reason.",
+      "depends_on_user": true,
+      "verify": "`git branch --merged master` lists nothing but master, or a note records which branches are deliberately kept and why.",
+      "why_model": "five `git branch -d` invocations once the call is made",
+      "why_mode": "deleting branches is destructive and unasked - the repo's own convention is to leave them",
+      "why_lane": "the only task on this list touching git refs"
+    },
+    {
+      "id": "whats-next-md-drift",
+      "title": "whats-next.md's 'Uncommitted' block is one commit stale: it lists docs/ARCHITECTURE.md and serial.lock, both since committed or removed",
+      "source": "whats-next.md:741 vs git status at 341508b",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:whats-next.md",
+        "r:.claude/tasks/runs.jsonl",
+        "r:<git-worktree-snapshot>"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "depends_on_user": false,
+      "verify": "whats-next.md's 'Complete and committed' heading names the then-current HEAD and its 'Uncommitted' block reproduces `git status --porcelain` re-run at that moment; the file is still 0 CR bytes and `git ls-files whats-next.md` is still empty.",
+      "why_model": "reconciling prose against command output in a format two prior passes established",
+      "why_mode": "self-contained and command-checkable, but it must run LAST in a session - refreshing it before other work lands just re-stales it",
+      "why_lane": "it snapshots the whole working tree via `git status --porcelain`, so it is exclusive by nature and conflicts with any concurrent writer - the under-declaration that forced a two-stage split in the last batch, now declared"
     }
   ],
   "closed": [
+    {
+      "id": "figure-ocr-availability-discrepancy",
+      "title": "figure_ocr_available() returned False because TESSERACT_PATH was absent from .env (fix is in .env, which is gitignored, so it carries no commit)",
+      "closed_by": "341508b"
+    },
+    {
+      "id": "refresh-handoff-doc-post-wiki-split",
+      "title": "Refresh whats-next.md after the wiki split landed",
+      "closed_by": "341508b"
+    },
+    {
+      "id": "architecture-md-json-output-list-incomplete",
+      "title": "docs/ARCHITECTURE.md's JSON output list was missing navigation.json and stats.json",
+      "closed_by": "341508b"
+    },
     {
       "id": "architecture-md-stale-output-list",
       "title": "Fix two verified-false claims in docs/ARCHITECTURE.md's wiki-output list",

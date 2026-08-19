@@ -223,3 +223,36 @@ def test_rag_context_falls_back_to_snippet_for_a_missing_chunk(kb):
 
 def test_rag_context_handles_no_results(kb):
     assert kb._build_rag_context([], 'question') == ""
+
+
+# ---------------------------------------------------------------------------
+# 3. BM25 over a corpus with no tokenisable text
+# ---------------------------------------------------------------------------
+
+def test_search_survives_a_corpus_that_tokenises_to_nothing(kb, temp_data_dir):
+    """A corpus of image-only PDFs carries no tokenisable text at all.
+
+    BM25Okapi computes average_idf as idf_sum / len(self.idf), so building
+    the index over an empty vocabulary raised ZeroDivisionError - search()
+    crashed instead of returning nothing. The index is now skipped and the
+    query falls through to simple search.
+
+    Found by test_figure_ocr.py's figure-search test, which only reaches this
+    path when Tesseract is configured; this one reaches it everywhere."""
+    _write_doc(temp_data_dir, 'stopwords.txt', 'the a of and to is it ' * 40)
+    kb.add_document(os.path.join(temp_data_dir, 'stopwords.txt'), tags=['test'])
+
+    # Precondition, asserted rather than assumed: if this content ever stops
+    # tokenising to nothing, the test must fail loudly instead of passing
+    # without ever exercising the guard.
+    chunks = kb.chunks or kb._get_chunks_db()
+    assert chunks, 'fixture is wrong - the document produced no chunks'
+    assert all(not kb._preprocess_text(c.content) for c in chunks), \
+        'fixture is wrong - the corpus tokenised to something'
+
+    kb.bm25 = None
+    kb._build_bm25_index()
+    assert kb.bm25 is None, 'guard not taken - the index was built anyway'
+
+    # The user-visible behaviour: no results, not an exception.
+    assert kb.search('scanline') == []

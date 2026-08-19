@@ -82,6 +82,16 @@ class _RetrievalMixin:
         tokenize_time = time.time() - tokenize_start
         self.logger.info(f"Tokenization completed in {tokenize_time:.2f}s")
 
+        # Every chunk tokenised to nothing - an image-only corpus, or content
+        # that is entirely stopwords. BM25Okapi computes average_idf as
+        # idf_sum / len(self.idf), so an empty vocabulary raises
+        # ZeroDivisionError rather than yielding an index that returns no hits.
+        # Leaving self.bm25 as None routes search() through _search_simple -
+        # the same fallback the two guards above already rely on.
+        if not any(tokenized_corpus):
+            self.logger.info("BM25 index not built (no chunk produced any tokens)")
+            return
+
         # Build BM25 index
         index_start = time.time()
         self.bm25 = BM25Okapi(tokenized_corpus)

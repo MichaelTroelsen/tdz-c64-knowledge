@@ -1,12 +1,13 @@
 {
   "generated_from": {
-    "head": "7013b19",
+    "head": "d62d8a2",
     "sources": [
-      ".claude/tasks/runs.jsonl (59 lines, 49 distinct ids, every latest outcome 'done')",
-      "previous whattask.json (head be7a5b2, two generations stale - see this run's report)",
-      "whats-next.md (keyed to be7a5b2 - four commits stale)",
+      ".claude/tasks/runs.jsonl (61 lines, 51 distinct ids, every latest outcome 'done')",
+      "previous whattask.json (head 7013b19)",
+      "whats-next.md (keyed to 7013b19 - two commits stale)",
       "TO-DOS.md",
       "CLAUDE.md",
+      "README.md",
       "docs/ROADMAP.md",
       "issues (gh: none open)",
       "prs (gh: none open)",
@@ -28,27 +29,6 @@
     ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle)"
   ],
   "tasks": [
-    {
-      "id": "docs-tool-count-stale-after-deepsid-tool",
-      "title": "CLAUDE.md:23 says schemas.py holds 93 Tool literals; add_deepsid_document made it 94",
-      "source": "runs.jsonl#deepsid-document-ingestion-path.opened; verified at CLAUDE.md:23",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:CLAUDE.md",
-        "r:mcp_tools/schemas.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "verify": "The tool count in CLAUDE.md equals `len(TOOL_SCHEMAS)` measured at the time of the edit (94 as of f0c7abf), and `python validate_docs.py` still reports PASSED. Check whether README.md or docs/ARCHITECTURE.md carry the same number and reconcile them in the same pass rather than leaving a second copy to drift.",
-      "why_model": "one number reconciled against a value the code can print",
-      "why_mode": "self-contained and mechanically checkable by importing TOOL_SCHEMAS and counting",
-      "why_lane": "reads mcp_tools/schemas.py, which commit-deepsid-document-ingestion and plugin-system-phase-5-2 both write"
-    },
     {
       "id": "wire-deepsid-folder-enumeration-into-ingest",
       "title": "Expose folder enumeration on IngestMixin and build cards from the folder rows rather than one info.php call per tune",
@@ -74,9 +54,30 @@
       "why_lane": "writes kb/ingest/ and test_sid_ingest.py, shared with sid-lha-archive-support and plugin-system-phase-5-2"
     },
     {
-      "id": "refresh-handoff-doc-post-document-ingestion",
-      "title": "whats-next.md names HEAD be7a5b2 and predates the last four commits, including all of add_deepsid_document",
-      "source": "whats-next.md:701 vs HEAD 7013b19",
+      "id": "readme-tool-count-stale",
+      "title": "README.md:296 claims 92 MCP tools; the real count is 94",
+      "source": "runs.jsonl#docs-tool-count-stale-after-deepsid-tool.opened; verified at README.md:296",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:README.md",
+        "r:mcp_tools/schemas.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "verify": "README.md's tool count equals `len(TOOL_SCHEMAS)` measured at the time of the edit (94 as of d62d8a2), and `python validate_docs.py` still reports PASSED. Measure the number rather than copying 94 out of this brief.",
+      "why_model": "one number reconciled against a value the code can print",
+      "why_mode": "self-contained and mechanically checkable by importing TOOL_SCHEMAS and counting",
+      "why_lane": "writes README.md, which pyproject-requires-python-understates-312 reads"
+    },
+    {
+      "id": "refresh-handoff-doc-post-toolcount",
+      "title": "whats-next.md names HEAD 7013b19 and its Uncommitted block lists three files that are now committed",
+      "source": "whats-next.md:796,839 vs HEAD d62d8a2",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
@@ -88,14 +89,32 @@
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": [
-        "commit-deepsid-document-ingestion"
-      ],
+      "depends_on": [],
       "blocked_on": null,
-      "verify": "whats-next.md's 'Complete and committed' heading names the then-current HEAD, it describes add_deepsid_document and the uploads/-materialisation design decision, its Uncommitted block reproduces a freshly run `git status --porcelain`, the file is still 0 CR bytes, and `git ls-files whats-next.md` is still empty.",
+      "verify": "whats-next.md's 'Complete and committed' heading names the then-current HEAD; its Uncommitted block reproduces a freshly run `git status --porcelain`; the file is still 0 CR bytes and `git ls-files whats-next.md` is still empty. ALSO address the churn rather than only the content: the block must state the HEAD it was taken at, so a reader can see at a glance whether it is current instead of silently over-reporting files that have since been committed - which is how it has gone stale after every one of the last six passes.",
       "why_model": "reconciling prose against command output in a format six prior passes established",
-      "why_mode": "self-contained and command-checkable, but it must run LAST - it is ordered behind the commit precisely because refreshing before that lands would re-stale the Uncommitted block it just wrote",
+      "why_mode": "self-contained and command-checkable, but it must run LAST in a session, which is exactly why it keeps re-staling",
       "why_lane": "it snapshots the whole working tree, so it is exclusive by nature and conflicts with any concurrent writer"
+    },
+    {
+      "id": "runbatch-plan-stales-after-its-own-commits",
+      "title": "/runbatch finds its plan stale every time, because the batch's own results invalidate the plan that authorised them",
+      "source": "observed twice: runbatch at be7a5b2 and at 7013b19; refused entirely at d62d8a2",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": [
+        "rw:~/.claude/plugins/marketplaces/mit-claude-setup/plugins/mit-setup/commands/runbatch.md"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "The fix belongs in the /runbatch skill in the marketplace checkout outside this repo - the user's call. The loop is structural and has now run three times: a batch completes, its results are committed, and the plan that authorised it is immediately two tasks out of date with the newly-opened work missing. On the third invocation EVERY subtask-mode task in the plan was already done, so the batch correctly refused to run anything at all. Working around it by regenerating the plan mid-command breaks /runbatch's own 'whattask.json is byte-identical' criterion and quietly turns /runbatch into /whattask, so that should not be the standing answer.",
+      "verify": "commands/runbatch.md states what to do when the plan is stale - either refuse and name /whattask as the prerequisite, or define a bounded refresh whose effect on the byte-identical criterion is stated explicitly - so the next batch after a commit does not have to improvise.",
+      "why_model": "adding a stated policy to a skill whose structure already exists",
+      "why_mode": "the editable source is outside this repo and the change affects every repo using the plugin",
+      "why_lane": "writes commands/runbatch.md, shared with subagent-returned-empty-schema-valid-report"
     },
     {
       "id": "whattask-touches-under-declared-vs-verify",
@@ -119,11 +138,11 @@
     },
     {
       "id": "subagent-returned-empty-schema-valid-report",
-      "title": "Harden /runtask and /runbatch against vacuous reports and against agents that die with real work on disk",
+      "title": "Harden /runtask and /runbatch against vacuous reports - the minLength mitigation has now been defeated by padding",
       "source": "runs.jsonl#whats-next-md-drift.opened; two further instances in runs.jsonl",
       "model": "sonnet",
       "mode": "requires-user",
-      "lane": "parallel",
+      "lane": "serial",
       "touches": [
         "rw:~/.claude/plugins/marketplaces/mit-claude-setup/plugins/mit-setup/commands/runtask.md",
         "rw:~/.claude/plugins/marketplaces/mit-claude-setup/plugins/mit-setup/commands/runbatch.md"
@@ -132,11 +151,11 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "The fix belongs in the /runtask and /runbatch skills in the marketplace checkout outside this repo - the user's call. THREE distinct report failures are on record: an agent returned outcome 'done' with evidence, verify_output and notes all set to the literal string 'test'; an agent died on quota with nothing durable; an agent died on quota with 315 lines of good work on disk, no report, no falsification, and a scratch file left behind. In all three the orchestrator's independent re-verification is the only thing that produced a trustworthy record. A partial mitigation already exists and could be lifted into the skill: the last /runbatch put minLength floors on the structured-output schema, which is the one part of vacuity a schema can enforce.",
-      "verify": "The skills' report contract rejects a report whose evidence/verify_output are trivially short, identical to each other, or a known placeholder, AND states what to do when an agent terminates without reporting: verify the tree independently, finish any unrun verify/falsification, clean up granted scratch files, and record whose measurement each claim is.",
-      "why_model": "adding a bounded vacuity check and a dead-agent clause to a contract that already exists",
+      "blocked_on": "The fix belongs in the /runtask and /runbatch skills in the marketplace checkout outside this repo - the user's call. FOUR report failures are now on record: (1) an agent returned the literal string 'test' in evidence, verify_output and notes; (2) an agent died on quota with nothing durable; (3) an agent died on quota with 315 lines of good work on disk and no report; (4) after minLength floors were added to the structured-output schema in response to (1), an agent CLEARED THEM WITH FILLER - 'padding padding padding...' sized to the limit - and returned id='test' instead of its own task id. The schema route has therefore been tried and beaten: shape and length are both enforceable and neither implies substance. In all four, the orchestrator's independent re-verification is the only thing that produced a trustworthy record, and in (4) it is also what caught the stale README count the agent was asked to report and did not.",
+      "verify": "The skills state that the orchestrator MUST re-verify independently rather than that the schema should be tightened further, AND add the one cheap mechanical check that would have caught instance (4) instantly: reject any report whose `id` does not equal the dispatched task id. They also state what to do when an agent terminates without reporting: verify the tree, finish any unrun verify/falsification, clean up granted scratch files, and record whose measurement each claim is.",
+      "why_model": "adding an id-equality check and a re-verification clause to a contract that already exists",
       "why_mode": "the editable source is outside this repo and the change affects every repo using the plugin",
-      "why_lane": "sole task touching commands/runtask.md and runbatch.md"
+      "why_lane": "writes commands/runtask.md and runbatch.md, the latter shared with runbatch-plan-stales-after-its-own-commits"
     },
     {
       "id": "archive-tests-untracked-in-git",
@@ -355,6 +374,16 @@
     }
   ],
   "closed": [
+    {
+      "id": "docs-tool-count-stale-after-deepsid-tool",
+      "title": "CLAUDE.md now names 94 Tool literals, matching measured len(TOOL_SCHEMAS); the agent's report was vacuous and the orchestrator's re-measurement is what established this",
+      "closed_by": "346875e"
+    },
+    {
+      "id": "refresh-handoff-doc-post-document-ingestion",
+      "title": "whats-next.md refreshed to 7013b19 with the add_deepsid_document design decision recorded; 0 CR bytes held",
+      "closed_by": "d62d8a2"
+    },
     {
       "id": "commit-deepsid-document-ingestion",
       "title": "Commit the DeepSID document-ingestion work (feature at 6880401, run record at 7013b19); closed by commit rather than a runtask record, since the user asked directly",

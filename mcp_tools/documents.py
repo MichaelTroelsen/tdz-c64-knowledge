@@ -377,6 +377,29 @@ def handle_add_deepsid_document(kb, name: str, arguments: dict) -> list[TextCont
     ))]
 
 
+def handle_add_deepsid_folder(kb, name: str, arguments: dict) -> list[TextContent]:
+    """Ingest every tune in one DeepSID folder as documents, one request."""
+    folder = arguments.get("folder")
+    tags = arguments.get("tags")
+    limit = arguments.get("limit")
+
+    if not folder:
+        return [TextContent(type="text", text="Error: folder is required")]
+
+    try:
+        docs = kb.add_deepsid_folder(folder, tags, limit=limit)
+    except Exception as e:
+        # DeepSidError's messages name their own cause (missing XHR header,
+        # wrong path format, no matching folder), so surfacing the text is
+        # more useful here than classifying it.
+        return [TextContent(type="text", text=f"Error ingesting DeepSID folder: {e}")]
+
+    output = f"Added {len(docs)} DeepSID document(s) from folder: {folder}\n"
+    for doc in docs:
+        output += f"  - {doc.title} (doc_id: {doc.doc_id})\n"
+    return [TextContent(type="text", text=output)]
+
+
 def handle_repoint_document(kb, name: str, arguments: dict) -> list[TextContent]:
     """Repair a document whose source file has moved, without reingesting."""
     doc_id = arguments.get("doc_id")
@@ -422,6 +445,7 @@ HANDLERS_DOCUMENTS = {
     "remove_document": handle_remove_document,
     "repoint_document": handle_repoint_document,
     "add_deepsid_document": handle_add_deepsid_document,
+    "add_deepsid_folder": handle_add_deepsid_folder,
     "find_similar": handle_find_similar,
     "answer_question": handle_answer_question,
 }

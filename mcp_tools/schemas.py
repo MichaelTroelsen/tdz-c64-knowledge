@@ -336,6 +336,48 @@ TOOL_SCHEMAS: list[Tool] = [
             }
         ),
         Tool(
+            name="add_deepsid_folder",
+            description=(
+                "Ingest every tune in one DeepSID folder from a SINGLE request, as "
+                "searchable documents - because one music.php listing already carries "
+                "each tune's author, release, chip model, lengths, player and STIL "
+                "entry, so this makes exactly one request no matter how many tunes the "
+                "folder holds (a 96-tune folder still costs one call - do not loop "
+                "add_deepsid_document per tune). Does NOT walk subfolders; lists one "
+                "directory only. "
+                "WARNING: `folder` uses a DIFFERENT path format than "
+                "add_deepsid_document's `fullname`, and swapping them fails silently "
+                "(music.php answers HTTP 500 with an empty body; info.php returns an "
+                "empty record). `folder` takes a LEADING SLASH and no other prefix "
+                "change, e.g. '/_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob' "
+                "- contrast add_deepsid_document's `fullname`, which has a leading "
+                "underscore and NO leading slash, e.g. "
+                "'_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob/Commando.sid'."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "folder": {
+                        "type": "string",
+                        "description": (
+                            "Folder path, LEADING SLASH required, e.g. "
+                            "'/_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob'"
+                        )
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional tags to attach to each created document"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optional cap on how many of the folder's tunes to ingest"
+                    }
+                },
+                "required": ["folder"]
+            }
+        ),
+        Tool(
             name="remove_document",
             description="Remove a document from the knowledge base.",
             inputSchema={

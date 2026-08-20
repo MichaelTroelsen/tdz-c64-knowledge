@@ -541,6 +541,23 @@ def test_add_deepsid_document_is_registered_as_an_mcp_tool():
     assert "_High Voltage SID Collection" in schema.description
 
 
+def test_add_deepsid_folder_is_registered_as_an_mcp_tool():
+    """Same interface gap as add_deepsid_document: useless if unreachable."""
+    from mcp_tools.documents import HANDLERS_DOCUMENTS
+    from mcp_tools.schemas import TOOL_SCHEMAS
+
+    assert "add_deepsid_folder" in HANDLERS_DOCUMENTS
+    schema = next(t for t in TOOL_SCHEMAS if t.name == "add_deepsid_folder")
+    assert schema.inputSchema["required"] == ["folder"]
+    # music.php's `folder` (leading slash) and info.php's `fullname` (leading
+    # underscore, no leading slash) are confusable and fail silently when
+    # swapped, so the description must show both concrete forms.
+    assert "/_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob" in schema.description
+    assert "_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob/Commando.sid" in schema.description
+    # one call must ingest the whole folder, not one call per tune
+    assert "one request" in schema.description.lower() or "single request" in schema.description.lower()
+
+
 class _FakeResponse:
     def __init__(self, body, status_code=200):
         self.text = body

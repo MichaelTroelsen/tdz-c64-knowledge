@@ -293,7 +293,7 @@ See [PHASE3_TEMPORAL_ANALYSIS.md](docs/PHASE3_TEMPORAL_ANALYSIS.md) for complete
 
 ## Tools
 
-92 MCP tools organized by category. Key tools listed below.
+94 MCP tools organized by category. Key tools listed below.
 
 ### Search Tools
 

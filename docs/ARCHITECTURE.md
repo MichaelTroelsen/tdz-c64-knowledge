@@ -10,7 +10,7 @@ For user-facing documentation, see [README.md](README.md).
 
 **server.py** - MCP server entry point (576 lines)
 - Transports: stdio and streamable HTTP
-- `list_tools()` returns `mcp_tools/schemas.py`'s `TOOL_SCHEMAS` (93 `Tool(...)` literals)
+- `list_tools()` returns `mcp_tools/schemas.py`'s `TOOL_SCHEMAS` (95 `Tool(...)` literals)
 - `call_tool()` dispatches via `mcp_tools/handlers.py`'s `HANDLERS` dict (a lookup, not an `elif` chain)
 - MCP resource handlers: Exposes documents as `c64kb://` URIs
 

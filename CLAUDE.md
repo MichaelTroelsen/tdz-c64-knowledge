@@ -20,7 +20,7 @@ MCP server for searching Commodore 64 documentation. Ingests PDFs/text/web pages
 
 - `server.py` - MCP server entry point (576 lines): transports (stdio + streamable HTTP) and tool dispatch
 - `kb/` - `KnowledgeBase` class, split into domain mixins (`core.py`, `ingest/`, `search/`, `entities/`, `graph.py`, `topics.py`, `temporal.py`, `figures.py`, `admin.py`)
-- `mcp_tools/` - MCP tool layer: `schemas.py` (the 94 `Tool(...)` literals), `handlers.py` (aggregator), plus 8 domain handler modules (`admin.py`, `documents.py`, `entities.py`, `figures.py`, `knowledge_graph.py`, `search.py`, `temporal.py`, `topics.py`)
+- `mcp_tools/` - MCP tool layer: `schemas.py` (the 95 `Tool(...)` literals), `handlers.py` (aggregator), plus 8 domain handler modules (`admin.py`, `documents.py`, `entities.py`, `figures.py`, `knowledge_graph.py`, `search.py`, `temporal.py`, `topics.py`)
 - `util.py`, `models.py`, `text_utils.py`, `features.py` - shared module preamble (formerly the top of server.py)
 - `rest_server.py` - FastAPI REST API (18 endpoints, optional)
 - `cli.py` - Command-line interface

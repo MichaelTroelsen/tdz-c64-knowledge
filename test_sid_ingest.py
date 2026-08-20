@@ -8,15 +8,21 @@ v1 files, or a name field that keeps its NUL padding all produce output that
 looks reasonable until you compare it with the spec.
 """
 
+import json
 import struct
 import zipfile
 
 import pytest
 
 from kb.ingest._sid import (
+    DeepSidError,
     SidHeaderError,
     V1_HEADER_SIZE,
     V2_HEADER_SIZE,
+    deepsid_card_text,
+    deepsid_info_to_meta,
+    deepsid_info_url,
+    parse_deepsid_payload,
     parse_sid_header,
     parse_sid_zip,
     sid_card_text,
@@ -273,3 +279,223 @@ def test_zip_with_no_sid_members_is_refused(kb, tmp_path):
     with pytest.raises((UnsupportedFileTypeError, Exception)) as exc:
         kb.add_document(str(z))
     assert "no readable SID" in str(exc.value)
+
+
+# --- DeepSID JSON API -------------------------------------------------------
+#
+# The reply below is shaped after DeepSID's php/info.php, which echoes
+# {"status": "ok", "info": {...}} with these keys. No test here touches the
+# network: the point of the endpoint's contract is that it can be pinned.
+
+# The real collection_path format, established against the live endpoint: the
+# collection folder carries a leading underscore and there is NO leading slash.
+# The obvious-looking "/High Voltage SID Collection/..." is a MISS, and a miss
+# is not an error (see test_a_path_that_matches_no_tune_is_refused), so getting
+# this wrong yields an empty card rather than a failure.
+DEEPSID_FULLNAME = "_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob/Commando.sid"
+
+DEEPSID_INFO = {
+    "player": "Rob_Hubbard",
+    "lengths": "3:30 1:59",
+    "type": "PSID",
+    "version": "2",
+    "playertype": "Rob Hubbard",
+    "playercompat": "R64",
+    "clockspeed": "PAL",
+    "sidmodel": "MOS6581",
+    "dataoffset": 124,
+    "datasize": 3021,
+    # PDO hands numbers back as strings; both shapes appear here on purpose.
+    "loadaddr": "4096",
+    "initaddr": 4099,
+    "playaddr": 4102,
+    "subtunes": "2",
+    "startsubtune": "1",
+    "name": "Commando",
+    "author": "Rob Hubbard",
+    "released": "1985 Elite",
+    "hash": "d41d8cd98f00b204e9800998ecf8427e",
+    # The live endpoint returns STIL with literal <br /> in it.
+    "stil": "COMMENT: I went down to their<br />office and started working.",
+}
+
+
+def _ok(info=None):
+    return json.dumps({"status": "ok", "info": info if info is not None else DEEPSID_INFO})
+
+
+def test_info_url_percent_encodes_the_collection_path():
+    """fullname holds spaces and slashes, so pasting it in unencoded breaks it."""
+    url = deepsid_info_url(DEEPSID_FULLNAME)
+    assert url.startswith("https://deepsid.chordian.net/php/info.php?")
+    assert " " not in url
+    assert "High+Voltage+SID+Collection" in url or "High%20Voltage%20SID%20Collection" in url
+    assert "Commando.sid" in url.replace("%2F", "/").replace("+", " ")
+
+
+def test_info_url_rejects_an_empty_fullname():
+    with pytest.raises(DeepSidError):
+        deepsid_info_url("   ")
+
+
+def test_direct_access_refusal_names_the_missing_header():
+    """php/info.php dies with a plain sentence, not JSON, when the header is absent.
+
+    A bare json.loads reports a decode error about byte offsets, which sends
+    the reader looking at the payload instead of at the request. This is the
+    single likeliest way a first integration fails, so the message has to name
+    the header.
+    """
+    with pytest.raises(DeepSidError) as exc:
+        parse_deepsid_payload("Direct access not permitted.")
+    assert "X-Requested-With" in str(exc.value)
+
+
+def test_error_status_is_caught_even_though_it_arrives_as_http_200():
+    """info.php reports failure in the body, so raise_for_status never fires."""
+    body = json.dumps({"status": "error", "message": "Unknown file."})
+    with pytest.raises(DeepSidError) as exc:
+        parse_deepsid_payload(body)
+    assert "Unknown file." in str(exc.value)
+
+
+@pytest.mark.parametrize("body", ["", "   ", "<html>502</html>", "[1, 2, 3]",
+                                  '{"status": "ok"}'])
+def test_unusable_replies_raise_rather_than_yielding_an_empty_card(body):
+    with pytest.raises(DeepSidError):
+        parse_deepsid_payload(body)
+
+
+def test_payload_returns_the_info_object_on_success():
+    assert parse_deepsid_payload(_ok())["name"] == "Commando"
+
+
+def test_numeric_fields_survive_arriving_as_strings():
+    """loadaddr comes back as "4096" from PDO; the card formats it with :04X.
+
+    Left as a string that reaches sid_card_text, this raises rather than
+    rendering - so the coercion is load-bearing, not defensive decoration.
+    """
+    meta = deepsid_info_to_meta(DEEPSID_INFO)
+    assert meta["load_address"] == 4096
+    assert meta["init_address"] == 4099
+    assert meta["songs"] == 2
+    assert isinstance(meta["start_song"], int)
+
+
+def test_missing_fields_become_unknown_rather_than_an_invented_default():
+    """The local parser refuses to guess a chip model; so must this one."""
+    meta = deepsid_info_to_meta({"name": "Sparse"})
+    assert meta["chip_model"] == "Unknown"
+    assert meta["clock"] == "Unknown"
+    assert meta["load_address"] == 0
+
+
+def test_card_carries_both_the_shared_fields_and_the_deepsid_only_ones():
+    """The API is worth calling only for what the 124-byte header cannot hold."""
+    text = deepsid_card_text(DEEPSID_INFO, DEEPSID_FULLNAME)
+    for shared in ("Commando", "Rob Hubbard", "1985 Elite", "MOS6581", "PAL"):
+        assert shared in text, f"{shared!r} missing from the DeepSID card"
+    for api_only in ("3:30 1:59", "R64", "d41d8cd98f00b204e9800998ecf8427e"):
+        assert api_only in text, f"{api_only!r} missing - the header cannot supply it"
+    assert "office and started working." in text
+    assert DEEPSID_FULLNAME in text
+
+
+def test_a_path_that_matches_no_tune_is_refused(kb, monkeypatch):
+    """A miss is not an error: status is ok and info holds only a PHP default.
+
+    Confirmed against the live endpoint - a wrong path returns exactly
+    {"sidmodel": "MOS6581"}, so rendering it produces a card that names a chip
+    model for a tune that does not exist. That is the invented-default failure
+    the local parser refuses to commit, arriving over the network instead.
+    """
+    miss = json.dumps({"status": "ok", "info": {"sidmodel": "MOS6581"}})
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse(miss))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    with pytest.raises(DeepSidError) as exc:
+        kb._extract_deepsid_metadata("/wrong/format/Commando.sid")
+    assert "matched no tune" in str(exc.value)
+    # the message has to teach the format, since the path IS the failure
+    assert "_High Voltage SID Collection" in str(exc.value)
+
+
+def test_stil_html_line_breaks_become_real_lines():
+    """<br /> left in place would be indexed as part of the adjoining words."""
+    text = deepsid_card_text(DEEPSID_INFO, DEEPSID_FULLNAME)
+    assert "<br" not in text
+    assert "their\noffice" in text
+
+
+def test_card_renders_the_addresses_as_hex_like_the_local_card():
+    assert "$1000" in deepsid_card_text(DEEPSID_INFO, DEEPSID_FULLNAME)
+
+
+def test_card_omits_absent_optional_sections_instead_of_printing_blanks():
+    text = deepsid_card_text({"name": "Bare", "type": "PSID", "version": "2"},
+                             "/x/Bare.sid")
+    assert "STIL entry" not in text
+    assert "Song lengths" not in text
+    assert "Bare" in text
+
+
+class _FakeResponse:
+    def __init__(self, body, status_code=200):
+        self.text = body
+        self.status_code = status_code
+
+
+def test_mixin_fetch_sends_the_xhr_header_without_dropping_the_user_agent(kb, monkeypatch):
+    """http_get_polite does kwargs.setdefault('headers', ...).
+
+    So passing a bare {'X-Requested-With': ...} REPLACES the identifying
+    User-Agent that the politeness work exists to send, silently and without
+    failing any other assertion here. This pins both headers.
+    """
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        seen["headers"] = kwargs.get("headers", {})
+        return _FakeResponse(_ok())
+
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite", fake_get)
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    text = kb._extract_deepsid_metadata(DEEPSID_FULLNAME)
+
+    assert seen["headers"].get("X-Requested-With") == "XMLHttpRequest"
+    assert "tdz-c64-knowledge" in seen["headers"].get("User-Agent", "")
+    assert "info.php" in seen["url"]
+    assert "Commando" in text and "3:30 1:59" in text
+
+
+def test_mixin_refuses_a_non_200_before_blaming_the_body(kb, monkeypatch):
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse("<html>not found</html>", 404))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    with pytest.raises(DeepSidError) as exc:
+        kb._extract_deepsid_metadata(DEEPSID_FULLNAME)
+    assert "404" in str(exc.value)
+
+
+def test_mixin_honours_robots_txt(kb, monkeypatch):
+    monkeypatch.setattr("util.robots_allows", lambda url: False)
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: pytest.fail("fetched despite robots.txt"))
+
+    with pytest.raises(DeepSidError) as exc:
+        kb._extract_deepsid_metadata(DEEPSID_FULLNAME)
+    assert "robots" in str(exc.value).lower()
+
+
+def test_expected_methods_guard_lists_the_new_mixin_method():
+    """The guard is extended, not weakened - it must still name every method."""
+    from kb.ingest import _EXPECTED_METHODS
+    from kb.ingest._extraction import _ExtractionMixin
+
+    assert "_extract_deepsid_metadata" in _EXPECTED_METHODS
+    assert hasattr(_ExtractionMixin, "_extract_deepsid_metadata")

@@ -779,6 +779,58 @@ class _ExtractionMixin:
             parts.append("")
         return "\n".join(parts), len(parsed)
 
+    def _extract_deepsid_metadata(self, fullname: str, base_url: Optional[str] = None) -> str:
+        """Fetch one tune's metadata from DeepSID's JSON API as a text card.
+
+        Not reachable from _extract_text_for_file's extension dispatch: this
+        takes a collection path, not a file on disk, so there is no extension
+        to dispatch on. See kb/ingest/_sid.py for the endpoint's contract.
+
+        The request goes through http_get_polite for the identifying
+        User-Agent and 429/5xx backoff the rest of this server's fetches use -
+        DeepSID is one volunteer's site, and the politeness defaults exist for
+        exactly this kind of target. Note http_get_polite does
+        kwargs.setdefault('headers', ...), so passing a bare headers dict
+        would REPLACE the User-Agent rather than add to it; http_headers()
+        merges instead, which is why the XHR header is threaded through it.
+        """
+        from ._sid import (
+            DEEPSID_BASE_URL,
+            DeepSidError,
+            deepsid_card_text,
+            deepsid_info_url,
+            parse_deepsid_payload,
+        )
+        from util import http_headers, robots_allows
+
+        base = base_url or os.environ.get('TDZ_DEEPSID_BASE_URL', DEEPSID_BASE_URL)
+        url = deepsid_info_url(fullname, base)
+
+        if not robots_allows(url):
+            raise DeepSidError(f"robots.txt disallows fetching {url}")
+
+        try:
+            response = http_get_polite(
+                url,
+                headers=http_headers({'X-Requested-With': 'XMLHttpRequest'}),
+            )
+        except Exception as e:
+            raise DeepSidError(f"DeepSID request failed: {e}")
+
+        # Checked before the body: a 404 page would otherwise be reported as
+        # "non-JSON body", which names the symptom instead of the cause.
+        if response.status_code != 200:
+            raise DeepSidError(
+                f"DeepSID returned HTTP {response.status_code} for {fullname!r}"
+            )
+
+        info = parse_deepsid_payload(response.text)
+        self.logger.info(
+            f"Fetched DeepSID metadata for {fullname!r} "
+            f"({info.get('name') or 'untitled'} by {info.get('author') or 'unknown'})"
+        )
+        return deepsid_card_text(info, fullname, base)
+
     def _extract_card_id(self, text: str) -> Optional[str]:
         """Parse the logical `id` out of a knowledge card's fenced ```json block.
 

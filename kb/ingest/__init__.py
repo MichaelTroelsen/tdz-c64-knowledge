@@ -14,7 +14,8 @@ method defined in two pieces would silently shadow one of them, and the
 method count would still look right. Guard it explicitly, the same way
 mcp_tools/handlers.py guards its handler-dict merge: assert no method name
 appears twice across the sub-mixins, and that the union equals the
-original 55-name set.
+_EXPECTED_METHODS set below (which starts from the original 55 and is
+extended deliberately, never edited to match a surprise).
 """
 from ._documents import _DocumentsMixin
 from ._extraction import _ExtractionMixin
@@ -31,7 +32,7 @@ _EXPECTED_METHODS = frozenset({
     "_extract_memory_addresses", "_extract_register_offsets",
     "_extract_page_references", "_get_reference_context",
     "_extract_text_for_file", "_extract_card_id", "_detect_and_extract_frames",
-    "_extract_sid_file", "_extract_sid_archive",
+    "_extract_sid_file", "_extract_sid_archive", "_extract_deepsid_metadata",
     "_find_mdscrape_executable", "_extract_source_url_from_md",
     "_add_scraped_document", "_is_path_allowed", "get_document_by_card_id",
     "_rebuild_entity_relationships", "_mark_superseded", "add_document",

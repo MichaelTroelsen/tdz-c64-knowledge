@@ -1,16 +1,16 @@
 {
   "generated_from": {
-    "head": "257752f",
+    "head": "be7a5b2",
     "sources": [
-      ".claude/tasks/runs.jsonl (54 lines, 44 distinct ids, every latest outcome 'done')",
+      ".claude/tasks/runs.jsonl (56 lines, 46 distinct ids, every latest outcome 'done')",
       "previous whattask.json (head 257752f)",
-      "whats-next.md (consolidated pass, keyed to 849fff4)",
+      "whats-next.md (keyed to 849fff4 - five commits stale, 0 mentions of DeepSID)",
       "TO-DOS.md",
       "docs/ROADMAP.md",
       "issues (gh: none open)",
       "prs (gh: none open)",
       "git-log",
-      "working-tree (4 modified code files, uncommitted)",
+      "working-tree (clean apart from the deliberately untracked whats-next.md)",
       "~/.claude/plugins/marketplaces/mit-claude-setup/plugins/mit-setup/commands/ (editable source of the /whattask, /runtask and /runbatch skills)"
     ],
     "focus": null
@@ -18,63 +18,17 @@
   "hazards": [
     "knowledge_base.db (in TDZ_DATA_DIR - shared by every concurrently running server.py process; WAL, per CLAUDE.md)",
     "whats-next.md (pure LF, 0 CR bytes, deliberately untracked - any writer must use newline='' and '\\n' joins, per its own <current_state>)",
-    "every tracked .py file is CRLF with 0 bare LF - a naive read().split('\\n') + write silently converts them, per whats-next.md <attempted_approaches>",
-    ".gitignore blanket-ignores test_*.py with root-anchored (!/) exceptions only - a new test file is invisible to git unless added there"
+    "every tracked .py file is CRLF in the working tree with 0 bare LF; core.autocrlf=true stores them as LF, so the discipline applies to the tree, not the blob",
+    ".gitignore blanket-ignores test_*.py with root-anchored (!/) exceptions only - a new test file is invisible to git unless added there",
+    "kb/ingest/__init__.py asserts the sub-mixins' combined method set equals a hardcoded _EXPECTED_METHODS frozenset - any new IngestMixin method must extend it in the same change or import fails"
   ],
   "external_locks": [
     ".claude/tasks/serial.lock (held by the orchestrator for whichever task is currently running; absent when idle)"
   ],
   "tasks": [
     {
-      "id": "commit-deepsid-ingestion",
-      "title": "Commit the DeepSID JSON-API ingestion work now sitting uncommitted in the working tree",
-      "source": "working-tree; runs.jsonl#deepsid-json-api-ingestion",
-      "model": "sonnet",
-      "mode": "main",
-      "lane": "serial",
-      "touches": [
-        "rw:git-refs/heads",
-        "rw:kb/ingest/_sid.py",
-        "rw:kb/ingest/_extraction.py",
-        "rw:kb/ingest/__init__.py",
-        "rw:test_sid_ingest.py",
-        "rw:.claude/tasks/runs.jsonl"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "verify": "`git status --porcelain` shows no modified kb/ingest/ or test_sid_ingest.py entries, `git log -1` names the DeepSID work, and `.venv/Scripts/python.exe -m pytest test_sid_ingest.py -q` is green at the new commit.",
-      "why_model": "staging four files whose content is already written, reviewed and green",
-      "why_mode": "what belongs in one commit is a judgement about the session's own work, and this repo's convention is to commit only when asked",
-      "why_lane": "writes git refs (shared with stale-merged-branches) and the four files both DeepSID follow-ons also write"
-    },
-    {
-      "id": "deepsid-folder-enumeration-endpoint-unverified",
-      "title": "Find and verify DeepSID's folder-listing endpoint so a whole collection can be enumerated, not just one known tune",
-      "source": "runs.jsonl#deepsid-json-api-ingestion.opened",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:kb/ingest/_sid.py",
-        "rw:kb/ingest/_extraction.py",
-        "rw:test_sid_ingest.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "verify": "Name the endpoint from DeepSID's own source (github.com/Chordian/deepsid), then PROVE it live: one real request must return a parseable list containing '_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob/Commando.sid'. Paste that response. A guessed endpoint fails this check rather than passing quietly. Suite additions stay stubbed: `pytest test_sid_ingest.py -q` green under a socket-blocking plugin.",
-      "why_model": "reading a URL string out of DeepSID's JS and confirming it, once the live check is made mandatory",
-      "why_mode": "self-contained, and the verify forces a live response that a wrong guess cannot produce - php/songs.php and php/get_folder.php were both plausible and both do not exist",
-      "why_lane": "writes kb/ingest/_sid.py and _extraction.py, shared with commit-deepsid-ingestion and deepsid-document-ingestion-path"
-    },
-    {
       "id": "deepsid-document-ingestion-path",
-      "title": "Turn a DeepSID card into an actual Document - _extract_deepsid_metadata returns text that nothing ingests",
+      "title": "Turn a DeepSID card into an actual Document - the extraction methods return text that nothing ingests",
       "source": "runs.jsonl#deepsid-json-api-ingestion.opened",
       "model": "opus",
       "mode": "main",
@@ -95,12 +49,81 @@
       "verify": "A DeepSID collection path ingests end-to-end into a searchable Document (kb.search finds its title/author), covered by a stubbed test in test_sid_ingest.py; and `health_check`'s metrics['missing_source_files'] does NOT count the new document - assert that explicitly, since a document with no file on disk is exactly what that metric was built to flag.",
       "why_model": "add_document's contract is one file in, one DocumentMeta out, and documents.filepath feeds health_check's missing-source metric, repoint_document and figure OCR - a URL-sourced document with no file on disk changes an invariant three subsystems read",
       "why_mode": "the diagnosis (what filepath means for a document that has no file) matters more than the code, and getting it wrong silently inflates a health metric",
-      "why_lane": "writes kb/ingest/_extraction.py and test_sid_ingest.py, shared with both other DeepSID tasks, and mcp_tools/ + kb/, shared with plugin-system-phase-5-2"
+      "why_lane": "writes kb/ingest/_extraction.py and test_sid_ingest.py, shared with the wiring and TO-DOS tasks, and mcp_tools/ + kb/, shared with plugin-system-phase-5-2"
+    },
+    {
+      "id": "to-dos-md-deepsid-entry-stale",
+      "title": "TO-DOS.md's SID entry still says no .sid parser and no DeepSID API path exist - both shipped",
+      "source": "TO-DOS.md:17 vs 5c6c541, 7bc1ffa, 9bf4358",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:TO-DOS.md",
+        "r:kb/ingest/_sid.py",
+        "r:kb/ingest/_extraction.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "verify": "TO-DOS.md:17 no longer asserts 'There is no .sid/.psid/.rsid file parser and no .zip/.lha archive handling anywhere' (false since 5c6c541) nor leaves the DeepSID JSON API as an open suggestion (shipped in 7bc1ffa and 9bf4358), and its 'Files:' pointer names kb/ingest/_extraction.py rather than server.py, which stopped holding that dispatch at dcffd52. Mark the shipped parts DONE in the same struck-through style the file's other closed entries use, with commit refs; keep .lha open, since that one is genuinely still undecided.",
+      "why_model": "reconciling a known-stale paragraph against commits that are already identified",
+      "why_mode": "self-contained and checkable by reading the file against three named commits",
+      "why_lane": "reads kb/ingest/_extraction.py and _sid.py, which the two DeepSID code tasks write"
+    },
+    {
+      "id": "refresh-handoff-doc-post-deepsid",
+      "title": "whats-next.md is keyed to 849fff4, five commits stale, and does not mention DeepSID at all",
+      "source": "whats-next.md:9 vs HEAD be7a5b2; grep -c -i deepsid whats-next.md -> 0",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:whats-next.md",
+        "r:.claude/tasks/runs.jsonl",
+        "r:<git-worktree-snapshot>"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "verify": "whats-next.md's 'Complete and committed' heading names the then-current HEAD, it describes the DeepSID work (currently 0 occurrences of 'deepsid' in a file whose repo shipped two DeepSID commits), its Uncommitted block reproduces a freshly run `git status --porcelain`, the file is still 0 CR bytes, and `git ls-files whats-next.md` is still empty.",
+      "why_model": "reconciling prose against command output in a format five prior passes established",
+      "why_mode": "self-contained and command-checkable, but it must run LAST in a session - refreshing it before other work lands just re-stales it, which is why five of these tasks already exist",
+      "why_lane": "it snapshots the whole working tree via `git status --porcelain`, so it is exclusive by nature and conflicts with any concurrent writer"
+    },
+    {
+      "id": "wire-deepsid-folder-enumeration-into-ingest",
+      "title": "Expose folder enumeration on IngestMixin and build cards from the folder rows rather than one info.php call per tune",
+      "source": "runs.jsonl#deepsid-folder-enumeration-endpoint-unverified.opened",
+      "model": "opus",
+      "mode": "main",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/ingest/_extraction.py",
+        "rw:kb/ingest/__init__.py",
+        "rw:test_sid_ingest.py",
+        "r:kb/ingest/_sid.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [
+        "deepsid-document-ingestion-path"
+      ],
+      "blocked_on": null,
+      "verify": "fetch_deepsid_folder_listing (or its successor) is reachable as an IngestMixin method with _EXPECTED_METHODS extended in the same change - prove the guard still fires by removing the name and showing `import kb.ingest` raises. Enumerating one folder must issue ONE request, not one per tune: assert the stubbed transport is called once for a 96-row folder. Cards built from folder rows must carry author/released/sidmodel/stil, and the missing 'name' key must be handled explicitly rather than rendering an empty title.",
+      "why_model": "the shape question (one document per tune or per folder, how deep to recurse, when a title is worth a second request) reshapes the ingest contract, and the politeness cost of getting it wrong lands on one volunteer's server",
+      "why_mode": "needs the surrounding context of the document-ingestion decision it builds on, and the request-count judgement is not delegable",
+      "why_lane": "writes kb/ingest/_extraction.py and test_sid_ingest.py, shared with deepsid-document-ingestion-path and read by to-dos-md-deepsid-entry-stale"
     },
     {
       "id": "whattask-touches-under-declared-vs-verify",
-      "title": "Make /whattask reject a task whose verify names a file its own touches list omits - three instances now",
-      "source": "runs.jsonl#deepsid-json-api-ingestion.opened",
+      "title": "Make /whattask reject a task whose verify names a file its own touches list omits - four instances now",
+      "source": "runs.jsonl#deepsid-json-api-ingestion.opened; fourth instance in runs.jsonl#deepsid-folder-enumeration-endpoint-unverified",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "parallel",
@@ -111,16 +134,16 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "The fix belongs in the /whattask skill, which lives in the mit-claude-setup marketplace checkout outside this repo, so it changes task generation for every repo the plugin serves - the user's call. The defect is now reliable rather than anecdotal: whats-next-md-drift omitted the worktree read its verify required, figure-ocr-unavailable-message-misleading omitted test_figure_ocr.py, and deepsid-json-api-ingestion omitted kb/ingest/_sid.py. Each forced the runner to grant the path mid-run.",
-      "verify": "commands/whattask.md instructs the generator to cross-check every path named in a task's verify string against that task's touches, and the next generated plan contains no task whose verify names an undeclared file.",
+      "blocked_on": "The fix belongs in the /whattask skill, which lives in the mit-claude-setup marketplace checkout outside this repo, so it changes task generation for every repo the plugin serves - the user's call. Four instances now, each forcing the runner to grant a path mid-run: whats-next-md-drift omitted the worktree read its verify required, figure-ocr-unavailable-message-misleading omitted test_figure_ocr.py, deepsid-json-api-ingestion omitted kb/ingest/_sid.py, and deepsid-folder-enumeration-endpoint-unverified omitted the socket-blocking plugin its own verify calls for - the first case where the undeclared write is a TOOL's scratch file rather than a source file, which the skill's own step-5 rule already warns about in the abstract.",
+      "verify": "commands/whattask.md instructs the generator to cross-check every path named in a task's verify string against that task's touches, INCLUDING scratch files a named tool writes, and the next generated plan contains no task whose verify names an undeclared file.",
       "why_model": "adding one cross-check instruction to a skill whose structure already exists",
       "why_mode": "the editable source is outside this repo and the change affects every repo using the plugin",
       "why_lane": "sole task touching commands/whattask.md"
     },
     {
       "id": "subagent-returned-empty-schema-valid-report",
-      "title": "Harden the /runtask and /runbatch report contract so a schema-valid but vacuous report (evidence='test') is rejected instead of recorded",
-      "source": "runs.jsonl#whats-next-md-drift.opened",
+      "title": "Harden /runtask and /runbatch against reports that are vacuous - and against agents that die with real work on disk and no report at all",
+      "source": "runs.jsonl#whats-next-md-drift.opened; two further instances in runs.jsonl",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "parallel",
@@ -132,9 +155,9 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "The fix belongs in the /runtask and /runbatch skills in the marketplace checkout outside this repo, so it changes orchestration for every repo the plugin serves - the user's call. The failure it guards: an agent returned outcome 'done' with evidence, verify_output and notes all set to the literal string 'test' - structurally valid, entirely empty - and only the orchestrator's independent re-verification caught it.",
-      "verify": "The skills' report contract rejects a report whose evidence/verify_output are trivially short, identical to each other, or a known placeholder, demanding a real report or an explicit failure - demonstrated by the next batch run recording no vacuous 'done' line.",
-      "why_model": "adding a bounded vacuity check to a report contract that already exists",
+      "blocked_on": "The fix belongs in the /runtask and /runbatch skills in the marketplace checkout outside this repo, so it changes orchestration for every repo the plugin serves - the user's call. THREE distinct report failures are now on record and the skills address none of them explicitly: (1) an agent returned outcome 'done' with evidence, verify_output and notes all set to the literal string 'test' - schema-valid, entirely empty; (2) an agent died on quota with nothing durable; (3) an agent died on quota with 315 lines of good work on disk, no report, no falsification, and a scratch file left behind. In all three the orchestrator's independent re-verification is the only thing that produced a trustworthy record, so the skill should say that a dead agent's WORK must be assessed on its own terms rather than discarded or trusted.",
+      "verify": "The skills' report contract rejects a report whose evidence/verify_output are trivially short, identical to each other, or a known placeholder, AND states what to do when an agent terminates without reporting: verify the tree independently, finish any unrun verify/falsification, clean up granted scratch files, and record whose measurement each claim is. Demonstrated by the next batch run recording no vacuous 'done' line.",
+      "why_model": "adding a bounded vacuity check and a dead-agent clause to a contract that already exists",
       "why_mode": "the editable source is outside this repo and the change affects every repo using the plugin",
       "why_lane": "sole task touching commands/runtask.md and runbatch.md"
     },
@@ -158,6 +181,26 @@
       "why_model": "a .gitignore edit plus a commit once the direction is set",
       "why_mode": "what belongs in version control is a repository-policy decision",
       "why_lane": "sole writer of .gitignore and archive/tests on this list"
+    },
+    {
+      "id": "stale-merged-branches",
+      "title": "Five branches remain in the repo and all five are fully merged into master",
+      "source": "git branch --merged master; runs.jsonl#push-master-to-origin.notes",
+      "model": "sonnet",
+      "mode": "requires-user",
+      "lane": "parallel",
+      "touches": [
+        "rw:git-refs/heads"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "fix/mcp-startup-timeout, hardening-and-figure-ocr, mcp-http-transport-and-fixes, retrieval-quality and wiki-split-sid-ingest-docs are all ancestors of master. Deleting a branch is destructive and the user has not asked.",
+      "verify": "`git branch --merged master` lists nothing but master, or a note records which branches are deliberately kept and why.",
+      "why_model": "five `git branch -d` invocations once the call is made",
+      "why_mode": "deleting branches is destructive and unasked - the repo's own convention is to leave them",
+      "why_lane": "no other task on this list touches git refs now that both DeepSID commit tasks have landed"
     },
     {
       "id": "pyproject-requires-python-understates-312",
@@ -197,7 +240,7 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "Python has no stdlib LHA support. Ingesting HVSC in its native distribution format means adding a third-party decompressor as a runtime dependency; the user owns whether this project takes one, or whether users are expected to unpack to .zip first.",
+      "blocked_on": "Python has no stdlib LHA support. Ingesting HVSC in its native distribution format means adding a third-party decompressor as a runtime dependency; the user owns whether this project takes one, or whether users are expected to unpack to .zip first. Note the DeepSID API work has NOT made this moot: the API gives per-tune metadata, not the tune files themselves.",
       "verify": "Either .lha files ingest end-to-end with a covering test in test_sid_ingest.py, or TO-DOS.md records the decision not to support .lha and states what users should do instead.",
       "why_model": "once the dependency call is made the implementation mirrors the existing .zip branch",
       "why_mode": "adding a runtime dependency is the user's call, not a judgement to delegate",
@@ -243,29 +286,6 @@
       "why_model": "a merge of two prose sections once the user says which one is real",
       "why_mode": "only the user knows which section records shipped work",
       "why_lane": "writes docs/CHANGELOG.md, shared with changelog-version-history-overlap"
-    },
-    {
-      "id": "changelog-version-history-overlap",
-      "title": "Decide whether 2.23.19-2.23.36 from docs/VERSION_HISTORY.md should be back-filled into docs/CHANGELOG.md",
-      "source": "previous whattask.json",
-      "model": "sonnet",
-      "mode": "requires-user",
-      "lane": "serial",
-      "touches": [
-        "rw:docs/CHANGELOG.md",
-        "r:docs/VERSION_HISTORY.md"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [
-        "changelog-2-24-0-duplicate"
-      ],
-      "blocked_on": "Whether the two files are meant to be one history or deliberately different granularities. Also ordered behind the duplicate-heading fix: back-filling into a file with two 2.24.0 sections would have to be redone.",
-      "verify": "Either every version between 2.23.19 and 2.23.36 in docs/VERSION_HISTORY.md has a matching '## [x.y.z]' heading in docs/CHANGELOG.md, or a note in one file states the intended division of labour between them.",
-      "why_model": "bulk transcription between two documents once the policy is set",
-      "why_mode": "the division of labour between the two history files is the user's editorial call",
-      "why_lane": "writes docs/CHANGELOG.md, shared with changelog-2-24-0-duplicate"
     },
     {
       "id": "repoint-106-missing-pdfs",
@@ -334,35 +354,58 @@
       "why_lane": "writes server.py, mcp_tools/ and kb/, overlapping every DeepSID task and both repoint and verify-http-transport"
     },
     {
-      "id": "stale-merged-branches",
-      "title": "Five branches remain in the repo and all five are fully merged into master",
-      "source": "git branch --merged master; runs.jsonl#push-master-to-origin.notes",
+      "id": "changelog-version-history-overlap",
+      "title": "Decide whether 2.23.19-2.23.36 from docs/VERSION_HISTORY.md should be back-filled into docs/CHANGELOG.md",
+      "source": "previous whattask.json",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "serial",
       "touches": [
-        "rw:git-refs/heads"
+        "rw:docs/CHANGELOG.md",
+        "r:docs/VERSION_HISTORY.md"
       ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "fix/mcp-startup-timeout, hardening-and-figure-ocr, mcp-http-transport-and-fixes, retrieval-quality and wiki-split-sid-ingest-docs are all ancestors of master (`git branch --no-merged master` is empty). Deleting a branch is destructive and the user has not asked.",
-      "verify": "`git branch --merged master` lists nothing but master, or a note records which branches are deliberately kept and why.",
-      "why_model": "five `git branch -d` invocations once the call is made",
-      "why_mode": "deleting branches is destructive and unasked - the repo's own convention is to leave them",
-      "why_lane": "writes git refs, shared with commit-deepsid-ingestion"
+      "depends_on": [
+        "changelog-2-24-0-duplicate"
+      ],
+      "blocked_on": "Whether the two files are meant to be one history or deliberately different granularities. Also ordered behind the duplicate-heading fix: back-filling into a file with two 2.24.0 sections would have to be redone.",
+      "verify": "Either every version between 2.23.19 and 2.23.36 in docs/VERSION_HISTORY.md has a matching '## [x.y.z]' heading in docs/CHANGELOG.md, or a note in one file states the intended division of labour between them.",
+      "why_model": "bulk transcription between two documents once the policy is set",
+      "why_mode": "the division of labour between the two history files is the user's editorial call",
+      "why_lane": "writes docs/CHANGELOG.md, shared with changelog-2-24-0-duplicate"
     }
   ],
   "closed": [
     {
+      "id": "deepsid-folder-enumeration-endpoint-unverified",
+      "title": "Folder enumeration is php/music.php, identified from js/browser.js and verified live (96 rows for Hubbard_Rob; a rebuilt path composes back into info.php)",
+      "closed_by": "9bf4358"
+    },
+    {
+      "id": "commit-deepsid-folder-enumeration",
+      "title": "Commit the folder-enumeration work - closed by commit rather than by a runtask record, since the user asked for it directly",
+      "closed_by": "9bf4358"
+    },
+    {
+      "id": "push-deepsid-commits-to-origin",
+      "title": "Push the DeepSID commits - origin/master and HEAD both read be7a5b2, `git log origin/master..HEAD` empty",
+      "closed_by": "be7a5b2"
+    },
+    {
+      "id": "commit-deepsid-ingestion",
+      "title": "Commit the DeepSID JSON-API ingestion work (feature at 7bc1ffa, record at 5ac1e03)",
+      "closed_by": "5ac1e03"
+    },
+    {
       "id": "deepsid-json-api-ingestion",
-      "title": "DeepSID metadata ingests via php/info.php: endpoint read from DeepSID's source, one-document-per-tune, field names normalised onto the PSID vocabulary; suite 312 -> 333; work is committed-pending (see commit-deepsid-ingestion)",
-      "closed_by": "257752f (work uncommitted at this HEAD; run recorded in runs.jsonl)"
+      "title": "DeepSID metadata ingests via php/info.php: endpoint read from DeepSID's source, one-document-per-tune, field names normalised onto the PSID vocabulary",
+      "closed_by": "7bc1ffa"
     },
     {
       "id": "whats-next-md-drift",
-      "title": "whats-next.md consolidated (three superseded-note layers folded into one revision_history) and re-keyed to 849fff4",
+      "title": "whats-next.md consolidated (three superseded-note layers folded into one revision_history) and re-keyed to 849fff4 - since drifted again, see refresh-handoff-doc-post-deepsid",
       "closed_by": "257752f"
     },
     {
@@ -497,7 +540,7 @@
     },
     {
       "id": "to-dos-md-stale-entries",
-      "title": "Mark done entries in TO-DOS.md",
+      "title": "Mark done entries in TO-DOS.md (an earlier pass; the SID entry has since gone stale again - see to-dos-md-deepsid-entry-stale)",
       "closed_by": "dcffd52"
     },
     {

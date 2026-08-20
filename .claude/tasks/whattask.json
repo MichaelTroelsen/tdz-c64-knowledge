@@ -1,82 +1,82 @@
 {
   "generated_from": {
-    "head": "be7a5b2",
+    "head": "7013b19",
     "sources": [
-      ".claude/tasks/runs.jsonl (56 lines, 46 distinct ids, every latest outcome 'done')",
-      "previous whattask.json (head 257752f)",
-      "whats-next.md (keyed to 849fff4 - five commits stale, 0 mentions of DeepSID)",
+      ".claude/tasks/runs.jsonl (59 lines, 49 distinct ids, every latest outcome 'done')",
+      "previous whattask.json (head be7a5b2, two generations stale - see this run's report)",
+      "whats-next.md (keyed to be7a5b2 - four commits stale)",
       "TO-DOS.md",
+      "CLAUDE.md",
       "docs/ROADMAP.md",
       "issues (gh: none open)",
       "prs (gh: none open)",
       "git-log",
       "working-tree (clean apart from the deliberately untracked whats-next.md)",
-      "~/.claude/plugins/marketplaces/mit-claude-setup/plugins/mit-setup/commands/ (editable source of the /whattask, /runtask and /runbatch skills)"
+      "~/.claude/plugins/marketplaces/mit-claude-setup/plugins/mit-setup/commands/"
     ],
     "focus": null
   },
   "hazards": [
     "knowledge_base.db (in TDZ_DATA_DIR - shared by every concurrently running server.py process; WAL, per CLAUDE.md)",
-    "whats-next.md (pure LF, 0 CR bytes, deliberately untracked - any writer must use newline='' and '\\n' joins, per its own <current_state>)",
-    "every tracked .py file is CRLF in the working tree with 0 bare LF; core.autocrlf=true stores them as LF, so the discipline applies to the tree, not the blob",
-    ".gitignore blanket-ignores test_*.py with root-anchored (!/) exceptions only - a new test file is invisible to git unless added there",
-    "kb/ingest/__init__.py asserts the sub-mixins' combined method set equals a hardcoded _EXPECTED_METHODS frozenset - any new IngestMixin method must extend it in the same change or import fails"
+    "whats-next.md (pure LF, 0 CR bytes, deliberately untracked - writers must use newline='' and '\\n' joins)",
+    "every tracked .py file is CRLF in the working tree with 0 bare LF; core.autocrlf=true stores them as LF",
+    ".gitignore blanket-ignores test_*.py with root-anchored (!/) exceptions only",
+    "kb/ingest/__init__.py asserts the sub-mixins' combined method set equals a hardcoded _EXPECTED_METHODS frozenset - any new IngestMixin method must extend it in the same change or import fails",
+    "<data_dir>/uploads is PERMANENT storage (docs/ARCHITECTURE.md:40) - documents.filepath points into it and health_check's missing_source_files reads that path"
   ],
   "external_locks": [
-    ".claude/tasks/serial.lock (held by the orchestrator for whichever task is currently running; absent when idle)"
+    ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle)"
   ],
   "tasks": [
     {
-      "id": "deepsid-document-ingestion-path",
-      "title": "Turn a DeepSID card into an actual Document - the extraction methods return text that nothing ingests",
-      "source": "runs.jsonl#deepsid-json-api-ingestion.opened",
-      "model": "opus",
-      "mode": "main",
-      "lane": "serial",
-      "touches": [
-        "rw:kb/ingest/_documents.py",
-        "rw:kb/ingest/_extraction.py",
-        "rw:mcp_tools/documents.py",
-        "rw:mcp_tools/schemas.py",
-        "rw:test_sid_ingest.py",
-        "r:kb/admin.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "verify": "A DeepSID collection path ingests end-to-end into a searchable Document (kb.search finds its title/author), covered by a stubbed test in test_sid_ingest.py; and `health_check`'s metrics['missing_source_files'] does NOT count the new document - assert that explicitly, since a document with no file on disk is exactly what that metric was built to flag.",
-      "why_model": "add_document's contract is one file in, one DocumentMeta out, and documents.filepath feeds health_check's missing-source metric, repoint_document and figure OCR - a URL-sourced document with no file on disk changes an invariant three subsystems read",
-      "why_mode": "the diagnosis (what filepath means for a document that has no file) matters more than the code, and getting it wrong silently inflates a health metric",
-      "why_lane": "writes kb/ingest/_extraction.py and test_sid_ingest.py, shared with the wiring and TO-DOS tasks, and mcp_tools/ + kb/, shared with plugin-system-phase-5-2"
-    },
-    {
-      "id": "to-dos-md-deepsid-entry-stale",
-      "title": "TO-DOS.md's SID entry still says no .sid parser and no DeepSID API path exist - both shipped",
-      "source": "TO-DOS.md:17 vs 5c6c541, 7bc1ffa, 9bf4358",
+      "id": "docs-tool-count-stale-after-deepsid-tool",
+      "title": "CLAUDE.md:23 says schemas.py holds 93 Tool literals; add_deepsid_document made it 94",
+      "source": "runs.jsonl#deepsid-document-ingestion-path.opened; verified at CLAUDE.md:23",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
-        "rw:TO-DOS.md",
-        "r:kb/ingest/_sid.py",
-        "r:kb/ingest/_extraction.py"
+        "rw:CLAUDE.md",
+        "r:mcp_tools/schemas.py"
       ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
-      "verify": "TO-DOS.md:17 no longer asserts 'There is no .sid/.psid/.rsid file parser and no .zip/.lha archive handling anywhere' (false since 5c6c541) nor leaves the DeepSID JSON API as an open suggestion (shipped in 7bc1ffa and 9bf4358), and its 'Files:' pointer names kb/ingest/_extraction.py rather than server.py, which stopped holding that dispatch at dcffd52. Mark the shipped parts DONE in the same struck-through style the file's other closed entries use, with commit refs; keep .lha open, since that one is genuinely still undecided.",
-      "why_model": "reconciling a known-stale paragraph against commits that are already identified",
-      "why_mode": "self-contained and checkable by reading the file against three named commits",
-      "why_lane": "reads kb/ingest/_extraction.py and _sid.py, which the two DeepSID code tasks write"
+      "verify": "The tool count in CLAUDE.md equals `len(TOOL_SCHEMAS)` measured at the time of the edit (94 as of f0c7abf), and `python validate_docs.py` still reports PASSED. Check whether README.md or docs/ARCHITECTURE.md carry the same number and reconcile them in the same pass rather than leaving a second copy to drift.",
+      "why_model": "one number reconciled against a value the code can print",
+      "why_mode": "self-contained and mechanically checkable by importing TOOL_SCHEMAS and counting",
+      "why_lane": "reads mcp_tools/schemas.py, which commit-deepsid-document-ingestion and plugin-system-phase-5-2 both write"
     },
     {
-      "id": "refresh-handoff-doc-post-deepsid",
-      "title": "whats-next.md is keyed to 849fff4, five commits stale, and does not mention DeepSID at all",
-      "source": "whats-next.md:9 vs HEAD be7a5b2; grep -c -i deepsid whats-next.md -> 0",
+      "id": "wire-deepsid-folder-enumeration-into-ingest",
+      "title": "Expose folder enumeration on IngestMixin and build cards from the folder rows rather than one info.php call per tune",
+      "source": "runs.jsonl#deepsid-folder-enumeration-endpoint-unverified.opened",
+      "model": "opus",
+      "mode": "main",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/ingest/_extraction.py",
+        "rw:kb/ingest/_documents.py",
+        "rw:kb/ingest/__init__.py",
+        "rw:test_sid_ingest.py",
+        "r:kb/ingest/_sid.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "verify": "Folder enumeration is reachable as an IngestMixin method with _EXPECTED_METHODS extended in the same change - prove the guard still fires by removing the name and showing `import kb.ingest` raises. Enumerating one folder must issue ONE request, not one per tune: assert the stubbed transport is called once for a 96-row folder. Cards built from folder rows must carry author/released/sidmodel/stil, and the absent 'name' key must be handled explicitly rather than rendering an empty title.",
+      "why_model": "the shape question (one document per tune or per folder, how deep to recurse, when a title is worth a second request) reshapes the ingest contract, and the politeness cost of getting it wrong lands on one volunteer's server",
+      "why_mode": "builds directly on the add_deepsid_document design decision and the request-count judgement is not delegable",
+      "why_lane": "writes kb/ingest/ and test_sid_ingest.py, shared with sid-lha-archive-support and plugin-system-phase-5-2"
+    },
+    {
+      "id": "refresh-handoff-doc-post-document-ingestion",
+      "title": "whats-next.md names HEAD be7a5b2 and predates the last four commits, including all of add_deepsid_document",
+      "source": "whats-next.md:701 vs HEAD 7013b19",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
@@ -88,42 +88,19 @@
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "verify": "whats-next.md's 'Complete and committed' heading names the then-current HEAD, it describes the DeepSID work (currently 0 occurrences of 'deepsid' in a file whose repo shipped two DeepSID commits), its Uncommitted block reproduces a freshly run `git status --porcelain`, the file is still 0 CR bytes, and `git ls-files whats-next.md` is still empty.",
-      "why_model": "reconciling prose against command output in a format five prior passes established",
-      "why_mode": "self-contained and command-checkable, but it must run LAST in a session - refreshing it before other work lands just re-stales it, which is why five of these tasks already exist",
-      "why_lane": "it snapshots the whole working tree via `git status --porcelain`, so it is exclusive by nature and conflicts with any concurrent writer"
-    },
-    {
-      "id": "wire-deepsid-folder-enumeration-into-ingest",
-      "title": "Expose folder enumeration on IngestMixin and build cards from the folder rows rather than one info.php call per tune",
-      "source": "runs.jsonl#deepsid-folder-enumeration-endpoint-unverified.opened",
-      "model": "opus",
-      "mode": "main",
-      "lane": "serial",
-      "touches": [
-        "rw:kb/ingest/_extraction.py",
-        "rw:kb/ingest/__init__.py",
-        "rw:test_sid_ingest.py",
-        "r:kb/ingest/_sid.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
       "depends_on": [
-        "deepsid-document-ingestion-path"
+        "commit-deepsid-document-ingestion"
       ],
       "blocked_on": null,
-      "verify": "fetch_deepsid_folder_listing (or its successor) is reachable as an IngestMixin method with _EXPECTED_METHODS extended in the same change - prove the guard still fires by removing the name and showing `import kb.ingest` raises. Enumerating one folder must issue ONE request, not one per tune: assert the stubbed transport is called once for a 96-row folder. Cards built from folder rows must carry author/released/sidmodel/stil, and the missing 'name' key must be handled explicitly rather than rendering an empty title.",
-      "why_model": "the shape question (one document per tune or per folder, how deep to recurse, when a title is worth a second request) reshapes the ingest contract, and the politeness cost of getting it wrong lands on one volunteer's server",
-      "why_mode": "needs the surrounding context of the document-ingestion decision it builds on, and the request-count judgement is not delegable",
-      "why_lane": "writes kb/ingest/_extraction.py and test_sid_ingest.py, shared with deepsid-document-ingestion-path and read by to-dos-md-deepsid-entry-stale"
+      "verify": "whats-next.md's 'Complete and committed' heading names the then-current HEAD, it describes add_deepsid_document and the uploads/-materialisation design decision, its Uncommitted block reproduces a freshly run `git status --porcelain`, the file is still 0 CR bytes, and `git ls-files whats-next.md` is still empty.",
+      "why_model": "reconciling prose against command output in a format six prior passes established",
+      "why_mode": "self-contained and command-checkable, but it must run LAST - it is ordered behind the commit precisely because refreshing before that lands would re-stale the Uncommitted block it just wrote",
+      "why_lane": "it snapshots the whole working tree, so it is exclusive by nature and conflicts with any concurrent writer"
     },
     {
       "id": "whattask-touches-under-declared-vs-verify",
-      "title": "Make /whattask reject a task whose verify names a file its own touches list omits - four instances now",
-      "source": "runs.jsonl#deepsid-json-api-ingestion.opened; fourth instance in runs.jsonl#deepsid-folder-enumeration-endpoint-unverified",
+      "title": "Make /whattask cross-check a task's touches against both its verify string and the hazards array - five instances now",
+      "source": "runs.jsonl#deepsid-json-api-ingestion.opened; fifth instance in runs.jsonl#deepsid-document-ingestion-path",
       "model": "sonnet",
       "mode": "requires-user",
       "lane": "parallel",
@@ -134,15 +111,15 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "The fix belongs in the /whattask skill, which lives in the mit-claude-setup marketplace checkout outside this repo, so it changes task generation for every repo the plugin serves - the user's call. Four instances now, each forcing the runner to grant a path mid-run: whats-next-md-drift omitted the worktree read its verify required, figure-ocr-unavailable-message-misleading omitted test_figure_ocr.py, deepsid-json-api-ingestion omitted kb/ingest/_sid.py, and deepsid-folder-enumeration-endpoint-unverified omitted the socket-blocking plugin its own verify calls for - the first case where the undeclared write is a TOOL's scratch file rather than a source file, which the skill's own step-5 rule already warns about in the abstract.",
-      "verify": "commands/whattask.md instructs the generator to cross-check every path named in a task's verify string against that task's touches, INCLUDING scratch files a named tool writes, and the next generated plan contains no task whose verify names an undeclared file.",
-      "why_model": "adding one cross-check instruction to a skill whose structure already exists",
+      "blocked_on": "The fix belongs in the /whattask skill in the marketplace checkout outside this repo, so it changes task generation for every repo the plugin serves - the user's call. FIVE instances, each forcing the runner to grant a path mid-run: whats-next-md-drift (worktree read), figure-ocr-unavailable-message-misleading (test_figure_ocr.py), deepsid-json-api-ingestion (kb/ingest/_sid.py), deepsid-folder-enumeration-endpoint-unverified (a tool's scratch file), and deepsid-document-ingestion-path (kb/ingest/__init__.py). The fifth is the sharpest: the plan's OWN hazards array stated verbatim that any new IngestMixin method must extend _EXPECTED_METHODS, and its touches still omitted that file - so the generator knew the rule and did not apply it.",
+      "verify": "commands/whattask.md instructs the generator to cross-check every path named in a task's verify string AND every path implied by the hazards array against that task's touches, including scratch files a named tool writes, and the next generated plan contains no task whose verify or hazard implication names an undeclared file.",
+      "why_model": "adding a cross-check instruction to a skill whose structure already exists",
       "why_mode": "the editable source is outside this repo and the change affects every repo using the plugin",
       "why_lane": "sole task touching commands/whattask.md"
     },
     {
       "id": "subagent-returned-empty-schema-valid-report",
-      "title": "Harden /runtask and /runbatch against reports that are vacuous - and against agents that die with real work on disk and no report at all",
+      "title": "Harden /runtask and /runbatch against vacuous reports and against agents that die with real work on disk",
       "source": "runs.jsonl#whats-next-md-drift.opened; two further instances in runs.jsonl",
       "model": "sonnet",
       "mode": "requires-user",
@@ -155,8 +132,8 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "The fix belongs in the /runtask and /runbatch skills in the marketplace checkout outside this repo, so it changes orchestration for every repo the plugin serves - the user's call. THREE distinct report failures are now on record and the skills address none of them explicitly: (1) an agent returned outcome 'done' with evidence, verify_output and notes all set to the literal string 'test' - schema-valid, entirely empty; (2) an agent died on quota with nothing durable; (3) an agent died on quota with 315 lines of good work on disk, no report, no falsification, and a scratch file left behind. In all three the orchestrator's independent re-verification is the only thing that produced a trustworthy record, so the skill should say that a dead agent's WORK must be assessed on its own terms rather than discarded or trusted.",
-      "verify": "The skills' report contract rejects a report whose evidence/verify_output are trivially short, identical to each other, or a known placeholder, AND states what to do when an agent terminates without reporting: verify the tree independently, finish any unrun verify/falsification, clean up granted scratch files, and record whose measurement each claim is. Demonstrated by the next batch run recording no vacuous 'done' line.",
+      "blocked_on": "The fix belongs in the /runtask and /runbatch skills in the marketplace checkout outside this repo - the user's call. THREE distinct report failures are on record: an agent returned outcome 'done' with evidence, verify_output and notes all set to the literal string 'test'; an agent died on quota with nothing durable; an agent died on quota with 315 lines of good work on disk, no report, no falsification, and a scratch file left behind. In all three the orchestrator's independent re-verification is the only thing that produced a trustworthy record. A partial mitigation already exists and could be lifted into the skill: the last /runbatch put minLength floors on the structured-output schema, which is the one part of vacuity a schema can enforce.",
+      "verify": "The skills' report contract rejects a report whose evidence/verify_output are trivially short, identical to each other, or a known placeholder, AND states what to do when an agent terminates without reporting: verify the tree independently, finish any unrun verify/falsification, clean up granted scratch files, and record whose measurement each claim is.",
       "why_model": "adding a bounded vacuity check and a dead-agent clause to a contract that already exists",
       "why_mode": "the editable source is outside this repo and the change affects every repo using the plugin",
       "why_lane": "sole task touching commands/runtask.md and runbatch.md"
@@ -200,7 +177,7 @@
       "verify": "`git branch --merged master` lists nothing but master, or a note records which branches are deliberately kept and why.",
       "why_model": "five `git branch -d` invocations once the call is made",
       "why_mode": "deleting branches is destructive and unasked - the repo's own convention is to leave them",
-      "why_lane": "no other task on this list touches git refs now that both DeepSID commit tasks have landed"
+      "why_lane": "sole writer of git refs now that the DeepSID commits have landed"
     },
     {
       "id": "pyproject-requires-python-understates-312",
@@ -222,7 +199,7 @@
       "verify": "Either pyproject.toml reads requires-python = \">=3.12\" and README.md/CLAUDE.md's 'Python 3.10+' claims are updated to match, or wikigen/data.py:326 holds no backslash inside an f-string expression and the file parses under a 3.10 ast.parse.",
       "why_model": "once the policy is chosen the edit is one line plus doc follow-through",
       "why_mode": "an install-floor decision - either answer is defensible and the user owns which Pythons this supports",
-      "why_lane": "writes pyproject.toml (shared with sid-lha-archive-support) and wikigen/data.py (wikigen/ is read by wiki-css-asset-oversized)"
+      "why_lane": "writes pyproject.toml (shared with sid-lha-archive-support) and wikigen/data.py (read by wiki-css-asset-oversized)"
     },
     {
       "id": "sid-lha-archive-support",
@@ -240,11 +217,11 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "Python has no stdlib LHA support. Ingesting HVSC in its native distribution format means adding a third-party decompressor as a runtime dependency; the user owns whether this project takes one, or whether users are expected to unpack to .zip first. Note the DeepSID API work has NOT made this moot: the API gives per-tune metadata, not the tune files themselves.",
+      "blocked_on": "Python has no stdlib LHA support. Ingesting HVSC in its native distribution format means adding a third-party decompressor as a runtime dependency; the user owns whether this project takes one, or whether users unpack to .zip first. TO-DOS.md now records this as the one genuinely open part of that entry, the rest having shipped.",
       "verify": "Either .lha files ingest end-to-end with a covering test in test_sid_ingest.py, or TO-DOS.md records the decision not to support .lha and states what users should do instead.",
       "why_model": "once the dependency call is made the implementation mirrors the existing .zip branch",
       "why_mode": "adding a runtime dependency is the user's call, not a judgement to delegate",
-      "why_lane": "writes pyproject.toml, kb/ingest/_extraction.py and test_sid_ingest.py, each shared with at least one other task"
+      "why_lane": "writes pyproject.toml, kb/ingest/_extraction.py and test_sid_ingest.py, each shared with another task"
     },
     {
       "id": "wiki-css-asset-oversized",
@@ -265,7 +242,7 @@
       "verify": "Either wiki_assets/css/ holds several files each under the agreed target and an exported wiki renders byte-identically apart from the <link> tags, or the decision that the target is Python-only is recorded in CLAUDE.md.",
       "why_model": "a mechanical split along existing section comments once the target is agreed",
       "why_mode": "the open question is whether the convention applies at all, which is a convention decision",
-      "why_lane": "reads wikigen/, which pyproject-requires-python-understates-312 writes (wikigen/data.py)"
+      "why_lane": "reads wikigen/, which pyproject-requires-python-understates-312 writes"
     },
     {
       "id": "changelog-2-24-0-duplicate",
@@ -303,7 +280,7 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "The repoint tool now exists (repoint-document-filepath-tool, done at 5c6c541) and health_check surfaces the count, but nobody knows where the 106 source files went. The user must supply the relocated directory, or authorise accepting the residual for documents whose text is already indexed.",
+      "blocked_on": "The repoint tool exists and health_check surfaces the count, but nobody knows where the 106 source files went. The user must supply the relocated directory, or authorise accepting the residual for documents whose text is already indexed.",
       "verify": "health_check reports metrics['missing_source_files'] == 0, or the accepted residual count is recorded in TO-DOS.md with the reason.",
       "why_model": "a scripted loop over a tool that already exists, once the target directory is known",
       "why_mode": "blocked on a filesystem location no amount of work inside this repo can discover",
@@ -325,7 +302,7 @@
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": "Only ever tested against 127.0.0.1. The real check needs a second physical machine on the Tailscale network and a human to start the client from it; issue #16 is already closed against the untested path.",
-      "verify": "From the second machine, a full MCP initialize handshake plus one tool call against `--transport http --host <tailscale-ip> --port 8765`, exercising the non-loopback bind path (server.py _LOOPBACK_HOSTS) rather than skipping it.",
+      "verify": "From the second machine, a full MCP initialize handshake plus one tool call against `--transport http --host <tailscale-ip> --port 8765`, exercising the non-loopback bind path rather than skipping it.",
       "why_model": "running a documented command and reading the handshake result",
       "why_mode": "needs a second machine and a human sitting at it",
       "why_lane": "binds a single dev port (8765), exclusive by nature"
@@ -347,11 +324,11 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "docs/ROADMAP.md:901 sketches Plugin/PluginManager/SlackNotificationPlugin. Nothing in the codebase implements them and no other roadmap phase remains open. Whether this is still wanted - given MCP tools already provide the extension surface it was designed for - is a product decision.",
+      "blocked_on": "docs/ROADMAP.md:901 sketches Plugin/PluginManager/SlackNotificationPlugin. Nothing implements them and no other roadmap phase remains open. Whether this is still wanted - given MCP tools already provide the extension surface it was designed for, now 94 of them - is a product decision.",
       "verify": "Either a PluginManager loads a plugin in a passing test, or docs/ROADMAP.md marks 5.2 declined/superseded-by-MCP-tools with the reason.",
       "why_model": "a new extension architecture cutting across server.py, mcp_tools/ and kb/, overlapping an extension mechanism that already exists",
       "why_mode": "a product decision about whether to build it at all",
-      "why_lane": "writes server.py, mcp_tools/ and kb/, overlapping every DeepSID task and both repoint and verify-http-transport"
+      "why_lane": "writes server.py, mcp_tools/ and kb/, overlapping every DeepSID task, repoint and verify-http-transport"
     },
     {
       "id": "changelog-version-history-overlap",
@@ -379,38 +356,58 @@
   ],
   "closed": [
     {
+      "id": "commit-deepsid-document-ingestion",
+      "title": "Commit the DeepSID document-ingestion work (feature at 6880401, run record at 7013b19); closed by commit rather than a runtask record, since the user asked directly",
+      "closed_by": "7013b19"
+    },
+    {
+      "id": "deepsid-document-ingestion-path",
+      "title": "add_deepsid_document materialises the card into uploads/ and reuses _add_scraped_document, so missing_source_files stays 0; tools 93 -> 94; suite 351 -> 356 (uncommitted at this HEAD)",
+      "closed_by": "f0c7abf (work uncommitted; run recorded in runs.jsonl)"
+    },
+    {
+      "id": "refresh-handoff-doc-post-deepsid",
+      "title": "whats-next.md refreshed to be7a5b2, 0 -> 54 DeepSID mentions, 0 CR bytes held through a full rewrite",
+      "closed_by": "f0c7abf"
+    },
+    {
+      "id": "to-dos-md-deepsid-entry-stale",
+      "title": "TO-DOS.md's SID entry no longer claims the parser and DeepSID API are unbuilt; .lha kept open",
+      "closed_by": "c1d6f74"
+    },
+    {
       "id": "deepsid-folder-enumeration-endpoint-unverified",
-      "title": "Folder enumeration is php/music.php, identified from js/browser.js and verified live (96 rows for Hubbard_Rob; a rebuilt path composes back into info.php)",
+      "title": "Folder enumeration is php/music.php, verified live (96 rows; a rebuilt path composes back into info.php)",
       "closed_by": "9bf4358"
     },
     {
       "id": "commit-deepsid-folder-enumeration",
-      "title": "Commit the folder-enumeration work - closed by commit rather than by a runtask record, since the user asked for it directly",
+      "title": "Commit the folder-enumeration work",
       "closed_by": "9bf4358"
     },
     {
       "id": "push-deepsid-commits-to-origin",
-      "title": "Push the DeepSID commits - origin/master and HEAD both read be7a5b2, `git log origin/master..HEAD` empty",
+      "title": "Push the DeepSID commits to origin",
       "closed_by": "be7a5b2"
     },
     {
       "id": "commit-deepsid-ingestion",
-      "title": "Commit the DeepSID JSON-API ingestion work (feature at 7bc1ffa, record at 5ac1e03)",
+      "title": "Commit the DeepSID JSON-API ingestion work",
       "closed_by": "5ac1e03"
     },
     {
       "id": "deepsid-json-api-ingestion",
-      "title": "DeepSID metadata ingests via php/info.php: endpoint read from DeepSID's source, one-document-per-tune, field names normalised onto the PSID vocabulary",
+      "title": "DeepSID metadata ingests via php/info.php, field names normalised onto the PSID vocabulary",
       "closed_by": "7bc1ffa"
     },
     {
       "id": "whats-next-md-drift",
-      "title": "whats-next.md consolidated (three superseded-note layers folded into one revision_history) and re-keyed to 849fff4 - since drifted again, see refresh-handoff-doc-post-deepsid",
+      "title": "whats-next.md consolidated and re-keyed to 849fff4",
       "closed_by": "257752f"
     },
     {
       "id": "figure-ocr-unavailable-message-misleading",
-      "title": "figure_ocr_available() now distinguishes 'OCR disabled (USE_OCR=0)' from 'enabled but Tesseract not found', with two discriminating tests",
+      "title": "figure_ocr_available() distinguishes USE_OCR=0 from a missing binary",
       "closed_by": "849fff4"
     },
     {
@@ -420,12 +417,7 @@
     },
     {
       "id": "figure-ocr-availability-discrepancy",
-      "title": "figure_ocr_available() returned False because TESSERACT_PATH was absent from .env (fix is in .env, which is gitignored, so it carries no commit)",
-      "closed_by": "341508b"
-    },
-    {
-      "id": "refresh-handoff-doc-post-wiki-split",
-      "title": "Refresh whats-next.md after the wiki split landed",
+      "title": "TESSERACT_PATH was absent from .env (gitignored, so no commit carries it)",
       "closed_by": "341508b"
     },
     {
@@ -434,8 +426,13 @@
       "closed_by": "341508b"
     },
     {
+      "id": "refresh-handoff-doc-post-wiki-split",
+      "title": "Refresh whats-next.md after the wiki split",
+      "closed_by": "341508b"
+    },
+    {
       "id": "architecture-md-stale-output-list",
-      "title": "Fix two verified-false claims in docs/ARCHITECTURE.md's wiki-output list",
+      "title": "Two verified-false claims in docs/ARCHITECTURE.md's wiki-output list",
       "closed_by": "b043e25"
     },
     {
@@ -465,12 +462,12 @@
     },
     {
       "id": "uploads-retention-policy",
-      "title": "Decide whether uploads/ is permanent storage or staging",
+      "title": "uploads/ is permanent storage - the decision add_deepsid_document now relies on",
       "closed_by": "5c6c541"
     },
     {
       "id": "wiki-export-oversized",
-      "title": "Split wiki_export.py (13,356 lines) into wikigen/ + wiki_assets/",
+      "title": "Split wiki_export.py into wikigen/ + wiki_assets/",
       "closed_by": "5c6c541"
     },
     {
@@ -540,7 +537,7 @@
     },
     {
       "id": "to-dos-md-stale-entries",
-      "title": "Mark done entries in TO-DOS.md (an earlier pass; the SID entry has since gone stale again - see to-dos-md-deepsid-entry-stale)",
+      "title": "Mark done entries in TO-DOS.md (earlier pass)",
       "closed_by": "dcffd52"
     },
     {

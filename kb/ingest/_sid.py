@@ -15,7 +15,7 @@ and thirdSIDAddress.
 
 import struct
 import zipfile
-from typing import Any
+from typing import Any, Optional
 
 MAGIC_PSID = b"PSID"
 MAGIC_RSID = b"RSID"
@@ -401,7 +401,9 @@ def _stil_to_text(raw: Any) -> str:
 
 
 def deepsid_card_text(info: dict[str, Any], fullname: str,
-                      base_url: str = DEEPSID_BASE_URL) -> str:
+                      base_url: str = DEEPSID_BASE_URL,
+                      title_note: Optional[str] = None,
+                      source_url: Optional[str] = None) -> str:
     """Render one DeepSID info reply as the searchable text of a document.
 
     The shared fields go through sid_card_text so a tune reads the same
@@ -409,6 +411,11 @@ def deepsid_card_text(info: dict[str, Any], fullname: str,
     is the part that justifies the network call at all: the player routine,
     per-subtune lengths and the STIL entry are curated by HVSC and exist
     nowhere in the file's own 124-byte header.
+
+    `title_note` records where the title came from when it was not the API's
+    own `name` field, and `source_url` overrides the recorded endpoint. Both
+    exist for folder rows, which carry every other field but no name - see
+    deepsid_folder_row_card_text.
     """
     meta = deepsid_info_to_meta(info)
     source_name = fullname.rsplit("/", 1)[-1] or fullname
@@ -417,7 +424,9 @@ def deepsid_card_text(info: dict[str, Any], fullname: str,
     parts.append("## DeepSID")
     parts.append("")
     parts.append(f"- Collection path: `{fullname}`")
-    parts.append(f"- Source: {deepsid_info_url(fullname, base_url)}")
+    parts.append(f"- Source: {source_url or deepsid_info_url(fullname, base_url)}")
+    if title_note:
+        parts.append(f"- Title source: {title_note}")
     for label, key in (("Player", "player"), ("Player type", "playertype"),
                        ("Player compatibility", "playercompat"),
                        ("Song lengths", "lengths"), ("MD5 hash", "hash")):
@@ -534,6 +543,48 @@ def parse_deepsid_folder_payload(body: str) -> tuple[list[dict[str, Any]], list[
         raise DeepSidError("DeepSID reply has status ok but no 'files'/'folders' list")
 
     return files, folders
+
+
+def deepsid_folder_row_card_text(row: dict[str, Any], collection_path: str,
+                                 folder: str,
+                                 base_url: str = DEEPSID_BASE_URL) -> str:
+    """Render ONE music.php file row as a document card.
+
+    A folder row is not metadata-poor: measured against the live endpoint it
+    carries 36 keys - author, released, sidmodel, clockspeed, subtunes,
+    lengths, player and the full stil text - i.e. everything info.php returns
+    for a tune, for every tune in the folder, in a SINGLE request. Building
+    cards from the rows is therefore not just an optimisation: calling
+    info.php once per tune would mean 96 requests where 1 suffices, against
+    one volunteer's server, which is the politeness budget this repo already
+    keeps a whole test file for.
+
+    THE ONE FIELD A ROW CANNOT GIVE YOU is `name`, deliberately dropped from
+    the row (Chordian/deepsid#21) - confirmed against the live reply, whose
+    row keys include author and stil but no name. The filename is the honest
+    substitute, and the card SAYS it is a substitute rather than printing
+    "(untitled)": a card that silently claims a tune has no title, when it
+    plainly has one, is the same invented-fact failure parse_sid_header
+    refuses to commit for v1 headers.
+    """
+    filename = str(row.get("filename") or "").strip()
+    stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+
+    enriched = dict(row)
+    if not str(enriched.get("name") or "").strip():
+        enriched["name"] = stem
+        note = (
+            f"derived from the filename `{filename}` - DeepSID's folder "
+            "listing omits the `name` field (Chordian/deepsid#21), so this is "
+            "the filename rather than the tune's own title"
+        )
+    else:
+        note = None
+
+    return deepsid_card_text(
+        enriched, collection_path, base_url, title_note=note,
+        source_url=deepsid_folder_url(folder, base_url),
+    )
 
 
 def deepsid_folder_collection_paths(folder: str, files: list[dict[str, Any]]) -> list[str]:

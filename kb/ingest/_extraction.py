@@ -908,65 +908,66 @@ class _ExtractionMixin:
             self.logger.debug(f"Could not detect frames at {url}: {e} (will use mdscrape instead)")
             return []
 
+    def _fetch_deepsid_folder(
+        self, folder: str, base_url: Optional[str] = None
+    ) -> tuple[list[dict], list[str], list[str]]:
+        """List one DeepSID folder in ONE request: (rows, paths, subfolders).
 
-# --- DeepSID folder listing --------------------------------------------------
-#
-# Deliberately a module-level function, NOT a method on _ExtractionMixin.
-# kb/ingest/__init__.py composes IngestMixin from this module's mixin plus
-# _DocumentsMixin/_TaggingMixin and asserts their combined method set equals
-# a hardcoded _EXPECTED_METHODS frozenset - adding a class method here means
-# also editing that frozenset, which is out of this change's scope. A future
-# integration that wires folder enumeration into IngestMixin proper should
-# add both together.
-#
-# Same fetch shape as _extract_deepsid_metadata: robots check -> polite GET
-# with the XHR header -> status check -> parse. See kb/ingest/_sid.py for
-# why music.php's `folder` argument is not the same path shape as
-# _extract_deepsid_metadata's `fullname`.
-def fetch_deepsid_folder_listing(
-    folder: str, base_url: Optional[str] = None
-) -> tuple[list[str], list[str]]:
-    """List one DeepSID folder: (tune collection_paths, subfolder names).
+        THE ROWS ARE RETURNED, not just the paths, and that is the whole
+        point. A music.php file row carries 36 keys - author, released,
+        sidmodel, lengths, player, the full stil text - so a folder listing
+        already holds everything needed to build a card for every tune in it.
+        Returning only paths would force a follow-up info.php call per tune:
+        96 requests where 1 suffices, against one volunteer's server.
 
-    Returns collection_paths already rebuilt from folder + filename (see
-    deepsid_folder_collection_paths), so a caller can queue them for
-    _extract_deepsid_metadata directly. Recursing into the returned
-    subfolder names is how a whole collection gets enumerated - this
-    function lists one directory, it does not walk the tree itself.
-    """
-    from ._sid import (
-        DEEPSID_BASE_URL,
-        DeepSidError,
-        deepsid_folder_collection_paths,
-        deepsid_folder_url,
-        parse_deepsid_folder_payload,
-    )
-    from util import http_headers, robots_allows
+        `paths` are collection_paths rebuilt from folder + filename, in the
+        shape info.php's `fullname` wants, so a caller that DOES need the one
+        field a row lacks (`name`) can fetch just that tune. Recursing into
+        `subfolders` is how a whole collection gets walked; this lists one
+        directory and does not walk the tree itself.
 
-    base = base_url or os.environ.get('TDZ_DEEPSID_BASE_URL', DEEPSID_BASE_URL)
-    url = deepsid_folder_url(folder, base)
-
-    if not robots_allows(url):
-        raise DeepSidError(f"robots.txt disallows fetching {url}")
-
-    try:
-        response = http_get_polite(
-            url,
-            headers=http_headers({'X-Requested-With': 'XMLHttpRequest'}),
+        Was a module-level function until this change, deliberately, to avoid
+        editing _EXPECTED_METHODS out of scope - see kb/ingest/__init__.py.
+        It is a method now, and that frozenset gained both new names in the
+        same commit, which is the constraint that comment anticipated.
+        """
+        from ._sid import (
+            DEEPSID_BASE_URL,
+            DeepSidError,
+            deepsid_folder_collection_paths,
+            deepsid_folder_url,
+            parse_deepsid_folder_payload,
         )
-    except Exception as e:
-        raise DeepSidError(f"DeepSID request failed: {e}")
+        from util import http_headers, robots_allows
 
-    # Checked before the body: php/music.php answers HTTP 500 with an EMPTY
-    # body (an uncaught PHP TypeError from scandir() on a folder value it
-    # cannot resolve), not a JSON error - see kb/ingest/_sid.py. Reported as
-    # "non-JSON body" that would name the symptom instead of the cause.
-    if response.status_code != 200:
-        raise DeepSidError(
-            f"DeepSID returned HTTP {response.status_code} for folder {folder!r}"
+        base = base_url or os.environ.get('TDZ_DEEPSID_BASE_URL', DEEPSID_BASE_URL)
+        url = deepsid_folder_url(folder, base)
+
+        if not robots_allows(url):
+            raise DeepSidError(f"robots.txt disallows fetching {url}")
+
+        try:
+            response = http_get_polite(
+                url,
+                headers=http_headers({'X-Requested-With': 'XMLHttpRequest'}),
+            )
+        except Exception as e:
+            raise DeepSidError(f"DeepSID request failed: {e}")
+
+        # Checked before the body: php/music.php answers HTTP 500 with an EMPTY
+        # body (an uncaught PHP TypeError from scandir() on a folder value it
+        # cannot resolve), not a JSON error - see kb/ingest/_sid.py. Reported as
+        # "non-JSON body" that would name the symptom instead of the cause.
+        if response.status_code != 200:
+            raise DeepSidError(
+                f"DeepSID returned HTTP {response.status_code} for folder {folder!r}"
+            )
+
+        files, folders = parse_deepsid_folder_payload(response.text)
+        paths = deepsid_folder_collection_paths(folder, files)
+        subfolders = [str(f.get("foldername") or "") for f in folders]
+        self.logger.info(
+            f"DeepSID folder {folder!r}: {len(files)} tune(s), "
+            f"{len(subfolders)} subfolder(s) in one request"
         )
-
-    files, folders = parse_deepsid_folder_payload(response.text)
-    paths = deepsid_folder_collection_paths(folder, files)
-    subfolders = [str(f.get("foldername") or "") for f in folders]
-    return paths, subfolders
+        return files, paths, subfolders

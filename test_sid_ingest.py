@@ -674,9 +674,7 @@ def test_collection_paths_handles_the_collection_root_without_double_slashing():
     assert paths == ["_High Voltage SID Collection"]
 
 
-def test_fetch_folder_listing_sends_the_xhr_header_and_returns_real_paths(monkeypatch):
-    from kb.ingest._extraction import fetch_deepsid_folder_listing
-
+def test_fetch_folder_sends_the_xhr_header_and_returns_real_paths(kb, monkeypatch):
     seen = {}
 
     def fake_get(url, **kwargs):
@@ -687,45 +685,184 @@ def test_fetch_folder_listing_sends_the_xhr_header_and_returns_real_paths(monkey
     monkeypatch.setattr("kb.ingest._extraction.http_get_polite", fake_get)
     monkeypatch.setattr("util.robots_allows", lambda url: True)
 
-    paths, subfolders = fetch_deepsid_folder_listing(DEEPSID_FOLDER)
+    rows, paths, subfolders = kb._fetch_deepsid_folder(DEEPSID_FOLDER)
 
     assert seen["headers"].get("X-Requested-With") == "XMLHttpRequest"
     assert "tdz-c64-knowledge" in seen["headers"].get("User-Agent", "")
     assert "music.php" in seen["url"]
     assert DEEPSID_FULLNAME in paths
     assert subfolders == []
+    # the ROWS come back too - returning only paths is what would force a
+    # second request per tune
+    assert rows and rows[0].get("filename")
 
 
-def test_fetch_folder_listing_refuses_a_non_200_before_blaming_the_body(monkeypatch):
-    from kb.ingest._extraction import fetch_deepsid_folder_listing
-
+def test_fetch_folder_refuses_a_non_200_before_blaming_the_body(kb, monkeypatch):
     monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
                         lambda url, **kw: _FakeResponse("", 500))
     monkeypatch.setattr("util.robots_allows", lambda url: True)
 
     with pytest.raises(DeepSidError) as exc:
-        fetch_deepsid_folder_listing(DEEPSID_FOLDER)
+        kb._fetch_deepsid_folder(DEEPSID_FOLDER)
     assert "500" in str(exc.value)
 
 
-def test_fetch_folder_listing_honours_robots_txt(monkeypatch):
-    from kb.ingest._extraction import fetch_deepsid_folder_listing
-
+def test_fetch_folder_honours_robots_txt(kb, monkeypatch):
     monkeypatch.setattr("util.robots_allows", lambda url: False)
     monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
                         lambda url, **kw: pytest.fail("fetched despite robots.txt"))
 
     with pytest.raises(DeepSidError) as exc:
-        fetch_deepsid_folder_listing(DEEPSID_FOLDER)
+        kb._fetch_deepsid_folder(DEEPSID_FOLDER)
     assert "robots" in str(exc.value).lower()
 
 
-def test_folder_listing_is_not_a_mixin_method():
-    """Deliberate: adding it as one would require editing the _EXPECTED_METHODS
-    guard in kb/ingest/__init__.py, which is out of this change's scope."""
+def test_folder_listing_is_now_a_mixin_method():
+    """Reverses the earlier deliberate choice, and the guard moved with it.
+
+    It was module-level only to avoid editing _EXPECTED_METHODS out of scope;
+    this change makes it a method AND extends that frozenset in the same
+    commit, which is what the old comment said the integration should do.
+    """
+    from kb.ingest import _EXPECTED_METHODS
     from kb.ingest._extraction import _ExtractionMixin
 
+    assert hasattr(_ExtractionMixin, "_fetch_deepsid_folder")
+    assert "_fetch_deepsid_folder" in _EXPECTED_METHODS
     assert not hasattr(_ExtractionMixin, "fetch_deepsid_folder_listing")
+
+
+def _big_folder(n=96):
+    """A folder reply the size of the real Hubbard_Rob one (96 rows)."""
+    rows = []
+    for i in range(n):
+        row = dict(DEEPSID_FOLDER_FILES[0])
+        row["filename"] = f"Tune_{i:03d}.sid"
+        row["author"] = "Rob Hubbard"
+        row["released"] = "1985 Elite"
+        row["sidmodel"] = "MOS6581"
+        row["stil"] = f"COMMENT: note for tune {i}"
+        rows.append(row)
+    return json.dumps({"status": "ok", "files": rows, "folders": []})
+
+
+def test_ingesting_a_96_row_folder_issues_exactly_one_request(kb, monkeypatch):
+    """The politeness claim this task exists to make good on.
+
+    The obvious implementation - loop add_deepsid_document over the returned
+    paths - would issue 96 further calls to one volunteer's server for data
+    the listing already contained. This pins the count at one.
+    """
+    calls = []
+
+    def counting_get(url, **kwargs):
+        calls.append(url)
+        return _FakeResponse(_big_folder(96))
+
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite", counting_get)
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    docs = kb.add_deepsid_folder(DEEPSID_FOLDER, ["hvsc"])
+
+    assert len(docs) == 96, f"ingested {len(docs)} of 96"
+    assert len(calls) == 1, f"issued {len(calls)} requests for one folder: {calls[:3]}"
+    assert "music.php" in calls[0]
+
+
+def _rich_folder_row(filename="Commando.sid"):
+    """One row shaped like the live endpoint's, which carries 36 keys.
+
+    DEEPSID_FOLDER_FILES is deliberately minimal for the path-rebuilding
+    tests; this models the metadata a real row actually holds, which is the
+    whole reason a folder listing is worth building cards from. Note the
+    absent `name` - that is the real shape, not an omission in the fixture.
+    """
+    return {
+        "id": 22604, "filename": filename, "author": "Rob Hubbard",
+        "released": "1985 Elite", "sidmodel": "MOS6581", "clockspeed": "PAL 50Hz",
+        "type": "PSID", "version": "2.0", "subtunes": 19, "startsubtune": 1,
+        "loadaddr": 20480, "initaddr": 24498, "playaddr": 20498,
+        "player": "Rob_Hubbard", "lengths": "3:55.594 1:01.288",
+        "hash": "7fe08f19e769b3e6ce03249cb3d00b5b",
+        "stil": "COMMENT: I went down to their<br />office and started working.",
+    }
+
+
+def test_folder_cards_carry_the_row_metadata_not_just_the_path(kb, monkeypatch):
+    """A row holds author/released/sidmodel/stil - the card must use them."""
+    body = json.dumps({"status": "ok", "files": [_rich_folder_row()], "folders": []})
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse(body))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    docs = kb.add_deepsid_folder(DEEPSID_FOLDER)
+    assert len(docs) == 1
+    text = "\n".join(c.content for c in kb._get_chunks_db(docs[0].doc_id))
+    for field in ("Rob Hubbard", "1985 Elite", "MOS6581", "PAL 50Hz",
+                  "3:55.594", "Rob_Hubbard"):
+        assert field in text, f"{field!r} missing from the folder-row card"
+    assert "STIL entry" in text, "the row's stil text was dropped"
+    # the <br /> flattening applies to rows too, not just info.php replies
+    assert "<br" not in text and "their\noffice" in text
+
+
+def test_a_row_without_name_gets_an_explicit_title_not_an_empty_one(kb, monkeypatch):
+    """music.php omits `name` (Chordian/deepsid#21).
+
+    Rendering "(untitled)" for a tune that plainly has a title would be the
+    same invented-fact failure parse_sid_header refuses for v1 headers, so the
+    filename is substituted AND labelled as a substitute.
+    """
+    row = _rich_folder_row()
+    # precondition: the row really has no name, or this test proves nothing
+    assert "name" not in row, "fixture no longer models the missing-name case"
+    body = json.dumps({"status": "ok", "files": [row], "folders": []})
+
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse(body))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    docs = kb.add_deepsid_folder(DEEPSID_FOLDER)
+    text = "\n".join(c.content for c in kb._get_chunks_db(docs[0].doc_id))
+
+    assert "(untitled)" not in text
+    assert "- Title: Commando" in text
+    assert "Title source:" in text and "filename" in text
+    assert docs[0].title == "Commando"
+
+
+def test_one_unusable_row_does_not_abandon_the_rest(kb, monkeypatch):
+    """The listing is already paid for; a bad row must not waste it."""
+    rows = json.loads(_big_folder(4))["files"]
+    rows[1]["filename"] = ""          # nothing to build a path or filename from
+    body = json.dumps({"status": "ok", "files": rows, "folders": []})
+
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse(body))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    docs = kb.add_deepsid_folder(DEEPSID_FOLDER)
+    assert len(docs) >= 3, f"one bad row cost {4 - len(docs)} documents"
+
+
+def test_add_deepsid_folder_does_not_walk_subfolders(kb, monkeypatch):
+    """Recursion multiplies the request count by the tree size - caller's call."""
+    body = json.dumps({
+        "status": "ok",
+        "files": DEEPSID_FOLDER_FILES,
+        "folders": [{"foldername": "Sub_A"}, {"foldername": "Sub_B"}],
+    })
+    calls = []
+
+    def counting_get(url, **kw):
+        calls.append(url)
+        return _FakeResponse(body)
+
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite", counting_get)
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    kb.add_deepsid_folder(DEEPSID_FOLDER)
+    assert len(calls) == 1, "subfolders were walked; that is the caller's decision"
 
 
 def test_expected_methods_guard_lists_the_new_mixin_method():

@@ -182,14 +182,34 @@ class _DocumentsMixin:
         from ._sid import DEEPSID_BASE_URL, deepsid_info_url
 
         text = self._extract_deepsid_metadata(fullname, base_url)
-
         base = base_url or os.environ.get('TDZ_DEEPSID_BASE_URL', DEEPSID_BASE_URL)
-        source_url = deepsid_info_url(fullname, base)
+        return self._add_deepsid_card(
+            fullname, text, tags,
+            {'source': 'deepsid', 'endpoint': 'php/info.php',
+             'collection_path': fullname},
+            source_url=deepsid_info_url(fullname, base),
+        )
+
+    def _add_deepsid_card(self, collection_path: str, text: str,
+                          tags: Optional[list[str]], scrape_config: dict,
+                          source_url: Optional[str] = None) -> DocumentMeta:
+        """Materialise one rendered DeepSID card and ingest it.
+
+        Shared by the single-tune path (info.php) and the folder path
+        (music.php) so both get the same lifecycle rather than two that drift.
+        The card text is already rendered by the caller; everything from here
+        down is identical whichever endpoint produced it.
+        """
+        from ._sid import DEEPSID_BASE_URL, deepsid_info_url
+
+        if source_url is None:
+            base = os.environ.get('TDZ_DEEPSID_BASE_URL', DEEPSID_BASE_URL)
+            source_url = deepsid_info_url(collection_path, base)
 
         # The tune's own filename, not the whole collection path: keeps the
         # on-disk name readable, and the collection path is preserved in
         # source_url and in the card body.
-        stem = fullname.rsplit('/', 1)[-1] or fullname
+        stem = collection_path.rsplit('/', 1)[-1] or collection_path
         if stem.lower().endswith(('.sid', '.psid', '.rsid')):
             stem = stem.rsplit('.', 1)[0]
         safe_stem = re.sub(r'[^A-Za-z0-9._-]', '_', stem)[:120] or 'tune'
@@ -210,15 +230,69 @@ class _DocumentsMixin:
                 title = line[2:].strip()
                 break
 
-        scrape_config = json.dumps({
-            'source': 'deepsid',
-            'endpoint': 'php/info.php',
-            'collection_path': fullname,
-        })
         return self._add_scraped_document(
-            str(target), source_url, title, tags, scrape_config,
+            str(target), source_url, title, tags, json.dumps(scrape_config),
             datetime.now().isoformat(),
         )
+
+    def add_deepsid_folder(self, folder: str, tags: Optional[list[str]] = None,
+                           base_url: Optional[str] = None,
+                           limit: Optional[int] = None) -> list[DocumentMeta]:
+        """Ingest every tune in one DeepSID folder from a SINGLE request.
+
+        THE REQUEST COUNT IS THE DESIGN, not an optimisation. music.php
+        returns 36 keys per file row - author, released, sidmodel, lengths,
+        player, the whole stil text - so one listing already contains
+        everything needed to build a card for all 96 tunes in, say,
+        Hubbard_Rob. Looping add_deepsid_document over the returned paths
+        would be the obvious implementation and would issue 96 further
+        requests to one volunteer's server for data already in hand. This
+        makes exactly one.
+
+        The cost of that choice is the `name` field, which a row omits
+        (Chordian/deepsid#21); deepsid_folder_row_card_text substitutes the
+        filename and labels it as a substitute. A caller who needs the real
+        title for a specific tune can still call add_deepsid_document on that
+        one path - the paths are returned in info.php's `fullname` shape
+        precisely so that stays possible.
+
+        Lists ONE directory. Subfolders are returned by _fetch_deepsid_folder
+        but not walked: recursion would multiply the request count by the
+        tree's size, which is the caller's decision to make, not this
+        method's.
+        """
+        rows, paths, _subfolders = self._fetch_deepsid_folder(folder, base_url)
+        if limit is not None:
+            rows, paths = rows[:limit], paths[:limit]
+
+        docs: list[DocumentMeta] = []
+        for row, collection_path in zip(rows, paths):
+            try:
+                docs.append(self._add_deepsid_card(
+                    collection_path,
+                    self._deepsid_folder_card(row, collection_path, folder, base_url),
+                    tags,
+                    {'source': 'deepsid', 'endpoint': 'php/music.php',
+                     'folder': folder, 'collection_path': collection_path},
+                ))
+            except Exception as e:
+                # One unusable row must not abandon the other 95. The listing
+                # is already paid for, so the useful thing is to keep going
+                # and let the log name what was skipped.
+                self.logger.warning(
+                    f"Skipped DeepSID tune {collection_path!r}: {e}"
+                )
+        self.logger.info(
+            f"Ingested {len(docs)} of {len(paths)} tune(s) from DeepSID folder {folder!r}"
+        )
+        return docs
+
+    def _deepsid_folder_card(self, row: dict, collection_path: str, folder: str,
+                             base_url: Optional[str]) -> str:
+        from ._sid import DEEPSID_BASE_URL, deepsid_folder_row_card_text
+
+        base = base_url or os.environ.get('TDZ_DEEPSID_BASE_URL', DEEPSID_BASE_URL)
+        return deepsid_folder_row_card_text(row, collection_path, folder, base)
 
     def _is_path_allowed(self, filepath: str) -> bool:
         """

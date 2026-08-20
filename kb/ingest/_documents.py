@@ -151,6 +151,75 @@ class _DocumentsMixin:
         self.logger.info(f"Added scraped document: {doc.title} (from {source_url})")
         return doc
 
+    def add_deepsid_document(self, fullname: str, tags: Optional[list[str]] = None,
+                             base_url: Optional[str] = None) -> DocumentMeta:
+        """Ingest one DeepSID tune's metadata as a searchable Document.
+
+        WHY THIS MATERIALISES A FILE rather than inserting a document with a
+        synthetic path, which was the design question: `documents.filepath` is
+        not decoration. `_document_source_missing` (kb/core.py) reads it as
+        "can this document's source still be re-read?", and health_check's
+        missing_source_files metric raises the whole server's status to
+        'warning' for every document where it cannot. A DeepSID document
+        carrying a path that does not exist would therefore pin health_check
+        at 'warning' forever, and would do it for a document whose source is
+        in fact perfectly re-fetchable - the exact opposite of what that
+        metric means. Writing the card to disk keeps the metric honest without
+        teaching it a special case, and leaves the document re-chunkable and
+        re-OCR-able like any other.
+
+        `uploads/` is the right home for it: docs/ARCHITECTURE.md records the
+        2026-08-19 decision that uploads/ is PERMANENT storage rather than a
+        staging area precisely because ingest records that path in filepath,
+        and kb/core.py always whitelists it, so no ALLOWED_DOCS_DIRS
+        configuration can make this fail.
+
+        The rest is deliberately `_add_scraped_document`'s existing lifecycle
+        rather than a parallel one - a DeepSID tune IS a URL-sourced document,
+        so it gets the same source_url/scrape_date/scrape_status treatment and
+        the same change-detection hash.
+        """
+        from ._sid import DEEPSID_BASE_URL, deepsid_info_url
+
+        text = self._extract_deepsid_metadata(fullname, base_url)
+
+        base = base_url or os.environ.get('TDZ_DEEPSID_BASE_URL', DEEPSID_BASE_URL)
+        source_url = deepsid_info_url(fullname, base)
+
+        # The tune's own filename, not the whole collection path: keeps the
+        # on-disk name readable, and the collection path is preserved in
+        # source_url and in the card body.
+        stem = fullname.rsplit('/', 1)[-1] or fullname
+        if stem.lower().endswith(('.sid', '.psid', '.rsid')):
+            stem = stem.rsplit('.', 1)[0]
+        safe_stem = re.sub(r'[^A-Za-z0-9._-]', '_', stem)[:120] or 'tune'
+
+        target_dir = self.data_dir / "uploads" / "deepsid"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / f"{safe_stem}.md"
+
+        # Written as UTF-8 with explicit newline='' so the card's own '\n'
+        # joins survive verbatim; this file is data, and re-encoding it would
+        # change the content hash that drives update detection.
+        with open(target, 'w', encoding='utf-8', newline='') as fh:
+            fh.write(text)
+
+        title = None
+        for line in text.splitlines():
+            if line.startswith('# '):
+                title = line[2:].strip()
+                break
+
+        scrape_config = json.dumps({
+            'source': 'deepsid',
+            'endpoint': 'php/info.php',
+            'collection_path': fullname,
+        })
+        return self._add_scraped_document(
+            str(target), source_url, title, tags, scrape_config,
+            datetime.now().isoformat(),
+        )
+
     def _is_path_allowed(self, filepath: str) -> bool:
         """
         Check if a file path is within allowed directories.

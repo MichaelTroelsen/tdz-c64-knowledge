@@ -352,6 +352,31 @@ def handle_answer_question(kb, name: str, arguments: dict) -> list[TextContent]:
     return [TextContent(type="text", text=output)]
 
 
+def handle_add_deepsid_document(kb, name: str, arguments: dict) -> list[TextContent]:
+    """Ingest one DeepSID tune's metadata as a document."""
+    fullname = arguments.get("fullname")
+    tags = arguments.get("tags")
+
+    if not fullname:
+        return [TextContent(type="text", text="Error: fullname is required")]
+
+    try:
+        doc = kb.add_deepsid_document(fullname, tags)
+    except Exception as e:
+        # DeepSidError's messages name their own cause (missing XHR header,
+        # wrong path format, no matching tune), so surfacing the text is more
+        # useful here than classifying it.
+        return [TextContent(type="text", text=f"Error ingesting DeepSID tune: {e}")]
+
+    return [TextContent(type="text", text=(
+        f"Added DeepSID document: {doc.title}\n"
+        f"  doc_id: {doc.doc_id}\n"
+        f"  source: {doc.source_url}\n"
+        f"  stored at: {doc.filepath}\n"
+        f"  chunks: {doc.total_chunks}"
+    ))]
+
+
 def handle_repoint_document(kb, name: str, arguments: dict) -> list[TextContent]:
     """Repair a document whose source file has moved, without reingesting."""
     doc_id = arguments.get("doc_id")
@@ -396,6 +421,7 @@ HANDLERS_DOCUMENTS = {
     "check_url_updates": handle_check_url_updates,
     "remove_document": handle_remove_document,
     "repoint_document": handle_repoint_document,
+    "add_deepsid_document": handle_add_deepsid_document,
     "find_similar": handle_find_similar,
     "answer_question": handle_answer_question,
 }

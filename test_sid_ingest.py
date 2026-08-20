@@ -9,8 +9,10 @@ looks reasonable until you compare it with the spec.
 """
 
 import json
+import os
 import struct
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -442,6 +444,101 @@ def test_card_omits_absent_optional_sections_instead_of_printing_blanks():
     assert "STIL entry" not in text
     assert "Song lengths" not in text
     assert "Bare" in text
+
+
+def test_deepsid_tune_ingests_into_a_searchable_document(kb, monkeypatch):
+    """End-to-end: a collection path becomes a Document kb.search can find."""
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse(_ok()))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    doc = kb.add_deepsid_document(DEEPSID_FULLNAME, ["sid", "hvsc"])
+
+    assert doc.title == "Commando"
+    assert doc.source_url and "info.php" in doc.source_url
+    assert doc.scrape_status == "success"
+
+    text = "\n".join(c.content for c in kb._get_chunks_db(doc.doc_id))
+    # the last one is DEEPSID_INFO's own lengths value - the API-only data
+    # that is the whole reason this document is worth fetching
+    for field in ("Commando", "Rob Hubbard", "1985 Elite", "MOS6581", "3:30 1:59"):
+        assert field in text, f"{field!r} missing from the ingested DeepSID card"
+
+    hits = kb.search("Hubbard", max_results=10)
+    assert any((h["doc_id"] if isinstance(h, dict) else h.doc_id) == doc.doc_id
+               for h in hits), hits
+
+
+def test_ingested_deepsid_document_is_not_counted_as_a_missing_source_file(kb, monkeypatch):
+    """The metric this design exists to keep honest.
+
+    health_check's missing_source_files counts documents whose filepath no
+    longer resolves, and raises the whole server's status to 'warning' when it
+    is non-zero. A DeepSID document given a synthetic path would sit in that
+    count forever - and would do it for a document whose source is perfectly
+    re-fetchable, which is the opposite of what the metric means. This asserts
+    the file is really on disk rather than that the metric was special-cased.
+    """
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse(_ok()))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    before = kb.health_check(use_cache=False)["metrics"]["missing_source_files"]
+    doc = kb.add_deepsid_document(DEEPSID_FULLNAME)
+    after = kb.health_check(use_cache=False)["metrics"]["missing_source_files"]
+
+    assert after == before, (
+        f"ingesting a DeepSID tune moved missing_source_files {before} -> {after}"
+    )
+    # ...and prove it for the right reason: the recorded path really exists.
+    assert os.path.exists(doc.filepath), doc.filepath
+    assert kb._document_source_missing(doc.filepath) is False
+
+
+def test_deepsid_document_lands_in_uploads_which_is_permanent_storage(kb, monkeypatch):
+    """docs/ARCHITECTURE.md records uploads/ as permanent, not staging.
+
+    kb/core.py always whitelists <data_dir>/uploads, so this location cannot
+    be broken by an ALLOWED_DOCS_DIRS configuration.
+    """
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse(_ok()))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    doc = kb.add_deepsid_document(DEEPSID_FULLNAME)
+    stored = Path(doc.filepath)
+    assert stored.parent.name == "deepsid"
+    assert stored.parent.parent.name == "uploads"
+    assert kb._is_path_allowed(str(stored))
+    # the collection path is preserved even though the filename is just the tune
+    assert stored.name == "Commando.md"
+    assert DEEPSID_FULLNAME in stored.read_text(encoding="utf-8")
+
+
+def test_a_tune_that_does_not_exist_creates_no_document(kb, monkeypatch):
+    """A miss must not leave a half-made document behind."""
+    miss = json.dumps({"status": "ok", "info": {"sidmodel": "MOS6581"}})
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse(miss))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    before = len(kb.documents)
+    with pytest.raises(DeepSidError):
+        kb.add_deepsid_document("/wrong/format/Commando.sid")
+    assert len(kb.documents) == before
+
+
+def test_add_deepsid_document_is_registered_as_an_mcp_tool():
+    """The method is useless if no interface reaches it."""
+    from mcp_tools.documents import HANDLERS_DOCUMENTS
+    from mcp_tools.schemas import TOOL_SCHEMAS
+
+    assert "add_deepsid_document" in HANDLERS_DOCUMENTS
+    schema = next(t for t in TOOL_SCHEMAS if t.name == "add_deepsid_document")
+    assert schema.inputSchema["required"] == ["fullname"]
+    # the path format is the single likeliest thing to get wrong, so the tool
+    # description has to teach it rather than assume it
+    assert "_High Voltage SID Collection" in schema.description
 
 
 class _FakeResponse:

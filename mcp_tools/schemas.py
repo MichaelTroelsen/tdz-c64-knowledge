@@ -304,6 +304,38 @@ TOOL_SCHEMAS: list[Tool] = [
             }
         ),
         Tool(
+            name="add_deepsid_document",
+            description=(
+                "Ingest one SID tune's metadata from DeepSID's JSON API as a searchable "
+                "document. Takes the tune's collection path, NOT a URL and NOT a local file: "
+                "the format is the collection folder with a leading underscore and no leading "
+                "slash, e.g. '_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob/Commando.sid'. "
+                "A path that matches no tune is refused rather than stored as an empty card. "
+                "The card carries title, author, release, chip model, video standard, subtune "
+                "count and addresses, plus the player routine, per-subtune song lengths and the "
+                "full STIL entry - the last three exist nowhere in a .sid file's own header, "
+                "which is the reason to call the API at all."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "fullname": {
+                        "type": "string",
+                        "description": (
+                            "Tune's collection path, leading underscore and no leading slash, "
+                            "e.g. '_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob/Commando.sid'"
+                        )
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional tags to attach to the created document"
+                    }
+                },
+                "required": ["fullname"]
+            }
+        ),
+        Tool(
             name="remove_document",
             description="Remove a document from the knowledge base.",
             inputSchema={

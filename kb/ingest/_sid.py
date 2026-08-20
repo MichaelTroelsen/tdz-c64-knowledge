@@ -433,3 +433,116 @@ def deepsid_card_text(info: dict[str, Any], fullname: str,
         parts.extend(["", "## STIL entry", "", stil])
 
     return "\n".join(parts) + "\n"
+
+
+# --- DeepSID folder-listing API ----------------------------------------------
+#
+# info.php answers one already-known tune path; it has no way to discover
+# what paths exist. Enumerating a whole collection needs the endpoint the
+# browser's own folder tree uses, identified from DeepSID's source
+# (github.com/Chordian/deepsid):
+#
+#   - js/browser.js's Browser.prototype (the folder-tree loader) does
+#         this.hvsc = $.get("php/music.php", {
+#             folder:  this.path, searchType: this.searchType,
+#             searchQuery: this.searchQuery, searchHere: this.searchHere,
+#             page: this.page, factoidTop: main.factoidTypeTop,
+#             factoidBottom: main.factoidTypeBottom,
+#         }, function(data) { ... });
+#   - php/music.php reads $_GET['folder'] and, for a plain physical folder
+#     (not a search, not a symlist, not the CSDb compo tree), runs
+#         $files = array_values(array_diff(scandir(ROOT_HVSC.$_GET['folder']), [...]));
+#     then answers
+#         {"status": "ok", "files": [...], "folders": [...], ...}
+#     Confirmed live against the real endpoint (folder=
+#     "/_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob"): the reply
+#     carries 96 file rows including {"filename": "Commando.sid", ...}.
+#   - it opens with the SAME guard as info.php:
+#         if (!isset($_SERVER['HTTP_X_REQUESTED_WITH']) || ... != 'XMLHttpRequest')
+#             die("Direct access not permitted.");
+#
+# Two traps distinguish it from info.php's `fullname`:
+#
+#   1. `folder` carries a LEADING SLASH before the collection root
+#      ("/_High Voltage SID Collection/..."), not the leading-underscore-
+#      no-slash shape `fullname` wants. This was found by direct
+#      experiment: a folder value with the slash missing (or mangled - Git
+#      Bash's MSYS path rewriting turned a bare "/_High Voltage SID
+#      Collection" into an absolute Windows path before it ever left the
+#      shell) makes ROOT_HVSC.$_GET['folder'] name a directory that does not
+#      exist, and scandir() returns false; array_diff(false, [...]) is then
+#      an uncaught PHP 8 TypeError, so the endpoint answers HTTP 500 with an
+#      EMPTY body - not a JSON error, and not the empty-info miss info.php
+#      gives for a wrong path.
+#   2. each file row carries only the bare `filename`
+#      (github.com/Chordian/deepsid/issues/21 - `name` was deliberately
+#      dropped from the row), not a collection_path. The full path has to be
+#      rebuilt from the `folder` that was asked for, the same way
+#      php/music.php itself builds it server-side via
+#      `$folder = ltrim($_GET['folder'].'/', '/');` before its own
+#      files-table lookups.
+
+def deepsid_folder_url(folder: str, base_url: str = DEEPSID_BASE_URL) -> str:
+    """URL of the folder-listing endpoint for one physical directory.
+
+    `folder` is php/music.php's own path format: a LEADING SLASH, then the
+    collection root with its own leading underscore, e.g.
+    "/_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob". Pass "" for the
+    collection root itself.
+    """
+    from urllib.parse import urlencode
+
+    if folder is None:
+        raise DeepSidError("folder is required: pass '' for the collection root")
+    return f"{base_url.rstrip('/')}/php/music.php?" + urlencode({"folder": folder})
+
+
+def parse_deepsid_folder_payload(body: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Validate one music.php reply and return (files, folders).
+
+    Same failure shapes as parse_deepsid_payload and for the same reason:
+    music.php shares info.php's XHR-only guard and its HTTP-200-with-error
+    body, so a bare json.loads would misreport both as something else.
+    """
+    import json
+
+    text = (body or "").strip()
+    if not text:
+        raise DeepSidError("DeepSID returned an empty body")
+
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, ValueError) as exc:
+        if _DEEPSID_REFUSAL.lower() in text.lower():
+            raise DeepSidError(
+                "DeepSID refused the request as direct access: music.php requires the "
+                "header 'X-Requested-With: XMLHttpRequest'"
+            ) from exc
+        raise DeepSidError(f"DeepSID returned a non-JSON body: {text[:120]!r}") from exc
+
+    if not isinstance(payload, dict):
+        raise DeepSidError(f"DeepSID returned {type(payload).__name__}, expected a JSON object")
+
+    status = payload.get("status")
+    if status != "ok":
+        message = payload.get("message") or "(no message)"
+        raise DeepSidError(f"DeepSID reported status {status!r}: {message}")
+
+    files = payload.get("files")
+    folders = payload.get("folders")
+    if not isinstance(files, list) or not isinstance(folders, list):
+        raise DeepSidError("DeepSID reply has status ok but no 'files'/'folders' list")
+
+    return files, folders
+
+
+def deepsid_folder_collection_paths(folder: str, files: list[dict[str, Any]]) -> list[str]:
+    """Rebuild each file's collection_path from a music.php folder + filename.
+
+    A file row only ever carries its bare filename (see the module note
+    above), so the path has to be reassembled from the folder that produced
+    it rather than read off the row directly.
+    """
+    prefix = (folder or "").lstrip("/")
+    base = f"{prefix}/" if prefix else ""
+    return [base + str(f.get("filename") or "") for f in files]

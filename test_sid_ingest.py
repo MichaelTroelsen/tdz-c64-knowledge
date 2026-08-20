@@ -20,8 +20,11 @@ from kb.ingest._sid import (
     V1_HEADER_SIZE,
     V2_HEADER_SIZE,
     deepsid_card_text,
+    deepsid_folder_collection_paths,
+    deepsid_folder_url,
     deepsid_info_to_meta,
     deepsid_info_url,
+    parse_deepsid_folder_payload,
     parse_deepsid_payload,
     parse_sid_header,
     parse_sid_zip,
@@ -490,6 +493,142 @@ def test_mixin_honours_robots_txt(kb, monkeypatch):
     with pytest.raises(DeepSidError) as exc:
         kb._extract_deepsid_metadata(DEEPSID_FULLNAME)
     assert "robots" in str(exc.value).lower()
+
+
+# --- DeepSID folder-listing API -----------------------------------------------
+#
+# php/music.php, identified from js/browser.js's
+# $.get("php/music.php", {folder: this.path, ...}) call and confirmed live:
+# a real GET for folder="/_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob"
+# (with the XHR header) answered {"status":"ok","files":[96 rows],"folders":[]}
+# and one row was {"filename": "Commando.sid", ...}. FOLDER_FILES below is
+# that real row trimmed to the fields this module reads.
+
+DEEPSID_FOLDER = "/_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob"
+
+DEEPSID_FOLDER_FILES = [
+    {"id": 22612, "filename": "5_Title_Tunes.sid", "author": "Rob Hubbard"},
+    {"id": 22604, "filename": "Commando.sid", "author": "Rob Hubbard"},
+]
+
+
+def _folder_ok(files=None, folders=None):
+    return json.dumps({
+        "status": "ok",
+        "files": files if files is not None else DEEPSID_FOLDER_FILES,
+        "folders": folders if folders is not None else [],
+    })
+
+
+def test_folder_url_uses_the_leading_slash_path_format():
+    """php/music.php's `folder` keeps the leading slash info.php's `fullname` drops."""
+    url = deepsid_folder_url(DEEPSID_FOLDER)
+    assert url.startswith("https://deepsid.chordian.net/php/music.php?")
+    assert "folder=" in url
+    assert "%2F_High" in url or "folder=/_High" in url
+
+
+def test_folder_url_accepts_the_empty_string_for_the_collection_root():
+    """Unlike fullname (which is required), '' is a legitimate folder: the root."""
+    url = deepsid_folder_url("")
+    assert url == "https://deepsid.chordian.net/php/music.php?folder="
+
+
+def test_folder_url_rejects_a_missing_folder():
+    with pytest.raises(DeepSidError):
+        deepsid_folder_url(None)
+
+
+def test_folder_payload_returns_files_and_folders_on_success():
+    files, folders = parse_deepsid_folder_payload(_folder_ok())
+    assert [f["filename"] for f in files] == ["5_Title_Tunes.sid", "Commando.sid"]
+    assert folders == []
+
+
+def test_folder_direct_access_refusal_names_the_missing_header():
+    """music.php shares info.php's exact XHR-only guard and refusal sentence."""
+    with pytest.raises(DeepSidError) as exc:
+        parse_deepsid_folder_payload("Direct access not permitted.")
+    assert "X-Requested-With" in str(exc.value)
+
+
+def test_folder_error_status_is_caught_even_though_it_arrives_as_http_200():
+    body = json.dumps({"status": "error", "message": "Unknown folder."})
+    with pytest.raises(DeepSidError) as exc:
+        parse_deepsid_folder_payload(body)
+    assert "Unknown folder." in str(exc.value)
+
+
+@pytest.mark.parametrize("body", ["", "   ", "<html>502</html>", "[1, 2, 3]",
+                                  '{"status": "ok"}', '{"status": "ok", "files": []}'])
+def test_folder_unusable_replies_raise_rather_than_yielding_an_empty_list(body):
+    with pytest.raises(DeepSidError):
+        parse_deepsid_folder_payload(body)
+
+
+def test_collection_paths_reconstructs_the_real_hubbard_commando_path():
+    """The path the task exists to prove reachable, rebuilt from folder + filename."""
+    paths = deepsid_folder_collection_paths(DEEPSID_FOLDER, DEEPSID_FOLDER_FILES)
+    assert DEEPSID_FULLNAME in paths
+
+
+def test_collection_paths_handles_the_collection_root_without_double_slashing():
+    paths = deepsid_folder_collection_paths("", [{"filename": "_High Voltage SID Collection"}])
+    assert paths == ["_High Voltage SID Collection"]
+
+
+def test_fetch_folder_listing_sends_the_xhr_header_and_returns_real_paths(monkeypatch):
+    from kb.ingest._extraction import fetch_deepsid_folder_listing
+
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        seen["headers"] = kwargs.get("headers", {})
+        return _FakeResponse(_folder_ok())
+
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite", fake_get)
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    paths, subfolders = fetch_deepsid_folder_listing(DEEPSID_FOLDER)
+
+    assert seen["headers"].get("X-Requested-With") == "XMLHttpRequest"
+    assert "tdz-c64-knowledge" in seen["headers"].get("User-Agent", "")
+    assert "music.php" in seen["url"]
+    assert DEEPSID_FULLNAME in paths
+    assert subfolders == []
+
+
+def test_fetch_folder_listing_refuses_a_non_200_before_blaming_the_body(monkeypatch):
+    from kb.ingest._extraction import fetch_deepsid_folder_listing
+
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: _FakeResponse("", 500))
+    monkeypatch.setattr("util.robots_allows", lambda url: True)
+
+    with pytest.raises(DeepSidError) as exc:
+        fetch_deepsid_folder_listing(DEEPSID_FOLDER)
+    assert "500" in str(exc.value)
+
+
+def test_fetch_folder_listing_honours_robots_txt(monkeypatch):
+    from kb.ingest._extraction import fetch_deepsid_folder_listing
+
+    monkeypatch.setattr("util.robots_allows", lambda url: False)
+    monkeypatch.setattr("kb.ingest._extraction.http_get_polite",
+                        lambda url, **kw: pytest.fail("fetched despite robots.txt"))
+
+    with pytest.raises(DeepSidError) as exc:
+        fetch_deepsid_folder_listing(DEEPSID_FOLDER)
+    assert "robots" in str(exc.value).lower()
+
+
+def test_folder_listing_is_not_a_mixin_method():
+    """Deliberate: adding it as one would require editing the _EXPECTED_METHODS
+    guard in kb/ingest/__init__.py, which is out of this change's scope."""
+    from kb.ingest._extraction import _ExtractionMixin
+
+    assert not hasattr(_ExtractionMixin, "fetch_deepsid_folder_listing")
 
 
 def test_expected_methods_guard_lists_the_new_mixin_method():

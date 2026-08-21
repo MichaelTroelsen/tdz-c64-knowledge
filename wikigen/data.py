@@ -319,11 +319,12 @@ class DataExportMixin:
             preview_chunks = doc.get('chunks', [])[:3]
             content_preview = ' '.join([chunk['content'][:200] for chunk in preview_chunks])[:500]
 
+            safe_doc_id = re.sub(r'[^\w\-]', '_', doc['id'])
             search_items.append({
                 'type': 'document',
                 'title': doc['title'],
                 'category': doc['file_type'].upper(),
-                'url': f"docs/{re.sub(r'[^\\w\\-]', '_', doc['id'])}.html",
+                'url': f"docs/{safe_doc_id}.html",
                 'description': content_preview,
                 'tags': doc.get('tags', []) + [doc['file_type'], 'document'],
                 'relevance': doc.get('total_chunks', 0)

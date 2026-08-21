@@ -1,19 +1,22 @@
 {
   "generated_from": {
-    "head": "50f58c3",
+    "head": "2f5b319",
     "sources": [
-      ".claude/tasks/runs.jsonl (63 lines, 53 distinct ids, every latest outcome 'done')",
-      "previous whattask.json (head d62d8a2)",
-      "whats-next.md (keyed to 7013b19 - four commits stale)",
+      ".claude/tasks/runs.jsonl (66 lines, 56 distinct ids, every latest outcome 'done')",
+      "previous whattask.json (head 50f58c3)",
+      "whats-next.md (refreshed at 5831827; its work_remaining is now a pointer to whattask.json/runs.jsonl, not a hand-maintained backlog)",
       "TO-DOS.md",
       "CLAUDE.md",
       "README.md",
       "docs/ARCHITECTURE.md",
       "docs/ROADMAP.md",
+      "docs/CHANGELOG.md",
       "issues (gh: none open)",
       "prs (gh: none open)",
       "git-log",
+      "git branch --merged master",
       "working-tree (clean apart from the deliberately untracked whats-next.md)",
+      "tokensave TODO/FIXME scan (125 markers, all NOTE-noise or archive/ - no actionable source TODO)",
       "~/.claude/plugins/marketplaces/mit-claude-setup/plugins/mit-setup/commands/"
     ],
     "focus": null
@@ -31,70 +34,29 @@
   ],
   "tasks": [
     {
-      "id": "deepsid-folder-mcp-tool",
-      "title": "add_deepsid_folder is reachable from Python and the CLI but from no MCP client",
-      "source": "runs.jsonl#wire-deepsid-folder-enumeration-into-ingest.opened",
+      "id": "validate-docs-should-assert-tool-count",
+      "title": "Make the tool count self-checking: assert the documented number against len(TOOL_SCHEMAS) instead of correcting three docs every time a tool is added",
+      "source": "runs.jsonl#architecture-md-tool-count-stale.opened; whats-next.md#work_remaining",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
-        "rw:mcp_tools/schemas.py",
-        "rw:mcp_tools/documents.py",
-        "rw:test_sid_ingest.py",
-        "r:kb/ingest/_documents.py"
+        "rw:validate_docs.py",
+        "rw:test_card_updates.py",
+        "r:mcp_tools/schemas.py",
+        "r:README.md",
+        "r:CLAUDE.md",
+        "r:docs/ARCHITECTURE.md"
       ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
-      "verify": "add_deepsid_folder appears in HANDLERS_DOCUMENTS and in TOOL_SCHEMAS, len(TOOL_SCHEMAS) rises by exactly one, and `pytest test_mcp_tool_dispatch.py -q` (which smoke-calls every registered tool) stays green. THE TOOL DESCRIPTION MUST DISTINGUISH THE TWO PATH FORMATS, which are confusable and fail silently when swapped: music.php's `folder` takes a LEADING SLASH ('/_High Voltage SID Collection/MUSICIANS/H/Hubbard_Rob') while info.php's `fullname` takes a leading underscore and NO leading slash. Assert both forms appear in the description. Also state the request cost, so a caller knows one call ingests the whole folder.",
-      "why_model": "the schema/handler/registry shape is already established by add_deepsid_document one file over",
-      "why_mode": "self-contained and mechanically checkable by importing the registry and counting, and the dispatch smoke test exercises it",
-      "why_lane": "writes mcp_tools/, shared with plugin-system-phase-5-2, and test_sid_ingest.py, shared with sid-lha-archive-support"
-    },
-    {
-      "id": "architecture-md-tool-count-stale",
-      "title": "docs/ARCHITECTURE.md:13 says TOOL_SCHEMAS holds 93 Tool literals; the real count is 94",
-      "source": "runs.jsonl#readme-tool-count-stale.opened; verified at docs/ARCHITECTURE.md:13",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:docs/ARCHITECTURE.md",
-        "r:mcp_tools/schemas.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "verify": "docs/ARCHITECTURE.md's tool count equals len(TOOL_SCHEMAS) measured at the time of the edit, and `python validate_docs.py` still reports PASSED. Measure it rather than copying a number out of the brief. ALSO re-sweep the file for other counts that were missed the same way - ARCHITECTURE.md:399 carries a '(5 tools)' entities sub-count that no run has verified; check it against HANDLERS_ENTITIES and either confirm or fix it, and say which.",
-      "why_model": "one number reconciled against a value the code can print",
-      "why_mode": "self-contained and mechanically checkable by importing TOOL_SCHEMAS and counting",
-      "why_lane": "reads mcp_tools/schemas.py, which deepsid-folder-mcp-tool and plugin-system-phase-5-2 both write"
-    },
-    {
-      "id": "refresh-handoff-doc-post-toolcount",
-      "title": "whats-next.md names HEAD 7013b19 and is now four commits behind, missing all of folder ingestion",
-      "source": "whats-next.md:796 vs HEAD 50f58c3",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:whats-next.md",
-        "r:.claude/tasks/runs.jsonl",
-        "r:<git-worktree-snapshot>"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "verify": "whats-next.md's 'Complete and committed' heading names the then-current HEAD; its Uncommitted block reproduces a freshly run `git status --porcelain`; the file is still 0 CR bytes and `git ls-files whats-next.md` is still empty. ALSO address the churn rather than only the content: the block must state the HEAD it was taken at, so a reader can see at a glance whether it is current instead of silently over-reporting files that have since been committed - which is how it has gone stale after every one of the last six passes.",
-      "why_model": "reconciling prose against command output in a format six prior passes established",
-      "why_mode": "self-contained and command-checkable, but it must run LAST in a session, which is exactly why it keeps re-staling",
-      "why_lane": "it snapshots the whole working tree, so it is exclusive by nature and conflicts with any concurrent writer"
+      "verify": "python validate_docs.py reports PASSED at the current count (len(TOOL_SCHEMAS) == 95, measured not copied), and reports FAILED naming the offending file when any one of README.md:296, CLAUDE.md:23 or docs/ARCHITECTURE.md:13 is temporarily edited to 94 (revert the probe edit afterwards; confirm with git diff --stat that only validate_docs.py and test_card_updates.py are modified at the end). The count check must NOT match docs/ARCHITECTURE.md:399's '### MCP Tools (5 tools)', which is a correct sub-count of the five tools enumerated below it, not a total - a naive regex 'fixing' it to 16 makes the document wrong. Extend test_card_updates.py rather than adding a new root test file: .gitignore blanket-ignores test_*.py with root-anchored (!/) exceptions only, so a new file would be invisible to git.",
+      "why_model": "a bounded assertion added to a validator whose parsing helpers already exist",
+      "why_mode": "mechanical and fully checkable by running the validator both ways; the one judgement call (the 5-tool sub-count) is already resolved and written into the verify",
+      "why_lane": "reads mcp_tools/schemas.py, which plugin-system-phase-5-2 writes under"
     },
     {
       "id": "runbatch-plan-stales-after-its-own-commits",
@@ -343,7 +305,7 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "docs/ROADMAP.md:901 sketches Plugin/PluginManager/SlackNotificationPlugin. Nothing implements them and no other roadmap phase remains open. Whether this is still wanted - given MCP tools already provide the extension surface it was designed for, now 94 of them - is a product decision.",
+      "blocked_on": "docs/ROADMAP.md:901 sketches Plugin/PluginManager/SlackNotificationPlugin. Nothing implements them and no other roadmap phase remains open. Whether this is still wanted - given MCP tools already provide the extension surface it was designed for, now 95 of them - is a product decision.",
       "verify": "Either a PluginManager loads a plugin in a passing test, or docs/ROADMAP.md marks 5.2 declined/superseded-by-MCP-tools with the reason.",
       "why_model": "a new extension architecture cutting across server.py, mcp_tools/ and kb/, overlapping an extension mechanism that already exists",
       "why_mode": "a product decision about whether to build it at all",
@@ -374,6 +336,26 @@
     }
   ],
   "closed": [
+    {
+      "id": "deepsid-folder-mcp-tool",
+      "title": "Expose add_deepsid_folder as an MCP tool",
+      "closed_by": "5fea6a4"
+    },
+    {
+      "id": "commit-deepsid-folder-mcp-tool",
+      "title": "Commit the folder MCP tool (opened by deepsid-folder-mcp-tool; landed with the work itself, never needed a separate run)",
+      "closed_by": "5fea6a4"
+    },
+    {
+      "id": "architecture-md-tool-count-stale",
+      "title": "Reconcile the MCP tool count in docs/ARCHITECTURE.md - measured 95, and README/CLAUDE had been re-staled to 94 by 5fea6a4, so all three moved",
+      "closed_by": "a767975"
+    },
+    {
+      "id": "refresh-handoff-doc-post-toolcount",
+      "title": "Refresh whats-next.md after the folder-tool and tool-count work",
+      "closed_by": "2f5b319"
+    },
     {
       "id": "wire-deepsid-folder-enumeration-into-ingest",
       "title": "add_deepsid_folder ingests a whole folder from ONE request (96 documents, 1 HTTP call, verified live); cards built from the listing's own rows",

@@ -344,3 +344,32 @@ def test_health_check_reports_missing_source_files(kb, temp_data_dir):
     assert dirty['metrics']['missing_source_files'] == 1
     assert dirty['status'] == 'warning'
     assert any('filepath' in i.lower() and 'disk' in i.lower() for i in dirty['issues']), dirty['issues']
+
+
+# ---------------------------------------------------------------------------
+# 9. The MCP tool count claimed in README.md, CLAUDE.md and
+#    docs/ARCHITECTURE.md must equal len(TOOL_SCHEMAS). That number has been
+#    hand-corrected in three separate tasks already, and re-staled hours
+#    later at least twice by a commit that added a tool without touching the
+#    docs - so a plain `pytest` run should catch the drift too, not just the
+#    standalone validate_docs.py script run separately.
+# ---------------------------------------------------------------------------
+
+def test_documented_mcp_tool_count_matches_schemas():
+    import validate_docs
+
+    server_tool_count = len(validate_docs.extract_mcp_tools_from_server())
+    claims = validate_docs.extract_claimed_tool_counts()
+
+    for filename, found in claims.items():
+        # A file with no recognisable claim fails loudly rather than being
+        # skipped - see extract_claimed_tool_counts()'s docstring for why a
+        # silent pass would defeat the point of this check.
+        assert found, (
+            f"{filename}: no MCP tool count claim found - expected wording "
+            f"like 'N MCP tools' or 'N `Tool(...)` literals'"
+        )
+        for n in found:
+            assert n == server_tool_count, (
+                f"{filename}: claims {n} MCP tools, but len(TOOL_SCHEMAS) is {server_tool_count}"
+            )

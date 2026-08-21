@@ -165,6 +165,71 @@ def check_version_consistency() -> Tuple[bool, List[str]]:
     return len(errors) == 0, errors
 
 
+def extract_claimed_tool_counts() -> Dict[str, List[int]]:
+    """Pull the claimed MCP tool total out of each doc that states it.
+
+    README.md, CLAUDE.md and docs/ARCHITECTURE.md each assert the total
+    number of Tool(...) schemas as prose. That number has been hand-corrected
+    in three separate tasks already, and re-staled hours later at least twice
+    by a commit that added a tool without touching the docs. This extracts
+    the claimed number from each file so the caller can diff it against the
+    real len(TOOL_SCHEMAS).
+
+    Each pattern is anchored to the file's actual "N MCP tools" / "N
+    `Tool(...)` literals" phrasing so it does NOT match two look-alikes that
+    must never be "fixed" to the project total:
+      - docs/ARCHITECTURE.md's "### MCP Tools (5 tools)" heading (around
+        line 399): that 5 correctly counts the five entity tools enumerated
+        directly beneath the heading, not the project total, and has none of
+        the "Tool(...)" / "TOOL_SCHEMAS" wording the patterns below require.
+      - REST endpoint counts ("18 endpoints") and document counts in
+        docs/VERSION_HISTORY.md, which are unrelated to the MCP tool count.
+    """
+    sources = {
+        'README.md': r'(\d+)\s+MCP tools organized by category',
+        'CLAUDE.md': r'\(the (\d+) `Tool\(\.\.\.\)` literals\)',
+        'docs/ARCHITECTURE.md': r'TOOL_SCHEMAS`\s*\((\d+) `Tool\(\.\.\.\)` literals\)',
+    }
+
+    claims: Dict[str, List[int]] = {}
+    for filename, pattern in sources.items():
+        path = Path(filename)
+        if not path.exists():
+            claims[filename] = []
+            continue
+        content = path.read_text(encoding='utf-8')
+        claims[filename] = [int(n) for n in re.findall(pattern, content)]
+
+    return claims
+
+
+def check_tool_count_consistency(server_tool_count: int) -> Tuple[bool, List[str]]:
+    """Confirm the tool count claimed in each doc matches len(TOOL_SCHEMAS).
+
+    A file with no recognisable claim is reported as an error, not skipped
+    silently: a silent pass would let this check go blind the moment a
+    doc's wording drifts (e.g. someone rephrases the sentence), which is
+    exactly the kind of unnoticed staleness this check exists to catch.
+    """
+    errors = []
+    claims = extract_claimed_tool_counts()
+
+    for filename, found in claims.items():
+        if not found:
+            errors.append(
+                f"{filename}: no MCP tool count claim found "
+                f"(expected wording like 'N MCP tools' or 'N `Tool(...)` literals')"
+            )
+            continue
+        for n in found:
+            if n != server_tool_count:
+                errors.append(
+                    f"{filename}: claims {n} MCP tools, but len(TOOL_SCHEMAS) is {server_tool_count}"
+                )
+
+    return len(errors) == 0, errors
+
+
 def check_internal_links() -> Tuple[bool, List[str]]:
     """Check internal file links in documentation."""
     readme_path = Path("README.md")
@@ -235,6 +300,20 @@ def main():
         all_passed = False
     else:
         print(f"   {Colors.GREEN}+ No stale tool references in README{Colors.END}")
+
+    print()
+
+    # Check 1b: MCP Tool Count Claims
+    print(f"{Colors.BLUE}1b. Checking MCP Tool Count Claims...{Colors.END}")
+    count_ok, count_errors = check_tool_count_consistency(len(server_tools))
+
+    if count_ok:
+        print(f"   {Colors.GREEN}+ All doc claims match len(TOOL_SCHEMAS) = {len(server_tools)}{Colors.END}")
+    else:
+        print(f"   {Colors.RED}X MCP tool count mismatches found:{Colors.END}")
+        for error in count_errors:
+            print(f"     - {error}")
+        all_passed = False
 
     print()
 

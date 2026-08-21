@@ -1,19 +1,20 @@
 {
   "generated_from": {
-    "head": "dd357d6",
+    "head": "7711e69",
     "sources": [
-      "USER DECISION, 2026-08-21, re-asked at their request: 4.1 'Not planned - same reasoning', 4.3 'Drop it too - not planned', together with the earlier mid-pass reversal of 4.2. All three Phase 4 items are not planned and NO build work remains",
-      ".claude/tasks/decisions.jsonl (17 lines, 13 distinct ids) - its NEWEST line supersedes the previous one for roadmap-phase-4-build-or-drop, which had recorded 'Build it here' for 4.2 and 'build with a tune-derived query' for 4.3. Read the last line per id, never the first",
-      ".claude/tasks/runs.jsonl (81 lines, 70 distinct ids; the 2 non-'done' latest lines are both closed by commit)",
-      "previous whattask.json (head dd357d6)",
-      "whats-next.md (keyed to 299feba, two commits stale; its work_remaining is spent)",
+      ".claude/tasks/runs.jsonl (84 lines, 70 distinct ids; ALL latest lines 'done'). Its `opened` arrays are the ONLY source for both tasks in this plan - neither exists in any written list",
+      ".claude/tasks/decisions.jsonl (17 lines, 13 distinct ids) - the newest line for roadmap-phase-4-build-or-drop supersedes the one before it; all are now reflected in `closed`",
+      "previous whattask.json (head dd357d6, all 3 tasks since closed by commit)",
+      "the live knowledge_base.db, queried read-only - which CORRECTED the run record that opened these tasks: the split is 115 card_id / 105 no-card_id, not the '25 genuine losses' the record implied",
+      "kb/admin.py:498-512 (the metric), kb/core.py:2210 (_document_source_missing), kb/figures.py:429 (the reachable/unreachable precedent)",
+      "test_card_updates.py:326, test_repoint_document.py:116, test_sid_ingest.py:475 - the three existing assertions on missing_source_files",
+      "whats-next.md (keyed to 299feba, FOUR commits stale; its work_remaining is spent again)",
       "TO-DOS.md",
       "CODE-REVIEW.md (0 items remain unchecked)",
-      "docs/ROADMAP.md (13 phases, all 13 carrying a Status line since c9caaa9)",
-      "MCP tool schemas for c64bridge and retrodebugger, read to establish that the emulator tooling already exists outside this repo",
+      "docs/ROADMAP.md (13 phases, 13 Status lines, no item unshipped-and-unmarked)",
       "issues (gh: none open)",
       "prs (gh: none open)",
-      "git log, git status --porcelain (no commits since the previous plan)"
+      "git log dd357d6..7711e69, git status --porcelain"
     ],
     "focus": null
   },
@@ -36,27 +37,33 @@
     "docs/ROADMAP.md's 4.3 sketch calls faceted_search with a CONSTANT query and filter, taking no input from the parsed tune - implementing it literally attaches an identical document list to every SID card, and that is the part the human refused",
     "SCOPE PRINCIPLE, stated by the human on 2026-08-21 and now the reason 4.2 is not planned: this project is the KNOWLEDGE BASE. Build, disassembly and emulator tooling belongs in sibling tools (c64bridge, retrodebugger); what those tools learn comes back here as documents rather than being re-implemented here. A future plan proposing to build analysis tooling in this repo should be checked against this first",
     "SCOPE PRINCIPLE, stated by the human on 2026-08-21 and the reason all three Phase 4 items are not planned: this project is the KNOWLEDGE BASE. Build, disassembly and emulator tooling belongs in sibling tools (c64bridge, retrodebugger); what those tools learn comes back here as documents rather than being re-implemented here. Check any future proposal to build analysis tooling in this repo against this FIRST",
-    "docs/ROADMAP.md's 4.3 sketch calls faceted_search with a CONSTANT query and filter, taking no input from the parsed tune - it is now not planned, but if it is ever revived, implementing it literally would attach an identical document list to every SID card"
+    "docs/ROADMAP.md's 4.3 sketch calls faceted_search with a CONSTANT query and filter, taking no input from the parsed tune - it is now not planned, but if it is ever revived, implementing it literally would attach an identical document list to every SID card",
+    "health_check's missing_source_files is asserted on by THREE test files (test_card_updates.py:326, test_repoint_document.py:116, test_sid_ingest.py:475) and drives health['status']='warning' at kb/admin.py:507 - redefining the key rather than adding beside it breaks all three silently",
+    "MEASURED SPLIT of the 220 missing sources, so a future pass does not re-derive it wrongly: 115 carry a card_id (generated cards, recorded path was disposable staging) and 105 do not (80 .pdf, 24 .txt, 1 .md). The run record that opened these tasks said '25 genuine losses', which was the .md/.txt subset only",
+    "repoint_document CANNOT relink a re-downloaded file: it hashes the candidate against the recorded file_hash and refuses on mismatch, so re-acquiring a lost source from a public archive will be rejected exactly as the 15 DeepSID card candidates were"
   ],
   "external_locks": [
     ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle)"
   ],
   "tasks": [
     {
-      "id": "repoint-missing-md-and-txt-sources",
-      "title": "Sweep the 140 missing .md and .txt sources the PDF pass never looked at",
-      "source": "runs.jsonl#repoint-106-missing-pdfs.verify_output, TO-DOS.md#Figure-OCR-2026-07-31",
+      "id": "missing-source-metric-counts-disposable-cards",
+      "title": "health_check's missing_source_files counts disposable generated cards as lost documents",
+      "source": "runs.jsonl#repoint-missing-md-and-txt-sources.opened",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
-        "rw:knowledge_base.db",
-        "rw:TO-DOS.md",
-        "r:kb/ingest/_documents.py",
-        "r:kb/admin.py",
-        "r:cli.py",
-        "r:C:/Users/mit/claude/c64server",
-        "r:C:/Users/mit/.tdz-c64-knowledge"
+        "rw:kb/admin.py",
+        "rw:test_card_updates.py",
+        "rw:mcp_tools/admin.py",
+        "rw:.pytest_cache",
+        "r:kb/core.py",
+        "r:kb/figures.py",
+        "r:mcp_tools/figures.py",
+        "r:test_repoint_document.py",
+        "r:test_sid_ingest.py",
+        "r:knowledge_base.db"
       ],
       "mcp": [],
       "needs_main": false,
@@ -64,15 +71,15 @@
       "depends_on": [],
       "blocked_on": null,
       "decision": null,
-      "verify": "FIRST characterise, THEN act, and report both. (a) Re-measure straight from the DB: 220 documents currently have a filepath that does not exist - 80 .pdf, 116 .md, 24 .txt. (b) For the 140 .md and .txt, report what they ARE before repointing anything: how many point into <data_dir>/uploads, how many were materialised by a scraper or a DeepSID card rather than ingested from a user file, and how many have a real original elsewhere - a generated card whose source was never meant to persist is NOT a repoint candidate and must be reported as such, not silently counted as unrecoverable. (c) Repoint ONLY documents whose basename matches exactly one file under the two search roots, via KnowledgeBase.repoint_document(doc_id, new_filepath, force=False) - never raw SQL and never force, so the MD5-against-file_hash refusal stays in force. SKIP every ambiguous match. (d) missing_source_files drops by exactly the number repointed, measured before and after; every repointed filepath exists on disk when re-read from the DB; chunk counts for the affected documents are identical before and after. (e) Record the (doc_id, old_filepath, new_filepath) triples in the run record - the DB is not in git, so that list is the only rollback. (f) TO-DOS.md gains the measured residual.",
-      "why_model": "the repoint tool and the sweep pattern already exist; this is the same bounded operation against a different extension set",
-      "why_mode": "delegable because the rule is mechanical (unique match repoints, ambiguous skips) and the conclusion is a before/after count",
-      "why_lane": "writes the live knowledge_base.db, which every running server.py process shares, and writes TO-DOS.md, which the other doc task also writes"
+      "verify": "MEASURED ON THE LIVE CORPUS FIRST, because the whole point is that one number is currently doing two jobs: of 220 documents whose filepath is missing, 115 carry a card_id (generated cards whose recorded path was disposable staging) and 105 do not (genuine user documents - 80 .pdf, 24 .txt, 1 .md). health_check must report those separately. THE EXISTING KEY MUST NOT CHANGE MEANING: `metrics['missing_source_files']` still equals the total (220 today), because test_card_updates.py:326, test_repoint_document.py:116 and test_sid_ingest.py:475 all assert on it and a redefinition would break them silently. Follow the precedent get_figure_ocr_coverage already set at kb/figures.py:429 - it kept `documents_remaining` unchanged and added `documents_remaining_reachable`/`_unreachable` defined so the two sum to it. Do the same here, and make the sum an invariant the test asserts rather than a comment. The warning text at kb/admin.py:509 should say how many are user documents rather than implying all 220 are losses. VERIFY: `.venv/Scripts/python.exe -m pytest test_card_updates.py test_repoint_document.py test_sid_ingest.py -q` passes with the new case added and none of the three existing assertions edited to accommodate the change - if an existing assertion has to move, STOP and report that, because it means the key's meaning did change. `.venv/Scripts/python.exe -c \"import kb.ingest\"` succeeds. Collection count rises by exactly the new tests. The live corpus is read read-only and never written.",
+      "why_model": "a bounded metric split with an in-repo precedent to copy, not a design question",
+      "why_mode": "delegable: the discriminator is a single column (card_id) and the invariant is stated, so the conclusion is mechanical",
+      "why_lane": "writes kb/admin.py and mcp_tools/admin.py, which the other task READS wholesale (r:kb, r:mcp_tools) to prove it touched no source - reader-versus-writer, so the two serialise"
     },
     {
-      "id": "to-dos-repoint-bullet-stale-framing",
-      "title": "TO-DOS.md:13 still says 106 PDFs are missing in the present tense; it is 80",
-      "source": "TO-DOS.md:13, runs.jsonl#repoint-106-missing-pdfs.notes",
+      "id": "reacquire-c-hacking-and-lost-user-sources",
+      "title": "Establish whether the 25 lost .txt/.md user sources are worth re-acquiring - and whether they even can be",
+      "source": "runs.jsonl#repoint-missing-md-and-txt-sources.opened",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
@@ -80,6 +87,7 @@
         "rw:TO-DOS.md",
         "r:knowledge_base.db",
         "r:kb",
+        "r:mcp_tools",
         "r:cli.py",
         "r:server.py"
       ],
@@ -89,41 +97,31 @@
       "depends_on": [],
       "blocked_on": null,
       "decision": null,
-      "verify": "TO-DOS.md:13's OPENING sentence no longer asserts in the present tense that 106 PDFs are missing - the measured figure is 80 of 178, re-measured from the DB in the same run and quoted in the run record. The bullet's existing 'Residual measured 2026-08-21' clause is left intact rather than duplicated, and the historical framing is preserved as history (what was true when the entry was written) rather than deleted. Scope: `git diff --name-only -- TO-DOS.md` shows it changed and `git diff --name-only -- kb cli.py server.py` is empty.",
-      "why_model": "one sentence in one file, with the correct number obtainable by a single read-only query",
-      "why_mode": "bounded single-file edit whose check is a measurement plus a grep",
-      "why_lane": "writes TO-DOS.md and reads the knowledge_base.db that repoint-missing-md-and-txt-sources writes"
-    },
-    {
-      "id": "roadmap-phase-4-build-or-drop",
-      "title": "Mark all three Phase 4 roadmap items 'not planned' - build tooling belongs in sibling tools",
-      "source": "decisions.jsonl#roadmap-phase-4-build-or-drop (newest line supersedes the one before it), docs/ROADMAP.md:615,:706,:791",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:docs/ROADMAP.md",
-        "r:validate_docs.py",
-        "r:README.md",
-        "r:CLAUDE.md",
-        "r:docs/ARCHITECTURE.md",
-        "r:mcp_tools",
-        "r:kb",
-        "r:cli.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "MARK ALL THREE PHASE 4 ITEMS 'not planned' in docs/ROADMAP.md - 4.1 VICE Emulator Integration (:615), 4.2 PRG File Analysis (:706), and the unbuilt relevant_docs half of 4.3 SID Music File Metadata (:791, whose Status paragraph otherwise stays: the metadata parsing IS shipped and only the hook is dropped). Use the house style 5.2 already uses at docs/ROADMAP.md:904 - a Status line, proposal kept below for design context. THE REASON, in the human's own terms, and it is a durable principle rather than three separate calls: this project is the KNOWLEDGE BASE; the build and disassembly tooling belongs in sibling tools, and what those tools learn comes back here as documents rather than being re-implemented here. Their words: 'this is knowledge base it does not make sence to build the tools for disassembly' and 'other tools will do the build an gaain the knowledge.' Name the sibling tools in the Status lines so a later reader can check the claim: c64bridge (c64_vice, c64_program) and retrodebugger (retro_disassemble, retro_memory_read). BUILD NOTHING: no .prg ingestion, no _prg.py, no VICE socket, and no faceted_search call from the SID path. This decision REVERSED an earlier answer in the same session that had said 'build' for 4.2 and 4.3 - see decisions.jsonl, whose newest line supersedes the one before it.",
-      "verify": "docs/ROADMAP.md's 4.1 and 4.2 Status lines read 'not planned' with the knowledge-base reason rather than 'Not started', and 4.3's Status paragraph records that the relevant_docs hook is not planned while leaving the shipped-metadata half intact. `grep -c '^\\*\\*Status:\\*\\*' docs/ROADMAP.md` still returns 15 - this REPLACES two Status lines and amends a paragraph, it adds none. NO PHASE 4 ITEM STILL READS 'Not started': grep the three sections and show it. `.venv/Scripts/python.exe validate_docs.py` reports PASSED. NOTHING WAS BUILT, which is the clause that matters most here: `git grep -n -E 'analyze_prg|_prg\\.py|\\.prg|\\bvice\\b' -- '*.py' ':!archive/*'` returns nothing, `git grep -n 'faceted_search' -- kb/ingest` returns nothing, and `git diff --name-only -- kb cli.py mcp_tools` is empty. Line endings: docs/ROADMAP.md keeps 0 bare LF.",
-      "why_model": "three Status lines whose content and justification are fully settled by the decision",
-      "why_mode": "single-file doc edit checked by greps and the validator; the judgement was made by the human, not the runner",
-      "why_lane": "DERIVED, not asserted: no other task declares docs/ROADMAP.md, and its other paths are read-only against files nobody here writes. NOTE THE ONE THING THE ARITHMETIC CANNOT SEE - repoint-missing-md-and-txt-sources declares r:C:/Users/mit/claude/c64server, the repo's own parent, which semantically covers this file but does not overlap it textually because one path is absolute and the other repo-relative. That is an over-declaration artefact and is harmless here: that task writes only the database and TO-DOS.md"
+      "verify": "RESEARCH AND RECORD ONLY - download nothing, ingest nothing, and do not write the database. THREE QUESTIONS, and 'not worth doing' is a perfectly good answer to record. (1) SCOPE IT CORRECTLY: the run record that opened this task said '25 genuine losses', but the correct figure measured from the DB is 105 documents with no card_id whose filepath is missing - 80 .pdf, 24 .txt, 1 .md. The 80 PDFs were already adjudicated (77 accepted as gone, 3 ambiguous) by repoint-106-missing-pdfs, so THIS task is about the 24 .txt plus 1 .md only. State the corrected split in TO-DOS.md. (2) AVAILABILITY: confirm whether the c=hacking issues among those .txt are publicly archived and reachable, naming the source you checked; do not assume from the title. (3) THE WALL THAT MAKES THIS HARDER THAN IT LOOKS, and the clause a careless pass would miss: a freshly downloaded copy will NOT hash-equal the file that was originally ingested, so KnowledgeBase.repoint_document will REFUSE it exactly as it refused all 15 DeepSID candidates - re-acquisition cannot restore the link by repointing. Say so explicitly, and say what the real options are (re-ingest as a new document and retire the old one, or accept the residual), WITHOUT choosing between them: that is a decision for /runhuman, not for this task. WEIGH THE VALUE HONESTLY: the text of all 25 is already indexed and searchable, and figure OCR is meaningless for plain text, so the only thing a restored source buys is a future re-chunk. If the conclusion is that it is not worth doing, record that with the reasoning rather than manufacturing work. VERIFY: TO-DOS.md carries the corrected 105/80/24/1 split, the availability finding with its source, the repoint_document hash-refusal constraint, and a recommendation; `git diff --name-only -- kb cli.py server.py mcp_tools` is empty; TO-DOS.md keeps 0 bare LF.",
+      "why_model": "a bounded read-and-record pass whose hardest fact - the hash refusal - is already established and only needs stating",
+      "why_mode": "self-contained, and it deliberately stops short of the decision rather than making one",
+      "why_lane": "its scope check reads kb/ and mcp_tools/ wholesale, which the metric task writes - the declaration is deliberately broad because proving nothing was touched means reading everything that could have been"
     }
   ],
   "closed": [
+    {
+      "id": "roadmap-phase-4-build-or-drop",
+      "title": "Mark all three Phase 4 roadmap items 'not planned' - build tooling belongs in sibling tools",
+      "closed_by": "b89a1be",
+      "reason": "4.1 and 4.2 now read 'Not planned' with the knowledge-base reason and each names the sibling tool that already provides the capability (c64bridge, retrodebugger) so a later reader can check the claim; 4.3's shipped-metadata Status paragraph was left verbatim and only its unbuilt relevant_docs half was marked not planned. Status-line count held at 15, 'Not started' occurs 0 times in Phase 4, validate_docs PASSED, and NOTHING WAS BUILT - zero hits for analyze_prg/_prg.py/.prg/vice in tracked source, zero faceted_search calls in kb/ingest, empty diff across kb, cli.py and mcp_tools. The task's content was reversed twice by the human before it ran, which is why the decision field carried the final answer verbatim rather than the runner re-deriving it."
+    },
+    {
+      "id": "repoint-missing-md-and-txt-sources",
+      "title": "Sweep the 140 missing .md and .txt sources the PDF pass never looked at",
+      "closed_by": "103365a",
+      "reason": "ZERO REPOINTED, and that was the correct outcome - the deliverable was characterisation. 15 unambiguous basename matches were ALL REFUSED by repoint_document's MD5 check: the uploads/ copies are a different revision of the same DeepSID card than the one indexed, so a basename-trusting sweep would have bound 15 documents' indexed text to files whose content no longer matches. First time that guard has fired in this repo. The database was not written; re-read from disk afterwards, all 15 still sit on their original missing paths."
+    },
+    {
+      "id": "to-dos-repoint-bullet-stale-framing",
+      "title": "TO-DOS.md:13 said 106 PDFs are missing in the present tense; it is 80",
+      "closed_by": "103365a",
+      "reason": "The opening sentence is reframed as history - the 2026-07-31 finding and its date are kept, with the current 80-of-178 figure beside them - rather than deleted. The figure was measured three times: by the orchestrator before dispatch, by the agent under instruction not to trust its brief, and by the orchestrator afterwards. The bullet's heading still names 106 deliberately, since that is the title every run record cites this entry by."
+    },
     {
       "id": "roadmap-phase-4-items-unmarked",
       "title": "Give docs/ROADMAP.md's Phase 4 items (VICE, PRG analysis, SID metadata) an honest Status line",

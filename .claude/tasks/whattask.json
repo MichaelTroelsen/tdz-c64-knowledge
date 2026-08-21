@@ -1,352 +1,159 @@
 {
   "generated_from": {
-    "head": "3d53e46",
+    "head": "299feba",
     "sources": [
-      ".claude/tasks/runs.jsonl (69 lines, 58 distinct ids; ALL 58 latest lines read 'done' - no failed, partial or inconclusive task remains)",
-      ".claude/tasks/decisions.jsonl (15 lines, 12 distinct ids, all resolved:true)",
+      ".claude/tasks/runs.jsonl (79 lines, 68 distinct ids; 66 latest 'done', 1 'partial' and 1 'blocked' - both since closed by commit)",
+      ".claude/tasks/decisions.jsonl (15 lines, 12 distinct ids, all resolved:true) - now tracked in git as of 299feba",
       "previous whattask.json (head 3d53e46)",
-      "whats-next.md (keyed to 5831827, three commits stale; still only a pointer to whattask.json/runs.jsonl rather than a hand-maintained list)",
-      "TO-DOS.md (17 lines)",
-      "CLAUDE.md",
+      "whats-next.md (keyed to 5831827, SIX commits stale; every item in its work_remaining is now closed)",
+      "TO-DOS.md",
+      "CODE-REVIEW.md (0 items remain unchecked)",
       "docs/ROADMAP.md",
-      "docs/CHANGELOG.md",
-      "docs/VERSION_HISTORY.md",
+      "CLAUDE.md, README.md, docs/ARCHITECTURE.md, docs/CHANGELOG.md, docs/VERSION_HISTORY.md",
       "validate_docs.py (run for a baseline: PASSED)",
       "issues (gh: none open)",
       "prs (gh: none open)",
-      "git-log, git branch --merged master, git ls-files, git status --porcelain",
-      "git grep TODO/FIXME/XXX/HACK over tracked non-archive *.py (0 hits)",
-      "~/.claude/plugins/marketplaces/mit-claude-setup (version 1.9.0, HEAD 1d0ef38, contains fc40ec6)"
+      "git log 3d53e46..299feba, git status --porcelain, git branch --merged/-a, git fetch",
+      "git grep TODO/FIXME/XXX/HACK over tracked non-archive *.py (0 hits)"
     ],
     "focus": null
   },
   "hazards": [
-    "knowledge_base.db (in TDZ_DATA_DIR) is shared by every concurrently running server.py process; WAL mode, per CLAUDE.md",
+    "knowledge_base.db (in TDZ_DATA_DIR) is shared by every concurrently running server.py process; WAL mode, per CLAUDE.md. It is NOT in git - a write there has no `git diff` rollback, only whatever the run record captured",
     "whats-next.md is pure LF with 0 CR bytes and deliberately untracked - writers must use newline='' and '\\n' joins",
     "every tracked .py file is CRLF in the working tree with 0 bare LF; core.autocrlf=true stores them as LF",
-    ".gitignore blanket-ignores test_*.py with root-anchored ('!/') exceptions only, so no exception reaches archive/tests/",
-    ".gitattributes:6 sets .claude/tasks/* eol=lf - the task-log files must stay pure LF",
+    ".gitattributes:6 sets .claude/tasks/* eol=lf - runs.jsonl, whattask.json and decisions.jsonl must stay pure LF",
+    ".gitignore blanket-ignores test_*.py; the root exceptions are root-anchored ('!/') on purpose, and archive/tests/ is un-ignored by its own scoped rule added in a334b3c - do not replace either with an unanchored basename exception",
     "kb/ingest/__init__.py asserts the sub-mixins' combined method set equals a hardcoded _EXPECTED_METHODS frozenset - any new IngestMixin method must extend it in the same change or `import kb.ingest` fails",
     "<data_dir>/uploads is PERMANENT storage (docs/ARCHITECTURE.md:40) - documents.filepath points into it and health_check's missing_source_files reads that path",
     "validate_docs.py FAILS if README.md / CLAUDE.md / docs/ARCHITECTURE.md stop matching its three tool-count phrasings (577da48) - a doc reword must update the pattern in the same change",
-    "pyproject.toml:85 lists 'archive' in norecursedirs, which is what keeps archive/tests/ out of a bare pytest run",
+    "pyproject.toml:85 lists 'archive' in norecursedirs; archive/tests/ is tracked as of a334b3c but still excluded from collection by that line",
+    "MEASURED BASELINES, because the previous plan asserted a stale one and nearly cost a spurious failure: bare collection is 366 tests, and 642 with archive un-excluded. Do not carry 260 forward",
     "the `python` on PATH is 3.14 without the project's optional deps, so bare `pytest` dies at collection on `from features import BM25Okapi`; use .venv/Scripts/python.exe -m pytest",
-    "the working tree is NOT clean at this HEAD (docs/CHANGELOG.md plus four .claude/tasks/ files) - any verify phrased as 'X is the only changed file' must compare against a dirty set recorded before the run"
+    "a task that DIRTIES any tracked file is a WRITER of the worktree dirty set: declare rw:git-worktree, or a task whose verify reads `git status`/`git diff --name-only` will be scheduled beside it and fail on a file it never touched"
   ],
   "external_locks": [
     ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle)"
   ],
   "tasks": [
     {
-      "id": "archive-tests-untracked-in-git",
-      "title": "Track archive/tests/ - 35 archived test files and two landed fixes exist only in this working tree",
-      "source": "runs.jsonl#archive-tests-break-collection.opened, whats-next.md#work_remaining, decisions.jsonl#archive-tests-untracked-in-git",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:.gitignore",
-        "rw:archive/tests",
-        "rw:git-index",
-        "rw:git-refs/heads",
-        "rw:git-worktree",
-        "r:pyproject.toml",
-        "rw:.pytest_cache"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "Track the archived tests. Add an un-ignore rule reaching archive/tests/test_*.py to .gitignore - the existing exceptions at .gitignore:49-63 are root-anchored with '!/' and cannot reach a subdirectory - then stage and COMMIT all 35 files so the stream-corruption fix and the test_rest_api_archived.py rename survive a fresh clone. Do NOT delete the directory. Tracking is safe for collection: pyproject.toml:85 already lists 'archive' in norecursedirs, which is the failure mode that made this look risky. Committing is explicitly authorised for this task only.",
-      "verify": "`git ls-files archive/tests/` lists all 35 test_*.py files (it returns 0 today, while `ls archive/tests/test_*.py` returns 35), `git status --porcelain archive/tests/` is empty afterwards, and `.venv/Scripts/python.exe -m pytest --collect-only -q` still reports the same collected count as before the change (260 at the last measurement) with exit 0 - proving norecursedirs still excludes them.",
-      "why_model": "the decision is already taken and the change is a one-line ignore rule plus a staging commit",
-      "why_mode": "self-contained with a counting verify; nothing about the conclusion is a judgement call",
-      "why_lane": "writes git-index and git-refs/heads (it commits), which commit-pending-changelog-and-task-log and stale-merged-branches also write, and writes .pytest_cache via its own collection run"
-    },
-    {
-      "id": "stale-merged-branches",
-      "title": "Delete the five fully-merged branches left behind on master",
-      "source": "git branch --merged master, runs.jsonl#push-master-to-origin.notes, decisions.jsonl#stale-merged-branches",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:git-refs/heads"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "AUTHORISED, bounded: delete all five with `git branch -d` and NEVER -D: fix/mcp-startup-timeout, hardening-and-figure-ocr, mcp-http-transport-and-fixes, retrieval-quality, wiki-split-sid-ingest-docs. -d refuses anything not merged, so it cannot lose a commit; if any refusal occurs, STOP and report it rather than forcing. Local refs only - do not touch any remote counterpart.",
-      "verify": "`git branch --merged master` lists nothing but `master`, `git branch --no-merged master` is still empty, every deletion was performed by `git branch -d` (the command line is in the run record and contains no -D), and `git rev-parse HEAD` equals the value recorded at the START of this run - do not pin it to 3d53e46, since archive-tests-untracked-in-git and commit-pending-changelog-and-task-log may legitimately have moved HEAD first.",
-      "why_model": "five refusal-guarded deletions against a list already confirmed merged",
-      "why_mode": "mechanical, and -d makes the destructive half self-guarding",
-      "why_lane": "writes git-refs/heads, shared with the two tasks that commit"
-    },
-    {
-      "id": "pyproject-requires-python-understates-312",
-      "title": "Hoist the regex out of the f-string at wikigen/data.py:326 so the file really is 3.10-compatible",
-      "source": "runs.jsonl#wiki-export-oversized.opened, decisions.jsonl#pyproject-requires-python-understates-312",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:wikigen/data.py",
-        "r:pyproject.toml"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "Keep requires-python at '>=3.10' and fix the code instead: at wikigen/data.py:326, bind re.sub(r'[^\\w\\-]', '_', doc['id']) to a local and interpolate the local, so no backslash remains inside the f-string's braces. Do NOT touch pyproject.toml and do NOT change the documented 'Python 3.10+' claims. This is the only such site in the tracked non-archive source.",
-      "verify": "No f-string replacement field in wikigen/data.py contains a backslash - assert on the SOURCE directly (scan each f-string's {...} fields for a backslash), NOT with ast.parse(feature_version=(3,10)): that returns OK on this file today, because feature_version does not back-port the PEP 701 f-string tokenizer, which is why the original verify was vacuous. Also: the file still parses under `.venv/Scripts/python.exe -c \"import ast,io;ast.parse(io.open('wikigen/data.py',encoding='utf-8').read())\"`, and the produced url string is byte-identical for a sample doc id containing a non-word character.",
-      "why_model": "one line in one file, with the correct fix already spelled out",
-      "why_mode": "bounded single-file edit whose check is a source scan",
-      "why_lane": "wikigen/data.py is touched by no other task, and its only shared path (pyproject.toml) is read-only here and read-only in the one other task that names it"
-    },
-    {
-      "id": "sid-lha-archive-support",
-      "title": "Record the decision to decline .lha support in TO-DOS.md's SID-archive entry",
-      "source": "TO-DOS.md#SID-archive-ingestion, runs.jsonl#sid-archive-ingestion.opened, decisions.jsonl#sid-lha-archive-support",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:TO-DOS.md",
-        "r:pyproject.toml",
-        "r:kb"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "Do NOT add an LHA dependency. Close the '.lha is still open' clause of TO-DOS.md's SID-archive entry and record both measured facts as the reason: (1) the DTU HVSC mirror at https://www.prg.dtu.dk/HVSC/ lists full collections and update packages as .zip, .rar and .7z, with .zip present for every version through #76 and no .lha at all - state explicitly that this rests on the MIRROR, because hvsc.c64.org's own download page is JavaScript-driven and returned no file list; (2) lhafile is on PyPI at 0.3.1 but ships no binary wheel for this project's 3.14 interpreter (`pip download lhafile --only-binary=:all:` finds no matching distribution), so it would need an MSVC build on every install. The already-shipped .zip path at kb/ingest/_extraction.py:717 covers every release the mirror offers. Touch no source file.",
-      "verify": "TO-DOS.md's SID-archive entry no longer lists `.lha` as open, states `.zip` as the supported HVSC path, and records both the mirror evidence WITH its 'this is the mirror, not hvsc.c64.org' caveat and the missing-wheel fact; `git diff --name-only -- TO-DOS.md` shows it changed and `git diff --name-only -- kb pyproject.toml` is empty.",
-      "why_model": "transcribing a settled decision and its two measured facts into one prose entry",
-      "why_mode": "one file, no code, and the content is dictated by the decision record",
-      "why_lane": "writes TO-DOS.md, which repoint-106-missing-pdfs and verify-http-transport-across-machines also write"
-    },
-    {
-      "id": "wiki-css-asset-oversized",
-      "title": "Record in CLAUDE.md that the R12/R18 decomposition target is a Python-module rule, not an asset rule",
-      "source": "runs.jsonl#wiki-export-oversized.opened, decisions.jsonl#wiki-css-asset-oversized",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:CLAUDE.md",
-        "r:README.md",
-        "r:docs/ARCHITECTURE.md",
-        "r:docs/CHANGELOG.md",
-        "r:mcp_tools/schemas.py",
-        "r:validate_docs.py",
-        "r:wiki_assets/css/style.css",
-        "r:git-worktree"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "Do NOT split wiki_assets/css/style.css. Record in CLAUDE.md that the R12/R18 decomposition target is a Python-module rule and does not bind shipped assets such as style.css. Give the reason: CODE-REVIEW.md:237 (R12) and CODE-REVIEW.md:362 (R18) each name a specific Python god-file, neither states a numeric target, and nothing in CODE-REVIEW.md or CLAUDE.md sets a line-count rule for non-Python assets; splitting would also mean editing 10+ hard-coded <link rel=stylesheet> tags across wikigen/articles.py, wikigen/browsers.py and wikigen/pages.py to emit several per generated page. Do not touch the stylesheet or wikigen/.",
-      "verify": "CLAUDE.md states the decomposition target applies to Python modules only and names wiki_assets/css/style.css as explicitly out of scope; `.venv/Scripts/python.exe validate_docs.py` still reports PASSED (it does today - a CLAUDE.md reword can break its tool-count phrasing check, per 577da48); and `git diff --name-only` names no newly-dirty file other than CLAUDE.md, compared against the dirty set recorded before the run (the tree is NOT clean: docs/CHANGELOG.md and .claude/tasks/ files are already modified).",
-      "why_model": "a documented note whose content and justification are already settled",
-      "why_mode": "single-file doc edit with a runnable validator as its check",
-      "why_lane": "CLAUDE.md is read by changelog-version-history-overlap's validate_docs run, and its own verify reads whole-worktree git state that the two committing tasks change"
-    },
-    {
-      "id": "repoint-106-missing-pdfs",
-      "title": "Repoint the 26 unambiguously locatable PDFs and record the 220-document residual",
-      "source": "TO-DOS.md#Figure-OCR-2026-07-31 (b), decisions.jsonl#repoint-106-missing-pdfs",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:knowledge_base.db",
-        "rw:TO-DOS.md",
-        "r:kb/admin.py",
-        "r:cli.py",
-        "r:C:/Users/mit/claude/c64server"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "No backup directory exists, so take the recoverable half and accept the rest. Re-run the basename sweep over the data directory and C:\\Users\\mit\\claude\\c64server, and repoint ONLY documents whose basename matches exactly one file - 26 of the 106 PDFs at interview time. SKIP every ambiguous match (3 were found) rather than guessing. Then record the residual in TO-DOS.md with the measured breakdown, correcting the entry's own framing: 1,144 documents carry a filepath and 246 of those paths do not exist (106 .pdf, 116 .md, 24 .txt), so missing_source_files == 0 was never reachable by fixing PDFs alone. Note that all 106 retain 3,575 indexed chunks, so only the open-the-original path is broken, not search.",
-      "verify": "health_check's `missing_source_files` drops by exactly the number of documents repointed - measure it before and after in the same run (expected 246 -> 220); every repointed document's new filepath exists on disk; no ambiguous basename was written (the 3 known ambiguous ones are still unrepointed and still counted in the residual); and TO-DOS.md records the accepted residual with the breakdown above.",
-      "why_model": "the policy is settled and the remaining work is a basename sweep plus a bounded UPDATE",
-      "why_mode": "delegable: the ambiguity rule is stated, and the conclusion is a before/after count",
-      "why_lane": "writes the live knowledge_base.db, which every concurrently running server.py process shares (a hazard this repo documents), and writes TO-DOS.md alongside two other tasks"
-    },
-    {
-      "id": "verify-http-transport-across-machines",
-      "title": "Record that loopback testing is accepted for the HTTP transport, and what a cross-machine attempt would need",
-      "source": "runs.jsonl#commit-r12-and-merge-branch.notes, issue#16 (closed), decisions.jsonl#verify-http-transport-across-machines",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:TO-DOS.md",
-        "r:server.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "DROP the cross-machine verification rather than performing it - do not start a server and do not bind a port. Record in TO-DOS.md that loopback testing is accepted as sufficient for the HTTP transport, that issue #16 remains closed against an untested non-loopback path, and what a future attempt would need: server.py:493-500 refuses a non-loopback bind unless TDZ_API_KEYS is set (or TDZ_MCP_ALLOW_INSECURE=1), and server.py:451-457 leaves DNS-rebinding protection off on a non-loopback bind unless TDZ_MCP_ALLOWED_HOSTS names the client's hostname. NO CREDENTIAL was requested or supplied; do not ask for one.",
-      "verify": "TO-DOS.md records the accepted limitation and names both prerequisites with their line citations, and nothing was bound to port 8765 during the run (`netstat -ano | findstr :8765` finds no LISTENING line attributable to this task).",
-      "why_model": "prose transcription of a decision, with two line citations to check",
-      "why_mode": "one file, and the decision removed the part that needed a second machine",
-      "why_lane": "writes TO-DOS.md, shared with sid-lha-archive-support and repoint-106-missing-pdfs"
-    },
-    {
-      "id": "plugin-system-phase-5-2",
-      "title": "Mark docs/ROADMAP.md's Phase 5.2 plugin system superseded by the MCP tool surface",
-      "source": "docs/ROADMAP.md:901, decisions.jsonl#plugin-system-phase-5-2",
-      "model": "sonnet",
-      "mode": "subtask",
+      "id": "roadmap-phase-4-items-unmarked",
+      "title": "Give docs/ROADMAP.md's Phase 4 items (VICE, PRG analysis, SID metadata) an honest Status line",
+      "source": "runs.jsonl#plugin-system-phase-5-2.opened",
+      "model": "opus",
+      "mode": "main",
       "lane": "serial",
       "touches": [
         "rw:docs/ROADMAP.md",
+        "rw:git-worktree",
+        "r:kb",
         "r:mcp_tools/schemas.py",
-        "r:git-worktree"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": "Do NOT build the plugin system. Mark docs/ROADMAP.md:901's 5.2 superseded by the MCP tool surface, in the house style 5.1 already uses at docs/ROADMAP.md:833 - a Status line above the proposal, with the original sketch kept below for design context. Reason to record: the sketch's own add_tools() hook exists to inject MCP Tool objects, which mcp_tools/schemas.py already provides 95 of; nothing implements Plugin/PluginManager anywhere in tracked source; and the roadmap's own estimate was 20-24 hours across server.py, mcp_tools/ and kb/. Model was DOWNGRADED opus->sonnet by the decision: the opus rating was for designing an extension architecture, and the answer is that none gets designed.",
-      "verify": "docs/ROADMAP.md's 5.2 carries a Status line marking it superseded by the MCP tool surface with the reason, formatted like the 5.1 line at docs/ROADMAP.md:833; no roadmap phase remains both unshipped and unarchived; and `git diff --name-only` names no newly-dirty file other than docs/ROADMAP.md, compared against the dirty set recorded before the run.",
-      "why_model": "the architectural question was answered 'do not build it'; what remains is one status line",
-      "why_mode": "single-file doc edit against an existing in-file template",
-      "why_lane": "its verify reads whole-worktree git state, which the two committing tasks change under it"
-    },
-    {
-      "id": "changelog-version-history-overlap",
-      "title": "Delete the now-false 'Known issue: two conflicting [2.24.0] sections' note and leave the two histories unmerged",
-      "source": "previous whattask.json, docs/CHANGELOG.md:14-15, decisions.jsonl#changelog-version-history-overlap",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:docs/CHANGELOG.md",
-        "r:docs/VERSION_HISTORY.md",
+        "r:server.py",
+        "r:cli.py",
+        "r:validate_docs.py",
         "r:README.md",
         "r:CLAUDE.md",
         "r:docs/ARCHITECTURE.md",
-        "r:mcp_tools/schemas.py",
-        "r:validate_docs.py"
+        "r:docs/CHANGELOG.md",
+        "r:docs/VERSION_HISTORY.md"
       ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
-      "decision": "Do NOT back-fill 2.23.19-2.23.36 into docs/CHANGELOG.md. UNBLOCKED BY RESEARCH, not by a human answer: both files already state the division of labour deliberately - docs/VERSION_HISTORY.md:10-15 says the two grew independently, that merging would mean rewriting release history that cannot be verified after the fact, and that VERSION_HISTORY is the more complete record from 2.23.19 onward; docs/CHANGELOG.md:8-13 carries the reciprocal note. VERSION_HISTORY.md also has no '##' headings at all - it is a flat verbatim dump of 42 entries - so back-filling would be a rewrite, not a transcription. The ONLY work left is the residual the sibling task created: docs/CHANGELOG.md:14-15 still warns of 'two conflicting [2.24.0] sections', which became false when changelog-2-24-0-duplicate deleted the second heading. Delete that 'Known issue' paragraph and change nothing else.",
-      "verify": "docs/CHANGELOG.md contains no 'Known issue' paragraph about conflicting [2.24.0] sections; `grep -c '^## \\[2\\.24\\.0\\]' docs/CHANGELOG.md` still returns 1; the cross-reference note at docs/CHANGELOG.md:8-13 is otherwise unchanged; `git diff --name-only -- docs/VERSION_HISTORY.md` is empty; and `.venv/Scripts/python.exe validate_docs.py` reports PASSED (it does today, including 'Found features in CHANGELOG for 5 versions').",
-      "why_model": "deleting one now-false paragraph, with the reasoning already established from both files' own prose",
-      "why_mode": "one paragraph in one file, checked by grep plus the validator",
-      "why_lane": "writes docs/CHANGELOG.md (read by commit-pending-changelog-and-task-log) and reads CLAUDE.md, which wiki-css-asset-oversized rewrites"
-    },
-    {
-      "id": "commit-pending-changelog-and-task-log",
-      "title": "Commit the finished CHANGELOG fix and the task-log files still sitting in the working tree",
-      "source": "git status --porcelain, runs.jsonl#changelog-2-24-0-duplicate (done but uncommitted), decisions.jsonl#changelog-version-history-overlap.notes",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:git-index",
-        "rw:git-refs/heads",
-        "rw:git-worktree",
-        "rw:.claude/tasks/runs.jsonl",
-        "rw:.claude/tasks/decisions.jsonl",
-        "rw:.claude/tasks/whattask.json",
-        "r:docs/CHANGELOG.md",
-        "r:.claude/tasks/interview.json",
-        "r:whats-next.md"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [
-        "changelog-version-history-overlap"
-      ],
-      "blocked_on": null,
       "decision": null,
-      "verify": "`git status --porcelain` lists neither docs/CHANGELOG.md nor any .claude/tasks/ file; `git show --stat HEAD` names docs/CHANGELOG.md, .claude/tasks/runs.jsonl, .claude/tasks/decisions.jsonl and .claude/tasks/whattask.json; `git ls-files .claude/tasks/decisions.jsonl` is non-empty (it is untracked today, and .gitattributes:6 already covers .claude/tasks/* with eol=lf, so tracking it follows the convention runs.jsonl already sets); every committed .jsonl blob is pure LF with 0 CR bytes; and whats-next.md and .claude/tasks/interview.json are still untracked afterwards.",
-      "why_model": "staging a known file set and checking line endings",
-      "why_mode": "mechanical, with a byte-level check rather than a judgement",
-      "why_lane": "writes git-index, git-refs/heads and the task-log files, all shared with other tasks, and its commit moves the worktree state three other verifies read"
+      "verify": "Each of docs/ROADMAP.md:615 (4.1 VICE Emulator Integration), :704 (4.2 PRG File Analysis) and :787 (4.3 SID Music File Metadata) carries a Status line, and EACH claim is backed in the line itself by a named symbol, file or MCP tool - or by an explicit statement that nothing implements it. `grep -c '^\\*\\*Status:\\*\\*' docs/ROADMAP.md` rises by exactly 3. `.venv/Scripts/python.exe validate_docs.py` still reports PASSED. `git diff --name-only -- docs/ROADMAP.md` shows it changed and `git diff --name-only -- kb mcp_tools server.py cli.py` is empty - this task edits documentation only.",
+      "why_model": "deciding whether a feature shipped is exactly the judgement whose confident-wrong-answer created this task",
+      "why_mode": "the diagnosis is the deliverable and a fresh agent would produce a plausible verdict rather than a checked one",
+      "why_lane": "writes docs/ROADMAP.md and dirties the worktree that refresh-handoff-doc-post-runhuman reads"
     },
     {
       "id": "refresh-handoff-doc-post-runhuman",
-      "title": "Refresh whats-next.md - it is three commits stale and still calls five settled tasks requires-user",
-      "source": "whats-next.md (keyed to 5831827), git log",
+      "title": "Rewrite whats-next.md - it is six commits stale and every item in its work_remaining is now closed",
+      "source": "whats-next.md (keyed to 5831827), git log, runs.jsonl",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
         "rw:whats-next.md",
+        "r:git-worktree",
         "r:.claude/tasks/runs.jsonl",
         "r:.claude/tasks/decisions.jsonl",
-        "r:.claude/tasks/whattask.json",
-        "r:git-worktree"
+        "r:.claude/tasks/whattask.json"
       ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": [
-        "archive-tests-untracked-in-git",
-        "stale-merged-branches",
-        "pyproject-requires-python-understates-312",
-        "sid-lha-archive-support",
-        "wiki-css-asset-oversized",
-        "repoint-106-missing-pdfs",
-        "verify-http-transport-across-machines",
-        "plugin-system-phase-5-2",
-        "changelog-version-history-overlap",
-        "commit-pending-changelog-and-task-log"
-      ],
+      "depends_on": [],
       "blocked_on": null,
       "decision": null,
-      "verify": "whats-next.md's <current_state> names the then-current `git rev-parse --short HEAD`; its <work_remaining> no longer describes archive-tests-untracked-in-git or stale-merged-branches as `requires-user` (both were answered in decisions.jsonl and are now subtasks) and no longer lists runbatch-plan-stales-after-its-own-commits, whattask-touches-under-declared-vs-verify or subagent-returned-empty-schema-valid-report as open (all three are closed by decision, fixed upstream in mit-setup fc40ec6); the file is still pure LF with 0 CR bytes (write it with newline='' and '\\n' joins, per this plan's hazards); and `git ls-files whats-next.md` is still empty - it stays deliberately untracked.",
-      "why_model": "a reconciliation write against files that already state the facts",
-      "why_mode": "bounded rewrite whose checks are greps and a byte count",
-      "why_lane": "reads the run log and whole-worktree state that commit-pending-changelog-and-task-log writes"
+      "verify": "whats-next.md's <current_state> names the then-current `git rev-parse --short HEAD`; its <work_remaining> lists NO task that runs.jsonl records done and no longer describes archive-tests-untracked-in-git or stale-merged-branches as `requires-user` or unlanded; it does not list runbatch-plan-stales-after-its-own-commits, whattask-touches-under-declared-vs-verify or subagent-returned-empty-schema-valid-report as open, all three being closed by decision and fixed upstream in mit-setup fc40ec6; the file is still pure LF with 0 CR bytes (write it with newline='' and '\\n' joins); and `git ls-files whats-next.md` is still empty - it stays deliberately untracked, as it has through nine passes.",
+      "why_model": "a reconciliation write against files that already state every fact it needs",
+      "why_mode": "bounded rewrite whose checks are greps, a byte count and one git command",
+      "why_lane": "reads whole-worktree state that roadmap-phase-4-items-unmarked dirties"
     }
   ],
   "closed": [
     {
-      "id": "changelog-2-24-0-duplicate",
-      "title": "Reconcile the two conflicting [2.24.0] sections in docs/CHANGELOG.md",
+      "id": "archive-tests-untracked-in-git",
+      "title": "Track archive/tests/ - 35 archived test files and two landed fixes existed only in one working tree",
+      "closed_by": "a334b3c",
+      "reason": "Ran `partial` under /runqueue, which forbids its agents from committing, so the agent added the .gitignore rule and proved it (35 files visible to `git ls-files --others --exclude-standard`, index untouched) and left the commit to the human. The human then committed it. The rule is scoped to archive/tests/ rather than being another unanchored basename exception, per the deliberate comment at .gitignore:44-47. Collection is unchanged at 366; with archive un-excluded it collects 642 with no import-file-mismatch errors."
+    },
+    {
+      "id": "commit-pending-changelog-and-task-log",
+      "title": "Commit the finished CHANGELOG fix and the task-log files still sitting in the working tree",
+      "closed_by": "299feba",
+      "reason": "Recorded `blocked` rather than run: the task's entire content is a git commit, and /runqueue forbids the command and every agent it launches from committing, so there was no delegable fraction. The human committed the pending set across 7a64aa4, a334b3c, a8c34a4, 84bccc4 and 299feba. LESSON RECORDED AND HONOURED IN THIS PASS: a commit-* task is unrunnable by construction under /runtask, /runbatch and /runqueue alike, so this plan creates none."
+    },
+    {
+      "id": "stale-merged-branches",
+      "title": "Delete the five fully-merged branches left behind on master",
       "closed_by": "3d53e46",
-      "reason": "Run recorded done against HEAD 3d53e46; re-verified this pass - `grep -c '^## \\[2\\.24\\.0\\]' docs/CHANGELOG.md` returns 1 and validate_docs.py PASSES. NOTE: the edit is in the WORKING TREE, uncommitted (docs/CHANGELOG.md shows -47 lines in `git diff --stat`), so 3d53e46 is the HEAD the run was recorded against, not a commit containing the fix. Committing it is tracked as commit-pending-changelog-and-task-log."
+      "reason": "NO COMMIT CARRIES THIS - deleting a ref produces none, so 3d53e46 is the HEAD the run was recorded against rather than a commit containing the change. All five (fix/mcp-startup-timeout, hardening-and-figure-ocr, mcp-http-transport-and-fixes, retrieval-quality, wiki-split-sid-ingest-docs) were removed with `git branch -d` only, never -D, and HEAD was unchanged by the run. Re-verified: `git branch --merged master` lists only master and `--no-merged` is empty. Remote counterparts were left alone as the authorisation required; origin/fix/mcp-startup-timeout still exists and was confirmed an ancestor of master, so nothing is unmerged."
     },
     {
-      "id": "runbatch-plan-stales-after-its-own-commits",
-      "title": "/runbatch finds its plan stale every time, because the batch's own results invalidate the plan that authorised them",
-      "closed_by": "decision:runbatch-plan-stales-after-its-own-commits",
-      "reason": "Fixed upstream, not here. The user redirected to the repair-plan artifact (claude.ai/code/artifact/93cf856e-09ac-4e28-831d-1e8793a8874c); the fix is commit fc40ec6 in the mit-setup marketplace. VERIFIED THIS PASS, and this corrects the decision record: the local checkout HAS now picked it up - plugin.json reads version 1.9.0, HEAD is 1d0ef38, and fc40ec6 is an ancestor. The investigation the artifact left open was answered in the decision record: the plan-staling commits (3d53e46, d62d8a2, f0c7abf, 5ac1e03) touch only .claude/tasks/ bookkeeping and each carries a wholly regenerated whattask.json, i.e. they were the human's, not batch output - so the freshness gate was behaving correctly and no defect exists in this repo's use of /runbatch."
+      "id": "pyproject-requires-python-understates-312",
+      "title": "Hoist the regex out of the f-string at wikigen/data.py:326 so the file really is 3.10-compatible",
+      "closed_by": "7a64aa4",
+      "reason": null
     },
     {
-      "id": "whattask-touches-under-declared-vs-verify",
-      "title": "Make /whattask cross-check touches against the verify string AND the hazards array - six instances now",
-      "closed_by": "decision:whattask-touches-under-declared-vs-verify",
-      "reason": "Fixed upstream in mit-setup fc40ec6 and picked up locally (version 1.9.0, HEAD 1d0ef38). The repair converts the rule from prose into a derivation computed while `touches` is written and BEFORE the lane is assigned (the lane is derived from touches, so widening afterwards leaves a lane that no longer matches), and adds the half a string-scan cannot reach: for any verify that invokes a tool, declare what that TOOL writes. This pass is the first plan generated under the repaired command."
+      "id": "changelog-version-history-overlap",
+      "title": "Delete the now-false 'Known issue: two conflicting [2.24.0] sections' note and leave the two histories unmerged",
+      "closed_by": "a8c34a4",
+      "reason": null
     },
     {
-      "id": "subagent-returned-empty-schema-valid-report",
-      "title": "Harden /runtask and /runbatch against vacuous reports - the minLength mitigation has now been defeated by padding",
-      "closed_by": "decision:subagent-returned-empty-schema-valid-report",
-      "reason": "Fixed upstream in mit-setup fc40ec6 and picked up locally (version 1.9.0, HEAD 1d0ef38); confirmed behaviourally rather than by version string - runtask.md and runbatch.md now carry the stop-on-undeclared-path rule they previously lacked (2 and 1 occurrences; previously 0). The repair ports runqueue.md:196's 'a returned record is a claim' rule to both commands, requires the id-equality check to run IN THE ORCHESTRATOR (a schema is satisfied by a well-formed WRONG id - the padding failure again), and records an id mismatch as `inconclusive` rather than `failed`."
+      "id": "sid-lha-archive-support",
+      "title": "Record the decision to decline .lha support in TO-DOS.md's SID-archive entry",
+      "closed_by": "84bccc4",
+      "reason": null
+    },
+    {
+      "id": "wiki-css-asset-oversized",
+      "title": "Record in CLAUDE.md that the R12/R18 decomposition target is a Python-module rule, not an asset rule",
+      "closed_by": "84bccc4",
+      "reason": null
+    },
+    {
+      "id": "verify-http-transport-across-machines",
+      "title": "Record that loopback testing is accepted for the HTTP transport, and what a cross-machine attempt would need",
+      "closed_by": "84bccc4",
+      "reason": null
+    },
+    {
+      "id": "plugin-system-phase-5-2",
+      "title": "Mark docs/ROADMAP.md's Phase 5.2 plugin system superseded by the MCP tool surface",
+      "closed_by": "84bccc4",
+      "reason": "Done, but its verify carried a false clause that opened roadmap-phase-4-items-unmarked: 'no roadmap phase remains both unshipped and unarchived' was never true, since 4.1, 4.2 and 4.3 carry no Status line at all. The clause came from decisions.jsonl asserting 5.2 was 'the last roadmap item that was neither shipped nor archived'; the /whattask pass copied that claim without checking it."
+    },
+    {
+      "id": "repoint-106-missing-pdfs",
+      "title": "Repoint the 26 unambiguously locatable PDFs and record the 220-document residual",
+      "closed_by": "84bccc4",
+      "reason": "The commit carries only the TO-DOS.md record. THE ACTUAL CHANGE IS NOT IN GIT AND CANNOT BE: 26 rows of the live knowledge_base.db were repointed, MD5-verified against each document's recorded file_hash by KnowledgeBase.repoint_document, with no re-chunking (1064 chunks before and after). missing_source_files went 246 -> 220, re-measured straight from the DB. The per-document (doc_id, old_filepath, new_filepath) triples in .claude/tasks/runs.jsonl are the ONLY rollback that exists."
     },
     {
       "id": "changelog-2-24-0-duplicate",

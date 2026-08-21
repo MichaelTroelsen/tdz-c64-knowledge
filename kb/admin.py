@@ -499,14 +499,33 @@ class AdminMixin:
             # skips them - see get_figure_ocr_coverage). Any future re-chunk,
             # re-OCR or page-image feature would hit the same wall silently,
             # so surface it here for the whole corpus, not just PDFs.
-            missing_source_files = sum(
-                1 for doc in self.documents.values()
-                if self._document_source_missing(doc.filepath)
-            )
+            #
+            # That single count conflates two very different things: a
+            # generated card (doc.card_id set, e.g. a DeepSID tune) whose
+            # recorded filepath was disposable staging that was never meant
+            # to persist, versus a genuine user document (PDF/txt/md) whose
+            # source is actually gone. Same split as
+            # get_figure_ocr_coverage's documents_remaining_reachable /
+            # _unreachable (kb/figures.py): keep missing_source_files
+            # defined exactly as before - the three existing tests assert
+            # on it - and add the breakdown beside it rather than replacing
+            # it, so user and generated always sum back to the total.
+            missing_source_user = 0
+            missing_source_generated = 0
+            for doc in self.documents.values():
+                if self._document_source_missing(doc.filepath):
+                    if doc.card_id:
+                        missing_source_generated += 1
+                    else:
+                        missing_source_user += 1
+            missing_source_files = missing_source_user + missing_source_generated
             health['metrics']['missing_source_files'] = missing_source_files
+            health['metrics']['missing_source_files_user'] = missing_source_user
+            health['metrics']['missing_source_files_generated'] = missing_source_generated
             if missing_source_files > 0:
                 health['issues'].append(
-                    f"{missing_source_files} document(s) have a filepath that no longer exists on disk"
+                    f"{missing_source_files} document(s) have a filepath that no longer exists on disk "
+                    f"({missing_source_user} user document(s), {missing_source_generated} generated card(s))"
                 )
                 health['status'] = 'warning'
 

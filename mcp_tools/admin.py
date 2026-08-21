@@ -32,11 +32,24 @@ def handle_health_check(kb, name: str, arguments: dict) -> list[TextContent]:
     # Metrics
     if health['metrics']:
         output += "Metrics:\n"
-        for key, value in health['metrics'].items():
+        metrics = health['metrics']
+        # missing_source_files_user/_generated are a breakdown of
+        # missing_source_files (kb/admin.py), not independent metrics -
+        # render them as an indented sub-bullet under it rather than as
+        # their own top-level lines, mirroring how mcp_tools/figures.py
+        # renders documents_remaining_reachable/_unreachable under
+        # documents_remaining.
+        breakdown_keys = {'missing_source_files_user', 'missing_source_files_generated'}
+        for key, value in metrics.items():
+            if key in breakdown_keys:
+                continue
             if isinstance(value, int):
                 output += f"  {key}: {value:,}\n"
             else:
                 output += f"  {key}: {value}\n"
+            if key == 'missing_source_files' and breakdown_keys <= metrics.keys():
+                output += f"    - User document(s): {metrics['missing_source_files_user']:,}\n"
+                output += f"    - Generated card(s): {metrics['missing_source_files_generated']:,}\n"
         output += "\n"
 
     # Database

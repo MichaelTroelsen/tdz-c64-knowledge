@@ -346,6 +346,43 @@ def test_health_check_reports_missing_source_files(kb, temp_data_dir):
     assert any('filepath' in i.lower() and 'disk' in i.lower() for i in dirty['issues']), dirty['issues']
 
 
+def test_health_check_missing_source_files_splits_user_vs_generated(kb, temp_data_dir):
+    """missing_source_files conflates a genuinely-lost user document with a
+    generated card (e.g. a DeepSID tune) whose recorded filepath was
+    disposable staging never meant to persist. health_check must add
+    missing_source_files_user / missing_source_files_generated beside the
+    total - not redefine it - and the two must always sum back to it."""
+    # A generated card: make_card_file's fenced ```json id``` block gives
+    # the resulting document a card_id.
+    card_path = make_card_file(temp_data_dir, "vanishing-card.md", "vanishing-card",
+                                "This generated card's staging file gets deleted after ingest.")
+    card_doc = kb.add_document(card_path)
+    assert card_doc.card_id == "vanishing-card"
+    os.remove(card_path)
+
+    # A genuine user document: plain text, no json id block, so no card_id.
+    user_path = Path(temp_data_dir) / "vanishing-user.txt"
+    user_path.write_text("This is a plain user document with no card id block.", encoding="utf-8")
+    user_doc = kb.add_document(str(user_path))
+    assert user_doc.card_id is None
+    os.remove(str(user_path))
+
+    health = kb.health_check(use_cache=False)
+    metrics = health['metrics']
+
+    # Both halves must be non-zero, or the sum invariant below would pass
+    # vacuously.
+    assert metrics['missing_source_files_user'] > 0
+    assert metrics['missing_source_files_generated'] > 0
+
+    # The sum invariant this test exists to guard: the split must never
+    # drift from the total that the three pre-existing tests
+    # (test_card_updates.py, test_repoint_document.py, test_sid_ingest.py)
+    # assert on directly.
+    assert (metrics['missing_source_files_user'] + metrics['missing_source_files_generated']
+            == metrics['missing_source_files'])
+
+
 # ---------------------------------------------------------------------------
 # 9. The MCP tool count claimed in README.md, CLAUDE.md and
 #    docs/ARCHITECTURE.md must equal len(TOOL_SCHEMAS). That number has been

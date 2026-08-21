@@ -615,6 +615,8 @@ CREATE INDEX idx_entities_value ON document_entities(entity_type, entity_value);
 #### 4.1 VICE Emulator Integration ⭐⭐⭐⭐⭐
 **Impact:** Very High for C64 enthusiasts | **Effort:** ⭐⭐⭐⭐⭐ | **Time:** 20-30 hours
 
+**Status:** Not started. Nothing in tracked source implements it — `git grep -i '\bvice\b' -- '*.py'` outside `archive/` returns no hit, and there is no monitor socket, `VICEIntegration` class, or memory-peek path anywhere in the project. (The `6510` matches elsewhere in the tree are the CPU named in entity-extraction patterns and test fixtures, not this proposal's monitor port.) Proposal kept below for design context.
+
 **Proposed:** Link documentation to VICE emulator
 
 ```python
@@ -704,6 +706,8 @@ Tool(
 #### 4.2 PRG File Analysis ⭐⭐⭐⭐
 **Impact:** High | **Effort:** ⭐⭐⭐⭐ | **Time:** 12-16 hours
 
+**Status:** Not started. Nothing in tracked source implements it — there is no `analyze_prg_file`, and `.prg` is not an ingestible extension at all: it appears in neither `_extract_text_for_file`'s dispatch (`kb/ingest/_extraction.py`) nor `cli.py`'s `add-folder` extension list. Proposal kept below for design context.
+
 **Proposed:** Analyze C64 program files
 
 ```python
@@ -786,6 +790,10 @@ def analyze_prg_file(self, filepath: str) -> dict:
 
 #### 4.3 SID Music File Metadata ⭐⭐⭐
 **Impact:** Medium | **Effort:** ⭐⭐⭐ | **Time:** 8-10 hours
+
+**Status:** ✅ Shipped, and past what the sketch below asked for. `parse_sid_header` (`kb/ingest/_sid.py`) returns every field this proposal names — `format`, `version`, `load_address`, `init_address`, `play_address`, `songs`, `start_song` (the proposal's `default_song`), `speed`, `title`, `author`, `released` (the header field the proposal calls `copyright`) and `chip_model` (its `sid_model`) — plus `clock`, the v3/v4 second and third chip models, and the spec's `loadAddress == 0` case where the real address is read little-endian from the data. It also goes further than metadata extraction: a `.sid`/`.psid`/`.rsid` file, or every SID member of a `.zip`, is ingested as a searchable document via `sid_card_text`, and DeepSID's JSON API is wired in behind the `add_deepsid_document` and `add_deepsid_folder` MCP tools. Covered by `test_sid_ingest.py`. Original proposal kept below for design context.
+
+**One part of the sketch is not built:** the `relevant_docs` key, which would attach SID programming documentation to the parse result by calling `faceted_search` (`kb/search/_query.py:217`). That method exists and is unused by the SID path. The shipped design inverts the idea instead — the tune becomes a document the knowledge base can search, rather than the parse result carrying documents with it.
 
 **Proposed:** Extract metadata from SID music files
 

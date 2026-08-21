@@ -901,6 +901,8 @@ async def add_document(filepath: str, title: str = None, tags: list[str] = None)
 #### 5.2 Plugin System ⭐⭐⭐⭐
 **Impact:** High | **Effort:** ⭐⭐⭐⭐⭐ | **Time:** 20-24 hours
 
+**Status:** Superseded by the MCP tool surface — the sketch's `add_tools()` hook exists to inject MCP `Tool` objects, and `mcp_tools/schemas.py` already provides 95 of them; no `Plugin`/`PluginManager` implementation exists anywhere in tracked source (originally estimated at 20-24 hours across server.py, mcp_tools/ and kb/). Not planned. Original sketch kept below for design context.
+
 **Proposed:** Extensible plugin architecture
 
 ```python

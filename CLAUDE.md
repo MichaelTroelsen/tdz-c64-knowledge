@@ -36,6 +36,13 @@ MCP server for searching Commodore 64 documentation. Ingests PDFs/text/web pages
 - `test_scrape_politeness.py` - robots.txt, User-Agent, backoff
 - `knowledge_base.db` - SQLite database (in TDZ_DATA_DIR)
 
+The R12/R18 decomposition targets in CODE-REVIEW.md (splitting `server.py`,
+`admin_gui.py`) are a Python-module rule, not a general line-count rule — they
+name specific god files, not a numeric threshold. It does not bind shipped
+assets like `wiki_assets/css/style.css`; splitting that stylesheet would mean
+editing 10+ hard-coded `<link rel=stylesheet>` tags across `wikigen/articles.py`,
+`wikigen/browsers.py`, and `wikigen/pages.py` for no readability gain.
+
 ## Development Commands
 
 ```cmd

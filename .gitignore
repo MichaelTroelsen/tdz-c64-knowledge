@@ -61,6 +61,11 @@ test_*.py
 !/test_admin_gui.py
 !/test_sid_ingest.py
 !/test_repoint_document.py
+
+# Un-ignore the archived test suite (archive/tests/) so it can be tracked.
+# Scoped to that subdirectory specifically — NOT an unanchored basename
+# exception — per the root-anchoring rationale above.
+!archive/tests/test_*.py
 check_*.py
 reimport_*.py
 debug_*.py

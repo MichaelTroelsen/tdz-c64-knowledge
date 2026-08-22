@@ -48,12 +48,31 @@ prune or rotate `uploads/`.
 This is recorded because the answer is not derivable from the code, and two
 behaviours depend on it:
 
-- **A missing source file is a defect, not housekeeping.** 106 of the 178
-  PDFs in the live knowledge base no longer resolve at their recorded
-  `documents.filepath`. Under this policy that is a real fault to repair,
-  which is why `health_check` reports `missing_source_files` and raises its
-  status to `warning` when the count is non-zero - that metric is an alarm,
-  not noise.
+- **A missing source file is a defect, not housekeeping - for genuine user
+  documents.** As first measured on 2026-07-31, 106 of the 178 PDFs in the
+  live knowledge base no longer resolved at their recorded
+  `documents.filepath`. Re-measured read-only from the live DB on
+  2026-08-22: 80 of those same 178, and 220 documents overall (out of
+  1,144), still don't resolve. Count PDFs by their recorded `file_type`
+  instead of by the filepath suffix and the denominator is 168 rather
+  than 178 - a 10-document classification difference, not a change in
+  the corpus, so keep the same population on both sides of a
+  then-and-now comparison. `health_check` reports that overall count as
+  `missing_source_files`, but the count conflates two different things, and
+  commit ab7503a split it into `missing_source_files_user` and
+  `missing_source_files_generated` (105 and 115 of the 220, respectively,
+  as of the same 2026-08-22 measurement) so they no longer get treated as
+  one signal. `missing_source_files_generated` counts generated cards
+  (`doc.card_id` set) whose recorded filepath was disposable ingest staging
+  never meant to persist - their `card_id` and indexed chunk are the
+  durable record, so a missing staging file there is expected, not a fault.
+  `missing_source_files_user` is the alarm: it counts genuine user
+  documents (PDF/txt/md, no `card_id`) whose source is actually gone, and
+  is the half worth repairing under this policy. `health_check` still
+  raises its status to `warning` whenever the combined `missing_source_files`
+  total is non-zero, so a run of generated-card noise alone is enough to
+  trip it; read the `_user`/`_generated` breakdown before treating a
+  `warning` as corpus damage.
 - **Re-pointing is repair, not relocation.** A tool that re-points a document
   at a moved file is fixing a broken record; the new path must still pass the
   `ALLOWED_DOCS_DIRS` whitelist, and `uploads/` remains a legitimate target

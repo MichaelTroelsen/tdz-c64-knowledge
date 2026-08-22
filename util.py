@@ -186,6 +186,80 @@ def _network_timeout(seconds: float = NETWORK_FETCH_TIMEOUT_S):
             socket.setdefaulttimeout(previous)
 
 
+# A held lock must keep looking fresh, or `stale_after` cannot tell a crashed
+# holder from one that is legitimately still working: a full embeddings rebuild
+# that runs past stale_after would otherwise have its lock seized mid-write.
+# The holder therefore refreshes the lock file's mtime on this cadence
+# (stale_after/4, so four refreshes may be missed before anyone calls it
+# stale), clamped so a large stale_after does not mean a lock file that sits
+# unrefreshed for minutes and a tiny one does not spin.
+_LOCK_HEARTBEAT_MAX_S = 5.0
+_LOCK_HEARTBEAT_MIN_S = 0.02
+
+
+def _lock_identity(lock_path: Path):
+    """Fingerprint of the lock file as it exists right now, or None if it is gone.
+
+    Identity is (recorded pid, st_dev, st_ino, st_mtime_ns). The pid alone is
+    not enough - one process can be both the robbed holder and the robber - and
+    st_ino alone is not enough either, since an inode freed by unlink is often
+    handed straight back to the next create on POSIX. Content is read before
+    stat on purpose: if the file is replaced mid-read the two halves come from
+    different files and match no one, which is the safe direction to fail (we
+    decline to delete a file we are unsure about, rather than deleting someone
+    else's).
+    """
+    try:
+        with open(str(lock_path), 'rb') as fh:
+            owner = fh.read(64)
+        st = os.stat(str(lock_path))
+    except OSError:
+        return None
+    return (owner, st.st_dev, st.st_ino, st.st_mtime_ns)
+
+
+class _HeldLock:
+    """The lock file this process currently owns, and the proof that it does."""
+
+    def __init__(self, lock_path: Path):
+        self.lock_path = lock_path
+        self._guard = threading.Lock()
+        self.identity = _lock_identity(lock_path)
+
+    def refresh(self) -> bool:
+        """Restamp our lock file's mtime. False once it is no longer ours."""
+        with self._guard:
+            if self.identity is None:
+                return False
+            if _lock_identity(self.lock_path) != self.identity:
+                self.identity = None  # somebody reclaimed it out from under us
+                return False
+            try:
+                os.utime(str(self.lock_path), None)
+            except OSError:
+                return False  # keep identity: release may still clean up
+            self.identity = _lock_identity(self.lock_path)
+            return self.identity is not None
+
+    def release(self):
+        """Delete the lock file, but only while it is still demonstrably ours."""
+        with self._guard:
+            if self.identity is None:
+                return
+            if _lock_identity(self.lock_path) == self.identity:
+                try:
+                    os.unlink(str(self.lock_path))
+                except OSError:
+                    pass
+            self.identity = None
+
+
+def _lock_heartbeat(held: '_HeldLock', stop: threading.Event, interval: float):
+    while not stop.wait(interval):
+        if not held.refresh():
+            return
+
+
 @contextmanager
 def _cross_process_lock(lock_path: Path, timeout: float = 60.0, stale_after: float = 120.0,
                          poll_interval: float = 0.1):
@@ -201,14 +275,33 @@ def _cross_process_lock(lock_path: Path, timeout: float = 60.0, stale_after: flo
     cross-process mutex. A lock file older than `stale_after` is assumed to
     belong to a crashed holder and is reclaimed rather than deadlocking every
     future session forever.
+
+    Liveness, not just age: a background thread restamps the lock file's mtime
+    every `stale_after`/4 for as long as the lock is held, so `stale_after`
+    measures silence rather than elapsed work. A crashed holder stops
+    restamping and is still reclaimed on schedule; a slow one - a real
+    embeddings rebuild past the 120s default - is not.
+
+    Release is conditional. It deletes the lock file only while that file is
+    still demonstrably the one we created (see _lock_identity). Without that
+    check, a holder whose lock was reclaimed anyway would, on finishing, delete
+    the file its successor is holding and admit a third process into the
+    critical section; instead its release becomes a no-op.
+
+    The tradeoff this makes deliberately: a holder that is alive but wedged
+    keeps its lock indefinitely, where before it lost it after `stale_after`.
+    That cannot deadlock a waiter - waiters still give up after `timeout` and
+    raise TimeoutError - and losing the lock mid-write was the worse outcome.
     """
     lock_path = Path(lock_path)
     deadline = time.time() + timeout
     while True:
         try:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, str(os.getpid()).encode())
-            os.close(fd)
+            try:
+                os.write(fd, str(os.getpid()).encode())
+            finally:
+                os.close(fd)
             break
         except FileExistsError:
             try:
@@ -220,10 +313,21 @@ def _cross_process_lock(lock_path: Path, timeout: float = 60.0, stale_after: flo
             if time.time() > deadline:
                 raise TimeoutError(f"Timed out waiting for lock: {lock_path}")
             time.sleep(poll_interval)
+
+    held = _HeldLock(lock_path)
+    interval = max(_LOCK_HEARTBEAT_MIN_S, min(stale_after / 4.0, _LOCK_HEARTBEAT_MAX_S))
+    stop = threading.Event()
+    heartbeat = threading.Thread(
+        target=_lock_heartbeat, args=(held, stop, interval),
+        name='cross-process-lock-heartbeat', daemon=True,
+    )
+    heartbeat.start()
     try:
         yield
     finally:
-        lock_path.unlink(missing_ok=True)
+        stop.set()
+        heartbeat.join(timeout=interval + 5.0)
+        held.release()
 
 
 def _atomic_write_bytes(path: Path, data: bytes):

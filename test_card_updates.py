@@ -335,8 +335,8 @@ def test_health_check_reports_missing_source_files(kb, temp_data_dir):
     assert clean['metrics']['missing_source_files'] == 0
     assert clean['status'] != 'warning'
 
-    f2 = make_card_file(temp_data_dir, "vanishing.md", "vanishing-card",
-                         "This file gets deleted after ingest.")
+    f2 = str(Path(temp_data_dir) / "vanishing.txt")
+    Path(f2).write_text("This file gets deleted after ingest.", encoding="utf-8")
     kb.add_document(f2)
     os.remove(f2)
 
@@ -381,6 +381,28 @@ def test_health_check_missing_source_files_splits_user_vs_generated(kb, temp_dat
     # assert on directly.
     assert (metrics['missing_source_files_user'] + metrics['missing_source_files_generated']
             == metrics['missing_source_files'])
+
+
+def test_health_check_missing_generated_card_does_not_raise_status(kb, temp_data_dir):
+    """A generated card's staging file going missing is expected, not
+    damage (see kb/admin.py's health_check) - health_check must escalate
+    status to 'warning' on missing_source_files_user only. A deleted
+    generated card should move missing_source_files_generated without
+    moving status, even though the combined missing_source_files count is
+    non-zero."""
+    card_path = make_card_file(temp_data_dir, "vanishing-card.md", "vanishing-card",
+                                "This generated card's staging file gets deleted after ingest.")
+    card_doc = kb.add_document(card_path)
+    assert card_doc.card_id == "vanishing-card"
+    os.remove(card_path)
+
+    health = kb.health_check(use_cache=False)
+    metrics = health['metrics']
+
+    assert metrics['missing_source_files_generated'] == 1
+    assert metrics['missing_source_files_user'] == 0
+    assert metrics['missing_source_files'] == 1
+    assert health['status'] != 'warning'
 
 
 # ---------------------------------------------------------------------------

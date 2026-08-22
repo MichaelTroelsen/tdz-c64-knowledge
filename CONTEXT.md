@@ -49,17 +49,22 @@ MCP server providing Claude with searchable Commodore 64 documentation (memory m
 
 ## Core Components
 
-- **server.py** - MCP server, KnowledgeBase class, 92 tools, AI features
+- **server.py** - MCP server entry point: transports (stdio + streamable HTTP) and tool dispatch
+- **kb/** - `KnowledgeBase` class, split into domain mixins (core, ingest, search, entities, graph, topics, temporal, figures, admin)
+- **mcp_tools/** - MCP tool layer: `schemas.py` (the 95 `Tool(...)` literals), `handlers.py` (aggregator), plus domain handler modules
 - **rest_server.py** - FastAPI REST API (18 endpoints, optional)
 - **rest_models.py** - Pydantic v2 models
 - **cli.py** - Command-line interface
-- **admin_gui.py** - Streamlit dashboard
+- **admin_gui.py** - Streamlit entry point, dispatches to `admin_pages/`
+- **admin_pages/** - Page bodies for the Streamlit admin GUI, each exposing `render(kb)`
+- **admin_common.py** - Shared helpers used by `admin_pages/`
+- **wiki_export.py** / **wikigen/** - Static HTML wiki export pipeline (data, pages, browsers, visualizations)
 - **test_card_updates.py** - Pytest test suite (CI-wired)
 - **knowledge_base.db** - SQLite database (in TDZ_DATA_DIR)
 
 ## MCP Tools Summary
 
-**92 tools total.** Representative categories (not exhaustive - see README.md for the complete reference):
+**95 tools total.** Representative categories (not exhaustive - see README.md for the complete reference):
 - Search (11): search_docs, semantic_search, hybrid_search, fuzzy_search, search_within_results, answer_question, translate_query, search_tables, search_code, find_similar, faceted_search
 - Documents (8): add_document, add_documents_bulk, remove_document, remove_documents_bulk, list_docs, get_document, get_chunk, check_updates
 - URL Scraping (3): scrape_url, rescrape_document, check_url_updates

@@ -168,12 +168,15 @@ def check_version_consistency() -> Tuple[bool, List[str]]:
 def extract_claimed_tool_counts() -> Dict[str, List[int]]:
     """Pull the claimed MCP tool total out of each doc that states it.
 
-    README.md, CLAUDE.md and docs/ARCHITECTURE.md each assert the total
-    number of Tool(...) schemas as prose. That number has been hand-corrected
-    in three separate tasks already, and re-staled hours later at least twice
-    by a commit that added a tool without touching the docs. This extracts
-    the claimed number from each file so the caller can diff it against the
-    real len(TOOL_SCHEMAS).
+    README.md, CLAUDE.md, docs/ARCHITECTURE.md, CONTEXT.md and docs/README.md
+    each assert the total number of Tool(...) schemas as prose. That number
+    has been hand-corrected in several separate tasks already, and re-staled
+    hours later at least twice by a commit that added a tool without touching
+    the docs (CONTEXT.md drifted three tools behind in silence, and
+    docs/README.md drifted to 87 while the project total moved to 95, both
+    because they sat outside this check). This extracts the claimed number
+    from each file so the caller can diff it against the real
+    len(TOOL_SCHEMAS).
 
     Each pattern is anchored to the file's actual "N MCP tools" / "N
     `Tool(...)` literals" phrasing so it does NOT match two look-alikes that
@@ -189,6 +192,8 @@ def extract_claimed_tool_counts() -> Dict[str, List[int]]:
         'README.md': r'(\d+)\s+MCP tools organized by category',
         'CLAUDE.md': r'\(the (\d+) `Tool\(\.\.\.\)` literals\)',
         'docs/ARCHITECTURE.md': r'TOOL_SCHEMAS`\s*\((\d+) `Tool\(\.\.\.\)` literals\)',
+        'CONTEXT.md': r'\(the (\d+) `Tool\(\.\.\.\)` literals\)',
+        'docs/README.md': r'All (\d+) MCP tools with examples',
     }
 
     claims: Dict[str, List[int]] = {}

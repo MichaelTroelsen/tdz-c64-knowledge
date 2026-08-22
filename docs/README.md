@@ -34,7 +34,7 @@ Welcome to the TDZ C64 Knowledge Base documentation! This index will help you fi
 **Integrate with the knowledge base:**
 
 - **[REST API Reference](REST_API.md)** - 18 HTTP endpoints, authentication, examples
-- **[MCP Tools Reference](MCP_TOOLS_REFERENCE.md)** - All 87 MCP tools with examples
+- **[MCP Tools Reference](MCP_TOOLS_REFERENCE.md)** - All 95 MCP tools with examples
 - **[MCP Integration Guide](MCP_INTEGRATION.md)** - Claude Code/Desktop setup, troubleshooting
 
 ---

@@ -68,11 +68,12 @@ behaviours depend on it:
   durable record, so a missing staging file there is expected, not a fault.
   `missing_source_files_user` is the alarm: it counts genuine user
   documents (PDF/txt/md, no `card_id`) whose source is actually gone, and
-  is the half worth repairing under this policy. `health_check` still
-  raises its status to `warning` whenever the combined `missing_source_files`
-  total is non-zero, so a run of generated-card noise alone is enough to
-  trip it; read the `_user`/`_generated` breakdown before treating a
-  `warning` as corpus damage.
+  is the half worth repairing under this policy. `health_check` raises its
+  status to `warning` only when `missing_source_files_user` is non-zero;
+  generated-card noise alone (`missing_source_files_generated` non-zero,
+  `_user` at zero) still surfaces as an informational issue in the report
+  but leaves status untouched, so the server no longer stays permanently
+  alarmed over staging files that were never meant to persist.
 - **Re-pointing is repair, not relocation.** A tool that re-points a document
   at a moved file is fixing a broken record; the new path must still pass the
   `ALLOWED_DOCS_DIRS` whitelist, and `uploads/` remains a legitimate target

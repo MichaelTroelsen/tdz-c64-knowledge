@@ -61,6 +61,13 @@ test_*.py
 !/test_admin_gui.py
 !/test_sid_ingest.py
 !/test_repoint_document.py
+!/test_cross_process_lock.py
+!/test_fts5_search.py
+!/test_groundedness.py
+!/test_hybrid_fusion.py
+!/test_rerank.py
+!/test_retrieval_quality.py
+!/test_extract_snippet.py
 
 # Un-ignore the archived test suite (archive/tests/) so it can be tracked.
 # Scoped to that subdirectory specifically — NOT an unanchored basename

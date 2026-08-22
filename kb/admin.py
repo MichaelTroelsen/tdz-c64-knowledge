@@ -527,7 +527,14 @@ class AdminMixin:
                     f"{missing_source_files} document(s) have a filepath that no longer exists on disk "
                     f"({missing_source_user} user document(s), {missing_source_generated} generated card(s))"
                 )
-                health['status'] = 'warning'
+                # Escalate on missing_source_files_user only - a generated
+                # card's staging file going missing is expected (see the
+                # comment above this block), not damage, so it shouldn't
+                # alarm the whole server. The issue text above still reports
+                # both halves so a generated-only run stays visible as an
+                # informational entry without moving status.
+                if missing_source_user > 0:
+                    health['status'] = 'warning'
 
             # Check FTS5 index if enabled
             if health['features']['fts5_enabled']:

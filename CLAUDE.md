@@ -150,3 +150,6 @@ serialise behind a single exclusive writer lock. `TDZ_DB_BUSY_TIMEOUT_MS`
 - Activate: `.venv\Scripts\activate`
 - Python: `.venv\Scripts\python.exe`
 - Batch files: setup.bat, start-all.bat
+
+## Task observation
+Activate the task-observer skill at the start of every task-oriented session.

@@ -1,168 +1,224 @@
 {
   "generated_from": {
-    "head": "d14ad8d",
+    "head": "03d8306",
     "sources": [
-      ".claude/tasks/runs.jsonl (85 lines, 71 distinct ids; ALL latest lines 'done')",
-      ".claude/tasks/decisions.jsonl (17 lines, 13 distinct ids) - all reflected in `closed`; nothing re-asked",
-      "previous whattask.json (head 7711e69; one of its two tasks closed by ab7503a)",
-      "docs/ARCHITECTURE.md:48-60 read directly - which is where the newly-listed task came from",
-      "TO-DOS.md:13,15 read in full, to scope the surviving task DOWN rather than re-listing groundwork it already carries",
-      "the live knowledge_base.db, read-only: missing_source_files 220 = 105 user + 115 generated; 25 non-PDF user losses, 21 of them c=hacking",
-      "kb/admin.py (the metric as shipped by ab7503a)",
-      "CODE-REVIEW.md (0 unchecked), git grep TODO/FIXME/XXX/HACK over tracked non-archive *.py (0 hits)",
-      "mcp_tools/schemas.py: len(TOOL_SCHEMAS) still 95, so no doc tool-count moved",
-      "whats-next.md (keyed to 299feba, SIX commits stale; its work_remaining is spent)",
-      "issues (gh: none open)",
-      "prs (gh: none open)",
-      "git log 7711e69..d14ad8d, git status --porcelain"
+      ".claude/tasks/runs.jsonl (97 lines, 86 distinct ids) - last line per id: 83 done, 1 partial, 1 blocked",
+      ".claude/tasks/decisions.jsonl (18 lines, 14 distinct ids) - all reflected in `closed`; unchanged since the previous pass; nothing re-asked",
+      "previous whattask.json (head 03d8306; both of its 2 open tasks closed by /runqueue --until-blocked records at the same HEAD, run across two cycles since they conflicted on test_cross_process_lock.py - see closed)",
+      "TWO /runqueue --until-blocked CYCLES SINCE THE PREVIOUS PASS, at the same HEAD (nothing committed, so HEAD did not move): cross-process-lock-steals-from-slow-holders (done - heartbeat thread + identity-fingerprinted release, mutation-tested by the agent itself, re-verified independently including reading the actual util.py diff) and gitignore-blanket-test-glob-drops-new-tests (done - 7 new allowlist lines, verified with an actual stage-then-unstage cycle, not just check-ignore's output)",
+      "ONE NEW TASK OPENED BY THIS PASS ITSELF, not by either run's `opened` array (both were empty) - surfaced from the orchestrator's OWN verification notes on cross-process-lock-steals-from-slow-holders: re-reading util.py's acquire path (lines 296-315) during that task's independent verification found a narrow, pre-existing TOCTOU race the fix did not (and was not asked to) close - see cross-process-lock-acquire-side-toctou-window",
+      "util.py re-read directly this pass to confirm the fix and to precisely characterise the new finding's line numbers (296-315, the acquire-loop's stale-reclaim branch)",
+      "test_cross_process_lock.py re-read directly - now 13 tests (was 10), confirmed passing live this pass (`pytest test_cross_process_lock.py -q` -> 13 passed); confirmed genuinely untracked+ignored no longer - `git status --porcelain test_cross_process_lock.py` -> `??`, and a real `git add`/`git restore --staged` cycle proved it stages cleanly",
+      ".gitignore re-read directly - now 2211 bytes / 123 lines, the 7 new allowlist entries present at lines 64-70",
+      "issues (gh returned nothing - no reachable open issues)",
+      "prs (gh returned nothing - no reachable open PRs)",
+      "whats-next.md - NOT RE-READ THIS PASS (unchanged on disk, still keyed to 03d8306, still describing closed work as open per the last three passes' notes - still deferring to whattask.json/runs.jsonl as authoritative per its own text, so still noted rather than fixed; now FIVE passes stale and every item in its own work_remaining is now closed - STRONGLY RECOMMEND deleting or rewriting it, since it no longer describes anything true about this repo's open work)",
+      "graphify-out/ (untracked, still present) - not re-queried this pass; the one new task's scope (util.py's acquire-loop internals) was already fully characterised by direct source reading during the prior task's own verification, so a graphify cross-check would not add anything the touches below don't already cover"
     ],
     "focus": null
   },
   "hazards": [
     "knowledge_base.db (in TDZ_DATA_DIR) is shared by every concurrently running server.py process; WAL mode, per CLAUDE.md. It is NOT in git - a write there has no `git diff` rollback, only whatever the run record captured",
     "KnowledgeBase.repoint_document verifies the candidate's MD5 against the document's recorded file_hash and refuses unless force=True - never pass force, and never write documents.filepath by raw SQL, or that guard is bypassed",
-    "whats-next.md is pure LF with 0 CR bytes and deliberately untracked - writers must use newline='' and '\\n' joins",
-    "every tracked .py file is CRLF in the working tree with 0 bare LF; core.autocrlf=true stores them as LF",
+    "whats-next.md is pure LF with 0 CR bytes and deliberately untracked - writers must use newline='' and '\\n' joins. IT IS NOW FULLY STALE (see sources) - the next session should strongly consider deleting or rewriting it rather than adding a sixth stale-relative-to-runs.jsonl layer",
+    "every tracked .py file is CRLF in the working tree with 0 bare LF; core.autocrlf=true stores them as LF - VERIFY THIS WITH PYTHON BYTE COUNTS (open(path,'rb').read().count(b'\\r')), NOT bash `grep -c $'\\r'`, which this session proved unreliable in this repo's Git Bash (falsely reported CRLF on a genuinely pure-LF file) - confirmed a second time this pass by a runqueue cycle's own independent measurement matching Python exactly",
     ".gitattributes:6 sets .claude/tasks/* eol=lf - runs.jsonl, whattask.json and decisions.jsonl must stay pure LF",
-    ".gitignore blanket-ignores test_*.py; the root exceptions are root-anchored ('!/') on purpose and archive/tests/ has its own scoped rule from a334b3c - do not replace either with an unanchored basename exception",
+    ".gitignore's allowlist (root-anchored `!/`, now lines 49-70) is FIXED as of this session - test_cross_process_lock.py and six other previously-drifted-but-tracked files were added. THE UNDERLYING SHAPE STILL EXISTS: any brand-new test_*.py file still needs its own `!/` line added by hand, or it repeats the exact trap this pass closed. archive/tests/ has its own scoped rule (now at line 75) - do not replace either with an unanchored basename exception",
     "kb/ingest/__init__.py asserts the sub-mixins' combined method set equals a hardcoded _EXPECTED_METHODS frozenset - any new IngestMixin method must extend it in the same change or `import kb.ingest` fails",
     "<data_dir>/uploads is PERMANENT storage (docs/ARCHITECTURE.md:40) - documents.filepath points into it and health_check's missing_source_files reads that path",
-    "validate_docs.py FAILS if README.md / CLAUDE.md / docs/ARCHITECTURE.md stop matching its three tool-count phrasings (577da48) - a doc reword must update the pattern in the same change",
+    "validate_docs.py FAILS if README.md / CLAUDE.md / docs/ARCHITECTURE.md / CONTEXT.md / docs/README.md (five files) stop matching its tool-count phrasings - a doc reword must update the pattern in the same change",
     "pyproject.toml:85 lists 'archive' in norecursedirs; archive/tests/ is tracked as of a334b3c but still excluded from collection",
-    "MEASURED BASELINES, carried forward because a stale one nearly cost a spurious failure: bare collection is 366 tests, 642 with archive un-excluded. Do not carry 260 forward",
+    "MEASURED BASELINES, carried forward because a stale one nearly cost a spurious failure: bare collection is 366 tests, 642 with archive un-excluded. Do not carry 260 forward. test_cross_process_lock.py is now UNIGNORED (git-visible, still untracked pending a human `git add`) and has 13 tests as of this session (was 10) - it will not appear in a bare `pytest -q` count until added AND collected by name or path, since it is still not part of the tracked suite",
     "the `python` on PATH is 3.14 without the project's optional deps, so bare `pytest` dies at collection on `from features import BM25Okapi`; use .venv/Scripts/python.exe -m pytest",
     "a task that DIRTIES any tracked file is a WRITER of the worktree dirty set: declare rw:git-worktree, or a task whose verify reads `git status`/`git diff --name-only` will be scheduled beside it and fail on a file it never touched",
     "a commit-shaped task is unrunnable by construction - /runtask, /runbatch and /runqueue all forbid the command and its agents from committing, so such a task can only ever be refused. This plan creates none",
-    "the MCP tool count is asserted at 95 in README.md, CLAUDE.md and docs/ARCHITECTURE.md and checked by validate_docs.py - adding a tool without moving all three in the same change fails the validator",
-    "docs/ROADMAP.md's 4.3 sketch calls faceted_search with a CONSTANT query and filter, taking no input from the parsed tune - implementing it literally attaches an identical document list to every SID card, and that is the part the human refused",
-    "SCOPE PRINCIPLE, stated by the human on 2026-08-21 and now the reason 4.2 is not planned: this project is the KNOWLEDGE BASE. Build, disassembly and emulator tooling belongs in sibling tools (c64bridge, retrodebugger); what those tools learn comes back here as documents rather than being re-implemented here. A future plan proposing to build analysis tooling in this repo should be checked against this first",
-    "SCOPE PRINCIPLE, stated by the human on 2026-08-21 and the reason all three Phase 4 items are not planned: this project is the KNOWLEDGE BASE. Build, disassembly and emulator tooling belongs in sibling tools (c64bridge, retrodebugger); what those tools learn comes back here as documents rather than being re-implemented here. Check any future proposal to build analysis tooling in this repo against this FIRST",
+    "the MCP tool count is asserted at 95 in README.md, CLAUDE.md, docs/ARCHITECTURE.md, CONTEXT.md and docs/README.md and checked by validate_docs.py - adding a tool without moving all five in the same change fails the validator",
+    "SCOPE PRINCIPLE, stated by the human on 2026-08-21: this project is the KNOWLEDGE BASE. Build, disassembly and emulator tooling belongs in sibling tools (c64bridge, retrodebugger); what those tools learn comes back here as documents rather than being re-implemented here. Check any future proposal to build analysis tooling in this repo against this FIRST",
     "docs/ROADMAP.md's 4.3 sketch calls faceted_search with a CONSTANT query and filter, taking no input from the parsed tune - it is now not planned, but if it is ever revived, implementing it literally would attach an identical document list to every SID card",
     "health_check's missing_source_files is asserted on by THREE test files (test_card_updates.py:326, test_repoint_document.py:116, test_sid_ingest.py:475) and drives health['status']='warning' at kb/admin.py:507 - redefining the key rather than adding beside it breaks all three silently",
-    "MEASURED SPLIT of the 220 missing sources, so a future pass does not re-derive it wrongly: 115 carry a card_id (generated cards, recorded path was disposable staging) and 105 do not (80 .pdf, 24 .txt, 1 .md). The run record that opened these tasks said '25 genuine losses', which was the .md/.txt subset only",
+    "MEASURED SPLIT of the 220 missing sources, so a future pass does not re-derive it wrongly: 115 carry a card_id (generated cards, recorded path was disposable staging) and 105 do not (80 .pdf, 24 .txt, 1 .md)",
     "repoint_document CANNOT relink a re-downloaded file: it hashes the candidate against the recorded file_hash and refuses on mismatch, so re-acquiring a lost source from a public archive will be rejected exactly as the 15 DeepSID card candidates were",
-    "health_check now reports missing_source_files_user and missing_source_files_generated beside missing_source_files, and the total is DERIVED as their sum (ab7503a) - a doc or task that enumerates the breakdown by hand will go stale the way the PDF count did; cite the metric instead",
-    "STALE-NUMBER PATTERN, three instances now and all the same shape: a measured figure written into prose in the present tense, then left behind when the measurement moved. The pytest baseline (260 vs 366), TO-DOS.md's PDF count (106 vs 80), and docs/ARCHITECTURE.md:51 (still 106). Re-measure before writing any count into a document, and frame it as a dated finding rather than a present-tense fact"
+    "health_check now reports missing_source_files_user and missing_source_files_generated beside missing_source_files, and the total is DERIVED as their sum (ab7503a) - cite the metric instead of enumerating the breakdown by hand",
+    "STALE-NUMBER PATTERN, recurring and always the same shape: a measured figure written into prose in the present tense, then left behind when the measurement moved. Re-measure before writing any count into a document, and frame it as a dated finding rather than a present-tense fact",
+    "health_check ESCALATES health['status'] to 'warning' on missing_source_files_user ONLY (kb/admin.py:527-533, uncommitted) - the combined figure and both halves are still always reported in the issue text. THE ALARM STILL FIRES TODAY REGARDLESS: 105 missing USER documents remain, so status stays 'warning' - the fix makes the signal correct (clearable once user losses resolve), not clear",
+    "PREFER A PATH-SCOPED `git diff --name-only -- <the task's own paths>` in a verify over bare `git status`. The unscoped form reads the WHOLE dirty set, which makes the task a reader of every other task's writes and forces rw:git-worktree - serialising the entire plan for a scope check that only ever cared about its own files",
+    "re-ingesting a lost source is NOT restoring it: repoint_document refuses on file_hash mismatch, so an archive copy becomes a NEW document beside the old one",
+    "the same content ingested as .txt and as .pdf can NEVER dedupe against each other via add_document's content-hash short-circuit: _extract_pdf_text (kb/ingest/_extraction.py:90,149-206) joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id (kb/core.py:2184-2205) hashes the first 10,000 words. Recorded in TO-DOS.md itself as well as here",
+    "_cross_process_lock (util.py:263-329) is the ONLY real mutex between concurrent server.py sessions sharing a data directory - threading.Lock does nothing across processes. It guards schema_init.lock (kb/core.py:389) and embeddings_lock_file (kb/search/_retrieval.py:1139,1203,1265,1332). AS OF THIS SESSION: a daemon heartbeat thread (util.py:257-260, started at :319-326) restamps the held lock's mtime every max(0.02, min(stale_after/4, 5.0))s so stale_after measures silence rather than elapsed work, and release is conditional on an identity fingerprint (_lock_identity, util.py:200-219; _HeldLock, util.py:221-254) so a robbed holder's release no longer deletes its robber's file. 13 tests in test_cross_process_lock.py (still gitignore-visible-but-untracked pending a human `git add`), mutation-tested by the agent that wrote the fix. ONE NARROW RESIDUAL GAP FOUND DURING VERIFICATION AND DELIBERATELY NOT FIXED IN THAT CHANGE (out of its scope): the ACQUIRE-side stale-reclaim branch (util.py:306-315) reads the lock file's mtime via stat(), decides staleness, and unlinks with no re-check between the two - see cross-process-lock-acquire-side-toctou-window",
+    "CLAUDE.md carries an unauthored 3-line addition ('## Task observation / Activate the task-observer skill at the start of every task-oriented session.') and 3 bare LF bytes, breaking the 0-bare-LF invariant every other tracked .py/.md file holds (RE-VERIFY THIS FIGURE WITH PYTHON BYTE COUNTS - it predates the grep-reliability finding above and was never re-measured that way). No task in any plan this session declared rw:CLAUDE.md for this content; it predates this pass and its origin is unknown. `git checkout -- CLAUDE.md` would revert it, but that is the human's call, not this command's - flagging only",
+    "docs/README.md is now CLOSED as a stale-tool-count file and covered by validate_docs.py's gate - if a future doc reword or a new prominent .md file states the tool count, check it against the gate's now-five-file sources dict before assuming coverage"
   ],
   "external_locks": [
-    ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle)"
+    ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle - confirmed idle this pass)"
   ],
   "tasks": [
     {
-      "id": "architecture-md-missing-source-policy-stale",
-      "title": "docs/ARCHITECTURE.md's uploads-policy passage says 106 PDFs are missing and calls the metric a pure alarm - both are now wrong",
-      "source": "docs/ARCHITECTURE.md:51-56, opened by ab7503a and by the same class of drift to-dos-repoint-bullet-stale-framing fixed in TO-DOS.md",
+      "id": "cross-process-lock-acquire-side-toctou-window",
+      "title": "Record the acquire-side stale-reclaim race in _cross_process_lock as a documented residual risk - the human declined to fix it",
+      "source": "found by the orchestrator while independently re-verifying cross-process-lock-steals-from-slow-holders's util.py diff this session (runs.jsonl, head 03d8306) - not something anyone asked to investigate, and not in either run's `opened` array",
       "model": "sonnet",
       "mode": "subtask",
-      "lane": "serial",
+      "lane": "parallel",
       "touches": [
-        "rw:docs/ARCHITECTURE.md",
-        "r:TO-DOS.md",
-        "r:knowledge_base.db",
-        "r:kb/admin.py",
-        "r:validate_docs.py",
-        "r:README.md",
-        "r:CLAUDE.md",
-        "r:docs/CHANGELOG.md",
-        "r:mcp_tools/schemas.py",
-        "r:kb",
-        "r:mcp_tools",
-        "r:cli.py",
-        "r:server.py"
+        "rw:util.py",
+        "rw:TO-DOS.md"
       ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
-      "decision": null,
-      "verify": "TWO SEPARATE DEFECTS IN ONE PASSAGE, and fixing only the number would leave the worse one standing. (1) THE STALE COUNT: docs/ARCHITECTURE.md:51-52 asserts in the present tense that '106 of the 178 PDFs in the live knowledge base no longer resolve at their recorded documents.filepath'. RE-MEASURE IT YOURSELF from the live DB read-only rather than taking a number from this brief - the defect being fixed is precisely a figure copied forward after it stopped being true, and the same sentence has already been corrected once in TO-DOS.md. Expect 80 of 178. Reframe it as history - keep the original dated finding and its date, put the current figure beside it - rather than deleting the record of what was found. (2) THE CLAIM THAT ab7503a REFUTED, and this is the one that matters: the passage says health_check 'reports missing_source_files and raises its status to warning when the count is non-zero - that metric is an alarm, not noise.' That was true when one number meant one thing. It now reports missing_source_files_user and missing_source_files_generated beside the total, because 115 of the 220 are generated cards whose recorded path was disposable staging and are NOT faults to repair. State the split and say which half is the alarm. VERIFY: the passage names both new metric keys; no present-tense '106' claim survives (`grep -n '106' docs/ARCHITECTURE.md` shows only dated/historical framing, quote each hit); `.venv/Scripts/python.exe validate_docs.py` reports PASSED; `git diff --name-only -- kb mcp_tools cli.py server.py` is EMPTY - this is a documentation change only; docs/ARCHITECTURE.md keeps 0 bare LF, counts quoted before and after.",
-      "why_model": "a two-sentence doc correction whose only hard input is one read-only query",
-      "why_mode": "self-contained, and both defects are named explicitly so neither conclusion is a judgement call",
-      "why_lane": "DERIVED: its verify points the runner at TO-DOS.md as the place this same defect was already corrected, so it declares r:TO-DOS.md - and the other task WRITES that file. Reader-versus-writer, so the pair serialises"
-    },
-    {
-      "id": "reacquire-c-hacking-and-lost-user-sources",
-      "title": "Close the question on the 25 lost .txt/.md sources: are they reachable, and is chasing them worth it?",
-      "source": "runs.jsonl#repoint-missing-md-and-txt-sources.opened; TO-DOS.md:15 already records most of the groundwork",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:TO-DOS.md",
-        "r:knowledge_base.db",
-        "r:kb/admin.py",
-        "r:kb",
-        "r:mcp_tools",
-        "r:cli.py",
-        "r:server.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": null,
-      "verify": "NARROWER THAN IT LOOKS - READ TO-DOS.md:15 FIRST. The sweep already recorded the hard parts there: the 25 are named (the 21-issue c=hacking*.txt series, commodore-64-programmers-reference.txt, ch20addendum.txt, C64_Development_SID_Music_Resources2.md, one MagPi #109 OCR scratch file), and it already states that 're-sourcing them is a re-ingest, not a repoint'. DO NOT restate any of that; adding a second bullet that repeats the first is the failure this clause exists to prevent. ONLY THREE THINGS ARE ACTUALLY MISSING. (a) AVAILABILITY, which nobody has checked: is the c=hacking series reachable from a public archive today? Name the source you checked and its URL; do not infer availability from the title. Downloading nothing is fine - reachability is the question, not possession. (b) A RECOMMENDATION, with 'not worth doing' an entirely acceptable answer: all 25 keep their indexed chunks and stay searchable, figure OCR is meaningless for plain text, so a restored source buys only a future re-chunk. Say what you would do and why, WITHOUT deciding for the project - if the answer is 'ask the human', say that. (c) CROSS-REFERENCE THE NEW METRIC: ab7503a shipped missing_source_files_user / _generated, so TO-DOS.md's hand-enumerated 220 breakdown can now point at the metric that reports it rather than restating a number that will go stale the same way the PDF count did. VERIFY: TO-DOS.md gains the availability finding with its source, a recommendation, and the metric cross-reference, and gains NO restatement of what TO-DOS.md:15 already says; the database is opened read-only and never written; `git diff --name-only -- kb mcp_tools cli.py server.py` is EMPTY; TO-DOS.md keeps 0 bare LF, counts quoted before and after.",
-      "why_model": "one reachability check and a short prose addition against groundwork that already exists in the file",
-      "why_mode": "self-contained, and it stops short of the project decision rather than making one",
-      "why_lane": "writes TO-DOS.md, which the other task reads as the worked example of the same correction - the conflict is that reference, not the database, which both only read"
+      "decision": "Leave the acquire-side TOCTOU window as a documented residual risk; do not change any locking behaviour. Add ONE sentence to _cross_process_lock's docstring (util.py:263-295) naming the window explicitly: the acquire-side stale-reclaim branch (util.py:306-315) does a bare stat-then-unlink with no identity re-check, so a live holder can in principle still be robbed in a narrow window right at the stale_after boundary, even after the heartbeat fix shrank it from 'up to stale_after' to roughly one heartbeat-interval's worth of slack. Add ONE bullet to TO-DOS.md recording this decision and its reasoning: the five call sites (kb/core.py:389, kb/search/_retrieval.py:1139,1203,1265,1332) only fire at MCP startup and around periodic embeddings save/load, not on a hot per-request path, so the probability of ever hitting a window this narrow in practice is very low; closing it fully may not even be achievable with plain file operations (a third process racing the same reclaim has no atomic compare-and-delete to rely on).",
+      "verify": "`git diff --name-only -- util.py` lists exactly `util.py`, and reading the diff shows ONLY the docstring gained one sentence - no line inside the function body (util.py:296-329) changed; `git diff --name-only -- kb` is EMPTY - no production locking behaviour touched; `git diff --name-only -- test_cross_process_lock.py` is EMPTY - this is documentation only, not a test change; `.venv/Scripts/python.exe -m pytest test_cross_process_lock.py -q` still reports 13 passed, unchanged from before (re-measure, do not trust the number from this brief); TO-DOS.md gains exactly one new bullet recording the decision; both files keep 0 bare LF via Python byte counts (open(path,'rb').read().count(b'\\r')), not bash grep - counts quoted before and after.",
+      "why_model": "a one-sentence docstring addition and one TO-DOS.md bullet, both fully specified by the decision already taken - mechanical, not architectural",
+      "why_mode": "self-contained: the exact wording constraints and every check are already fully specified by the decision; no judgement remains",
+      "why_lane": "PARALLEL: no other open task exists in this plan to conflict with, and this task's touches (util.py, TO-DOS.md) are declared and would be re-derived against any future task sharing either path"
     }
   ],
   "closed": [
     {
+      "id": "cross-process-lock-steals-from-slow-holders",
+      "title": "_cross_process_lock never refreshes its mtime while held and releases with an unconditional unlink - a slow holder gets robbed, then the robbed holder deletes its own robber's lock file too",
+      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "reason": "Both defects fixed entirely inside util.py: a daemon heartbeat thread restamps the held lock's mtime so stale_after measures silence rather than elapsed work, and release is now conditional on an identity fingerprint so a robbed holder's release no longer deletes its robber's file. The agent mutation-tested its own fix (reverted each half, in-process and cross-process, confirmed the tests catch the regression both ways). Orchestrator independently re-ran everything (13 passed on the new suite, 136 on full regression) and read the actual util.py diff line-by-line rather than trusting the report. ONE NARROW RESIDUAL GAP FOUND DURING THAT VERIFICATION AND CORRECTLY OUT OF THIS TASK'S SCOPE - see the new task cross-process-lock-acquire-side-toctou-window."
+    },
+    {
+      "id": "gitignore-blanket-test-glob-drops-new-tests",
+      "title": ".gitignore's test_*.py blanket rule plus an incomplete allowlist silently drops new test files - test_cross_process_lock.py was untracked because of it",
+      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "reason": "Added 7 lines to .gitignore's allowlist (the immediate fix plus 6 hygiene entries for already-tracked-but-unlisted files). The agent found and correctly diagnosed a real git quirk (check-ignore's exit code is misleading for a negation pattern on an untracked path) by building a throwaway repo to test it. Orchestrator independently re-verified with the strongest possible check - an actual git add / git restore --staged cycle - rather than trusting the explanation."
+    },
+    {
+      "id": "docs-readme-tool-count-stale",
+      "title": "docs/README.md still said '87 MCP tools' - it sat outside validate_docs.py's four-file gate",
+      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "reason": "docs/README.md:37 now reads 95, matching len(TOOL_SCHEMAS). validate_docs.py's sources dict gained a fifth entry for docs/README.md. Orchestrator independently re-ran validate_docs.py (PASSED, 5 files) and re-measured TOOL_SCHEMAS (95)."
+    },
+    {
+      "id": "cross-process-lock-untested",
+      "title": "_cross_process_lock (util.py:190) - the only real mutex between concurrent server.py sessions sharing a data dir - had zero test coverage anywhere",
+      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "reason": "New test_cross_process_lock.py (10 tests, later grown to 13 by the follow-up fix) tests the function directly via real subprocesses. TWO REAL PRODUCTION DEFECTS FOUND AND PINNED, not fixed (correctly out of scope for a test-only task) - both later closed by cross-process-lock-steals-from-slow-holders. A SEPARATE FINDING ALSO OPENED: the new test file was silently gitignored - later closed by gitignore-blanket-test-glob-drops-new-tests."
+    },
+    {
+      "id": "health-check-warning-fires-on-disposable-cards",
+      "title": "health_check raises the whole server to 'warning' off the combined missing_source_files, so 115 by-design missing card sources keep it permanently alarmed",
+      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "reason": "Escalates to 'warning' on missing_source_files_user only now. Does not clear the live alarm today (105 missing USER documents remain), but the fix makes the signal correct rather than permanently stuck."
+    },
+    {
+      "id": "availability-check-remaining-4-lost-sources",
+      "title": "Finish the availability sweep: the 4 non-c=hacking lost user documents were explicitly left unchecked",
+      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "reason": "All four checked via a source actually opened. 2 of 4 reachable, reversing the expected direction; 1 not reachable; the MagPi OCR scratch file not worth reacquiring, as expected."
+    },
+    {
+      "id": "pdf-page-break-markers-defeat-content-dedup",
+      "title": "Record that .txt and .pdf ingestion of identical content can never dedupe - the PDF extractor's own PAGE BREAK join shifts the content-id hash",
+      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "reason": "A pure documentation task. TO-DOS.md gained a new section naming the mechanism, the evidence, and why it is not fixed here."
+    },
+    {
+      "id": "context-md-stale-tool-count-and-structure",
+      "title": "CONTEXT.md still said 92 MCP tools and put KnowledgeBase in server.py",
+      "closed_by": "03d8306",
+      "reason": "Reconciled to 95 with the current post-decomposition structure."
+    },
+    {
+      "id": "reingest-c-hacking-issues",
+      "title": "Decide whether to re-ingest the 21 confirmed-reachable c=hacking issues, or leave all 25 lost sources alone",
+      "closed_by": "03d8306",
+      "reason": "Human chose 'leave them, record why'. The subagent found and corrected a real error in the decision's own supporting fact."
+    },
+    {
+      "id": "code-review-md-restore-backup-identifier",
+      "title": "CODE-REVIEW.md cited a nonexistent restore_backup identifier and a pre-split line count",
+      "closed_by": "dcffd52",
+      "reason": "restore_backup -> restore_from_backup (kb/admin.py:852)."
+    },
+    {
+      "id": "extract-server-models-and-flags",
+      "title": "Pull the 26 blocking dataclasses/exceptions/feature-flags out of server.py",
+      "closed_by": "9bcd8b1",
+      "reason": "models.py, text_utils.py, features.py - all stdlib-only siblings, no circular imports."
+    },
+    {
+      "id": "split-handlers-by-domain",
+      "title": "mcp_tools/handlers.py (3,624 lines) split into 8 per-domain handler modules",
+      "closed_by": "9bcd8b1",
+      "reason": "handlers.py reduced to a 48-line aggregator merging 8 domain dicts."
+    },
+    {
+      "id": "split-oversized-kb-modules",
+      "title": "Split kb/ingest.py, kb/search.py, kb/entities.py into per-concern packages",
+      "closed_by": "dcffd52",
+      "reason": "kb/ingest/, kb/search/, kb/entities/ each composed from 2-3 mixins now."
+    },
+    {
+      "id": "architecture-md-missing-source-policy-stale",
+      "title": "docs/ARCHITECTURE.md's uploads-policy passage overstated what a missing source means",
+      "closed_by": "0759cb8",
+      "reason": null
+    },
+    {
+      "id": "reacquire-c-hacking-and-lost-user-sources",
+      "title": "Close the question on the 25 lost .txt/.md sources: are they reachable, and is chasing them worth it?",
+      "closed_by": "d699884",
+      "reason": null
+    },
+    {
       "id": "missing-source-metric-counts-disposable-cards",
       "title": "health_check's missing_source_files counted disposable generated cards as lost documents",
       "closed_by": "ab7503a",
-      "reason": "health_check now reports missing_source_files_user and _generated beside the original key, and missing_source_files is DERIVED as their sum rather than recomputed, so the total cannot drift from its own breakdown when a document gains or loses a card_id. Live corpus: 220 = 105 user + 115 generated. The three pre-existing assertions were untouched - test_card_updates.py is a pure addition with zero deleted lines - and the full suite passed 364/3-skipped before the push. One clause was answered weakly and flagged rather than glossed: the agent re-implemented kb/admin.py's logic in a read-only script instead of running health_check against the live DB (which would have opened it read-write, outside its declared touches), so the orchestrator closed the gap with a direct read-only query plus an isolated run of the new test against a temp KB."
+      "reason": "health_check now reports missing_source_files_user and _generated beside the original key, DERIVED as their sum."
     },
     {
       "id": "roadmap-phase-4-build-or-drop",
       "title": "Mark all three Phase 4 roadmap items 'not planned' - build tooling belongs in sibling tools",
       "closed_by": "b89a1be",
-      "reason": "4.1 and 4.2 now read 'Not planned' with the knowledge-base reason and each names the sibling tool that already provides the capability (c64bridge, retrodebugger) so a later reader can check the claim; 4.3's shipped-metadata Status paragraph was left verbatim and only its unbuilt relevant_docs half was marked not planned. Status-line count held at 15, 'Not started' occurs 0 times in Phase 4, validate_docs PASSED, and NOTHING WAS BUILT - zero hits for analyze_prg/_prg.py/.prg/vice in tracked source, zero faceted_search calls in kb/ingest, empty diff across kb, cli.py and mcp_tools. The task's content was reversed twice by the human before it ran, which is why the decision field carried the final answer verbatim rather than the runner re-deriving it."
+      "reason": "4.1 and 4.2 now read 'Not planned'; 4.3's shipped-metadata half left verbatim."
     },
     {
       "id": "repoint-missing-md-and-txt-sources",
       "title": "Sweep the 140 missing .md and .txt sources the PDF pass never looked at",
       "closed_by": "103365a",
-      "reason": "ZERO REPOINTED, and that was the correct outcome - the deliverable was characterisation. 15 unambiguous basename matches were ALL REFUSED by repoint_document's MD5 check: the uploads/ copies are a different revision of the same DeepSID card than the one indexed, so a basename-trusting sweep would have bound 15 documents' indexed text to files whose content no longer matches. First time that guard has fired in this repo. The database was not written; re-read from disk afterwards, all 15 still sit on their original missing paths."
+      "reason": "ZERO REPOINTED, correctly - 15 unambiguous basename matches were ALL REFUSED by repoint_document's MD5 check."
     },
     {
       "id": "to-dos-repoint-bullet-stale-framing",
       "title": "TO-DOS.md:13 said 106 PDFs are missing in the present tense; it is 80",
       "closed_by": "103365a",
-      "reason": "The opening sentence is reframed as history - the 2026-07-31 finding and its date are kept, with the current 80-of-178 figure beside them - rather than deleted. The figure was measured three times: by the orchestrator before dispatch, by the agent under instruction not to trust its brief, and by the orchestrator afterwards. The bullet's heading still names 106 deliberately, since that is the title every run record cites this entry by."
+      "reason": "Reframed as history with the current figure beside it."
     },
     {
       "id": "roadmap-phase-4-items-unmarked",
       "title": "Give docs/ROADMAP.md's Phase 4 items (VICE, PRG analysis, SID metadata) an honest Status line",
       "closed_by": "c9caaa9",
-      "reason": "The three verdicts differ, which is why it was rated a judgement: 4.1 VICE and 4.2 PRG are Not started (zero `vice` hits in tracked non-archive source; no analyze_prg_file, and `.prg` is not even an ingestible extension), while 4.3 SID is shipped past its own sketch. The clause that FAILED for plugin-system-phase-5-2 now passes and is measured rather than asserted: 13 '#### N.N' headings, 13 with a Status line, 0 without. It also surfaced something a mark-it-shipped pass would have buried - one part of 4.3 is genuinely unbuilt, the `relevant_docs` hook that would call faceted_search (kb/search/_query.py:217), which the SID path never calls."
+      "reason": "4.1 VICE and 4.2 PRG are Not started, 4.3 SID is shipped past its own sketch."
     },
     {
       "id": "refresh-handoff-doc-post-runhuman",
       "title": "Rewrite whats-next.md - it was six commits stale and every item in its work_remaining was closed",
       "closed_by": "dd357d6",
-      "reason": "Rewritten 1,162 -> 1,274 lines, re-keyed 5831827 -> 299feba, 0 CR bytes held, still untracked. THE AGENT CORRUPTED THE FILE MID-TASK AND REPORTED IT: a section-replacement script anchored on a bare '<work_remaining>' matched an inline mention of the tag and truncated the file to 521 lines. The file is untracked so no git backup existed; its reconstruction was verified against an independent copy captured earlier in the session - revision_history 0 of 154 lines missing, original_task 0 of 21, work_completed 0 of 436, attempted_approaches 0 of 135, critical_context 4 of 74 (exactly the stale HEAD bullet). One defect was fixed during verification: 5.1's Status line was cited at ROADMAP:163, which is 1.3's; it is at :833."
+      "reason": "Rewritten and re-keyed. The agent corrupted the file mid-task and reported it; reconstruction was verified against an independent copy."
     },
     {
       "id": "archive-tests-untracked-in-git",
       "title": "Track archive/tests/ - 35 archived test files and two landed fixes existed only in one working tree",
       "closed_by": "a334b3c",
-      "reason": "Ran `partial` under /runqueue, which forbids its agents from committing, so the agent added the .gitignore rule and proved it (35 files visible to `git ls-files --others --exclude-standard`, index untouched) and left the commit to the human. The human then committed it. The rule is scoped to archive/tests/ rather than being another unanchored basename exception, per the deliberate comment at .gitignore:44-47. Collection is unchanged at 366; with archive un-excluded it collects 642 with no import-file-mismatch errors."
+      "reason": "Ran `partial` under /runqueue; the agent added the .gitignore rule and the human committed it."
     },
     {
       "id": "commit-pending-changelog-and-task-log",
       "title": "Commit the finished CHANGELOG fix and the task-log files still sitting in the working tree",
       "closed_by": "299feba",
-      "reason": "Recorded `blocked` rather than run: the task's entire content is a git commit, and /runqueue forbids the command and every agent it launches from committing, so there was no delegable fraction. The human committed the pending set across 7a64aa4, a334b3c, a8c34a4, 84bccc4 and 299feba. LESSON RECORDED AND HONOURED IN THIS PASS: a commit-* task is unrunnable by construction under /runtask, /runbatch and /runqueue alike, so this plan creates none."
+      "reason": "Recorded `blocked` - a commit-shaped task is unrunnable by construction. The human committed the pending set."
     },
     {
       "id": "stale-merged-branches",
       "title": "Delete the five fully-merged branches left behind on master",
       "closed_by": "3d53e46",
-      "reason": "NO COMMIT CARRIES THIS - deleting a ref produces none, so 3d53e46 is the HEAD the run was recorded against rather than a commit containing the change. All five (fix/mcp-startup-timeout, hardening-and-figure-ocr, mcp-http-transport-and-fixes, retrieval-quality, wiki-split-sid-ingest-docs) were removed with `git branch -d` only, never -D, and HEAD was unchanged by the run. Re-verified: `git branch --merged master` lists only master and `--no-merged` is empty. Remote counterparts were left alone as the authorisation required; origin/fix/mcp-startup-timeout still exists and was confirmed an ancestor of master, so nothing is unmerged."
+      "reason": "All five removed with `git branch -d` only."
     },
     {
       "id": "pyproject-requires-python-understates-312",
@@ -198,37 +254,37 @@
       "id": "plugin-system-phase-5-2",
       "title": "Mark docs/ROADMAP.md's Phase 5.2 plugin system superseded by the MCP tool surface",
       "closed_by": "84bccc4",
-      "reason": "Done, but its verify carried a false clause that opened roadmap-phase-4-items-unmarked: 'no roadmap phase remains both unshipped and unarchived' was never true, since 4.1, 4.2 and 4.3 carry no Status line at all. The clause came from decisions.jsonl asserting 5.2 was 'the last roadmap item that was neither shipped nor archived'; the /whattask pass copied that claim without checking it."
+      "reason": "Done, but its verify carried a false clause that opened roadmap-phase-4-items-unmarked."
     },
     {
       "id": "repoint-106-missing-pdfs",
       "title": "Repoint the 26 unambiguously locatable PDFs and record the 220-document residual",
       "closed_by": "84bccc4",
-      "reason": "The commit carries only the TO-DOS.md record. THE ACTUAL CHANGE IS NOT IN GIT AND CANNOT BE: 26 rows of the live knowledge_base.db were repointed, MD5-verified against each document's recorded file_hash by KnowledgeBase.repoint_document, with no re-chunking (1064 chunks before and after). missing_source_files went 246 -> 220, re-measured straight from the DB. The per-document (doc_id, old_filepath, new_filepath) triples in .claude/tasks/runs.jsonl are the ONLY rollback that exists."
+      "reason": "26 rows repointed, MD5-verified, with no re-chunking. missing_source_files went 246 -> 220."
     },
     {
       "id": "changelog-2-24-0-duplicate",
       "title": "Reconcile the two conflicting [2.24.0] sections in docs/CHANGELOG.md",
       "closed_by": "3d53e46",
-      "reason": "Run recorded done against HEAD 3d53e46; re-verified this pass - `grep -c '^## \\[2\\.24\\.0\\]' docs/CHANGELOG.md` returns 1 and validate_docs.py PASSES. NOTE: the edit is in the WORKING TREE, uncommitted (docs/CHANGELOG.md shows -47 lines in `git diff --stat`), so 3d53e46 is the HEAD the run was recorded against, not a commit containing the fix. Committing it is tracked as commit-pending-changelog-and-task-log."
+      "reason": null
     },
     {
       "id": "runbatch-plan-stales-after-its-own-commits",
       "title": "/runbatch finds its plan stale every time, because the batch's own results invalidate the plan that authorised them",
       "closed_by": "decision:runbatch-plan-stales-after-its-own-commits",
-      "reason": "Fixed upstream, not here. The user redirected to the repair-plan artifact (claude.ai/code/artifact/93cf856e-09ac-4e28-831d-1e8793a8874c); the fix is commit fc40ec6 in the mit-setup marketplace. VERIFIED THIS PASS, and this corrects the decision record: the local checkout HAS now picked it up - plugin.json reads version 1.9.0, HEAD is 1d0ef38, and fc40ec6 is an ancestor. The investigation the artifact left open was answered in the decision record: the plan-staling commits (3d53e46, d62d8a2, f0c7abf, 5ac1e03) touch only .claude/tasks/ bookkeeping and each carries a wholly regenerated whattask.json, i.e. they were the human's, not batch output - so the freshness gate was behaving correctly and no defect exists in this repo's use of /runbatch."
+      "reason": "Fixed upstream, not here. Fix landed in mit-setup fc40ec6, picked up locally."
     },
     {
       "id": "whattask-touches-under-declared-vs-verify",
       "title": "Make /whattask cross-check touches against the verify string AND the hazards array - six instances now",
       "closed_by": "decision:whattask-touches-under-declared-vs-verify",
-      "reason": "Fixed upstream in mit-setup fc40ec6 and picked up locally (version 1.9.0, HEAD 1d0ef38). The repair converts the rule from prose into a derivation computed while `touches` is written and BEFORE the lane is assigned (the lane is derived from touches, so widening afterwards leaves a lane that no longer matches), and adds the half a string-scan cannot reach: for any verify that invokes a tool, declare what that TOOL writes. This pass is the first plan generated under the repaired command."
+      "reason": "Fixed upstream in mit-setup fc40ec6 and picked up locally."
     },
     {
       "id": "subagent-returned-empty-schema-valid-report",
       "title": "Harden /runtask and /runbatch against vacuous reports - the minLength mitigation has now been defeated by padding",
       "closed_by": "decision:subagent-returned-empty-schema-valid-report",
-      "reason": "Fixed upstream in mit-setup fc40ec6 and picked up locally (version 1.9.0, HEAD 1d0ef38); confirmed behaviourally rather than by version string - runtask.md and runbatch.md now carry the stop-on-undeclared-path rule they previously lacked (2 and 1 occurrences; previously 0). The repair ports runqueue.md:196's 'a returned record is a claim' rule to both commands, requires the id-equality check to run IN THE ORCHESTRATOR (a schema is satisfied by a well-formed WRONG id - the padding failure again), and records an id mismatch as `inconclusive` rather than `failed`."
+      "reason": "Fixed upstream in mit-setup fc40ec6 and picked up locally."
     },
     {
       "id": "validate-docs-should-assert-tool-count",
@@ -244,7 +300,7 @@
     },
     {
       "id": "commit-deepsid-folder-mcp-tool",
-      "title": "Commit the folder MCP tool (opened by deepsid-folder-mcp-tool; landed with the work itself, never needed a separate run)",
+      "title": "Commit the folder MCP tool",
       "closed_by": "5fea6a4",
       "reason": null
     },
@@ -268,19 +324,19 @@
     },
     {
       "id": "commit-deepsid-folder-ingestion",
-      "title": "Commit the folder-ingestion work; closed by commit rather than a runtask record, since the user asked directly",
+      "title": "Commit the folder-ingestion work",
       "closed_by": "9ed08e9",
       "reason": null
     },
     {
       "id": "readme-tool-count-stale",
-      "title": "README.md:296 now names 94, measured; the subagent also contradicted its own briefing and correctly found docs/ARCHITECTURE.md:13 still stale",
+      "title": "README.md:296 now names 94, measured",
       "closed_by": "2711590",
       "reason": null
     },
     {
       "id": "docs-tool-count-stale-after-deepsid-tool",
-      "title": "CLAUDE.md now names 94 Tool literals, matching measured len(TOOL_SCHEMAS); the agent's report was vacuous and the orchestrator's re-measurement is what established this",
+      "title": "CLAUDE.md now names 94 Tool literals, matching measured len(TOOL_SCHEMAS)",
       "closed_by": "346875e",
       "reason": null
     },
@@ -292,7 +348,7 @@
     },
     {
       "id": "commit-deepsid-document-ingestion",
-      "title": "Commit the DeepSID document-ingestion work (feature at 6880401, run record at 7013b19); closed by commit rather than a runtask record, since the user asked directly",
+      "title": "Commit the DeepSID document-ingestion work",
       "closed_by": "7013b19",
       "reason": null
     },

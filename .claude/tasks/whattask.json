@@ -1,20 +1,20 @@
 {
   "generated_from": {
-    "head": "7711e69",
+    "head": "d14ad8d",
     "sources": [
-      ".claude/tasks/runs.jsonl (84 lines, 70 distinct ids; ALL latest lines 'done'). Its `opened` arrays are the ONLY source for both tasks in this plan - neither exists in any written list",
-      ".claude/tasks/decisions.jsonl (17 lines, 13 distinct ids) - the newest line for roadmap-phase-4-build-or-drop supersedes the one before it; all are now reflected in `closed`",
-      "previous whattask.json (head dd357d6, all 3 tasks since closed by commit)",
-      "the live knowledge_base.db, queried read-only - which CORRECTED the run record that opened these tasks: the split is 115 card_id / 105 no-card_id, not the '25 genuine losses' the record implied",
-      "kb/admin.py:498-512 (the metric), kb/core.py:2210 (_document_source_missing), kb/figures.py:429 (the reachable/unreachable precedent)",
-      "test_card_updates.py:326, test_repoint_document.py:116, test_sid_ingest.py:475 - the three existing assertions on missing_source_files",
-      "whats-next.md (keyed to 299feba, FOUR commits stale; its work_remaining is spent again)",
-      "TO-DOS.md",
-      "CODE-REVIEW.md (0 items remain unchecked)",
-      "docs/ROADMAP.md (13 phases, 13 Status lines, no item unshipped-and-unmarked)",
+      ".claude/tasks/runs.jsonl (85 lines, 71 distinct ids; ALL latest lines 'done')",
+      ".claude/tasks/decisions.jsonl (17 lines, 13 distinct ids) - all reflected in `closed`; nothing re-asked",
+      "previous whattask.json (head 7711e69; one of its two tasks closed by ab7503a)",
+      "docs/ARCHITECTURE.md:48-60 read directly - which is where the newly-listed task came from",
+      "TO-DOS.md:13,15 read in full, to scope the surviving task DOWN rather than re-listing groundwork it already carries",
+      "the live knowledge_base.db, read-only: missing_source_files 220 = 105 user + 115 generated; 25 non-PDF user losses, 21 of them c=hacking",
+      "kb/admin.py (the metric as shipped by ab7503a)",
+      "CODE-REVIEW.md (0 unchecked), git grep TODO/FIXME/XXX/HACK over tracked non-archive *.py (0 hits)",
+      "mcp_tools/schemas.py: len(TOOL_SCHEMAS) still 95, so no doc tool-count moved",
+      "whats-next.md (keyed to 299feba, SIX commits stale; its work_remaining is spent)",
       "issues (gh: none open)",
       "prs (gh: none open)",
-      "git log dd357d6..7711e69, git status --porcelain"
+      "git log 7711e69..d14ad8d, git status --porcelain"
     ],
     "focus": null
   },
@@ -40,52 +40,31 @@
     "docs/ROADMAP.md's 4.3 sketch calls faceted_search with a CONSTANT query and filter, taking no input from the parsed tune - it is now not planned, but if it is ever revived, implementing it literally would attach an identical document list to every SID card",
     "health_check's missing_source_files is asserted on by THREE test files (test_card_updates.py:326, test_repoint_document.py:116, test_sid_ingest.py:475) and drives health['status']='warning' at kb/admin.py:507 - redefining the key rather than adding beside it breaks all three silently",
     "MEASURED SPLIT of the 220 missing sources, so a future pass does not re-derive it wrongly: 115 carry a card_id (generated cards, recorded path was disposable staging) and 105 do not (80 .pdf, 24 .txt, 1 .md). The run record that opened these tasks said '25 genuine losses', which was the .md/.txt subset only",
-    "repoint_document CANNOT relink a re-downloaded file: it hashes the candidate against the recorded file_hash and refuses on mismatch, so re-acquiring a lost source from a public archive will be rejected exactly as the 15 DeepSID card candidates were"
+    "repoint_document CANNOT relink a re-downloaded file: it hashes the candidate against the recorded file_hash and refuses on mismatch, so re-acquiring a lost source from a public archive will be rejected exactly as the 15 DeepSID card candidates were",
+    "health_check now reports missing_source_files_user and missing_source_files_generated beside missing_source_files, and the total is DERIVED as their sum (ab7503a) - a doc or task that enumerates the breakdown by hand will go stale the way the PDF count did; cite the metric instead",
+    "STALE-NUMBER PATTERN, three instances now and all the same shape: a measured figure written into prose in the present tense, then left behind when the measurement moved. The pytest baseline (260 vs 366), TO-DOS.md's PDF count (106 vs 80), and docs/ARCHITECTURE.md:51 (still 106). Re-measure before writing any count into a document, and frame it as a dated finding rather than a present-tense fact"
   ],
   "external_locks": [
     ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle)"
   ],
   "tasks": [
     {
-      "id": "missing-source-metric-counts-disposable-cards",
-      "title": "health_check's missing_source_files counts disposable generated cards as lost documents",
-      "source": "runs.jsonl#repoint-missing-md-and-txt-sources.opened",
+      "id": "architecture-md-missing-source-policy-stale",
+      "title": "docs/ARCHITECTURE.md's uploads-policy passage says 106 PDFs are missing and calls the metric a pure alarm - both are now wrong",
+      "source": "docs/ARCHITECTURE.md:51-56, opened by ab7503a and by the same class of drift to-dos-repoint-bullet-stale-framing fixed in TO-DOS.md",
       "model": "sonnet",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
-        "rw:kb/admin.py",
-        "rw:test_card_updates.py",
-        "rw:mcp_tools/admin.py",
-        "rw:.pytest_cache",
-        "r:kb/core.py",
-        "r:kb/figures.py",
-        "r:mcp_tools/figures.py",
-        "r:test_repoint_document.py",
-        "r:test_sid_ingest.py",
-        "r:knowledge_base.db"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": null,
-      "verify": "MEASURED ON THE LIVE CORPUS FIRST, because the whole point is that one number is currently doing two jobs: of 220 documents whose filepath is missing, 115 carry a card_id (generated cards whose recorded path was disposable staging) and 105 do not (genuine user documents - 80 .pdf, 24 .txt, 1 .md). health_check must report those separately. THE EXISTING KEY MUST NOT CHANGE MEANING: `metrics['missing_source_files']` still equals the total (220 today), because test_card_updates.py:326, test_repoint_document.py:116 and test_sid_ingest.py:475 all assert on it and a redefinition would break them silently. Follow the precedent get_figure_ocr_coverage already set at kb/figures.py:429 - it kept `documents_remaining` unchanged and added `documents_remaining_reachable`/`_unreachable` defined so the two sum to it. Do the same here, and make the sum an invariant the test asserts rather than a comment. The warning text at kb/admin.py:509 should say how many are user documents rather than implying all 220 are losses. VERIFY: `.venv/Scripts/python.exe -m pytest test_card_updates.py test_repoint_document.py test_sid_ingest.py -q` passes with the new case added and none of the three existing assertions edited to accommodate the change - if an existing assertion has to move, STOP and report that, because it means the key's meaning did change. `.venv/Scripts/python.exe -c \"import kb.ingest\"` succeeds. Collection count rises by exactly the new tests. The live corpus is read read-only and never written.",
-      "why_model": "a bounded metric split with an in-repo precedent to copy, not a design question",
-      "why_mode": "delegable: the discriminator is a single column (card_id) and the invariant is stated, so the conclusion is mechanical",
-      "why_lane": "writes kb/admin.py and mcp_tools/admin.py, which the other task READS wholesale (r:kb, r:mcp_tools) to prove it touched no source - reader-versus-writer, so the two serialise"
-    },
-    {
-      "id": "reacquire-c-hacking-and-lost-user-sources",
-      "title": "Establish whether the 25 lost .txt/.md user sources are worth re-acquiring - and whether they even can be",
-      "source": "runs.jsonl#repoint-missing-md-and-txt-sources.opened",
-      "model": "sonnet",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:TO-DOS.md",
+        "rw:docs/ARCHITECTURE.md",
+        "r:TO-DOS.md",
         "r:knowledge_base.db",
+        "r:kb/admin.py",
+        "r:validate_docs.py",
+        "r:README.md",
+        "r:CLAUDE.md",
+        "r:docs/CHANGELOG.md",
+        "r:mcp_tools/schemas.py",
         "r:kb",
         "r:mcp_tools",
         "r:cli.py",
@@ -97,13 +76,46 @@
       "depends_on": [],
       "blocked_on": null,
       "decision": null,
-      "verify": "RESEARCH AND RECORD ONLY - download nothing, ingest nothing, and do not write the database. THREE QUESTIONS, and 'not worth doing' is a perfectly good answer to record. (1) SCOPE IT CORRECTLY: the run record that opened this task said '25 genuine losses', but the correct figure measured from the DB is 105 documents with no card_id whose filepath is missing - 80 .pdf, 24 .txt, 1 .md. The 80 PDFs were already adjudicated (77 accepted as gone, 3 ambiguous) by repoint-106-missing-pdfs, so THIS task is about the 24 .txt plus 1 .md only. State the corrected split in TO-DOS.md. (2) AVAILABILITY: confirm whether the c=hacking issues among those .txt are publicly archived and reachable, naming the source you checked; do not assume from the title. (3) THE WALL THAT MAKES THIS HARDER THAN IT LOOKS, and the clause a careless pass would miss: a freshly downloaded copy will NOT hash-equal the file that was originally ingested, so KnowledgeBase.repoint_document will REFUSE it exactly as it refused all 15 DeepSID candidates - re-acquisition cannot restore the link by repointing. Say so explicitly, and say what the real options are (re-ingest as a new document and retire the old one, or accept the residual), WITHOUT choosing between them: that is a decision for /runhuman, not for this task. WEIGH THE VALUE HONESTLY: the text of all 25 is already indexed and searchable, and figure OCR is meaningless for plain text, so the only thing a restored source buys is a future re-chunk. If the conclusion is that it is not worth doing, record that with the reasoning rather than manufacturing work. VERIFY: TO-DOS.md carries the corrected 105/80/24/1 split, the availability finding with its source, the repoint_document hash-refusal constraint, and a recommendation; `git diff --name-only -- kb cli.py server.py mcp_tools` is empty; TO-DOS.md keeps 0 bare LF.",
-      "why_model": "a bounded read-and-record pass whose hardest fact - the hash refusal - is already established and only needs stating",
-      "why_mode": "self-contained, and it deliberately stops short of the decision rather than making one",
-      "why_lane": "its scope check reads kb/ and mcp_tools/ wholesale, which the metric task writes - the declaration is deliberately broad because proving nothing was touched means reading everything that could have been"
+      "verify": "TWO SEPARATE DEFECTS IN ONE PASSAGE, and fixing only the number would leave the worse one standing. (1) THE STALE COUNT: docs/ARCHITECTURE.md:51-52 asserts in the present tense that '106 of the 178 PDFs in the live knowledge base no longer resolve at their recorded documents.filepath'. RE-MEASURE IT YOURSELF from the live DB read-only rather than taking a number from this brief - the defect being fixed is precisely a figure copied forward after it stopped being true, and the same sentence has already been corrected once in TO-DOS.md. Expect 80 of 178. Reframe it as history - keep the original dated finding and its date, put the current figure beside it - rather than deleting the record of what was found. (2) THE CLAIM THAT ab7503a REFUTED, and this is the one that matters: the passage says health_check 'reports missing_source_files and raises its status to warning when the count is non-zero - that metric is an alarm, not noise.' That was true when one number meant one thing. It now reports missing_source_files_user and missing_source_files_generated beside the total, because 115 of the 220 are generated cards whose recorded path was disposable staging and are NOT faults to repair. State the split and say which half is the alarm. VERIFY: the passage names both new metric keys; no present-tense '106' claim survives (`grep -n '106' docs/ARCHITECTURE.md` shows only dated/historical framing, quote each hit); `.venv/Scripts/python.exe validate_docs.py` reports PASSED; `git diff --name-only -- kb mcp_tools cli.py server.py` is EMPTY - this is a documentation change only; docs/ARCHITECTURE.md keeps 0 bare LF, counts quoted before and after.",
+      "why_model": "a two-sentence doc correction whose only hard input is one read-only query",
+      "why_mode": "self-contained, and both defects are named explicitly so neither conclusion is a judgement call",
+      "why_lane": "DERIVED: its verify points the runner at TO-DOS.md as the place this same defect was already corrected, so it declares r:TO-DOS.md - and the other task WRITES that file. Reader-versus-writer, so the pair serialises"
+    },
+    {
+      "id": "reacquire-c-hacking-and-lost-user-sources",
+      "title": "Close the question on the 25 lost .txt/.md sources: are they reachable, and is chasing them worth it?",
+      "source": "runs.jsonl#repoint-missing-md-and-txt-sources.opened; TO-DOS.md:15 already records most of the groundwork",
+      "model": "sonnet",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:TO-DOS.md",
+        "r:knowledge_base.db",
+        "r:kb/admin.py",
+        "r:kb",
+        "r:mcp_tools",
+        "r:cli.py",
+        "r:server.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "decision": null,
+      "verify": "NARROWER THAN IT LOOKS - READ TO-DOS.md:15 FIRST. The sweep already recorded the hard parts there: the 25 are named (the 21-issue c=hacking*.txt series, commodore-64-programmers-reference.txt, ch20addendum.txt, C64_Development_SID_Music_Resources2.md, one MagPi #109 OCR scratch file), and it already states that 're-sourcing them is a re-ingest, not a repoint'. DO NOT restate any of that; adding a second bullet that repeats the first is the failure this clause exists to prevent. ONLY THREE THINGS ARE ACTUALLY MISSING. (a) AVAILABILITY, which nobody has checked: is the c=hacking series reachable from a public archive today? Name the source you checked and its URL; do not infer availability from the title. Downloading nothing is fine - reachability is the question, not possession. (b) A RECOMMENDATION, with 'not worth doing' an entirely acceptable answer: all 25 keep their indexed chunks and stay searchable, figure OCR is meaningless for plain text, so a restored source buys only a future re-chunk. Say what you would do and why, WITHOUT deciding for the project - if the answer is 'ask the human', say that. (c) CROSS-REFERENCE THE NEW METRIC: ab7503a shipped missing_source_files_user / _generated, so TO-DOS.md's hand-enumerated 220 breakdown can now point at the metric that reports it rather than restating a number that will go stale the same way the PDF count did. VERIFY: TO-DOS.md gains the availability finding with its source, a recommendation, and the metric cross-reference, and gains NO restatement of what TO-DOS.md:15 already says; the database is opened read-only and never written; `git diff --name-only -- kb mcp_tools cli.py server.py` is EMPTY; TO-DOS.md keeps 0 bare LF, counts quoted before and after.",
+      "why_model": "one reachability check and a short prose addition against groundwork that already exists in the file",
+      "why_mode": "self-contained, and it stops short of the project decision rather than making one",
+      "why_lane": "writes TO-DOS.md, which the other task reads as the worked example of the same correction - the conflict is that reference, not the database, which both only read"
     }
   ],
   "closed": [
+    {
+      "id": "missing-source-metric-counts-disposable-cards",
+      "title": "health_check's missing_source_files counted disposable generated cards as lost documents",
+      "closed_by": "ab7503a",
+      "reason": "health_check now reports missing_source_files_user and _generated beside the original key, and missing_source_files is DERIVED as their sum rather than recomputed, so the total cannot drift from its own breakdown when a document gains or loses a card_id. Live corpus: 220 = 105 user + 115 generated. The three pre-existing assertions were untouched - test_card_updates.py is a pure addition with zero deleted lines - and the full suite passed 364/3-skipped before the push. One clause was answered weakly and flagged rather than glossed: the agent re-implemented kb/admin.py's logic in a read-only script instead of running health_check against the live DB (which would have opened it read-write, outside its declared touches), so the orchestrator closed the gap with a direct read-only query plus an isolated run of the new test against a temp KB."
+    },
     {
       "id": "roadmap-phase-4-build-or-drop",
       "title": "Mark all three Phase 4 roadmap items 'not planned' - build tooling belongs in sibling tools",

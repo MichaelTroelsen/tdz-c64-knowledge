@@ -668,8 +668,8 @@ TOOL_SCHEMAS: list[Tool] = [
                     },
                     "pattern": {
                         "type": "string",
-                        "description": "Glob pattern (default: **/*.{pdf,txt})",
-                        "default": "**/*.{pdf,txt}"
+                        "description": "Glob pattern (default: **/*.{pdf,xlsx,xls,html,htm,txt,md,asm,bas,inc,s,sid,psid,rsid,zip,docx,pptx,epub,csv,json,xml})",
+                        "default": "**/*.{pdf,xlsx,xls,html,htm,txt,md,asm,bas,inc,s,sid,psid,rsid,zip,docx,pptx,epub,csv,json,xml}"
                     },
                     "tags": {
                         "type": "array",

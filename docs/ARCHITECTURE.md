@@ -724,6 +724,34 @@ Currently supported formats:
 - **Markdown** (.md) - treated as text files
 - **HTML** (.html, .htm) - via BeautifulSoup4, method: `_extract_html_file()`
 - **Excel** (.xlsx, .xls) - via openpyxl, method: `_extract_excel_file()`
+- **HVSC SID archives** (.zip) - via `_extract_sid_archive()`
+- **markitdown fallback** (.docx, .pptx, .epub, .csv, .json, .xml) - optional
+  extra (`pip install -e ".[markitdown]"`), detected without importing
+  (`MARKITDOWN_SUPPORT` in `features.py`), method: `_extract_via_markitdown()`.
+  Set `TDZ_MARKITDOWN=0` to disable it even when installed. `.msg` is
+  deliberately NOT supported: it needs markitdown's `outlook` extra
+  (olefile), which this project does not declare.
+
+markitdown is a fallback for formats no native handler claims, never a
+replacement for PDF or ZIP:
+- **PDF stays on `_extract_pdf_text()`.** markitdown returns one flat
+  markdown string with no page boundaries and no OCR fallback.
+  `_extract_pdf_text()` returns `(text, total_pages, pdf_metadata)`, a
+  contract figure extraction, `_extract_page_references()`, and the PDF
+  viewer all depend on.
+- **ZIP stays on `_extract_sid_archive()`** (HVSC SID archives) - markitdown
+  has no notion of that format at all.
+- **Startup cost.** markitdown imports `magika` at module level, and
+  `MarkItDown.__init__` constructs a `magika.Magika()`, which loads ONNX
+  Runtime. `features.py` detects availability with `importlib.util.find_spec`
+  (no import), and `_extract_via_markitdown()` imports `markitdown` itself
+  and caches the `MarkItDown` instance, so the cost is paid once per process
+  on first use, never during the MCP initialize handshake. `test_mcp_startup.py`
+  keeps `markitdown`, `magika`, and `onnxruntime` in `FORBIDDEN_AT_STARTUP` to
+  guard this.
+- Install narrowly: `pyproject.toml`'s `markitdown` extra is
+  `markitdown[docx,pptx]`, never `markitdown[all]`, which would drag in
+  pandas, azure-*, pydub, and SpeechRecognition.
 
 **To add new formats:**
 1. Add file extension to condition check in `add_document()` (`kb/ingest/_documents.py`)

@@ -69,6 +69,11 @@ python -m streamlit run admin_gui.py
 - `USE_SEMANTIC_SEARCH=1` - Enable embeddings-based search
 - `ALLOWED_DOCS_DIRS` - Security whitelist for document paths
 - `MDSCRAPE_PATH` - Path to mdscrape executable
+- `TDZ_MARKITDOWN` - Set to `0` to disable the markitdown fallback extraction
+  (.docx, .pptx, .epub, .csv, .json, .xml) even when the optional `markitdown`
+  extra (`pip install -e ".[markitdown]"`) is installed. PDF and .zip never
+  route through markitdown - see docs/ARCHITECTURE.md's "Extending File Type
+  Support" for why.
 
 See README.md for complete environment variable list.
 

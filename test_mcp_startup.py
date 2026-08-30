@@ -58,7 +58,7 @@ CONCURRENT_SESSIONS = 4
 CONCURRENT_BUDGET_S = 25.0
 
 # Modules that must NOT be imported during startup. Each costs seconds.
-FORBIDDEN_AT_STARTUP = ["sentence_transformers", "torch", "transformers", "nltk"]
+FORBIDDEN_AT_STARTUP = ["sentence_transformers", "torch", "transformers", "nltk", "markitdown", "magika", "onnxruntime"]
 
 
 def _env(data_dir):
@@ -790,7 +790,7 @@ def test_bulk_add_default_pattern_actually_matches_files(data_dir, tmp_path):
         "import server, sys, json\n"
         "from pathlib import Path\n"
         "root = Path(sys.argv[1])\n"
-        "pat = '**/*.{pdf,txt,md,html,htm,xlsx,xls}'\n"
+        "pat = '**/*.{pdf,xlsx,xls,html,htm,txt,md,asm,bas,inc,s,sid,psid,rsid,zip,docx,pptx,epub,csv,json,xml}'\n"
         "found = set()\n"
         "for p in server._expand_brace_pattern(pat):\n"
         "    found |= {f.name for f in root.glob(p)}\n"

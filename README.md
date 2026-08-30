@@ -43,7 +43,12 @@ See [QUICKSTART.md](docs/QUICKSTART.md) for detailed setup.
 - **Table/code search** - Search extracted tables and code blocks
 
 ### Document Management
-- **Multi-format** - PDF, TXT, MD, HTML, Excel, web scraping
+- **Multi-format** - PDF, TXT, MD, HTML, Excel, web scraping, and (optional
+  `markitdown` extra) DOCX, PPTX, EPUB, CSV, JSON, XML - install with
+  `pip install -e ".[markitdown]"`; disable at runtime with `TDZ_MARKITDOWN=0`
+  even when installed. PDF and ZIP (HVSC SID archives) never route through
+  markitdown - see `docs/ARCHITECTURE.md`'s "Extending File Type Support"
+  for why.
 - **Duplicate detection** - Content-based deduplication
 - **Chunked retrieval** - Get specific sections without loading entire docs
 - **Metadata extraction** - Author, subject, page numbers
@@ -157,6 +162,7 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | `TDZ_API_KEYS` | Comma-separated API keys; shared with the REST API. Required to bind the HTTP transport off loopback | *(unset)* |
 | `TDZ_MCP_ALLOW_INSECURE` | `1` permits a non-loopback bind with no API keys | `0` |
 | `TDZ_MCP_ALLOWED_HOSTS` | `Host` values accepted by DNS-rebinding protection; `*` disables it | *(unset)* |
+| `TDZ_MARKITDOWN` | Set to `0` to disable the markitdown fallback extraction (.docx, .pptx, .epub, .csv, .json, .xml) even when the `markitdown` extra is installed | `1` |
 | `USE_FTS5` | Enable FTS5 search (recommended) | `0` |
 | `USE_SEMANTIC_SEARCH` | Enable semantic search | `0` |
 | `SEMANTIC_MODEL` | Sentence-transformers model | `all-MiniLM-L6-v2` |

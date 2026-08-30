@@ -295,7 +295,7 @@ def handle_check_updates(kb, name: str, arguments: dict) -> list[TextContent]:
 
 def handle_add_documents_bulk(kb, name: str, arguments: dict) -> list[TextContent]:
     directory = arguments.get("directory")
-    pattern = arguments.get("pattern", "**/*.{pdf,txt}")
+    pattern = arguments.get("pattern", "**/*.{pdf,xlsx,xls,html,htm,txt,md,asm,bas,inc,s,sid,psid,rsid,zip,docx,pptx,epub,csv,json,xml}")
     tags = arguments.get("tags")
     recursive = arguments.get("recursive", True)
     skip_duplicates = arguments.get("skip_duplicates", True)

@@ -2122,7 +2122,7 @@ class _DocumentsMixin:
 
         return results
 
-    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,txt,md,html,htm,xlsx,xls}",
+    def add_documents_bulk(self, directory: str, pattern: str = "**/*.{pdf,xlsx,xls,html,htm,txt,md,asm,bas,inc,s,sid,psid,rsid,zip,docx,pptx,epub,csv,json,xml}",
                            tags: Optional[list[str]] = None, recursive: bool = True,
                            skip_duplicates: bool = True, progress_callback: ProgressCallback = None) -> dict:
         """
@@ -2130,7 +2130,7 @@ class _DocumentsMixin:
 
         Args:
             directory: Directory to search for documents
-            pattern: Glob pattern (default: **/*.{pdf,txt})
+            pattern: Glob pattern (default: **/*.{pdf,xlsx,xls,html,htm,txt,md,asm,bas,inc,s,sid,psid,rsid,zip,docx,pptx,epub,csv,json,xml})
             tags: Tags to apply to all documents
             recursive: Search subdirectories (default: True)
             skip_duplicates: Skip files with duplicate content (default: True)

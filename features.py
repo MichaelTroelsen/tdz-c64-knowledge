@@ -169,3 +169,12 @@ except ImportError:
 FIGURE_SUPPORT = _module_available('fitz')
 if not FIGURE_SUPPORT:
     print("Warning: PyMuPDF (fitz) not installed. Figure OCR disabled.", file=sys.stderr)
+
+# markitdown fallback extraction (docx/pptx). Detected without importing:
+# markitdown imports magika at module level, and magika pulls in onnxruntime,
+# so an eager import here would put that cost back on every MCP handshake.
+# A future caller must import markitdown inside a function, not at module
+# level (see CLAUDE.md startup-budget notes).
+MARKITDOWN_SUPPORT = _module_available('markitdown')
+if not MARKITDOWN_SUPPORT:
+    print("Warning: markitdown not installed. Fallback document extraction disabled.", file=sys.stderr)

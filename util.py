@@ -292,6 +292,12 @@ def _cross_process_lock(lock_path: Path, timeout: float = 60.0, stale_after: flo
     keeps its lock indefinitely, where before it lost it after `stale_after`.
     That cannot deadlock a waiter - waiters still give up after `timeout` and
     raise TimeoutError - and losing the lock mid-write was the worse outcome.
+
+    Residual risk, deliberately left open: the acquire-side stale-reclaim branch
+    below does a bare stat-then-unlink with no identity re-check, so a live
+    holder can in principle still be robbed in a narrow window right at the
+    `stale_after` boundary, even after the heartbeat fix shrank that window from
+    "up to stale_after" to roughly one heartbeat-interval's worth of slack.
     """
     lock_path = Path(lock_path)
     deadline = time.time() + timeout

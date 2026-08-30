@@ -3,6 +3,7 @@
 Split out of kb/ingest.py by R12 step 4 (module-size reduction). Move, not a
 rewrite: every method body below is unchanged from the original.
 """
+from features import MARKITDOWN_SUPPORT
 from features import OCR_SUPPORT
 from features import PDFPLUMBER_SUPPORT
 from features import PDF_SUPPORT
@@ -19,6 +20,21 @@ from util import http_get_polite
 import json
 import os
 import re
+
+# Extensions handed to markitdown. Deliberately an EXPLICIT allowlist and not
+# a catch-all: a catch-all would mean UnsupportedFileTypeError never fires
+# again and any stray binary gets ingested as text. Every extension a native
+# handler already claims is absent here on purpose - see _extract_via_markitdown.
+# .msg is NOT listed: it needs markitdown's 'outlook' extra (olefile), which
+# this project does not declare.
+_MARKITDOWN_EXTENSIONS = frozenset({
+    '.docx', '.pptx', '.epub', '.csv', '.json', '.xml',
+})
+
+
+def _markitdown_enabled() -> bool:
+    """Whether the markitdown fallback may run: installed AND not switched off."""
+    return MARKITDOWN_SUPPORT and os.environ.get('TDZ_MARKITDOWN', '1') != '0'
 
 
 class _ExtractionMixin:
@@ -719,6 +735,16 @@ class _ExtractionMixin:
                 file_type = 'sid-archive'
                 total_pages = tune_count  # tunes, the way excel counts sheets
                 self.logger.info(f"Extracted {tune_count} SID tunes from archive")
+            elif file_ext in _MARKITDOWN_EXTENSIONS:
+                if not _markitdown_enabled():
+                    raise UnsupportedFileTypeError(
+                        f"Unsupported file type: {file_ext} - this format needs the "
+                        f"optional markitdown extra (pip install -e \".[markitdown]\"); "
+                        f"set TDZ_MARKITDOWN=0 to disable it deliberately"
+                    )
+                text = self._extract_via_markitdown(filepath)
+                file_type = file_ext.lstrip('.')
+                self.logger.info(f"Extracted {file_type} via markitdown ({len(text)} characters)")
             else:
                 raise UnsupportedFileTypeError(f"Unsupported file type: {file_ext}")
         except (UnsupportedFileTypeError, DocumentNotFoundError):
@@ -728,6 +754,35 @@ class _ExtractionMixin:
             raise KnowledgeBaseError(f"Error extracting document: {e}")
 
         return text, file_type, total_pages, pdf_metadata
+
+    def _extract_via_markitdown(self, filepath: str) -> str:
+        """Convert one document markitdown handles and this pipeline does not.
+
+        A FALLBACK, never a replacement: the dispatcher reaches this only for
+        extensions no native handler claims. PDF in particular stays on
+        _extract_pdf_text, which reports page boundaries and falls back to OCR;
+        markitdown returns one flat markdown string with neither, and figure
+        extraction, page references and the PDF viewer all depend on exactly
+        what it would throw away. .zip likewise stays on the HVSC SID path.
+
+        convert_local, NOT convert: convert() routes a string starting http:,
+        https:, file: or data: to convert_uri() and fetches it over the network,
+        so a filename shaped like a URI would turn a local ingest into an
+        outbound request.
+
+        The MarkItDown instance is built once and cached: its __init__ constructs
+        a magika.Magika(), which loads ONNX Runtime. That is far too expensive to
+        pay per document - and the import stays in here, not at module level, so
+        it is never paid during the 30s MCP initialize handshake at all.
+        """
+        from markitdown import MarkItDown
+
+        converter = getattr(self, '_markitdown_converter', None)
+        if converter is None:
+            converter = MarkItDown()
+            self._markitdown_converter = converter
+
+        return converter.convert_local(filepath).text_content
 
     def _extract_sid_file(self, filepath: str) -> str:
         """Read one PSID/RSID tune into a searchable text card.

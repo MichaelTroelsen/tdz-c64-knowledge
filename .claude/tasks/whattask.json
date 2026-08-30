@@ -1,21 +1,14 @@
 {
   "generated_from": {
-    "head": "03d8306",
+    "head": "6513858",
     "sources": [
-      ".claude/tasks/runs.jsonl (97 lines, 86 distinct ids) - last line per id: 83 done, 1 partial, 1 blocked",
-      ".claude/tasks/decisions.jsonl (18 lines, 14 distinct ids) - all reflected in `closed`; unchanged since the previous pass; nothing re-asked",
-      "previous whattask.json (head 03d8306; both of its 2 open tasks closed by /runqueue --until-blocked records at the same HEAD, run across two cycles since they conflicted on test_cross_process_lock.py - see closed)",
-      "TWO /runqueue --until-blocked CYCLES SINCE THE PREVIOUS PASS, at the same HEAD (nothing committed, so HEAD did not move): cross-process-lock-steals-from-slow-holders (done - heartbeat thread + identity-fingerprinted release, mutation-tested by the agent itself, re-verified independently including reading the actual util.py diff) and gitignore-blanket-test-glob-drops-new-tests (done - 7 new allowlist lines, verified with an actual stage-then-unstage cycle, not just check-ignore's output)",
-      "ONE NEW TASK OPENED BY THIS PASS ITSELF, not by either run's `opened` array (both were empty) - surfaced from the orchestrator's OWN verification notes on cross-process-lock-steals-from-slow-holders: re-reading util.py's acquire path (lines 296-315) during that task's independent verification found a narrow, pre-existing TOCTOU race the fix did not (and was not asked to) close - see cross-process-lock-acquire-side-toctou-window",
-      "util.py re-read directly this pass to confirm the fix and to precisely characterise the new finding's line numbers (296-315, the acquire-loop's stale-reclaim branch)",
-      "test_cross_process_lock.py re-read directly - now 13 tests (was 10), confirmed passing live this pass (`pytest test_cross_process_lock.py -q` -> 13 passed); confirmed genuinely untracked+ignored no longer - `git status --porcelain test_cross_process_lock.py` -> `??`, and a real `git add`/`git restore --staged` cycle proved it stages cleanly",
-      ".gitignore re-read directly - now 2211 bytes / 123 lines, the 7 new allowlist entries present at lines 64-70",
-      "issues (gh returned nothing - no reachable open issues)",
-      "prs (gh returned nothing - no reachable open PRs)",
-      "whats-next.md - NOT RE-READ THIS PASS (unchanged on disk, still keyed to 03d8306, still describing closed work as open per the last three passes' notes - still deferring to whattask.json/runs.jsonl as authoritative per its own text, so still noted rather than fixed; now FIVE passes stale and every item in its own work_remaining is now closed - STRONGLY RECOMMEND deleting or rewriting it, since it no longer describes anything true about this repo's open work)",
-      "graphify-out/ (untracked, still present) - not re-queried this pass; the one new task's scope (util.py's acquire-loop internals) was already fully characterised by direct source reading during the prior task's own verification, so a graphify cross-check would not add anything the touches below don't already cover"
+      "TO-DOS.md",
+      ".claude/tasks/runs.jsonl",
+      ".claude/tasks/decisions.jsonl",
+      "prior .claude/tasks/whattask.json",
+      "tokensave code graph"
     ],
-    "focus": null
+    "focus": "markitdown"
   },
   "hazards": [
     "knowledge_base.db (in TDZ_DATA_DIR) is shared by every concurrently running server.py process; WAL mode, per CLAUDE.md. It is NOT in git - a write there has no `git diff` rollback, only whatever the run record captured",
@@ -46,12 +39,169 @@
     "the same content ingested as .txt and as .pdf can NEVER dedupe against each other via add_document's content-hash short-circuit: _extract_pdf_text (kb/ingest/_extraction.py:90,149-206) joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id (kb/core.py:2184-2205) hashes the first 10,000 words. Recorded in TO-DOS.md itself as well as here",
     "_cross_process_lock (util.py:263-329) is the ONLY real mutex between concurrent server.py sessions sharing a data directory - threading.Lock does nothing across processes. It guards schema_init.lock (kb/core.py:389) and embeddings_lock_file (kb/search/_retrieval.py:1139,1203,1265,1332). AS OF THIS SESSION: a daemon heartbeat thread (util.py:257-260, started at :319-326) restamps the held lock's mtime every max(0.02, min(stale_after/4, 5.0))s so stale_after measures silence rather than elapsed work, and release is conditional on an identity fingerprint (_lock_identity, util.py:200-219; _HeldLock, util.py:221-254) so a robbed holder's release no longer deletes its robber's file. 13 tests in test_cross_process_lock.py (still gitignore-visible-but-untracked pending a human `git add`), mutation-tested by the agent that wrote the fix. ONE NARROW RESIDUAL GAP FOUND DURING VERIFICATION AND DELIBERATELY NOT FIXED IN THAT CHANGE (out of its scope): the ACQUIRE-side stale-reclaim branch (util.py:306-315) reads the lock file's mtime via stat(), decides staleness, and unlinks with no re-check between the two - see cross-process-lock-acquire-side-toctou-window",
     "CLAUDE.md carries an unauthored 3-line addition ('## Task observation / Activate the task-observer skill at the start of every task-oriented session.') and 3 bare LF bytes, breaking the 0-bare-LF invariant every other tracked .py/.md file holds (RE-VERIFY THIS FIGURE WITH PYTHON BYTE COUNTS - it predates the grep-reliability finding above and was never re-measured that way). No task in any plan this session declared rw:CLAUDE.md for this content; it predates this pass and its origin is unknown. `git checkout -- CLAUDE.md` would revert it, but that is the human's call, not this command's - flagging only",
-    "docs/README.md is now CLOSED as a stale-tool-count file and covered by validate_docs.py's gate - if a future doc reword or a new prominent .md file states the tool count, check it against the gate's now-five-file sources dict before assuming coverage"
+    "docs/README.md is now CLOSED as a stale-tool-count file and covered by validate_docs.py's gate - if a future doc reword or a new prominent .md file states the tool count, check it against the gate's now-five-file sources dict before assuming coverage",
+    "markitdown's MarkItDown.convert() routes any string starting http:/https:/file:/data: to convert_uri() and performs a NETWORK FETCH - the ingest path must call convert_local(path) instead, or a filename shaped like a URI turns a local ingest into an outbound request",
+    "markitdown/_markitdown.py does `import magika` AT MODULE LEVEL and `self._magika = magika.Magika()` in MarkItDown.__init__, so both the import and the construction pull in ONNX Runtime - it must be imported inside the extractor and the instance cached, or the 30s MCP initialize handshake budget (CLAUDE.md) is spent on it",
+    "the Streamlit uploader's type=[...] lists in admin_pages/documents.py:23,92 already OMIT the shipped .sid/.psid/.rsid/.zip formats - it is a hand-maintained duplicate of the extractor's dispatch, not a derived one, and will silently disagree again unless updated in the same change",
+    "MichaelTroelsen/markitdown is an UNMODIFIED fork of microsoft/markitdown (every recent commit upstream-authored: afourney, danfiedler-msft; latest 2026-08-19, v0.1.7; no divergence documented) - depend on the PyPI package, never the fork URL",
+    "graphify-out/manifest.json carries NO root key and `graphify update` resolves a mangled MSYS path (\\c\\Users\\mit\\...), reporting 'No code files found' - the graph cannot be refreshed in place and its structural claims are frozen at its last full build; use tokensave for dependency cross-checks until /graphify rebuilds it"
   ],
   "external_locks": [
     ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle - confirmed idle this pass)"
   ],
   "tasks": [
+    {
+      "id": "markitdown-feature-flag",
+      "title": "Add MARKITDOWN_SUPPORT to features.py and keep markitdown/magika/onnxruntime off the startup path",
+      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
+      "model": "sonnet",
+      "effort": "medium",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:features.py",
+        "rw:pyproject.toml",
+        "rw:test_mcp_startup.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": null,
+      "decision": null,
+      "verify": ".venv/Scripts/python.exe -c \"import features, sys; print(features.MARKITDOWN_SUPPORT); assert 'markitdown' not in sys.modules and 'magika' not in sys.modules and 'onnxruntime' not in sys.modules\" prints a bool and asserts cleanly; FORBIDDEN_AT_STARTUP in test_mcp_startup.py contains all three names; .venv/Scripts/python.exe -m pytest test_mcp_startup.py -k heavy_modules -q passes; `git diff --name-only -- features.py pyproject.toml test_mcp_startup.py` lists exactly those three and nothing else; all three keep 0 bare LF (every tracked file here is CRLF with 0 bare LF - verify with Python byte counts (open(p,'rb').read()), NOT bash grep, which this repo has proven unreliable)",
+      "why_model": "mirrors the existing _module_available/FIGURE_SUPPORT pattern at features.py:72,169 - a known shape applied to one more dependency",
+      "why_effort": "mechanical in outline, but the lazy-construction requirement (Magika is built in MarkItDown.__init__, not just imported) is the part that is easy to get subtly wrong",
+      "why_mode": "fully specified, single-concern, and its own verify proves it without needing surrounding context",
+      "why_lane": "SERIAL: writes features.py, which markitdown-fallback-extractor, -tests and -docs all read, and writes test_mcp_startup.py, which -surface-updates also writes"
+    },
+    {
+      "id": "markitdown-fallback-extractor",
+      "title": "Add _extract_via_markitdown and dispatch to it for the extensions no native handler covers",
+      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
+      "model": "opus",
+      "effort": "high",
+      "mode": "main",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/ingest/_extraction.py",
+        "rw:kb/ingest/__init__.py",
+        "rw:test_sid_ingest.py",
+        "r:features.py",
+        "r:kb/ingest/_documents.py",
+        "r:admin_pages/search.py",
+        "r:kb/admin.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [
+        "markitdown-feature-flag"
+      ],
+      "blocked_on": null,
+      "decision": null,
+      "verify": ".venv/Scripts/python.exe -c \"import kb.ingest\" succeeds - this is the _EXPECTED_METHODS gate (kb/ingest/__init__.py) and it FAILS if the new method was not added to the frozenset in the same change; a .docx generated into the scratch dir returns ('docx', None) for (file_type, total_pages) from _extract_text_for_file, and a '.qqq' file still raises UnsupportedFileTypeError; `grep -n convert_local kb/ingest/_extraction.py` matches and a search for a bare `.convert(` in that file does NOT (bare convert() network-fetches URI-shaped strings); .venv/Scripts/python.exe -m pytest test_sid_ingest.py test_card_updates.py -q still passes with the .pdf/.zip/.xlsx dispatch unchanged; `git diff --name-only -- kb/ingest mcp_tools admin_pages` lists only kb/ingest/_extraction.py and kb/ingest/__init__.py",
+      "why_model": "the file_type consumer audit and the allowlist-vs-catch-all call are judgements whose failure mode is a confident wrong answer that ingests garbage silently",
+      "why_effort": "shared ingest code that must be understood before it is changed - the dispatch is the single gate two callers depend on, and a wrong file_type value propagates into search facets",
+      "why_mode": "MAIN: the audit of documents.file_type consumers spans search and admin surfaces and is not a mechanical conclusion",
+      "why_lane": "SERIAL: writes kb/ingest/_extraction.py, read by three other tasks on this list, and reads features.py while markitdown-feature-flag writes it"
+    },
+    {
+      "id": "markitdown-tests",
+      "title": "Add test_markitdown_ingest.py, including proof that .pdf/.zip/.xlsx never reach markitdown",
+      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
+      "model": "sonnet",
+      "effort": "medium",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:test_markitdown_ingest.py",
+        "rw:.gitignore",
+        "r:kb/ingest/_extraction.py",
+        "r:features.py",
+        "r:test_mcp_startup.py",
+        "r:test_sid_ingest.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [
+        "markitdown-fallback-extractor"
+      ],
+      "blocked_on": null,
+      "decision": null,
+      "verify": "`git check-ignore -v test_markitdown_ingest.py` prints NOTHING - the repo's .gitignore is a root-anchored allowlist and every brand-new test_*.py needs its own `!/` line or it is invisible to git (recorded hazard, already cost this repo once); .venv/Scripts/python.exe -m pytest test_markitdown_ingest.py -q passes, and the run states explicitly whether it PASSED or SKIPPED wholesale on markitdown being absent - a fully-skipped suite reported as green is the failure to avoid; .venv/Scripts/python.exe -m pytest test_mcp_startup.py -q still passes; the new file is CRLF with 0 bare LF (every tracked file here is CRLF with 0 bare LF - verify with Python byte counts (open(p,'rb').read()), NOT bash grep, which this repo has proven unreliable)",
+      "why_model": "writing tests against an interface the previous task just fixed, with test_sid_ingest.py as a working model for the same dispatch",
+      "why_effort": "the monkeypatch assertions that native formats never consult markitdown need care to actually pin the thing they claim, but the shape is known",
+      "why_mode": "self-contained once the extractor exists; the verify is fully mechanical",
+      "why_lane": "SERIAL: reads kb/ingest/_extraction.py and features.py while two other tasks write them"
+    },
+    {
+      "id": "markitdown-surface-updates",
+      "title": "Extend the four hand-maintained copies of the supported-extension list to match the extractor",
+      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
+      "model": "sonnet",
+      "effort": "medium",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/ingest/_documents.py",
+        "rw:mcp_tools/schemas.py",
+        "rw:mcp_tools/admin.py",
+        "rw:admin_pages/documents.py",
+        "rw:test_mcp_startup.py",
+        "rw:test_admin_gui.py",
+        "r:text_utils.py",
+        "r:kb/ingest/_extraction.py",
+        "r:test_mcp_tool_dispatch.py",
+        "r:validate_docs.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [
+        "markitdown-fallback-extractor"
+      ],
+      "blocked_on": null,
+      "decision": null,
+      "verify": "the bulk-glob default is IDENTICAL in all four places that carry a copy - kb/ingest/_documents.py:2125, mcp_tools/schemas.py:671-672, mcp_tools/admin.py:298 and test_mcp_startup.py:793 (the last two still say the shorter pdf/txt form) - read all four and diff the strings; the uploader type=[...] lists at admin_pages/documents.py:23,92 equal the extractor's allowlist set exactly; .venv/Scripts/python.exe -m pytest test_mcp_startup.py test_admin_gui.py test_mcp_tool_dispatch.py -q passes; .venv/Scripts/python.exe validate_docs.py still exits 0 (schemas.py wording feeds its tool-count gate)",
+      "why_model": "four known line numbers and a set-equality check against an allowlist the previous task fixed",
+      "why_effort": "ordinary judgement, but the four copies are hand-maintained duplicates that have already drifted once (.sid/.zip missing from the uploader) so the equality check is the point",
+      "why_mode": "mechanical conclusion with an exact, checkable end state",
+      "why_lane": "SERIAL: writes test_mcp_startup.py, also written by markitdown-feature-flag, and kb/ingest/_documents.py, read by markitdown-fallback-extractor"
+    },
+    {
+      "id": "markitdown-docs",
+      "title": "Document the new formats and record why markitdown is deliberately NOT used for PDF or .zip",
+      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
+      "model": "sonnet",
+      "effort": "low",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:README.md",
+        "rw:docs/ARCHITECTURE.md",
+        "rw:CLAUDE.md",
+        "r:validate_docs.py",
+        "r:kb/ingest/_extraction.py",
+        "r:features.py",
+        "r:mcp_tools/schemas.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [
+        "markitdown-fallback-extractor",
+        "markitdown-surface-updates"
+      ],
+      "blocked_on": null,
+      "decision": null,
+      "verify": ".venv/Scripts/python.exe validate_docs.py exits 0 - README.md, CLAUDE.md and docs/ARCHITECTURE.md are three of the five files its tool-count gate checks, so a reword that breaks a phrasing fails here; each of the three names markitdown, the new extensions, TDZ_MARKITDOWN, and the reason PDF and .zip stay native (no page boundaries, no OCR, and _extract_pdf_text's (text, total_pages, pdf_metadata) contract is depended on by figure extraction, page references and the PDF viewer); CLAUDE.md's PRE-EXISTING 3 bare LF bytes are unchanged, not increased - measure with Python byte counts before and after; `git diff --name-only -- README.md docs CLAUDE.md` lists exactly the three",
+      "why_model": "prose reconciliation against facts the preceding tasks already established and recorded",
+      "why_effort": "cheap to redo and the source of truth is already written down; the only trap is validate_docs.py's phrasing gate, which the verify catches",
+      "why_mode": "bounded doc pass with a runnable gate proving it",
+      "why_lane": "SERIAL: reads kb/ingest/_extraction.py, features.py and mcp_tools/schemas.py while three other tasks write them"
+    },
     {
       "id": "cross-process-lock-acquire-side-toctou-window",
       "title": "Record the acquire-side stale-reclaim race in _cross_process_lock as a documented residual risk - the human declined to fix it",
@@ -72,7 +222,9 @@
       "verify": "`git diff --name-only -- util.py` lists exactly `util.py`, and reading the diff shows ONLY the docstring gained one sentence - no line inside the function body (util.py:296-329) changed; `git diff --name-only -- kb` is EMPTY - no production locking behaviour touched; `git diff --name-only -- test_cross_process_lock.py` is EMPTY - this is documentation only, not a test change; `.venv/Scripts/python.exe -m pytest test_cross_process_lock.py -q` still reports 13 passed, unchanged from before (re-measure, do not trust the number from this brief); TO-DOS.md gains exactly one new bullet recording the decision; both files keep 0 bare LF via Python byte counts (open(path,'rb').read().count(b'\\r')), not bash grep - counts quoted before and after.",
       "why_model": "a one-sentence docstring addition and one TO-DOS.md bullet, both fully specified by the decision already taken - mechanical, not architectural",
       "why_mode": "self-contained: the exact wording constraints and every check are already fully specified by the decision; no judgement remains",
-      "why_lane": "PARALLEL: no other open task exists in this plan to conflict with, and this task's touches (util.py, TO-DOS.md) are declared and would be re-derived against any future task sharing either path"
+      "why_lane": "PARALLEL: re-derived against the five markitdown tasks now on the list - none of them touches util.py or TO-DOS.md, so no path of this task overlaps a writer",
+      "effort": "low",
+      "why_effort": "one docstring sentence and one TO-DOS.md bullet, both dictated verbatim by an already-recorded decision; nothing left to reason about"
     }
   ],
   "closed": [

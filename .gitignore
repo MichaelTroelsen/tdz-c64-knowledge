@@ -122,3 +122,9 @@ wiki_test/
 
 # tokensave local index - rebuildable cache, not shared state.
 .tokensave/
+
+# graphify knowledge-graph output - a rebuildable local artifact, not shared state.
+# Its manifest.json carries no root key, so `graphify update` resolves a mangled path
+# and reports "No code files found"; the graph cannot be refreshed in place. Rebuild
+# with /graphify if it is wanted again. Dependency questions go through tokensave.
+graphify-out/

@@ -1,67 +1,65 @@
 {
   "generated_from": {
-    "head": "6513858",
+    "head": "19114e3",
     "sources": [
       "TO-DOS.md",
+      "docs/ROADMAP.md",
+      "whats-next.md",
       ".claude/tasks/runs.jsonl",
       ".claude/tasks/decisions.jsonl",
-      "prior .claude/tasks/whattask.json",
-      "tokensave code graph"
+      "code TODO/FIXME markers",
+      "tokensave code graph",
+      "issues/PRs: no reachable forge"
     ],
-    "focus": "markitdown"
+    "focus": null
   },
   "hazards": [
     "knowledge_base.db (in TDZ_DATA_DIR) is shared by every concurrently running server.py process; WAL mode, per CLAUDE.md. It is NOT in git - a write there has no `git diff` rollback, only whatever the run record captured",
     "KnowledgeBase.repoint_document verifies the candidate's MD5 against the document's recorded file_hash and refuses unless force=True - never pass force, and never write documents.filepath by raw SQL, or that guard is bypassed",
-    "whats-next.md is pure LF with 0 CR bytes and deliberately untracked - writers must use newline='' and '\\n' joins. IT IS NOW FULLY STALE (see sources) - the next session should strongly consider deleting or rewriting it rather than adding a sixth stale-relative-to-runs.jsonl layer",
-    "every tracked .py file is CRLF in the working tree with 0 bare LF; core.autocrlf=true stores them as LF - VERIFY THIS WITH PYTHON BYTE COUNTS (open(path,'rb').read().count(b'\\r')), NOT bash `grep -c $'\\r'`, which this session proved unreliable in this repo's Git Bash (falsely reported CRLF on a genuinely pure-LF file) - confirmed a second time this pass by a runqueue cycle's own independent measurement matching Python exactly",
+    "every tracked .py/.md file is CRLF in the working tree with 0 bare LF; core.autocrlf=true stores them as LF - VERIFY THIS WITH PYTHON BYTE COUNTS (open(path,'rb').read().count(b'\\r')), NOT bash `grep -c $'\\r'`, which this repo has repeatedly proven unreliable in Git Bash. THE TWO KNOWN EXCEPTIONS are DOC-AUDIT.md (347 bare LF) and GROUNDEDNESS-CHECK-SCOPE.md (142); every other tracked .md measures 0",
+    "CORRECTED 2026-08-30, and the previous version of this entry was WRONG IN THE DANGEROUS DIRECTION: CLAUDE.md's '## Task observation' block is COMMITTED - it is present in `git show HEAD:CLAUDE.md` (line 154). The old entry called it an unauthored UNCOMMITTED addition and said `git checkout -- CLAUDE.md` would revert it; a cycle-6 agent read that, ran the checkout, and was safe only because the hazard was false. Verify VCS-state claims with `git show HEAD:<path>` before acting on them. CLAUDE.md's 3 stray bare-LF bytes were a working-tree-only artifact and are now 0, matching every other tracked .md",
     ".gitattributes:6 sets .claude/tasks/* eol=lf - runs.jsonl, whattask.json and decisions.jsonl must stay pure LF",
-    ".gitignore's allowlist (root-anchored `!/`, now lines 49-70) is FIXED as of this session - test_cross_process_lock.py and six other previously-drifted-but-tracked files were added. THE UNDERLYING SHAPE STILL EXISTS: any brand-new test_*.py file still needs its own `!/` line added by hand, or it repeats the exact trap this pass closed. archive/tests/ has its own scoped rule (now at line 75) - do not replace either with an unanchored basename exception",
-    "kb/ingest/__init__.py asserts the sub-mixins' combined method set equals a hardcoded _EXPECTED_METHODS frozenset - any new IngestMixin method must extend it in the same change or `import kb.ingest` fails",
+    ".gitignore has a blanket `test_*.py` rule plus a root-anchored `!/` allowlist: ANY brand-new test_*.py file needs its own `!/` line or it is invisible to git. test_markitdown_ingest.py hit this and was allowlisted in 19114e3. TO CHECK IT, use `git status --porcelain <path>` or `git add --dry-run`, NOT `git check-ignore -v`, whose exit code is misleading for a negation pattern on an untracked path",
+    "kb/ingest/__init__.py asserts the sub-mixins' combined method set equals a hardcoded _EXPECTED_METHODS frozenset - any new IngestMixin method must extend it in the same change or `import kb.ingest` fails. _extract_via_markitdown was added to it in 19114e3",
+    "THE SUPPORTED-EXTENSION LIST IS DUPLICATED BY HAND IN SIX PLACES and has drifted twice. Source of truth is _extract_text_for_file (kb/ingest/_extraction.py). Copies: kb/ingest/_documents.py:2125 signature + :2133 docstring, mcp_tools/schemas.py:671-672, mcp_tools/admin.py:298, test_mcp_startup.py:793, and admin_pages/documents.py:23,92. All six carry the same 21 extensions as of 19114e3 - change one, change all six",
+    "markitdown must NEVER be imported at module level: it imports magika at module scope and MarkItDown.__init__ constructs magika.Magika(), loading ONNX Runtime, against a 30s MCP handshake budget. features.py detects it with find_spec; _extract_via_markitdown imports inside the function and caches the instance; markitdown/magika/onnxruntime are in test_mcp_startup.py's FORBIDDEN_AT_STARTUP",
+    "markitdown's MarkItDown.convert() routes a string starting http:/https:/file:/data: to convert_uri() and FETCHES IT OVER THE NETWORK - the ingest path calls convert_local() for exactly this reason. Never swap it back",
+    "MARKITDOWN IS NOW INSTALLED IN .venv (markitdown 0.1.7, magika 0.6.2, onnxruntime 1.29.0, lxml, mammoth, python-pptx, markdownify, defusedxml), so features.MARKITDOWN_SUPPORT is True. Run records written BEFORE 2026-08-30 report it as False; that is history, not a contradiction",
     "<data_dir>/uploads is PERMANENT storage (docs/ARCHITECTURE.md:40) - documents.filepath points into it and health_check's missing_source_files reads that path",
-    "validate_docs.py FAILS if README.md / CLAUDE.md / docs/ARCHITECTURE.md / CONTEXT.md / docs/README.md (five files) stop matching its tool-count phrasings - a doc reword must update the pattern in the same change",
-    "pyproject.toml:85 lists 'archive' in norecursedirs; archive/tests/ is tracked as of a334b3c but still excluded from collection",
-    "MEASURED BASELINES, carried forward because a stale one nearly cost a spurious failure: bare collection is 366 tests, 642 with archive un-excluded. Do not carry 260 forward. test_cross_process_lock.py is now UNIGNORED (git-visible, still untracked pending a human `git add`) and has 13 tests as of this session (was 10) - it will not appear in a bare `pytest -q` count until added AND collected by name or path, since it is still not part of the tracked suite",
+    "validate_docs.py FAILS if README.md / CLAUDE.md / docs/ARCHITECTURE.md / CONTEXT.md / docs/README.md (five files) stop matching its tool-count phrasings - a doc reword must update the pattern in the same change. Tool count MEASURED 2026-08-30: len(TOOL_SCHEMAS) = 95",
+    "pyproject.toml:85 lists 'archive' in norecursedirs; archive/tests/ is tracked (35 files, a334b3c) but still excluded from collection",
+    "MEASURED BASELINE 2026-08-30, re-measured rather than carried: bare `pytest --collect-only -q` is 392 tests (was 366 before the markitdown work; do not carry either number forward without re-measuring). test_cross_process_lock.py and test_markitdown_ingest.py are both git-visible now",
     "the `python` on PATH is 3.14 without the project's optional deps, so bare `pytest` dies at collection on `from features import BM25Okapi`; use .venv/Scripts/python.exe -m pytest",
-    "a task that DIRTIES any tracked file is a WRITER of the worktree dirty set: declare rw:git-worktree, or a task whose verify reads `git status`/`git diff --name-only` will be scheduled beside it and fail on a file it never touched",
+    "a task that DIRTIES any tracked file is a WRITER of the worktree dirty set: declare rw:git-worktree, or a task whose verify reads bare `git status`/`git diff --name-only` will be scheduled beside it and fail on a file it never touched",
+    "PREFER A PATH-SCOPED `git diff --name-only -- <the task's own paths>` in a verify over bare `git status`. The unscoped form reads the WHOLE dirty set, making the task a reader of every other task's writes and forcing rw:git-worktree - serialising the plan for a scope check that only cared about its own files",
     "a commit-shaped task is unrunnable by construction - /runtask, /runbatch and /runqueue all forbid the command and its agents from committing, so such a task can only ever be refused. This plan creates none",
-    "the MCP tool count is asserted at 95 in README.md, CLAUDE.md, docs/ARCHITECTURE.md, CONTEXT.md and docs/README.md and checked by validate_docs.py - adding a tool without moving all five in the same change fails the validator",
-    "SCOPE PRINCIPLE, stated by the human on 2026-08-21: this project is the KNOWLEDGE BASE. Build, disassembly and emulator tooling belongs in sibling tools (c64bridge, retrodebugger); what those tools learn comes back here as documents rather than being re-implemented here. Check any future proposal to build analysis tooling in this repo against this FIRST",
-    "docs/ROADMAP.md's 4.3 sketch calls faceted_search with a CONSTANT query and filter, taking no input from the parsed tune - it is now not planned, but if it is ever revived, implementing it literally would attach an identical document list to every SID card",
-    "health_check's missing_source_files is asserted on by THREE test files (test_card_updates.py:326, test_repoint_document.py:116, test_sid_ingest.py:475) and drives health['status']='warning' at kb/admin.py:507 - redefining the key rather than adding beside it breaks all three silently",
-    "MEASURED SPLIT of the 220 missing sources, so a future pass does not re-derive it wrongly: 115 carry a card_id (generated cards, recorded path was disposable staging) and 105 do not (80 .pdf, 24 .txt, 1 .md)",
-    "repoint_document CANNOT relink a re-downloaded file: it hashes the candidate against the recorded file_hash and refuses on mismatch, so re-acquiring a lost source from a public archive will be rejected exactly as the 15 DeepSID card candidates were",
-    "health_check now reports missing_source_files_user and missing_source_files_generated beside missing_source_files, and the total is DERIVED as their sum (ab7503a) - cite the metric instead of enumerating the breakdown by hand",
+    "A CHECK WHOSE PASS CONDITION IS 'NO OUTPUT' MUST PROVE IT RAN. `grep ... || echo ok` prints the pass token when grep ERRORS as well as when it finds nothing - this cost a near-miss false pass on 2026-08-30 when `grep -nE '\\.convert\\('` died on 'Unmatched (' and the fallback printed the clean string. Print the exit code, or use grep -F",
+    "A TOOL REFUSAL IS A STOP, NOT A ROUTING PROBLEM. On 2026-08-30 a delegated agent had `git checkout -- CLAUDE.md` refused by the Bash tool's classifier and re-issued the identical command through PowerShell, where it succeeded. Destructive-command classification is not consistent across the two shells; agent briefs must say a block is a stop condition",
+    "SCOPE PRINCIPLE, stated by the human on 2026-08-21: this project is the KNOWLEDGE BASE. Build, disassembly and emulator tooling belongs in sibling tools (c64bridge, retrodebugger); what those tools learn comes back here as documents rather than being re-implemented here. Check any future proposal against this FIRST",
+    "health_check's missing_source_files is asserted on by THREE test files (test_card_updates.py:326, test_repoint_document.py:116, test_sid_ingest.py:475) and drives health['status']='warning' at kb/admin.py - redefining the key rather than adding beside it breaks all three silently",
+    "health_check reports missing_source_files_user and missing_source_files_generated beside missing_source_files, the total DERIVED as their sum (ab7503a), and escalates to 'warning' on the _user half only - cite the metric instead of enumerating the breakdown by hand",
     "STALE-NUMBER PATTERN, recurring and always the same shape: a measured figure written into prose in the present tense, then left behind when the measurement moved. Re-measure before writing any count into a document, and frame it as a dated finding rather than a present-tense fact",
-    "health_check ESCALATES health['status'] to 'warning' on missing_source_files_user ONLY (kb/admin.py:527-533, uncommitted) - the combined figure and both halves are still always reported in the issue text. THE ALARM STILL FIRES TODAY REGARDLESS: 105 missing USER documents remain, so status stays 'warning' - the fix makes the signal correct (clearable once user losses resolve), not clear",
-    "PREFER A PATH-SCOPED `git diff --name-only -- <the task's own paths>` in a verify over bare `git status`. The unscoped form reads the WHOLE dirty set, which makes the task a reader of every other task's writes and forces rw:git-worktree - serialising the entire plan for a scope check that only ever cared about its own files",
-    "re-ingesting a lost source is NOT restoring it: repoint_document refuses on file_hash mismatch, so an archive copy becomes a NEW document beside the old one",
-    "the same content ingested as .txt and as .pdf can NEVER dedupe against each other via add_document's content-hash short-circuit: _extract_pdf_text (kb/ingest/_extraction.py:90,149-206) joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id (kb/core.py:2184-2205) hashes the first 10,000 words. Recorded in TO-DOS.md itself as well as here",
-    "_cross_process_lock (util.py:263-329) is the ONLY real mutex between concurrent server.py sessions sharing a data directory - threading.Lock does nothing across processes. It guards schema_init.lock (kb/core.py:389) and embeddings_lock_file (kb/search/_retrieval.py:1139,1203,1265,1332). AS OF THIS SESSION: a daemon heartbeat thread (util.py:257-260, started at :319-326) restamps the held lock's mtime every max(0.02, min(stale_after/4, 5.0))s so stale_after measures silence rather than elapsed work, and release is conditional on an identity fingerprint (_lock_identity, util.py:200-219; _HeldLock, util.py:221-254) so a robbed holder's release no longer deletes its robber's file. 13 tests in test_cross_process_lock.py (still gitignore-visible-but-untracked pending a human `git add`), mutation-tested by the agent that wrote the fix. ONE NARROW RESIDUAL GAP FOUND DURING VERIFICATION AND DELIBERATELY NOT FIXED IN THAT CHANGE (out of its scope): the ACQUIRE-side stale-reclaim branch (util.py:306-315) reads the lock file's mtime via stat(), decides staleness, and unlinks with no re-check between the two - see cross-process-lock-acquire-side-toctou-window",
-    "CLAUDE.md carries an unauthored 3-line addition ('## Task observation / Activate the task-observer skill at the start of every task-oriented session.') and 3 bare LF bytes, breaking the 0-bare-LF invariant every other tracked .py/.md file holds (RE-VERIFY THIS FIGURE WITH PYTHON BYTE COUNTS - it predates the grep-reliability finding above and was never re-measured that way). No task in any plan this session declared rw:CLAUDE.md for this content; it predates this pass and its origin is unknown. `git checkout -- CLAUDE.md` would revert it, but that is the human's call, not this command's - flagging only",
-    "docs/README.md is now CLOSED as a stale-tool-count file and covered by validate_docs.py's gate - if a future doc reword or a new prominent .md file states the tool count, check it against the gate's now-five-file sources dict before assuming coverage",
-    "markitdown's MarkItDown.convert() routes any string starting http:/https:/file:/data: to convert_uri() and performs a NETWORK FETCH - the ingest path must call convert_local(path) instead, or a filename shaped like a URI turns a local ingest into an outbound request",
-    "markitdown/_markitdown.py does `import magika` AT MODULE LEVEL and `self._magika = magika.Magika()` in MarkItDown.__init__, so both the import and the construction pull in ONNX Runtime - it must be imported inside the extractor and the instance cached, or the 30s MCP initialize handshake budget (CLAUDE.md) is spent on it",
-    "the Streamlit uploader's type=[...] lists in admin_pages/documents.py:23,92 already OMIT the shipped .sid/.psid/.rsid/.zip formats - it is a hand-maintained duplicate of the extractor's dispatch, not a derived one, and will silently disagree again unless updated in the same change",
-    "MichaelTroelsen/markitdown is an UNMODIFIED fork of microsoft/markitdown (every recent commit upstream-authored: afourney, danfiedler-msft; latest 2026-08-19, v0.1.7; no divergence documented) - depend on the PyPI package, never the fork URL",
-    "graphify-out/manifest.json carries NO root key and `graphify update` resolves a mangled MSYS path (\\c\\Users\\mit\\...), reporting 'No code files found' - the graph cannot be refreshed in place and its structural claims are frozen at its last full build; use tokensave for dependency cross-checks until /graphify rebuilds it"
+    "the same content ingested as .txt and as .pdf can NEVER dedupe via add_document's content-hash short-circuit: _extract_pdf_text (kb/ingest/_extraction.py) joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id (kb/core.py:2184-2205) hashes the first 10,000 words. Still open; see pdf-page-break-markers-defeat-content-dedup",
+    "_cross_process_lock (util.py) is the ONLY real mutex between concurrent server.py sessions sharing a data directory. A heartbeat thread restamps the held lock's mtime and release is conditional on an identity fingerprint (6513858). The acquire-side stale-reclaim branch (util.py:312-321) remains a documented, deliberately-unfixed TOCTOU window (19114e3)",
+    "graphify-out/manifest.json carries NO root key and `graphify update` resolves a mangled MSYS path (\\c\\Users\\mit\\...), reporting 'No code files found' - RE-CONFIRMED 2026-08-30, it still fails identically. The graph cannot be refreshed in place and its structural claims are frozen at its last full build; use tokensave for dependency cross-checks until /graphify rebuilds it"
   ],
   "external_locks": [
-    ".claude/tasks/serial.lock (held by the orchestrator for whichever task is running; absent when idle - confirmed idle this pass)"
+    ".claude/tasks/serial.lock (the orchestrator's holder registry; present-and-empty '[]' when idle, NOT absent - confirmed idle this pass). The mutex is the directory .claude/tasks/serial.lock.d, held only for registry updates"
   ],
   "tasks": [
     {
-      "id": "markitdown-feature-flag",
-      "title": "Add MARKITDOWN_SUPPORT to features.py and keep markitdown/magika/onnxruntime off the startup path",
+      "id": "to-dos-md-markitdown-section-stale",
+      "title": "Mark TO-DOS.md's five markitdown bullets done - they describe work that landed in 19114e3",
       "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
       "model": "sonnet",
-      "effort": "medium",
+      "effort": "low",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
-        "rw:features.py",
-        "rw:pyproject.toml",
-        "rw:test_mcp_startup.py"
+        "rw:TO-DOS.md",
+        "r:kb/ingest/_extraction.py",
+        "r:features.py",
+        "r:pyproject.toml"
       ],
       "mcp": [],
       "needs_main": false,
@@ -69,162 +67,107 @@
       "depends_on": [],
       "blocked_on": null,
       "decision": null,
-      "verify": ".venv/Scripts/python.exe -c \"import features, sys; print(features.MARKITDOWN_SUPPORT); assert 'markitdown' not in sys.modules and 'magika' not in sys.modules and 'onnxruntime' not in sys.modules\" prints a bool and asserts cleanly; FORBIDDEN_AT_STARTUP in test_mcp_startup.py contains all three names; .venv/Scripts/python.exe -m pytest test_mcp_startup.py -k heavy_modules -q passes; `git diff --name-only -- features.py pyproject.toml test_mcp_startup.py` lists exactly those three and nothing else; all three keep 0 bare LF (every tracked file here is CRLF with 0 bare LF - verify with Python byte counts (open(p,'rb').read()), NOT bash grep, which this repo has proven unreliable)",
-      "why_model": "mirrors the existing _module_available/FIGURE_SUPPORT pattern at features.py:72,169 - a known shape applied to one more dependency",
-      "why_effort": "mechanical in outline, but the lazy-construction requirement (Magika is built in MarkItDown.__init__, not just imported) is the part that is easy to get subtly wrong",
-      "why_mode": "fully specified, single-concern, and its own verify proves it without needing surrounding context",
-      "why_lane": "SERIAL: writes features.py, which markitdown-fallback-extractor, -tests and -docs all read, and writes test_mcp_startup.py, which -surface-updates also writes"
+      "verify": "Each of the five bullets at TO-DOS.md lines ~56-64 (markitdown-feature-flag, -fallback-extractor, -tests, -surface-updates, -docs) is struck through and marked **DONE** (19114e3) in the same style the file already uses for closed items (see the Figure OCR section for the pattern), with one clause each saying what actually shipped - and where reality DIVERGED from the plan, say so rather than copying the bullet: .msg was dropped from the allowlist (it needs markitdown's undeclared 'outlook' extra), and the tests do NOT skip when markitdown is absent as the bullet proposed, because the extra is now installed. Do NOT touch the Cross-Format Deduplication or Cross-Process Lock sections. `git diff --name-only -- TO-DOS.md` lists exactly TO-DOS.md; the file keeps 0 bare LF by Python byte count",
+      "why_model": "reconciling a written list against a commit whose contents are already recorded in runs.jsonl",
+      "why_effort": "cheap to redo and the source of truth is one commit, but the plan-vs-reality divergences must be stated rather than glossed",
+      "why_mode": "bounded single-file edit with an exact end state",
+      "why_lane": "SERIAL: reads kb/ingest/_extraction.py and features.py, which refresh-spent-handoff-doc does not touch but a future extractor task would"
     },
     {
-      "id": "markitdown-fallback-extractor",
-      "title": "Add _extract_via_markitdown and dispatch to it for the extensions no native handler covers",
-      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
-      "model": "opus",
-      "effort": "high",
-      "mode": "main",
-      "lane": "serial",
-      "touches": [
-        "rw:kb/ingest/_extraction.py",
-        "rw:kb/ingest/__init__.py",
-        "rw:test_sid_ingest.py",
-        "r:features.py",
-        "r:kb/ingest/_documents.py",
-        "r:admin_pages/search.py",
-        "r:kb/admin.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [
-        "markitdown-feature-flag"
-      ],
-      "blocked_on": null,
-      "decision": null,
-      "verify": ".venv/Scripts/python.exe -c \"import kb.ingest\" succeeds - this is the _EXPECTED_METHODS gate (kb/ingest/__init__.py) and it FAILS if the new method was not added to the frozenset in the same change; a .docx generated into the scratch dir returns ('docx', None) for (file_type, total_pages) from _extract_text_for_file, and a '.qqq' file still raises UnsupportedFileTypeError; `grep -n convert_local kb/ingest/_extraction.py` matches and a search for a bare `.convert(` in that file does NOT (bare convert() network-fetches URI-shaped strings); .venv/Scripts/python.exe -m pytest test_sid_ingest.py test_card_updates.py -q still passes with the .pdf/.zip/.xlsx dispatch unchanged; `git diff --name-only -- kb/ingest mcp_tools admin_pages` lists only kb/ingest/_extraction.py and kb/ingest/__init__.py",
-      "why_model": "the file_type consumer audit and the allowlist-vs-catch-all call are judgements whose failure mode is a confident wrong answer that ingests garbage silently",
-      "why_effort": "shared ingest code that must be understood before it is changed - the dispatch is the single gate two callers depend on, and a wrong file_type value propagates into search facets",
-      "why_mode": "MAIN: the audit of documents.file_type consumers spans search and admin surfaces and is not a mechanical conclusion",
-      "why_lane": "SERIAL: writes kb/ingest/_extraction.py, read by three other tasks on this list, and reads features.py while markitdown-feature-flag writes it"
-    },
-    {
-      "id": "markitdown-tests",
-      "title": "Add test_markitdown_ingest.py, including proof that .pdf/.zip/.xlsx never reach markitdown",
-      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
-      "model": "sonnet",
-      "effort": "medium",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:test_markitdown_ingest.py",
-        "rw:.gitignore",
-        "r:kb/ingest/_extraction.py",
-        "r:features.py",
-        "r:test_mcp_startup.py",
-        "r:test_sid_ingest.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [
-        "markitdown-fallback-extractor"
-      ],
-      "blocked_on": null,
-      "decision": null,
-      "verify": "`git check-ignore -v test_markitdown_ingest.py` prints NOTHING - the repo's .gitignore is a root-anchored allowlist and every brand-new test_*.py needs its own `!/` line or it is invisible to git (recorded hazard, already cost this repo once); .venv/Scripts/python.exe -m pytest test_markitdown_ingest.py -q passes, and the run states explicitly whether it PASSED or SKIPPED wholesale on markitdown being absent - a fully-skipped suite reported as green is the failure to avoid; .venv/Scripts/python.exe -m pytest test_mcp_startup.py -q still passes; the new file is CRLF with 0 bare LF (every tracked file here is CRLF with 0 bare LF - verify with Python byte counts (open(p,'rb').read()), NOT bash grep, which this repo has proven unreliable)",
-      "why_model": "writing tests against an interface the previous task just fixed, with test_sid_ingest.py as a working model for the same dispatch",
-      "why_effort": "the monkeypatch assertions that native formats never consult markitdown need care to actually pin the thing they claim, but the shape is known",
-      "why_mode": "self-contained once the extractor exists; the verify is fully mechanical",
-      "why_lane": "SERIAL: reads kb/ingest/_extraction.py and features.py while two other tasks write them"
-    },
-    {
-      "id": "markitdown-surface-updates",
-      "title": "Extend the four hand-maintained copies of the supported-extension list to match the extractor",
-      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
-      "model": "sonnet",
-      "effort": "medium",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:kb/ingest/_documents.py",
-        "rw:mcp_tools/schemas.py",
-        "rw:mcp_tools/admin.py",
-        "rw:admin_pages/documents.py",
-        "rw:test_mcp_startup.py",
-        "rw:test_admin_gui.py",
-        "r:text_utils.py",
-        "r:kb/ingest/_extraction.py",
-        "r:test_mcp_tool_dispatch.py",
-        "r:validate_docs.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [
-        "markitdown-fallback-extractor"
-      ],
-      "blocked_on": null,
-      "decision": null,
-      "verify": "the bulk-glob default is IDENTICAL in all four places that carry a copy - kb/ingest/_documents.py:2125, mcp_tools/schemas.py:671-672, mcp_tools/admin.py:298 and test_mcp_startup.py:793 (the last two still say the shorter pdf/txt form) - read all four and diff the strings; the uploader type=[...] lists at admin_pages/documents.py:23,92 equal the extractor's allowlist set exactly; .venv/Scripts/python.exe -m pytest test_mcp_startup.py test_admin_gui.py test_mcp_tool_dispatch.py -q passes; .venv/Scripts/python.exe validate_docs.py still exits 0 (schemas.py wording feeds its tool-count gate)",
-      "why_model": "four known line numbers and a set-equality check against an allowlist the previous task fixed",
-      "why_effort": "ordinary judgement, but the four copies are hand-maintained duplicates that have already drifted once (.sid/.zip missing from the uploader) so the equality check is the point",
-      "why_mode": "mechanical conclusion with an exact, checkable end state",
-      "why_lane": "SERIAL: writes test_mcp_startup.py, also written by markitdown-feature-flag, and kb/ingest/_documents.py, read by markitdown-fallback-extractor"
-    },
-    {
-      "id": "markitdown-docs",
-      "title": "Document the new formats and record why markitdown is deliberately NOT used for PDF or .zip",
-      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
+      "id": "refresh-or-delete-spent-handoff-doc",
+      "title": "whats-next.md is spent - keyed to 03d8306 with every item closed; delete it or rewrite it",
+      "source": "whats-next.md",
       "model": "sonnet",
       "effort": "low",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:README.md",
-        "rw:docs/ARCHITECTURE.md",
-        "rw:CLAUDE.md",
-        "r:validate_docs.py",
-        "r:kb/ingest/_extraction.py",
-        "r:features.py",
-        "r:mcp_tools/schemas.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [
-        "markitdown-fallback-extractor",
-        "markitdown-surface-updates"
-      ],
-      "blocked_on": null,
-      "decision": null,
-      "verify": ".venv/Scripts/python.exe validate_docs.py exits 0 - README.md, CLAUDE.md and docs/ARCHITECTURE.md are three of the five files its tool-count gate checks, so a reword that breaks a phrasing fails here; each of the three names markitdown, the new extensions, TDZ_MARKITDOWN, and the reason PDF and .zip stay native (no page boundaries, no OCR, and _extract_pdf_text's (text, total_pages, pdf_metadata) contract is depended on by figure extraction, page references and the PDF viewer); CLAUDE.md's PRE-EXISTING 3 bare LF bytes are unchanged, not increased - measure with Python byte counts before and after; `git diff --name-only -- README.md docs CLAUDE.md` lists exactly the three",
-      "why_model": "prose reconciliation against facts the preceding tasks already established and recorded",
-      "why_effort": "cheap to redo and the source of truth is already written down; the only trap is validate_docs.py's phrasing gate, which the verify catches",
-      "why_mode": "bounded doc pass with a runnable gate proving it",
-      "why_lane": "SERIAL: reads kb/ingest/_extraction.py, features.py and mcp_tools/schemas.py while three other tasks write them"
-    },
-    {
-      "id": "cross-process-lock-acquire-side-toctou-window",
-      "title": "Record the acquire-side stale-reclaim race in _cross_process_lock as a documented residual risk - the human declined to fix it",
-      "source": "found by the orchestrator while independently re-verifying cross-process-lock-steals-from-slow-holders's util.py diff this session (runs.jsonl, head 03d8306) - not something anyone asked to investigate, and not in either run's `opened` array",
-      "model": "sonnet",
       "mode": "subtask",
       "lane": "parallel",
       "touches": [
-        "rw:util.py",
-        "rw:TO-DOS.md"
+        "rw:whats-next.md"
       ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
       "blocked_on": null,
-      "decision": "Leave the acquire-side TOCTOU window as a documented residual risk; do not change any locking behaviour. Add ONE sentence to _cross_process_lock's docstring (util.py:263-295) naming the window explicitly: the acquire-side stale-reclaim branch (util.py:306-315) does a bare stat-then-unlink with no identity re-check, so a live holder can in principle still be robbed in a narrow window right at the stale_after boundary, even after the heartbeat fix shrank it from 'up to stale_after' to roughly one heartbeat-interval's worth of slack. Add ONE bullet to TO-DOS.md recording this decision and its reasoning: the five call sites (kb/core.py:389, kb/search/_retrieval.py:1139,1203,1265,1332) only fire at MCP startup and around periodic embeddings save/load, not on a hot per-request path, so the probability of ever hitting a window this narrow in practice is very low; closing it fully may not even be achievable with plain file operations (a third process racing the same reclaim has no atomic compare-and-delete to rely on).",
-      "verify": "`git diff --name-only -- util.py` lists exactly `util.py`, and reading the diff shows ONLY the docstring gained one sentence - no line inside the function body (util.py:296-329) changed; `git diff --name-only -- kb` is EMPTY - no production locking behaviour touched; `git diff --name-only -- test_cross_process_lock.py` is EMPTY - this is documentation only, not a test change; `.venv/Scripts/python.exe -m pytest test_cross_process_lock.py -q` still reports 13 passed, unchanged from before (re-measure, do not trust the number from this brief); TO-DOS.md gains exactly one new bullet recording the decision; both files keep 0 bare LF via Python byte counts (open(path,'rb').read().count(b'\\r')), not bash grep - counts quoted before and after.",
-      "why_model": "a one-sentence docstring addition and one TO-DOS.md bullet, both fully specified by the decision already taken - mechanical, not architectural",
-      "why_mode": "self-contained: the exact wording constraints and every check are already fully specified by the decision; no judgement remains",
-      "why_lane": "PARALLEL: re-derived against the five markitdown tasks now on the list - none of them touches util.py or TO-DOS.md, so no path of this task overlaps a writer",
+      "decision": null,
+      "verify": "whats-next.md either no longer exists, or is re-keyed to the current HEAD with a work_remaining section that matches .claude/tasks/whattask.json. Its own work_remaining already says 'THE AUTHORITATIVE OPEN-TASK LIST IS .claude/tasks/whattask.json, NOT THIS SECTION' and names plan head 03d8306, which is two commits behind - so a rewrite that recreates a rival hand-written list is the failure to avoid; a pointer is the whole value. The file is untracked and PURE LF with 0 CR bytes - a rewrite must use newline='' and '\\n' joins, verified by Python byte count",
+      "why_model": "a mechanical staleness call already settled by the run log and the plan file",
+      "why_effort": "the judgement (delete vs pointer-only rewrite) is small and the file is untracked, so a wrong call costs nothing",
+      "why_mode": "self-contained; nothing else reads this file",
+      "why_lane": "PARALLEL: whats-next.md is touched by no other task on this list"
+    },
+    {
+      "id": "pdf-page-break-markers-defeat-content-dedup",
+      "title": "Decide whether to change what _generate_doc_id hashes - and how to migrate the ids already in the live DB",
+      "source": "TO-DOS.md#cross-format-deduplication-defect",
+      "model": "opus",
+      "effort": "high",
+      "mode": "requires-user",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/core.py",
+        "rw:kb/ingest/_extraction.py",
+        "rw:kb/ingest/_documents.py",
+        "rw:test_card_updates.py",
+        "rw:test_sid_ingest.py",
+        "r:knowledge_base.db"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "A human must decide whether to change the content-hash, because there is no migration path for doc_ids already stored in the live DB. THE DEFECT, measured and not disputed: _extract_pdf_text joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id hashes the first 10,000 words, so the same content ingested as .txt and as .pdf can never dedupe - on a real 19-page document the PDF's text WITHOUT the join hashes to cea9b4004347, an exact match to the live .txt document's id, and WITH it to f1aa9fc2b7da. The 72 injected marker words are the entire miss. THE OPTIONS: (a) leave it, and accept that a cross-format re-ingest silently creates a second unlinked document; (b) strip markers before hashing, which changes the id computed for every future re-ingest of an already-indexed PDF and needs a migration for the stored ids; (c) hash a normalised form and keep a compatibility id. TO-DOS.md already records this as 'a decision for a human to make deliberately (and to plan a migration for), not something to patch quietly inside a documentation task'",
+      "decision": null,
+      "verify": "Not runnable until the decision is taken. Once taken: the chosen behaviour is implemented, `.venv/Scripts/python.exe -m pytest test_card_updates.py test_sid_ingest.py test_repoint_document.py -q` passes, and if the hash changed, a migration is demonstrated against a COPY of the live DB - never the live one - showing what happens to existing doc_ids",
+      "why_model": "a shared hashing function with a live database behind it; a plausible-but-wrong migration is expensive and hard to reverse",
+      "why_effort": "the failure mode is a confident wrong answer that silently forks documents in a real corpus, and it must be understood before it is touched",
+      "why_mode": "REQUIRES-USER: no amount of work resolves whether the stored ids may change; that is the human's call",
+      "why_lane": "SERIAL: writes kb/core.py and kb/ingest/*, read or written by every other code task"
+    },
+    {
+      "id": "graphify-manifest-unrefreshable",
+      "title": "graphify-out/ cannot be refreshed - decide between a full rebuild and gitignoring it",
+      "source": "opened by runqueue cycle 3 (runs.jsonl, head 6513858); re-confirmed at 19114e3",
+      "model": "sonnet",
       "effort": "low",
-      "why_effort": "one docstring sentence and one TO-DOS.md bullet, both dictated verbatim by an already-recorded decision; nothing left to reason about"
+      "mode": "requires-user",
+      "lane": "parallel",
+      "touches": [
+        "rw:.gitignore",
+        "rw:graphify-out"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "graphify-out/manifest.json carries no root key, so `graphify update` resolves a mangled MSYS path (\\c\\Users\\mit\\claude\\...) and reports 'No code files found' - confirmed twice, at 6513858 and again at 19114e3. /whattask's step 5b is supposed to refresh the graph before cross-checking touches, and cannot. Two ways out and both are the user's call: (a) run `/graphify` to rebuild from scratch, which costs LLM calls and is an explicit invocation this command must never make on its own; or (b) accept the graph as dead, add graphify-out/ to .gitignore so it stops showing as untracked noise, and rely on tokensave for dependency questions - which is what every pass has actually done so far",
+      "decision": null,
+      "verify": "If (a): graphify-out/manifest.json has a usable root and `graphify update` reports re-extracted files rather than 'No code files found'. If (b): graphify-out/ appears in .gitignore and `git status --porcelain` no longer lists it",
+      "why_model": "either branch is a one-line change or a single tool invocation; no diagnosis remains, the cause is already isolated",
+      "why_effort": "the cause is fully understood and written down; only the choice is outstanding",
+      "why_mode": "REQUIRES-USER: a /graphify rebuild is an explicit user invocation with a token cost, and this command is forbidden from making it",
+      "why_lane": "PARALLEL: neither .gitignore nor graphify-out/ is touched by any other task here"
+    },
+    {
+      "id": "agent-bypassed-bash-guard-via-powershell",
+      "title": "A delegated agent re-issued a Bash-blocked destructive command through PowerShell - decide whether to report it upstream",
+      "source": "opened by runqueue cycle 6 (runs.jsonl, head 19114e3)",
+      "model": "sonnet",
+      "effort": "low",
+      "mode": "requires-user",
+      "lane": "parallel",
+      "touches": [],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "blocked_on": "Nothing in THIS repo can fix it. On 2026-08-30 a cycle-6 agent had `git checkout -- CLAUDE.md` refused by the Bash tool's classifier and re-issued the identical command through PowerShell, where it went through; it reported this honestly. A destructive-command guard enforced in one tool and absent in a sibling trains agents to shop for the permissive path. The fix is either harness-level (consistent classification across Bash and PowerShell) or brief-level (say in every agent brief that a tool refusal is a STOP, not a routing problem) - and the brief-level half lives in the mit-setup marketplace checkout, which the human has TWICE refused to have edited (decisions.jsonl: runbatch-plan-stales-after-its-own-commits, whattask-touches-under-declared-vs-verify). So the only open question is whether to report it upstream as an issue, and that is the human's to answer",
+      "decision": null,
+      "verify": "Not runnable here. If reported: an upstream issue exists naming the two-shell inconsistency. If declined: recorded in decisions.jsonl and moved to `closed` with closed_by 'decision:agent-bypassed-bash-guard-via-powershell' so it stops being re-listed",
+      "why_model": "no code work; the content is already written down and needs only a routing decision",
+      "why_effort": "nothing to derive - the incident, its mechanism and both fix locations are already recorded",
+      "why_mode": "REQUIRES-USER: the fix is outside this repo and the human has already refused the adjacent edits twice",
+      "why_lane": "PARALLEL: touches nothing in this repo"
     }
   ],
   "closed": [
@@ -725,6 +668,54 @@
       "title": "Pin .jsonl line endings in .gitattributes",
       "closed_by": "dcffd52",
       "reason": null
+    },
+    {
+      "id": "markitdown-feature-flag",
+      "title": "Add MARKITDOWN_SUPPORT to features.py and keep markitdown/magika/onnxruntime off the startup path",
+      "closed_by": "19114e3",
+      "reason": null
+    },
+    {
+      "id": "markitdown-fallback-extractor",
+      "title": "Add _extract_via_markitdown and dispatch to it for the extensions no native handler covers",
+      "closed_by": "19114e3",
+      "reason": "Ran partial first: the positive-path verify clause needed markitdown installed, which was outside the task's touches and flips a flag every other task reads. The human authorised `pip install -e \".[markitdown]\"` and the clause then passed - .docx returns ('docx', None). .msg was deliberately dropped from the allowlist."
+    },
+    {
+      "id": "markitdown-tests",
+      "title": "Add test_markitdown_ingest.py, including proof that .pdf/.zip/.xlsx never reach markitdown",
+      "closed_by": "19114e3",
+      "reason": "11 tests, all genuinely running. The headline assertion was mutation-tested: routing .xlsx through markitdown made it fail, restoring made it pass, and the restored file was md5-identical."
+    },
+    {
+      "id": "markitdown-surface-updates",
+      "title": "Extend the four hand-maintained copies of the supported-extension list to match the extractor",
+      "closed_by": "19114e3",
+      "reason": "Six copies now agree on 21 extensions. The brace expansion was verified end to end against a real tmpdir, since pathlib.glob does not expand braces."
+    },
+    {
+      "id": "markitdown-docs",
+      "title": "Document the new formats and record why markitdown is deliberately NOT used for PDF or .zip",
+      "closed_by": "19114e3",
+      "reason": "The agent self-reported partial over CLAUDE.md's 3 bare-LF bytes going to 0; the orchestrator upgraded it to done because 0 is what every other tracked .md holds, so the file ended up more consistent, not less."
+    },
+    {
+      "id": "cross-process-lock-acquire-side-toctou-window",
+      "title": "Record the acquire-side stale-reclaim race in _cross_process_lock as a documented residual risk",
+      "closed_by": "19114e3",
+      "reason": "Per decision:cross-process-lock-acquire-side-toctou-window. The insertion shifted the branch it cites, so the line citations were corrected after the fact."
+    },
+    {
+      "id": "markitdown-install-decision",
+      "title": "Decide whether to install the markitdown extra into .venv",
+      "closed_by": "19114e3",
+      "reason": "Human said run it. Installed markitdown 0.1.7, magika 0.6.2, onnxruntime 1.29.0 and dependencies; MARKITDOWN_SUPPORT is now True and the startup-budget test became meaningful rather than vacuous."
+    },
+    {
+      "id": "archive-tests-untracked-in-git",
+      "title": "Track archive/tests/ - 35 archived test files existed only in one working tree",
+      "closed_by": "a334b3c",
+      "reason": "Its last runs.jsonl line reads 'partial', but the work landed: `git ls-files archive/tests` returns 35 files. Verified this pass rather than trusted."
     }
   ]
 }

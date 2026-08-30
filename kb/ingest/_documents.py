@@ -14,6 +14,7 @@ from models import ProgressCallback
 from models import ProgressUpdate
 from models import SecurityError
 from pathlib import Path
+from text_utils import PDF_PAGE_BREAK
 from text_utils import _expand_brace_pattern
 from typing import Optional
 from util import USER_AGENT
@@ -531,11 +532,11 @@ class _DocumentsMixin:
         for i, chunk_text in enumerate(text_chunks):
             # Estimate page number for PDFs based on PAGE BREAK markers
             page_num = None
-            if file_type == 'pdf' and '--- PAGE BREAK ---' in text:
+            if file_type == 'pdf' and PDF_PAGE_BREAK in text:
                 # Count PAGE BREAK markers before this chunk
                 chunk_start_pos = text.find(chunk_text[:100])  # Find chunk in full text
                 if chunk_start_pos >= 0:
-                    page_breaks_before = text[:chunk_start_pos].count('--- PAGE BREAK ---')
+                    page_breaks_before = text[:chunk_start_pos].count(PDF_PAGE_BREAK)
                     page_num = page_breaks_before + 1  # Pages are 1-indexed
 
             chunk = DocumentChunk(

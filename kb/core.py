@@ -20,6 +20,7 @@ from models import DocumentChunk
 from models import DocumentMeta
 from models import KnowledgeBaseError
 from pathlib import Path
+from text_utils import PDF_PAGE_BREAK
 from typing import Optional
 from util import _cross_process_lock
 from version import __build_date__
@@ -2196,9 +2197,17 @@ class CoreMixin:
             12-character hex string document ID
         """
         if text_content:
-            # Content-based ID for deduplication
+            # Content-based ID for deduplication.
+            # Strip the extractor's own page-break markers FIRST: _extract_pdf_text
+            # joins pages with PDF_PAGE_BREAK, which injects 4 words per page boundary
+            # into text that is otherwise identical to the same document ingested as
+            # .txt. Hashing those invented words meant a PDF and a .txt of the same
+            # content could never dedupe. .txt extraction injects nothing, so .txt ids
+            # are unchanged by this - only PDFs now hash to the same value their plain
+            # text would. Documents ingested BEFORE this change keep the id they were
+            # stored under; nothing is re-keyed.
             # Normalize text: lowercase, strip whitespace
-            normalized = text_content.lower().strip()
+            normalized = text_content.replace(PDF_PAGE_BREAK, ' ').lower().strip()
             # Hash first 10k words to handle large documents efficiently
             words = normalized.split()[:10000]
             content_sample = ' '.join(words)

@@ -15,6 +15,7 @@ from models import DocumentChunk
 from models import DocumentNotFoundError
 from models import KnowledgeBaseError
 from models import UnsupportedFileTypeError
+from text_utils import PDF_PAGE_BREAK
 from typing import Optional
 from util import http_get_polite
 import json
@@ -103,7 +104,7 @@ class _ExtractionMixin:
                     self.logger.error(f"OCR failed for page {i + 1}: {e}")
                     pages.append("")  # Empty text for failed page
 
-            full_text = "\n\n--- PAGE BREAK ---\n\n".join(pages)
+            full_text = f"\n\n{PDF_PAGE_BREAK}\n\n".join(pages)
             self.logger.info(f"OCR extraction complete: {len(full_text)} characters from {len(images)} pages")
             return full_text, len(images)
 
@@ -219,7 +220,7 @@ class _ExtractionMixin:
                 except (ValueError, TypeError, AttributeError, IndexError):
                     metadata['creation_date'] = str(creation_date)
 
-        return "\n\n--- PAGE BREAK ---\n\n".join(pages), len(reader.pages), metadata
+        return f"\n\n{PDF_PAGE_BREAK}\n\n".join(pages), len(reader.pages), metadata
 
     def _extract_text_file(self, filepath: str) -> str:
         """Extract text from a text file."""

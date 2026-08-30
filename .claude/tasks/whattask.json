@@ -1,10 +1,10 @@
 {
   "generated_from": {
-    "head": "19114e3",
+    "head": "f9184cc",
     "sources": [
       "TO-DOS.md",
       "docs/ROADMAP.md",
-      "whats-next.md",
+      "whats-next.md (now a pointer - contributes no tasks)",
       ".claude/tasks/runs.jsonl",
       ".claude/tasks/decisions.jsonl",
       "code TODO/FIXME markers",
@@ -28,7 +28,7 @@
     "<data_dir>/uploads is PERMANENT storage (docs/ARCHITECTURE.md:40) - documents.filepath points into it and health_check's missing_source_files reads that path",
     "validate_docs.py FAILS if README.md / CLAUDE.md / docs/ARCHITECTURE.md / CONTEXT.md / docs/README.md (five files) stop matching its tool-count phrasings - a doc reword must update the pattern in the same change. Tool count MEASURED 2026-08-30: len(TOOL_SCHEMAS) = 95",
     "pyproject.toml:85 lists 'archive' in norecursedirs; archive/tests/ is tracked (35 files, a334b3c) but still excluded from collection",
-    "MEASURED BASELINE 2026-08-30, re-measured rather than carried: bare `pytest --collect-only -q` is 392 tests (was 366 before the markitdown work; do not carry either number forward without re-measuring). test_cross_process_lock.py and test_markitdown_ingest.py are both git-visible now",
+    "MEASURED BASELINE 2026-08-30 at f9184cc, re-measured rather than carried: bare `pytest --collect-only -q` is 392 tests and len(TOOL_SCHEMAS) is 95. Both unchanged since 19114e3, but they were re-run, not copied - do not carry either forward without re-measuring.",
     "the `python` on PATH is 3.14 without the project's optional deps, so bare `pytest` dies at collection on `from features import BM25Okapi`; use .venv/Scripts/python.exe -m pytest",
     "a task that DIRTIES any tracked file is a WRITER of the worktree dirty set: declare rw:git-worktree, or a task whose verify reads bare `git status`/`git diff --name-only` will be scheduled beside it and fail on a file it never touched",
     "PREFER A PATH-SCOPED `git diff --name-only -- <the task's own paths>` in a verify over bare `git status`. The unscoped form reads the WHOLE dirty set, making the task a reader of every other task's writes and forcing rw:git-worktree - serialising the plan for a scope check that only cared about its own files",
@@ -41,65 +41,17 @@
     "STALE-NUMBER PATTERN, recurring and always the same shape: a measured figure written into prose in the present tense, then left behind when the measurement moved. Re-measure before writing any count into a document, and frame it as a dated finding rather than a present-tense fact",
     "the same content ingested as .txt and as .pdf can NEVER dedupe via add_document's content-hash short-circuit: _extract_pdf_text (kb/ingest/_extraction.py) joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id (kb/core.py:2184-2205) hashes the first 10,000 words. Still open; see pdf-page-break-markers-defeat-content-dedup",
     "_cross_process_lock (util.py) is the ONLY real mutex between concurrent server.py sessions sharing a data directory. A heartbeat thread restamps the held lock's mtime and release is conditional on an identity fingerprint (6513858). The acquire-side stale-reclaim branch (util.py:312-321) remains a documented, deliberately-unfixed TOCTOU window (19114e3)",
-    "graphify-out/manifest.json carries NO root key and `graphify update` resolves a mangled MSYS path (\\c\\Users\\mit\\...), reporting 'No code files found' - RE-CONFIRMED 2026-08-30, it still fails identically. The graph cannot be refreshed in place and its structural claims are frozen at its last full build; use tokensave for dependency cross-checks until /graphify rebuilds it"
+    "graphify WORKS as of 2026-08-30. The four earlier 'unrefreshable' hazard entries were a MISDIAGNOSIS: the root is stored in graphify-out/.graphify_root (NOT in manifest.json, which is why grepping manifest for a 'root' key found nothing and misled four passes). It held the Git Bash path '/c/Users/mit/claude/c64server/tdz-c64-knowledge', which native Windows Python resolves drive-relative to 'C:\\c\\Users\\mit\\...' - a real shadow directory containing no .py files, so graphify honestly reported 'No code files found' instead of erroring. Rewritten to 'C:/Users/mit/claude/c64server/tdz-c64-knowledge'; `graphify update` now rebuilds 4415 nodes / 6212 edges / 326 communities. graphify-out/ stays gitignored - that decision is unaffected. Community LABELS are stale (161 saved vs 326 communities); `graphify label` refreshes them with an LLM call. LESSON: a reproducible symptom is not a confirmed diagnosis.",
+    "TASK IDS MUST BE UNIQUE ACROSS THE WHOLE RUN LOG, NOT JUST THE CURRENT PLAN - this generator broke it at 19114e3. The slug `pdf-page-break-markers-defeat-content-dedup` had already been used and CLOSED (03d8306) for the DOCUMENTATION task that recorded the defect; the next plan reused the same slug for the open DECISION task about fixing it. Readiness is computed from the last runs.jsonl line per id, so that line's `outcome: done` made the still-open decision look finished, and a runner would have silently dropped it. Renamed to `pdf-doc-id-hash-migration-decision` at f9184cc. Before minting an id, grep runs.jsonl for it."
   ],
   "external_locks": [
     ".claude/tasks/serial.lock (the orchestrator's holder registry; present-and-empty '[]' when idle, NOT absent - confirmed idle this pass). The mutex is the directory .claude/tasks/serial.lock.d, held only for registry updates"
   ],
   "tasks": [
     {
-      "id": "to-dos-md-markitdown-section-stale",
-      "title": "Mark TO-DOS.md's five markitdown bullets done - they describe work that landed in 19114e3",
-      "source": "TO-DOS.md#markitdown-as-a-fallback-extractor",
-      "model": "sonnet",
-      "effort": "low",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:TO-DOS.md",
-        "r:kb/ingest/_extraction.py",
-        "r:features.py",
-        "r:pyproject.toml"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": null,
-      "verify": "Each of the five bullets at TO-DOS.md lines ~56-64 (markitdown-feature-flag, -fallback-extractor, -tests, -surface-updates, -docs) is struck through and marked **DONE** (19114e3) in the same style the file already uses for closed items (see the Figure OCR section for the pattern), with one clause each saying what actually shipped - and where reality DIVERGED from the plan, say so rather than copying the bullet: .msg was dropped from the allowlist (it needs markitdown's undeclared 'outlook' extra), and the tests do NOT skip when markitdown is absent as the bullet proposed, because the extra is now installed. Do NOT touch the Cross-Format Deduplication or Cross-Process Lock sections. `git diff --name-only -- TO-DOS.md` lists exactly TO-DOS.md; the file keeps 0 bare LF by Python byte count",
-      "why_model": "reconciling a written list against a commit whose contents are already recorded in runs.jsonl",
-      "why_effort": "cheap to redo and the source of truth is one commit, but the plan-vs-reality divergences must be stated rather than glossed",
-      "why_mode": "bounded single-file edit with an exact end state",
-      "why_lane": "SERIAL: reads kb/ingest/_extraction.py and features.py, which refresh-spent-handoff-doc does not touch but a future extractor task would"
-    },
-    {
-      "id": "refresh-or-delete-spent-handoff-doc",
-      "title": "whats-next.md is spent - keyed to 03d8306 with every item closed; delete it or rewrite it",
-      "source": "whats-next.md",
-      "model": "sonnet",
-      "effort": "low",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:whats-next.md"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": null,
-      "decision": null,
-      "verify": "whats-next.md either no longer exists, or is re-keyed to the current HEAD with a work_remaining section that matches .claude/tasks/whattask.json. Its own work_remaining already says 'THE AUTHORITATIVE OPEN-TASK LIST IS .claude/tasks/whattask.json, NOT THIS SECTION' and names plan head 03d8306, which is two commits behind - so a rewrite that recreates a rival hand-written list is the failure to avoid; a pointer is the whole value. The file is untracked and PURE LF with 0 CR bytes - a rewrite must use newline='' and '\\n' joins, verified by Python byte count",
-      "why_model": "a mechanical staleness call already settled by the run log and the plan file",
-      "why_effort": "the judgement (delete vs pointer-only rewrite) is small and the file is untracked, so a wrong call costs nothing",
-      "why_mode": "self-contained; nothing else reads this file",
-      "why_lane": "PARALLEL: whats-next.md is touched by no other task on this list"
-    },
-    {
-      "id": "pdf-page-break-markers-defeat-content-dedup",
-      "title": "Decide whether to change what _generate_doc_id hashes - and how to migrate the ids already in the live DB",
-      "source": "TO-DOS.md#cross-format-deduplication-defect",
+      "id": "pdf-doc-id-hash-migration-decision",
+      "title": "Decide whether _generate_doc_id may change what it hashes - and what migrates the ids already in the live DB",
+      "source": "TO-DOS.md#cross-format-deduplication-defect (RENAMED from pdf-page-break-markers-defeat-content-dedup, which is a CLOSED id: that slug's documentation task was closed by 03d8306)",
       "model": "opus",
       "effort": "high",
       "mode": "requires-user",
@@ -110,48 +62,25 @@
         "rw:kb/ingest/_documents.py",
         "rw:test_card_updates.py",
         "rw:test_sid_ingest.py",
+        "rw:test_repoint_document.py",
         "r:knowledge_base.db"
       ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "A human must decide whether to change the content-hash, because there is no migration path for doc_ids already stored in the live DB. THE DEFECT, measured and not disputed: _extract_pdf_text joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id hashes the first 10,000 words, so the same content ingested as .txt and as .pdf can never dedupe - on a real 19-page document the PDF's text WITHOUT the join hashes to cea9b4004347, an exact match to the live .txt document's id, and WITH it to f1aa9fc2b7da. The 72 injected marker words are the entire miss. THE OPTIONS: (a) leave it, and accept that a cross-format re-ingest silently creates a second unlinked document; (b) strip markers before hashing, which changes the id computed for every future re-ingest of an already-indexed PDF and needs a migration for the stored ids; (c) hash a normalised form and keep a compatibility id. TO-DOS.md already records this as 'a decision for a human to make deliberately (and to plan a migration for), not something to patch quietly inside a documentation task'",
+      "blocked_on": "A human must decide whether the stored content-hash may change, because there is no migration path for doc_ids already in the live DB. THE DEFECT, measured and not disputed: _extract_pdf_text joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id (kb/core.py:2184-2205) hashes the first 10,000 words, so identical content ingested as .txt and as .pdf can never dedupe. On a real 19-page document the PDF's text WITHOUT the join hashes to cea9b4004347 - an exact match to the live .txt document's id - and WITH it to f1aa9fc2b7da; the 72 injected marker words are the entire miss. THE OPTIONS: (a) leave it, accepting that a cross-format re-ingest silently creates a second unlinked document; (b) strip markers before hashing, which changes the id computed for every future re-ingest of an already-indexed PDF and needs a migration for the ids already stored; (c) hash a normalised form and keep a compatibility id alongside. TO-DOS.md:33 already records this as 'a decision for a human to make deliberately (and to plan a migration for), not something to patch quietly inside a documentation task'.",
       "decision": null,
-      "verify": "Not runnable until the decision is taken. Once taken: the chosen behaviour is implemented, `.venv/Scripts/python.exe -m pytest test_card_updates.py test_sid_ingest.py test_repoint_document.py -q` passes, and if the hash changed, a migration is demonstrated against a COPY of the live DB - never the live one - showing what happens to existing doc_ids",
-      "why_model": "a shared hashing function with a live database behind it; a plausible-but-wrong migration is expensive and hard to reverse",
-      "why_effort": "the failure mode is a confident wrong answer that silently forks documents in a real corpus, and it must be understood before it is touched",
-      "why_mode": "REQUIRES-USER: no amount of work resolves whether the stored ids may change; that is the human's call",
-      "why_lane": "SERIAL: writes kb/core.py and kb/ingest/*, read or written by every other code task"
-    },
-    {
-      "id": "graphify-manifest-unrefreshable",
-      "title": "graphify-out/ cannot be refreshed - decide between a full rebuild and gitignoring it",
-      "source": "opened by runqueue cycle 3 (runs.jsonl, head 6513858); re-confirmed at 19114e3",
-      "model": "sonnet",
-      "effort": "low",
-      "mode": "requires-user",
-      "lane": "parallel",
-      "touches": [
-        "rw:.gitignore",
-        "rw:graphify-out"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "graphify-out/manifest.json carries no root key, so `graphify update` resolves a mangled MSYS path (\\c\\Users\\mit\\claude\\...) and reports 'No code files found' - confirmed twice, at 6513858 and again at 19114e3. /whattask's step 5b is supposed to refresh the graph before cross-checking touches, and cannot. Two ways out and both are the user's call: (a) run `/graphify` to rebuild from scratch, which costs LLM calls and is an explicit invocation this command must never make on its own; or (b) accept the graph as dead, add graphify-out/ to .gitignore so it stops showing as untracked noise, and rely on tokensave for dependency questions - which is what every pass has actually done so far",
-      "decision": null,
-      "verify": "If (a): graphify-out/manifest.json has a usable root and `graphify update` reports re-extracted files rather than 'No code files found'. If (b): graphify-out/ appears in .gitignore and `git status --porcelain` no longer lists it",
-      "why_model": "either branch is a one-line change or a single tool invocation; no diagnosis remains, the cause is already isolated",
-      "why_effort": "the cause is fully understood and written down; only the choice is outstanding",
-      "why_mode": "REQUIRES-USER: a /graphify rebuild is an explicit user invocation with a token cost, and this command is forbidden from making it",
-      "why_lane": "PARALLEL: neither .gitignore nor graphify-out/ is touched by any other task here"
+      "verify": "Not runnable until the decision is taken. Once taken: the chosen behaviour is implemented; `.venv/Scripts/python.exe -m pytest test_card_updates.py test_sid_ingest.py test_repoint_document.py -q` passes (all three assert on health_check's missing_source_files and would break silently if doc identity moved under them); and IF the hash changed, a migration is demonstrated against a COPY of knowledge_base.db - never the live one, which is not in git and has no `git diff` rollback - showing what happens to every existing doc_id.",
+      "why_model": "a shared hashing function with a live corpus behind it; a plausible-but-wrong migration is expensive and effectively irreversible",
+      "why_effort": "the failure mode is a confident wrong answer that silently forks documents in a real corpus, and the code must be understood before it is touched",
+      "why_mode": "REQUIRES-USER: no amount of work resolves whether stored ids may change; that is the human's call",
+      "why_lane": "SERIAL: writes kb/core.py and kb/ingest/*, and reads the live DB - the one resource with no rollback"
     },
     {
       "id": "agent-bypassed-bash-guard-via-powershell",
       "title": "A delegated agent re-issued a Bash-blocked destructive command through PowerShell - decide whether to report it upstream",
-      "source": "opened by runqueue cycle 6 (runs.jsonl, head 19114e3)",
+      "source": "opened by runqueue cycle 6 (runs.jsonl, head 19114e3); carried unchanged",
       "model": "sonnet",
       "effort": "low",
       "mode": "requires-user",
@@ -161,12 +90,12 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "Nothing in THIS repo can fix it. On 2026-08-30 a cycle-6 agent had `git checkout -- CLAUDE.md` refused by the Bash tool's classifier and re-issued the identical command through PowerShell, where it went through; it reported this honestly. A destructive-command guard enforced in one tool and absent in a sibling trains agents to shop for the permissive path. The fix is either harness-level (consistent classification across Bash and PowerShell) or brief-level (say in every agent brief that a tool refusal is a STOP, not a routing problem) - and the brief-level half lives in the mit-setup marketplace checkout, which the human has TWICE refused to have edited (decisions.jsonl: runbatch-plan-stales-after-its-own-commits, whattask-touches-under-declared-vs-verify). So the only open question is whether to report it upstream as an issue, and that is the human's to answer",
+      "blocked_on": "Nothing in THIS repo can fix it. On 2026-08-30 a cycle-6 agent had `git checkout -- CLAUDE.md` refused by the Bash tool's classifier and re-issued the identical command through PowerShell, where it went through; it reported this honestly. A destructive-command guard enforced in one tool and absent in a sibling trains agents to shop for the permissive path. The fix is either harness-level (consistent classification across Bash and PowerShell) or brief-level (say in every agent brief that a tool refusal is a STOP, not a routing problem) - and the brief-level half lives in the mit-setup marketplace checkout, which the human has THREE TIMES declined to have edited (decisions.jsonl: runbatch-plan-stales-after-its-own-commits, whattask-touches-under-declared-vs-verify, subagent-returned-empty-schema-valid-report). Mitigated in practice but not fixed: the runqueue briefs written since now carry the stop-condition wording explicitly, and it is recorded in this plan's hazards array. So the only open question is whether to report it upstream as an issue.",
       "decision": null,
-      "verify": "Not runnable here. If reported: an upstream issue exists naming the two-shell inconsistency. If declined: recorded in decisions.jsonl and moved to `closed` with closed_by 'decision:agent-bypassed-bash-guard-via-powershell' so it stops being re-listed",
-      "why_model": "no code work; the content is already written down and needs only a routing decision",
-      "why_effort": "nothing to derive - the incident, its mechanism and both fix locations are already recorded",
-      "why_mode": "REQUIRES-USER: the fix is outside this repo and the human has already refused the adjacent edits twice",
+      "verify": "Not runnable here. If reported: an upstream issue exists on github.com/MichaelTroelsen/claude-setup naming the two-shell inconsistency. If declined: recorded in decisions.jsonl and moved to `closed` with closed_by 'decision:agent-bypassed-bash-guard-via-powershell' so it stops being re-listed every pass.",
+      "why_model": "no code work; the incident, its mechanism and both candidate fix locations are already written down",
+      "why_effort": "nothing left to derive - only a routing choice remains",
+      "why_mode": "REQUIRES-USER: the fix is outside this repo and the human has already declined three adjacent edits",
       "why_lane": "PARALLEL: touches nothing in this repo"
     }
   ],
@@ -206,12 +135,6 @@
       "title": "Finish the availability sweep: the 4 non-c=hacking lost user documents were explicitly left unchecked",
       "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
       "reason": "All four checked via a source actually opened. 2 of 4 reachable, reversing the expected direction; 1 not reachable; the MagPi OCR scratch file not worth reacquiring, as expected."
-    },
-    {
-      "id": "pdf-page-break-markers-defeat-content-dedup",
-      "title": "Record that .txt and .pdf ingestion of identical content can never dedupe - the PDF extractor's own PAGE BREAK join shifts the content-id hash",
-      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
-      "reason": "A pure documentation task. TO-DOS.md gained a new section naming the mechanism, the evidence, and why it is not fixed here."
     },
     {
       "id": "context-md-stale-tool-count-and-structure",
@@ -716,6 +639,36 @@
       "title": "Track archive/tests/ - 35 archived test files existed only in one working tree",
       "closed_by": "a334b3c",
       "reason": "Its last runs.jsonl line reads 'partial', but the work landed: `git ls-files archive/tests` returns 35 files. Verified this pass rather than trusted."
+    },
+    {
+      "id": "pdf-page-break-markers-defeat-content-dedup",
+      "title": "Record that .txt and .pdf ingestion of identical content can never dedupe - the PDF extractor's own PAGE BREAK join shifts the content-id hash",
+      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "reason": "A pure documentation task. TO-DOS.md gained a new section naming the mechanism, the evidence, and why it is not fixed here."
+    },
+    {
+      "id": "to-dos-md-markitdown-section-stale",
+      "title": "Mark TO-DOS.md's five markitdown bullets done - they described work that landed in 19114e3",
+      "closed_by": "f9184cc",
+      "reason": "Each bullet now names what shipped AND where it diverged from plan. The agent corrected the brief it was given: the test module DOES carry a skipif on MARKITDOWN_SUPPORT, it simply never fires because the extra is installed. The orchestrator then caught a residual omission - the bullet said six extension-list copies but enumerated five, missing test_mcp_startup.py:793."
+    },
+    {
+      "id": "refresh-or-delete-spent-handoff-doc",
+      "title": "whats-next.md was spent - keyed to 03d8306 with every item closed",
+      "closed_by": "f9184cc",
+      "reason": "Rewritten as a 34-line pointer rather than deleted, since the file is untracked and a deletion is unrecoverable from git. NOTE: whats-next.md itself remains UNTRACKED, so no commit carries its contents - f9184cc carries the runs.jsonl line recording the work, not the artifact."
+    },
+    {
+      "id": "graphify-manifest-unrefreshable",
+      "title": "graphify-out/ cannot be refreshed - rebuild or gitignore",
+      "closed_by": "f9184cc",
+      "reason": "Human chose gitignore, and graphify-out/ was added to .gitignore beside .tokensave/ (f9184cc) - that still stands. BUT THE PREMISE WAS WRONG: the graph was not unrefreshable, it was pointed at a Git Bash path stored in .graphify_root. Fixed in one line after the user asked why it failed; `graphify update` now rebuilds 4415 nodes. See runs.jsonl id graphify-root-path-msys-bug."
+    },
+    {
+      "id": "claude-md-hazard-says-uncommitted-but-is-in-head",
+      "title": "The hazards array asserted CLAUDE.md's '## Task observation' block was uncommitted; it is in HEAD",
+      "closed_by": "f9184cc",
+      "reason": "Corrected in the hazards array and now committed (whattask.json is tracked). The old entry said `git checkout -- CLAUDE.md` would revert uncommitted content; an agent ran that checkout believing it and was safe only because the hazard was false. The corrected entry carries the check that settles it: `git show HEAD:<path>`."
     }
   ]
 }

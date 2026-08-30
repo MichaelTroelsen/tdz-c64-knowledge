@@ -13,6 +13,15 @@ import.
 import re
 
 
+# The separator _extract_pdf_text injects between pages. It is LOAD-BEARING in the
+# extracted text - kb/ingest/_documents.py counts these markers to estimate a chunk's
+# page number - so it must never be removed from the text itself. But it is NOT part
+# of the document's content, and _generate_doc_id must strip it before hashing: the
+# markers are words the extractor invented, and hashing them meant the same content
+# ingested as .txt and as .pdf produced different ids and could never dedupe.
+PDF_PAGE_BREAK = '--- PAGE BREAK ---'
+
+
 def _expand_brace_pattern(pattern: str) -> list[str]:
     """Expand a shell-style brace glob into the list of plain globs it means.
 

@@ -1494,6 +1494,31 @@ class _DocumentsMixin:
         # Find all URL-sourced documents
         url_docs = [doc for doc in self.documents.values() if doc.source_url]
 
+        # Fail fast on any document whose recorded filepath has fallen
+        # outside the allowed directories (e.g. ALLOWED_DOCS_DIRS was
+        # narrowed after the document was indexed, or it was repointed).
+        # Without this, such a document proceeds straight into network
+        # calls (HEAD request, structure discovery) that have no overall
+        # time budget - issue #17 reported a 1800s hang on a scheduled run
+        # instead of the config error this actually is. Reject it here,
+        # before any request is made, rather than letting it join the
+        # sessions below.
+        allowed_url_docs = []
+        for doc in url_docs:
+            if not self._is_path_allowed(doc.filepath):
+                self.logger.error(
+                    f"Security violation: Path outside allowed directories: {doc.filepath}"
+                )
+                results['failed'].append({
+                    'doc_id': doc.doc_id,
+                    'title': doc.title,
+                    'url': doc.source_url,
+                    'error': f"Path outside allowed directories: {doc.filepath}"
+                })
+                continue
+            allowed_url_docs.append(doc)
+        url_docs = allowed_url_docs
+
         if not url_docs:
             self.logger.info("No URL-sourced documents to check")
             return results

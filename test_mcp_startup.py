@@ -154,6 +154,21 @@ def test_handshake_completes_within_budget(data_dir):
     assert elapsed < HANDSHAKE_BUDGET_S, f"handshake took {elapsed:.1f}s"
 
 
+def test_serverinfo_reports_project_version(data_dir):
+    """serverInfo.version must be the project version, not the installed mcp SDK's."""
+    from version import __version__
+
+    with MCPSession(data_dir) as s:
+        response, _ = s.initialize(timeout=HANDSHAKE_BUDGET_S)
+
+    assert response is not None, "handshake failed"
+    assert "result" in response, f"initialize returned an error: {response}"
+    server_info = response["result"]["serverInfo"]
+    assert server_info["version"] == __version__, (
+        f"serverInfo.version={server_info['version']!r} != version.__version__={__version__!r}"
+    )
+
+
 def test_tools_list_after_handshake(data_dir):
     """The server must actually serve its tool list, not just handshake."""
     with MCPSession(data_dir) as s:
@@ -1277,6 +1292,40 @@ def test_http_transport_completes_initialize(data_dir):
     # The whole tool surface must survive the transport swap - server.run() is
     # transport-agnostic, so a drop here means the registration path broke.
     assert tool_count > 50, tool_count
+
+
+def test_http_transport_bare_mcp_path_does_not_redirect(data_dir):
+    """The startup log advertises the bare '/mcp' path. A client that doesn't
+    follow redirects, or that downgrades POST to GET across one, must still
+    get a working response there - not a 307 to '/mcp/'. Both the bare and
+    the trailing-slash form must answer 200 with no redirect hop."""
+    import http.client
+    from urllib.parse import urlsplit
+
+    body = (
+        b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{'
+        b'"protocolVersion":"2025-06-18","capabilities":{},'
+        b'"clientInfo":{"name":"redirect-probe","version":"0"}}}'
+    )
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+
+    with HTTPServerProc(data_dir) as srv:
+        parts = urlsplit(srv.url)
+        assert parts.path == "/mcp", srv.url  # matches what the startup log advertises
+        for path in (parts.path, parts.path + "/"):
+            conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=30)
+            try:
+                conn.request("POST", path, body=body, headers=headers)
+                resp = conn.getresponse()
+                resp.read()
+                assert resp.status == 200, (
+                    path, resp.status, resp.getheader("Location"), srv.output[-2000:]
+                )
+            finally:
+                conn.close()
 
 
 def test_http_transport_rejects_a_bad_api_key(data_dir):

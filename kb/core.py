@@ -21,6 +21,7 @@ from models import DocumentMeta
 from models import KnowledgeBaseError
 from pathlib import Path
 from text_utils import PDF_PAGE_BREAK
+from typing import NamedTuple
 from typing import Optional
 from util import _cross_process_lock
 from version import __build_date__
@@ -33,6 +34,19 @@ import queue
 import sqlite3
 import sys
 import threading
+
+
+class CorpusSignature(NamedTuple):
+    """State of the only two tables this process caches in memory.
+
+    Compared against the previous one to tell "a peer changed the corpus"
+    (reload, drop chunks/BM25/caches) apart from "a peer wrote a telemetry
+    row" (do nothing) - see CoreMixin._corpus_signature.
+    """
+    doc_count: int
+    doc_digest: str
+    chunk_count: int
+    chunk_max_rowid: int
 
 
 class CoreMixin:
@@ -281,6 +295,9 @@ class CoreMixin:
         # Load documents (with automatic migration if needed)
         self._load_documents()
         self._documents_data_version = self._current_data_version()
+        # Baseline for _sync_documents_if_needed's second gate: what the
+        # corpus looked like when self.documents was last known correct.
+        self._corpus_sig = self._corpus_signature()
         self.logger.info(f"Loaded {len(self.documents)} documents")
 
         # Initialize background entity extraction queue
@@ -1760,15 +1777,91 @@ class CoreMixin:
 
         PRAGMA data_version increments whenever a DIFFERENT connection
         commits a change to this database file, but does NOT change for
-        commits made by this connection itself - exactly the signal needed
-        to detect "another agent process changed something" without a
-        schema change (a new revision column) and without re-querying the
-        documents table on every call just to check.
+        commits made by this connection itself - a cheap first gate on
+        "another agent process changed something", without a schema change
+        (a new revision column).
+
+        It is only a GATE, not the answer: it cannot say WHAT the peer
+        changed, and a peer server.py process commits two telemetry rows
+        (mcp_call_log via _log_mcp_call, search_log via _log_search) on
+        every single tool call. _corpus_signature() answers the question
+        this pragma cannot.
         """
         try:
             return self.db_conn.execute("PRAGMA data_version").fetchone()[0]
         except sqlite3.Error:
             return None
+
+    def _documents_signature_sql(self) -> str:
+        """SQL that hashes the whole documents table into one row.
+
+        Built from PRAGMA table_info rather than a hard-coded column list so
+        a migration that adds a column is covered automatically instead of
+        silently dropping out of the fingerprint. ORDER BY doc_id keeps the
+        concatenation independent of whichever scan order the planner picks.
+        """
+        columns = [row[1] for row in self.db_conn.execute("PRAGMA table_info(documents)")]
+        row_expr = " || '\x1f' || ".join(
+            f"COALESCE(CAST(\"{col}\" AS TEXT), '')" for col in columns
+        )
+        return (
+            "SELECT COUNT(*), COALESCE(group_concat(v, '\x1e'), '') FROM "
+            f"(SELECT {row_expr} AS v FROM documents ORDER BY doc_id)"
+        )
+
+    def _corpus_signature(self) -> Optional["CorpusSignature"]:
+        """Fingerprint of the two tables this process caches, or None on error.
+
+        PRAGMA data_version alone is far too blunt to drive cache
+        invalidation: it bumps on ANY commit by ANY other connection, and
+        every peer server.py process commits an mcp_call_log row and a
+        search_log row per tool call. Driving the invalidation branch
+        straight off it therefore threw away self.chunks, self.bm25 and
+        every search cache on essentially every search as soon as a second
+        client was live - for writes that cannot change a single search
+        result. (Measured 2026-09-20 on the production instance: "All
+        search result caches invalidated" in server.log before every probe,
+        BM25 rebuilds ~265 s, fts5 averaging 5776 ms against semantic's
+        84 ms.)
+
+        This narrows "did anyone commit anything" to "did the corpus
+        change":
+
+          - documents: every row, every column, hashed. Exact, so an
+            in-place UPDATE (retitle, repoint, tag or supersede - see
+            kb/ingest/_documents.py) is caught, not just insert/delete.
+            Missing one of those would make a peer's edit invisible here,
+            which is the failure this whole sync path exists to prevent.
+          - chunks: row count plus highest rowid. Nothing updates a chunk
+            row in place (chunks are only inserted with a document and
+            deleted with it), so count+max(rowid) covers every mutation
+            that can happen, and unlike a content hash it does not scan the
+            largest table in the database.
+
+        Cost, measured 2026-09-20 against the 459 MB production database
+        (1138 documents, 9318 chunks): ~3.7 ms per changed-data_version
+        check - and by construction strictly cheaper than the
+        _reload_documents() + BM25 rebuild it prevents, since it reads a
+        subset of the same rows.
+        """
+        try:
+            doc_count, doc_blob = self.db_conn.execute(
+                self._documents_signature_sql()
+            ).fetchone()
+            chunk_count, chunk_max_rowid = self.db_conn.execute(
+                "SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM chunks"
+            ).fetchone()
+        except sqlite3.Error:
+            return None
+
+        return CorpusSignature(
+            doc_count=doc_count,
+            doc_digest=hashlib.blake2b(
+                doc_blob.encode("utf-8", "surrogatepass"), digest_size=16
+            ).hexdigest(),
+            chunk_count=chunk_count,
+            chunk_max_rowid=chunk_max_rowid,
+        )
 
     def _reload_documents(self):
         """Authoritative refresh of self.documents from the database.
@@ -1816,28 +1909,73 @@ class CoreMixin:
         hybrid_search, get_document, list_documents, get_stats) - a single
         cheap PRAGMA query on every call, and a full reload only on the rare
         call where something actually changed.
+
+        "Something actually changed" is decided in two steps, and the second
+        one is not optional: PRAGMA data_version bumps for a peer's
+        mcp_call_log/search_log row just as readily as for a peer's
+        document, so on the pragma alone the invalidation branch ran on
+        essentially every search whenever two clients were live. Only a
+        change to the corpus itself (_corpus_signature) may cost a reload.
+
+        The signature is compared against a BASELINE taken at the last
+        reload, and this process's own writes move the corpus without ever
+        moving their own data_version - so the baseline can go stale and,
+        worse, can go stale in a way that compares EQUAL: add a document
+        here, let a peer remove it, and disk is back at exactly the state
+        the baseline was taken from while self.documents still holds the
+        removed document. That ABA collision would hide the peer's deletion
+        (test_documents_refresh_drops_a_peer_removed_document pins it), so
+        the signature is also cross-checked against what this process has in
+        memory right now - a document count disk and self.documents must
+        agree on, which no ABA can satisfy.
+
+        (Cross-checking memory, rather than counting this connection's own
+        writes with db_conn.total_changes, is deliberate: _log_mcp_call and
+        _log_search write telemetry through THIS connection on every tool
+        call, so total_changes advances constantly for writes that mean
+        nothing here, and keying off it would reload just as relentlessly
+        as the raw pragma did.)
         """
         version = self._current_data_version()
         if version is None:
             return
-        if version != self._documents_data_version:
-            self._documents_data_version = version
-            self._reload_documents()
+        if version == self._documents_data_version:
+            return
 
-            # self.chunks/self.bm25 have the identical staleness problem once
-            # loaded in this process (_build_bm25_index only reloads chunks
-            # from the DB when self.chunks is empty - see
-            # reconcile_chunk_cache for the same reasoning). Clearing them
-            # here piggybacks on the same change-detection signal instead of
-            # needing a second one; this mirrors what add_document/
-            # remove_document already do for THEIR OWN writes, just extended
-            # to writes made by a peer process.
-            if self.chunks:
-                self.chunks = []
-            self.bm25 = None
-            self._invalidate_caches()
+        self._documents_data_version = version
 
-            self.logger.debug(f"Refreshed documents cache ({len(self.documents)} docs) - detected change from another process")
+        # A peer committed something. If it left documents and chunks
+        # untouched it was telemetry (or any other table this process does
+        # not cache) and there is nothing here to refresh.
+        signature = self._corpus_signature()
+        if (signature is not None
+                and signature == self._corpus_sig
+                and signature.doc_count == len(self.documents)):
+            self.logger.debug(
+                "Peer commit did not touch documents/chunks - caches kept"
+            )
+            return
+
+        # None means the signature query itself failed; fall through and
+        # reload, because a stale cache is worse than a wasted reload.
+        self._corpus_sig = signature
+
+        self._reload_documents()
+
+        # self.chunks/self.bm25 have the identical staleness problem once
+        # loaded in this process (_build_bm25_index only reloads chunks
+        # from the DB when self.chunks is empty - see
+        # reconcile_chunk_cache for the same reasoning). Clearing them
+        # here piggybacks on the same change-detection signal instead of
+        # needing a second one; this mirrors what add_document/
+        # remove_document already do for THEIR OWN writes, just extended
+        # to writes made by a peer process.
+        if self.chunks:
+            self.chunks = []
+        self.bm25 = None
+        self._invalidate_caches()
+
+        self.logger.debug(f"Refreshed documents cache ({len(self.documents)} docs) - detected change from another process")
 
     def _load_documents(self):
         """Load documents from database, with automatic migration from JSON if needed."""

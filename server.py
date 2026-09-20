@@ -172,7 +172,7 @@ class KnowledgeBase(IngestMixin, FiguresMixin, SearchMixin, EntitiesMixin, Graph
 
 
 # Initialize the MCP server
-server = Server("tdz-c64-knowledge")
+server = Server("tdz-c64-knowledge", version=__version__)
 
 # Get data directory from environment or use default
 DATA_DIR = os.environ.get("TDZ_DATA_DIR", os.path.expanduser("~/.tdz-c64-knowledge"))
@@ -477,7 +477,7 @@ async def _run_http(host: str, port: int) -> None:
 
     import uvicorn
     from starlette.applications import Starlette
-    from starlette.routing import Mount
+    from starlette.routing import Route
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
     global _tool_call_lock
@@ -510,8 +510,16 @@ async def _run_http(host: str, port: int) -> None:
         security_settings=_transport_security_settings(host, port, logger),
     )
 
-    async def handle_mcp(scope, receive, send):
-        await session_manager.handle_request(scope, receive, send)
+    class _MCPASGIApp:
+        # A class instance, not a bare function: Starlette's Route treats a
+        # plain function endpoint as a request/response handler (wrapping it
+        # via request_response(), which expects a Request and a Response) but
+        # uses a non-function endpoint directly as an ASGI app, which is what
+        # session_manager.handle_request needs (raw scope/receive/send).
+        async def __call__(self, scope, receive, send):
+            await session_manager.handle_request(scope, receive, send)
+
+    handle_mcp = _MCPASGIApp()
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
@@ -519,7 +527,19 @@ async def _run_http(host: str, port: int) -> None:
             yield
 
     app = _ApiKeyMiddleware(
-        Starlette(routes=[Mount('/mcp', app=handle_mcp)], lifespan=lifespan),
+        Starlette(
+            # Two explicit routes, not Mount('/mcp', ...): Starlette's Mount
+            # 307-redirects the bare prefix ('/mcp') to the slashed form
+            # ('/mcp/'), but this server's own startup log advertises the
+            # bare path. session_manager.handle_request does not do any
+            # further path-based routing of its own, so both routes point at
+            # the same ASGI app with no redirect hop either way.
+            routes=[
+                Route('/mcp', endpoint=handle_mcp),
+                Route('/mcp/', endpoint=handle_mcp),
+            ],
+            lifespan=lifespan,
+        ),
         api_keys,
     )
 

@@ -27,6 +27,7 @@ Run with:  pytest test_embeddings_reliability.py -v
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -429,3 +430,150 @@ def test_own_writes_do_not_trigger_a_needless_reload(semantic_kb, temp_data_dir)
         "_sync_documents_if_needed would now do a full reload on every "
         "single call this process makes, not just when a peer writes"
     )
+
+
+# ---------------------------------------------------------------------------
+# 7. A peer's TELEMETRY row must not cost this process its caches.
+#
+# PRAGMA data_version is blunt: it bumps for ANY commit by any other
+# connection. Every peer server.py process commits two rows per tool call -
+# one to mcp_call_log (_log_mcp_call) and one to search_log (_log_search) -
+# so driving cache invalidation straight off the pragma dropped self.chunks,
+# self.bm25 and every search cache on essentially every search as soon as a
+# second client was live, and the BM25 index (~265s to rebuild against the
+# production corpus) never survived long enough to be used twice.
+#
+# The boundary that must hold: "a peer changed the document/chunk corpus"
+# invalidates, "a peer wrote a telemetry row" does not.
+# ---------------------------------------------------------------------------
+
+def _peer_connection(kb):
+    """A second sqlite3 connection to the same database file.
+
+    Faithful stand-in for a peer server.py process: data_version is
+    per-CONNECTION, so what this connection commits looks to kb exactly like
+    what another process commits.
+    """
+    conn = sqlite3.connect(str(kb.db_file), timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def _warm_up(kb, temp_data_dir):
+    """Put kb into the state a busy server is in, with a settled baseline."""
+    kb.add_document(_write_doc(
+        temp_data_dir, "warm.txt",
+        "The VIC-II raster interrupt fires at the top of the border."))
+
+    # kb's OWN commit never moves its own data_version, so force the
+    # re-check that settles the change-detection baseline against what is
+    # now on disk before the peer writes anything.
+    kb._documents_data_version = None
+    kb._sync_documents_if_needed()
+
+    kb._build_bm25_index()
+    assert kb.chunks, "test setup: chunks must be loaded"
+    assert kb.bm25 is not None, "test setup: BM25 index must be built"
+    assert kb._search_cache is not None, "test setup: search caching must be enabled"
+    kb._search_cache["probe"] = "warm"
+
+
+def _peer_writes_telemetry(peer):
+    peer.execute(
+        "INSERT INTO mcp_call_log (tool_name, called_at, duration_ms, success, error_message, args_summary) "
+        "VALUES ('search_docs', '2026-09-20T12:00:00', 12.5, 1, NULL, 'query=VIC-II')")
+    peer.execute(
+        "INSERT INTO search_log (timestamp, query, search_mode, results_count, execution_time_ms) "
+        "VALUES ('2026-09-20T12:00:00', 'VIC-II', 'fts5', 3, 12.5)")
+    peer.commit()
+
+
+def test_peer_telemetry_write_does_not_invalidate_chunks_bm25_or_caches(semantic_kb, temp_data_dir):
+    """Regression: a peer's mcp_call_log/search_log row bumped data_version,
+    and _sync_documents_if_needed treated that as "the corpus changed" -
+    clearing self.chunks, self.bm25 and every search cache on essentially
+    every search whenever two clients were live.
+    """
+    _warm_up(semantic_kb, temp_data_dir)
+    peer = _peer_connection(semantic_kb)
+    try:
+        version_before = semantic_kb._current_data_version()
+        _peer_writes_telemetry(peer)
+
+        assert semantic_kb._current_data_version() != version_before, (
+            "test setup: a peer's telemetry commit MUST bump PRAGMA data_version - "
+            "that bluntness is the entire reason this case exists"
+        )
+
+        semantic_kb._sync_documents_if_needed()
+
+        assert semantic_kb.chunks, (
+            "a peer's telemetry row cleared self.chunks - every search now "
+            "reloads the whole chunk table from the database"
+        )
+        assert semantic_kb.bm25 is not None, (
+            "a peer's telemetry row dropped the BM25 index, which costs ~265s "
+            "to rebuild against the production corpus"
+        )
+        assert semantic_kb._search_cache.get("probe") == "warm", (
+            "a peer's telemetry row invalidated the search result caches"
+        )
+    finally:
+        peer.close()
+
+
+def test_peer_document_insert_still_invalidates_and_becomes_visible(semantic_kb, temp_data_dir):
+    """The other half of the boundary: narrowing the signal must NOT make a
+    peer's document invisible. A commit to the documents table from the same
+    second connection must still reload and still invalidate.
+    """
+    _warm_up(semantic_kb, temp_data_dir)
+    peer = _peer_connection(semantic_kb)
+    try:
+        peer.execute(
+            "INSERT INTO documents (doc_id, filename, title, filepath, file_type, "
+            "total_pages, total_chunks, indexed_at, tags) VALUES "
+            "('peerdoc0001', 'peer.txt', 'Peer SID document', '/tmp/peer_sid.txt', "
+            "'txt', 1, 0, '2026-09-20T12:00:00', '[]')")
+        peer.commit()
+
+        semantic_kb._sync_documents_if_needed()
+
+        assert 'peerdoc0001' in semantic_kb.documents, (
+            "a peer's document stayed invisible - the change-detection signal "
+            "was narrowed too far and no longer reports the documents table"
+        )
+        assert not semantic_kb.chunks, "peer document insert did not clear self.chunks"
+        assert semantic_kb.bm25 is None, "peer document insert did not drop the stale BM25 index"
+        assert semantic_kb._search_cache.get("probe") is None, (
+            "peer document insert did not invalidate the search result caches"
+        )
+    finally:
+        peer.close()
+
+
+def test_peer_chunk_insert_still_invalidates(semantic_kb, temp_data_dir):
+    """A peer can write chunks without touching the documents row (the
+    documents row's total_chunks is written in the same transaction, but a
+    chunk-only commit must invalidate on its own merits - the BM25 index and
+    self.chunks are built from that table).
+    """
+    _warm_up(semantic_kb, temp_data_dir)
+    doc_id = next(iter(semantic_kb.documents))
+    peer = _peer_connection(semantic_kb)
+    try:
+        peer.execute(
+            "INSERT INTO chunks (doc_id, chunk_id, page, content, word_count) "
+            "VALUES (?, 9999, 1, 'A chunk a peer process appended.', 6)",
+            (doc_id,))
+        peer.commit()
+
+        semantic_kb._sync_documents_if_needed()
+
+        assert not semantic_kb.chunks, "peer chunk insert did not clear self.chunks"
+        assert semantic_kb.bm25 is None, "peer chunk insert did not drop the stale BM25 index"
+        assert semantic_kb._search_cache.get("probe") is None, (
+            "peer chunk insert did not invalidate the search result caches"
+        )
+    finally:
+        peer.close()

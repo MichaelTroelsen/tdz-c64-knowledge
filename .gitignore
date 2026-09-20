@@ -70,6 +70,7 @@ test_*.py
 !/test_extract_snippet.py
 !/test_markitdown_ingest.py
 !/test_doc_id_dedup.py
+!/test_check_url_updates.py
 
 # Un-ignore the archived test suite (archive/tests/) so it can be tracked.
 # Scoped to that subdirectory specifically — NOT an unanchored basename

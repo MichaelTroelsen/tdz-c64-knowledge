@@ -126,7 +126,22 @@ wiki_test/
 .tokensave/
 
 # graphify knowledge-graph output - a rebuildable local artifact, not shared state.
-# Its manifest.json carries no root key, so `graphify update` resolves a mangled path
-# and reports "No code files found"; the graph cannot be refreshed in place. Rebuild
-# with /graphify if it is wanted again. Dependency questions go through tokensave.
+# CORRECTED 2026-09-20: the previous comment here said the graph "cannot be refreshed
+# in place" because manifest.json carries no root key. That was wrong twice over - the
+# root lives in graphify-out/.graphify_root, not the manifest, and it held a Git Bash
+# path that native Windows Python resolved to a real but code-free shadow directory, so
+# graphify honestly reported "No code files found". Fixed in one line; `graphify update`
+# refreshes it fine now. Still ignored because it is a local cache, not because it is dead.
 graphify-out/
+
+# Orchestration scratch under .claude/tasks/. The three files that ARE tracked there -
+# whattask.json, runs.jsonl, decisions.jsonl - are the durable record and stay tracked.
+# These two are neither durable nor shared:
+#   serial.lock   the lock holder registry, machine-local and pid-bearing. It holds "[]"
+#                 when idle, so it always exists and always differs between machines.
+#   interview.json  /runhuman's research cache. It holds questions it is ABOUT to ask,
+#                 never answers - answers go to decisions.jsonl - so it is safe to
+#                 delete at any time, at the cost of redoing the research.
+.claude/tasks/serial.lock
+.claude/tasks/serial.lock.d/
+.claude/tasks/interview.json

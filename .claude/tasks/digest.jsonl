@@ -38,7 +38,7 @@
 {"id":"figure-ocr-availability-discrepancy","summary":null}
 {"id":"figure-ocr-status-reachability","summary":null}
 {"id":"figure-ocr-unavailable-message-misleading","summary":null}
-{"id":"forty-six-searches-logged-started-and-never-completed","summary":"Diagnosed the 46 non-completing searches as PROCESS DEATH, ruling out client cancellation by the thread-vs-coroutine argument and exceptions by a zero grep; confirmed the cache-invalidation fix holds across nine peer writes, and found that server.log carries no pid, which is why the evidence was ambiguous in the first place."}
+{"id":"forty-six-searches-logged-started-and-never-completed","summary":"SUPERSEDES the earlier record: the cause is not process death but a heavyweight lazy nltk/scipy import inside the unlogged window in search(), proven by a stack dump of a live blocked process and by a cancellation that produced no completion line."}
 {"id":"gitattributes-jsonl-line-endings","summary":null}
 {"id":"gitignore-blanket-test-glob-drops-new-tests","summary":null}
 {"id":"graphify-manifest-unrefreshable","summary":null}

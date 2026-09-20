@@ -1,174 +1,155 @@
 # Why 46 searches logged a start and never logged a completion
 
 **Task:** `forty-six-searches-logged-started-and-never-completed`
-**Run:** `/runqueue --until-blocked`, cycle 3, main lane, 2026-09-20
-**HEAD:** `721ea1d` on branch `doc-id-strip-page-break-markers`
-**Depends on:** `peer-telemetry-writes-invalidate-every-search-cache` (`done`) — the
-fix is in the working tree and this diagnosis was run against it.
+**First written:** 2026-09-20, `/runqueue --until-blocked` cycle 3
+**CORRECTED:** 2026-09-20, same day, after a live reproduction refuted it
+**HEAD when corrected:** `d38ec79` on branch `doc-id-strip-page-break-markers`
+
+---
+
+## Correction notice
+
+**The first version of this document said the cause was PROCESS DEATH. That was
+wrong**, and the correction is kept in full rather than quietly replaced, because
+how it was wrong is more useful than the wrong answer.
+
+It argued: `call_tool` dispatches through `asyncio.to_thread`, so a client
+cancellation cancels the awaiting coroutine and cannot kill the OS worker thread;
+a cancelled search would therefore still reach its `Search completed:` line, so
+the absence of that line rules cancellation out and leaves process death.
+
+The reasoning about threads was correct. **The conclusion did not follow**, because
+it assumed the only way to miss the log line is to stop existing. There is a third
+way: the thread can still be alive and simply never get there.
+
+What settled it was a live reproduction on a process that was **demonstrably
+alive** — it answered a `health_check` seconds earlier — exhibiting the exact
+signature. No process death required.
 
 ---
 
 ## Answer
 
-**The searches did not complete because their PROCESS DIED mid-search. It was not
-client cancellation, and it was not a server-side block.**
+**The first search in any cold process performs a heavyweight lazy import inside
+the un-instrumented window between the two log lines. That is where these searches
+disappear.**
 
-The finding that settles it is an argument from the concurrency model rather than
-from the timestamps, and it points the opposite way to what the plan recorded:
+Stack dump of a live, blocked server (`py-spy dump`, pid 71816):
 
-`call_tool` (`server.py`) dispatches every tool through
-`await asyncio.to_thread(_call_tool_impl, name, arguments)`. A client cancellation
-cancels the *awaiting coroutine*. It does **not** kill the OS worker thread — Python
-has no mechanism to do so. So a cancelled search keeps running on its thread and
-still reaches `self.logger.info("Search completed: ...")`.
+    search                (kb/search/_retrieval.py:608)
+      _preprocess_text    (kb/search/_retrieval.py:169)
+        _ensure_nltk      (features.py:94)
+          import nltk -> nltk.collocations -> nltk.metrics.association
+            -> scipy.stats -> scipy.spatial -> scipy.linalg -> scipy.linalg.blas
+              -> create_module            <-- blocked here
 
-**A cancelled request would therefore still produce a completion line.** The absence
-of one rules cancellation out as the cause, rather than merely making it less likely.
+`search()` logs `Search query:` at `_retrieval.py:599` and `Search completed:` at
+`:661`. The import chain above is entered at `:608`. Anything that stalls in there
+produces exactly one line and never the second.
 
----
-
-## The recount, done at run time
-
-Re-counted against the live `server.log`, not carried from the plan:
-
-| line | count |
-|---|---|
-| `Search query:` | 1899 |
-| `Search completed:` | 1878 |
-| **never completed** | **46** |
-| `cancelled` lines (all dates) | 25 |
-
-The plan recorded 46 and it is still 46 — no new ones have appeared since.
-
-### The gap is real, not a logging artifact
-
-This was the first hypothesis worth killing, because it would have made the whole
-task moot. It does not survive:
-
-- `Search query:` has exactly **one** producer: `kb/search/_retrieval.py`, inside
-  `search()`.
-- `Search completed:` has exactly **one** producer: the same method.
-- Between them there is **no early return**. The cache-hit branch returns *above*
-  the start line, so a cache hit produces **neither** line and cannot contribute to
-  the diff.
-
-So every unmatched start is a call to `search()` that genuinely never reached its
-own last statement.
-
-### No exception ever propagated
-
-`call_tool`'s `except` calls `kb.logger.exception(f"MCP tool {name!r} raised")`.
-
-    grep -c "MCP tool .* raised" server.log   ->  0
-    grep -c "Traceback" server.log            -> 34
-
-All 34 tracebacks are `_add_document_db` failures, unrelated to search. **No search
-tool call has ever raised.** With an exception ruled out and a normal return ruled
-out, the only remaining exit from `search()` is the process ceasing to exist.
-
-### The cancellations do not line up
-
-Of the 25 `cancelled` lines in the entire log, **23 are from 2026-08-08**. Only
-**two** fall on 2026-09-20 — Requests 5 and 6, at 17:34:57 and 17:34:59. Two
-cancellations cannot account for 46 non-completions, and per the argument above they
-would not have produced one anyway.
-
-### What directly follows an unmatched start
-
-For three of the last five unmatched searches, the next log line is a fresh
-`KnowledgeBase` startup banner:
-
-    18:13:50,648  Search query: 'self modifying code speed optimisation 6502 inner loop'
-    18:14:54,512  ============================================================
-    18:14:54,513  TDZ C64 Knowledge Base v2.24.0
-
-That is a new process starting where the previous one was mid-search.
-
-**This evidence is weaker than it looks, and the weakness is worth stating.** See
-*A defect in the evidence itself* below — adjacency in this file does not prove
-same-process causation. It is corroboration for the process-death conclusion, not
-its basis. The basis is the thread-cancellation argument at the top.
+This is not an accident of configuration. `CLAUDE.md` defers `nltk`,
+`sentence-transformers`, `torch` and `transformers` off the module level *on
+purpose*, to protect the 30 s MCP initialize handshake budget. That deferral is
+correct. But the cost does not disappear — it moves into the first search, where
+nothing bounds it and nothing logs it.
 
 ---
 
-## Does the gap survive the `kb/core.py` change?
+## The evidence, from one shared log
 
-**The cache-invalidation mechanism does not survive it. The non-completions were
-never caused by it.** These are two separate questions and the plan conflated them.
+Both outcomes appear in `server.log` minutes apart:
 
-Reproduction against the **live** 459 MB database with the fixed `kb/core.py`: warm
-the caches and the BM25 index, then issue nine searches, each immediately preceded by
-a peer connection committing a row to `mcp_call_log`.
+    19:55:12,761  Search query: 'raster interrupt stable timing' (max_results=3)
+                  ... no completion line, ever ...
+    20:00:27,093  Search query: 'raster interrupt stable timing' (max_results=3)
+    20:00:27,818  Search completed: 3 results in 724.65ms
+    20:00:27,934  Search query: 'sprite multiplexer' (max_results=3)
+    20:00:28,008  Search completed: 3 results in 74.04ms
+    20:01:01,681  Request 4 cancelled - duplicate response suppressed
 
-    PHASE 1: warm
-      chunks loaded: 9318 | bm25: True | search cache entries: 1
-      Built BM25 index with 9318 chunks - Total: 95.10s (tokenize: 92.45s)
+Same query, same corpus, same code. The 19:55 call was the stdio server's first
+search; the 20:00 calls went to a separate HTTP server process that had already
+been running. **724 ms against nine minutes and counting.**
 
-    PHASE 2: peer telemetry write, then a search
-      before (chunks, bm25, cache): (9318, True, 1)
-      after  (chunks, bm25, cache): (9318, True, 2)
-      survived: True | 5 results | 182 ms
+### The cancellation line is the decisive one
 
-    PHASE 3: 8 searches, each preceded by a peer telemetry commit
-      'rotozoom'                              1 hits   145.5 ms
-      'raster interrupt stable timing'        5 hits     7.2 ms
-      'SID filter cutoff resonance'           5 hits   177.2 ms
-      'sprite multiplexer'                    5 hits   171.4 ms
-      'rotozoom'                              1 hits     6.4 ms
-      'VIC-II bad line'                       5 hits   174.4 ms
-      'self modifying code 6502'              5 hits   161.5 ms
-      'rotozoom texture mapping optimisation' 5 hits   172.8 ms
+`20:01:01` is the 19:55 request being cancelled — I stopped it by hand. **No
+completion line followed it.**
 
-    PHASE 4: chunks: 9318 | bm25 built: True
-             searches that failed to complete: 0
+That is a direct test of the original argument, and it fails. The claim was that a
+cancelled request still logs its completion because the worker thread survives
+cancellation. The thread did survive. It still logged nothing, because it was
+blocked in a kernel wait and could not reach the statement. "The thread keeps
+running" is true and useless when the thread is not running.
 
-Before the fix every one of those nine commits would have cleared `self.chunks`, set
-`self.bm25` to `None` and flushed the search cache. After it, the chunk set and the
-index survive all nine, and the cache **grows** (1 → 2) instead of emptying. The
-repeated queries drop to single-digit milliseconds (145.5 → 6.4, and 7.2) because the
-cache is now allowed to hold.
+### The process was idle, not slow
 
-**The BM25 rebuild cost is now measured rather than estimated: 95.10 s, of which
-92.45 s is tokenising 9318 chunks.** That is what each peer telemetry write was
-throwing away. Earlier records in this repo put it at "~265 s"; 95 s is the measured
-figure on this machine at this corpus size, and it should replace the estimate.
+Measured while blocked:
 
-Zero of the nine searches failed to complete.
+| sample | CPU total | working set | stack |
+|---|---|---|---|
+| 19:59:58 | 1.2 s | 158 MB | identical |
+| 20:00:03 | 1.2 s | 158 MB | identical |
 
----
+Zero CPU accumulated over five seconds, no memory growth, byte-identical stack
+across repeated samples 4 s apart. A kernel wait, not computation.
 
-## A defect in the evidence itself
+### Recount
 
-`kb/core.py` configures logging with
-
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-
-There is **no `%(process)d`**, and every `server.py` process appends to the same
-`server.log`. Six server processes were alive during this investigation. Their lines
-interleave in one file with nothing to tell them apart.
-
-This is why the adjacency analysis above is corroboration rather than proof, and it
-is the single change that would make the next investigation of this class cheap:
-**add the pid to the log format.** Without it, "what happened next" is unanswerable
-whenever more than one server is running — which, given the server is registered in
-`~/.claude.json` at user scope, is essentially always.
+Re-counted at run time against the live log: **1899** `Search query:`, **1878**
+`Search completed:`, **46** never completed. `Search query:` and
+`Search completed:` have exactly one producer each, both inside `search()`, with
+no early return between them — the cache-hit branch returns *above* the start
+line, so a cache hit emits neither and cannot inflate the diff. The gap is real.
 
 ---
 
-## What was NOT established
+## What is still NOT known, and it matters
 
-Stated plainly rather than papered over:
+**Why that particular process's DLL load wedged is unexplained.** Three
+measurements argue it is not inherent to the import:
 
-- **Why** those processes died. Nothing in this repo's logs records a process exit
-  reason, and the processes in question are long gone. The behaviour is not currently
-  reproducing.
-- **Which client** was driving them. The task
-  `a-client-spawns-a-new-server-process-per-tool-call` was cancelled by human decision
-  on exactly this ground; that decision and its evidence are in `decisions.jsonl`.
-- Whether the 23 cancellations on 2026-08-08 share this cause. They are outside this
-  task's window and were not investigated.
+- the identical first search on a different fresh process: **0.815 s**
+- `import nltk` + `nltk.collocations` in a fresh interpreter: **1.1 s**
+- the same import driven through `asyncio.to_thread`, mirroring what `server.py`
+  does: **0.9 s** — which refutes the obvious "imports deadlock on worker threads"
+  hypothesis outright
 
-## Recommendation
+Only one thread in the blocked process was importing, so it is not a two-thread
+import deadlock either, and every other thread was idle, so nothing held the GIL.
+Something stalled inside `create_module` — a C-extension `LoadLibrary` — and this
+document does not claim to know what.
 
-One change, small and decidable now: **put `%(process)d` in the log format.** Every
-other question in this class is unanswerable without it, and it costs one line.
+So the honest statement is two-part: **the window is the defect and is fully
+established; the trigger that wedged one process inside it is not.** A fix that
+bounds or instruments the window is worth doing regardless of the trigger, which
+is what makes the unknown tolerable rather than blocking.
+
+Also not established: why the historical processes died, and which client drove
+them. The task `a-client-spawns-a-new-server-process-per-tool-call` was cancelled
+by human decision on that ground.
+
+---
+
+## Recommendations
+
+Two, in order of value:
+
+1. **Instrument the window.** Log immediately before and after `_preprocess_text`
+   on the first call, or warm `_ensure_nltk` at startup behind an explicit flag so
+   the cost is paid where the 30 s budget can see it. Today a search that dies in
+   there is indistinguishable in the log from one that was never dispatched.
+
+2. **Put `%(process)d` in the log format.** `kb/core.py` configures
+   `format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'` and every
+   `server.py` process appends to the same `server.log`. Six were alive during this
+   investigation. Without a pid, "what happened next" is unanswerable whenever more
+   than one server runs — and since the server is registered in `~/.claude.json` at
+   user scope, that is essentially always. This is tracked as
+   `log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable`.
+
+That second point is also why the first version of this document reached the wrong
+conclusion. Its process-death claim rested partly on observing a fresh startup
+banner immediately after several unmatched starts. In a single-pid-less log shared
+by six processes, adjacency proves nothing about causation — a caveat the original
+did state, then leaned on anyway.

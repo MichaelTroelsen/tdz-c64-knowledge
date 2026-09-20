@@ -49,7 +49,8 @@
     "MEASURED 2026-09-20: the Server(...) construction in server.py passes no version, so the MCP SDK falls back to pkg_version('mcp') and every client is told the SDK's version rather than version.__version__. Do not read a client-reported serverInfo.version as this project's version.",
     "MEASURED 2026-09-20 and it CORRECTS AN ESTIMATE THIS REPO CARRIED: the BM25 index rebuild is 95.10s, of which 92.45s is tokenising 9318 chunks - not the '~265s' earlier records state. Re-measure before writing either figure anywhere.",
     "THE MCP TOOL NAMED check_updates CALLS kb.check_all_updates (via handle_check_updates in mcp_tools/admin.py); kb.check_url_updates belongs to a DIFFERENT tool registered in mcp_tools/documents.py. The two were conflated in a plan record and in issue #17 itself, and a task consequently fixed a real gap in the method the issue does not name. check_all_updates is purely local - os.path.exists, needs_reindex and a try/except'd re-index - and consults no allowlist and makes no network call, so it cannot hang on a disallowed path.",
-    "server.log is appended to by EVERY server.py process and kb/core.py's format string carries no %(process)d, so concurrent sessions' lines interleave indistinguishably. Six servers were alive during one investigation. NEVER infer same-process causation from adjacency in that file - that reasoning produced two wrong attributions in a single session."
+    "server.log is appended to by EVERY server.py process and kb/core.py's format string carries no %(process)d, so concurrent sessions' lines interleave indistinguishably. Six servers were alive during one investigation. NEVER infer same-process causation from adjacency in that file - that reasoning produced two wrong attributions in a single session.",
+    "MEASURED 2026-09-20 AND IT CORRECTS A CONCLUSION THIS REPO COMMITTED THE SAME DAY: a search that logs 'Search query:' and never 'Search completed:' is NOT evidence of process death. search() enters _preprocess_text -> _ensure_nltk between those two lines, and the first call in a cold process imports nltk plus its whole scipy chain there. A live, healthy process was observed blocked in that import for 8m52s with CPU flat at 1.2s and an identical stack, while a sibling process ran the identical query in 724ms. Cancelling the blocked request produced NO completion line, which refutes the thread-survives-cancellation argument that the wrong conclusion rested on. WHY THE WINDOW IS INVISIBLE: there is no instrumentation between the two log lines, so a search dying in there is indistinguishable from one never dispatched."
   ],
   "external_locks": [],
   "tasks": [
@@ -83,7 +84,7 @@
       "model": "sonnet",
       "effort": "low",
       "mode": "subtask",
-      "lane": "parallel",
+      "lane": "serial",
       "touches": [
         "rw:kb/core.py",
         "rw:test_mcp_startup.py"
@@ -100,7 +101,7 @@
       "why_model": "a one-argument change to a format string with an existing test harness to hang the assertion on, and the defect and its consequence are already written down",
       "why_effort": "nothing left to derive - the single basicConfig call site is located, no test reads the format, and the fix is one placeholder; getting it wrong is cheap to notice and cheap to redo",
       "why_mode": "SUBTASK: one line in one file plus one assertion, with a mechanical done-condition",
-      "why_lane": "PARALLEL: rw:kb/core.py and rw:test_mcp_startup.py overlap no other task's paths in this plan"
+      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps first-search-lazy-import-is-unbounded-and-unlogged, which also writes that file"
     },
     {
       "id": "issue-17-second-half-rests-on-a-false-premise",
@@ -133,6 +134,33 @@
       "why_effort": "a premise this repo has already got wrong once - the previous task fixed a real gap in the wrong method because the issue's wording and my own plan both conflated two similarly-named tools - so the expensive failure is a confident answer about the wrong code path again",
       "why_mode": "MAIN: the deliverable is a judgement about which of two tools the reporter used and whether what they saw was a defect at all, and the measurement touches the live shared database",
       "why_lane": "SERIAL: rw:knowledge_base.db is the live database named in hazards and shared by every running server.py process - a stateful singleton the overlap test cannot see - and the task's wall-clock measurement is destroyed by concurrent load"
+    },
+    {
+      "id": "first-search-lazy-import-is-unbounded-and-unlogged",
+      "title": "The first search in any cold process imports nltk and its scipy chain inside the unlogged window in search(), where nothing bounds it",
+      "source": "opened by the corrected forty-six-searches-logged-started-and-never-completed record (runs.jsonl, head d38ec79)",
+      "model": "opus",
+      "effort": "high",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/search/_retrieval.py",
+        "rw:features.py",
+        "rw:test_mcp_startup.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "fork": null,
+      "branch": null,
+      "blocked_on": null,
+      "decision": null,
+      "verify": "A search that stalls inside the lazy-import chain is DISTINGUISHABLE IN THE LOG from one that was never dispatched, which it is not today. search() logs its start and its completion with no instrumentation between them, and _preprocess_text enters `_ensure_nltk` in that gap - grep kb/search/_retrieval.py for `_ensure_nltk` and features.py for the import it performs, rather than trusting any line number, because earlier edits have shifted these repeatedly. At minimum the first call must emit a log line before and after that import naming what is being loaded and how long it took. THE HANDSHAKE BUDGET IS THE CONSTRAINT THAT MAKES THIS NON-TRIVIAL and must not be traded away: CLAUDE.md defers nltk, sentence-transformers, torch and transformers off the module level to keep the MCP initialize handshake inside 30s, and test_mcp_startup.py enforces that with a FORBIDDEN_AT_STARTUP list - so moving the import to module scope is NOT an acceptable fix, and the existing startup cases must still pass. If warming is done at all it must be behind an explicit opt-in flag, off by default, with the startup cost measured and reported rather than assumed. test_mcp_startup.py gains at least one case pinning that the heavy modules are still absent at startup AND that the first-search path is instrumented, and 0 fail. SABOTAGE: remove the instrumentation again and confirm the new case FAILS, printing the region from disk FIRST to prove the mutation landed; then separately confirm the pre-existing startup guard still fails when a heavy module is imported at module scope, so this change has not quietly weakened it. Scope the footprint check with `git diff --name-only -- kb/search/_retrieval.py features.py test_mcp_startup.py`.",
+      "why_model": "it changes the lazy-import strategy at the centre of every search while a startup-budget guard constrains it from the other side, and the plausible-but-wrong fix - importing eagerly - reintroduces the handshake failure the deferral exists to prevent",
+      "why_effort": "the two constraints pull against each other and the failure mode is invisible until a session times out on connect, so the boundary has to be reasoned about rather than tried",
+      "why_mode": "SUBTASK: bounded to three named files with a mechanical done-condition, and the diagnosis it rests on is already written down",
+      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable"
     }
   ],
   "closed": [
@@ -752,7 +780,7 @@
       "id": "forty-six-searches-logged-started-and-never-completed",
       "title": "Searches log 'Search query:' and never log 'Search completed:' - establish whether the gap is client cancellation or a server-side block",
       "closed_by": "uncommitted:2026-09-20",
-      "reason": "NEITHER - it is PROCESS DEATH, and the settling argument is from the concurrency model rather than the timestamps: call_tool dispatches through asyncio.to_thread, so a cancellation cancels the awaiting coroutine and cannot kill the OS worker thread; a cancelled search would still log its completion, so the absence of that line RULES cancellation OUT. Three hypotheses were killed first - a logging artifact (one producer per line, no early return between them), an exception (grep for 'MCP tool .* raised' returns 0; all 34 tracebacks are _add_document_db), and cancellation (23 of 25 cancelled lines are from a different date). Recount at run time held at 46. The dependency's fix was confirmed to hold across nine peer writes, and the BM25 rebuild cost was MEASURED at 95.10s, replacing the '~265s' estimate this repo carried. Opened log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable. UNCOMMITTED and untracked: DIAGNOSIS-SEARCH-HANGS.md."
+      "reason": "CORRECTED 2026-09-20, SAME DAY: the delivered diagnosis first said PROCESS DEATH and that was WRONG. A live reproduction on a process that had answered a health_check seconds earlier showed the same signature with no death involved. THE CAUSE IS THE FIRST SEARCH IN A COLD PROCESS PERFORMING A HEAVYWEIGHT LAZY IMPORT INSIDE THE UNLOGGED WINDOW: py-spy located it exactly as search() -> _preprocess_text -> _ensure_nltk -> import nltk -> nltk.collocations -> scipy.stats -> scipy.linalg -> create_module, entered between the 'Search query:' and 'Search completed:' lines. The original argument - that a cancelled request would still log its completion because the worker thread survives cancellation - was sound about threads and wrong in its conclusion: a LIVE but BLOCKED thread never reaches the statement either, and the log now carries that exact test, a cancellation at 20:01:01 followed by no completion line. The task is still closed - a diagnosis was asked for and one was delivered, then corrected in place - and the follow-up is first-search-lazy-import-is-unbounded-and-unlogged. UNCOMMITTED and untracked: the rewritten DIAGNOSIS-SEARCH-HANGS.md carries both the wrong answer and the correction, deliberately."
     },
     {
       "id": "a-client-spawns-a-new-server-process-per-tool-call",

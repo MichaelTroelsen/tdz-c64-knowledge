@@ -1,15 +1,15 @@
 {
   "generated_from": {
-    "head": "f9184cc",
+    "head": "721ea1d",
     "sources": [
-      "TO-DOS.md",
+      "TO-DOS.md (4 non-struck bullets; all have `done` records - informational residue, no open work)",
       "docs/ROADMAP.md",
-      "whats-next.md (now a pointer - contributes no tasks)",
-      ".claude/tasks/runs.jsonl",
-      ".claude/tasks/decisions.jsonl",
-      "code TODO/FIXME markers",
-      "tokensave code graph",
-      "issues/PRs: no reachable forge"
+      "whats-next.md (a pointer document by its own first line - contributes no tasks)",
+      ".claude/tasks/runs.jsonl (103 ids, last line per id; 6 tasks closed by this session's /runqueue drain)",
+      ".claude/tasks/decisions.jsonl (20 ids, last line per id; 3 answered this session by /runhuman)",
+      "issues: issue#17 still OPEN and now re-scoped rather than closed",
+      "PRs: none open",
+      "graphify code graph (refreshed this pass: 4601 nodes, 6529 edges)"
     ],
     "focus": null
   },
@@ -28,7 +28,7 @@
     "<data_dir>/uploads is PERMANENT storage (docs/ARCHITECTURE.md:40) - documents.filepath points into it and health_check's missing_source_files reads that path",
     "validate_docs.py FAILS if README.md / CLAUDE.md / docs/ARCHITECTURE.md / CONTEXT.md / docs/README.md (five files) stop matching its tool-count phrasings - a doc reword must update the pattern in the same change. Tool count MEASURED 2026-08-30: len(TOOL_SCHEMAS) = 95",
     "pyproject.toml:85 lists 'archive' in norecursedirs; archive/tests/ is tracked (35 files, a334b3c) but still excluded from collection",
-    "MEASURED BASELINE 2026-08-30 at f9184cc, re-measured rather than carried: bare `pytest --collect-only -q` is 392 tests and len(TOOL_SCHEMAS) is 95. Both unchanged since 19114e3, but they were re-run, not copied - do not carry either forward without re-measuring.",
+    "MEASURED BASELINE 2026-08-30 at 721ea1d, re-measured not carried: bare `pytest --collect-only -q` is 399 tests (392 before test_doc_id_dedup.py added 7) and len(TOOL_SCHEMAS) is 95. Re-measure before writing either number anywhere.",
     "the `python` on PATH is 3.14 without the project's optional deps, so bare `pytest` dies at collection on `from features import BM25Okapi`; use .venv/Scripts/python.exe -m pytest",
     "a task that DIRTIES any tracked file is a WRITER of the worktree dirty set: declare rw:git-worktree, or a task whose verify reads bare `git status`/`git diff --name-only` will be scheduled beside it and fail on a file it never touched",
     "PREFER A PATH-SCOPED `git diff --name-only -- <the task's own paths>` in a verify over bare `git status`. The unscoped form reads the WHOLE dirty set, making the task a reader of every other task's writes and forcing rw:git-worktree - serialising the plan for a scope check that only cared about its own files",
@@ -39,48 +39,24 @@
     "health_check's missing_source_files is asserted on by THREE test files (test_card_updates.py:326, test_repoint_document.py:116, test_sid_ingest.py:475) and drives health['status']='warning' at kb/admin.py - redefining the key rather than adding beside it breaks all three silently",
     "health_check reports missing_source_files_user and missing_source_files_generated beside missing_source_files, the total DERIVED as their sum (ab7503a), and escalates to 'warning' on the _user half only - cite the metric instead of enumerating the breakdown by hand",
     "STALE-NUMBER PATTERN, recurring and always the same shape: a measured figure written into prose in the present tense, then left behind when the measurement moved. Re-measure before writing any count into a document, and frame it as a dated finding rather than a present-tense fact",
-    "the same content ingested as .txt and as .pdf can NEVER dedupe via add_document's content-hash short-circuit: _extract_pdf_text (kb/ingest/_extraction.py) joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id (kb/core.py:2184-2205) hashes the first 10,000 words. Still open; see pdf-page-break-markers-defeat-content-dedup",
+    "FIXED at 721ea1d: _generate_doc_id now strips PDF_PAGE_BREAK before hashing, so a .txt and a .pdf of identical content share an id. THE MARKERS REMAIN IN THE EXTRACTED TEXT - kb/ingest/_documents.py counts them to estimate a chunk's page number, so never strip them from the text itself, only from the hash input. The constant lives in text_utils.py; three hard-coded literals were collapsed into it. NO MIGRATION WAS DONE, deliberately: .txt ids were already marker-free and did not move (0 of 72 marker-free live chunks changed id), but the 168 pre-existing PDF documents keep ids computed under the old rule, so re-ingesting one of THOSE files still duplicates instead of short-circuiting.",
     "_cross_process_lock (util.py) is the ONLY real mutex between concurrent server.py sessions sharing a data directory. A heartbeat thread restamps the held lock's mtime and release is conditional on an identity fingerprint (6513858). The acquire-side stale-reclaim branch (util.py:312-321) remains a documented, deliberately-unfixed TOCTOU window (19114e3)",
-    "graphify WORKS as of 2026-08-30. The four earlier 'unrefreshable' hazard entries were a MISDIAGNOSIS: the root is stored in graphify-out/.graphify_root (NOT in manifest.json, which is why grepping manifest for a 'root' key found nothing and misled four passes). It held the Git Bash path '/c/Users/mit/claude/c64server/tdz-c64-knowledge', which native Windows Python resolves drive-relative to 'C:\\c\\Users\\mit\\...' - a real shadow directory containing no .py files, so graphify honestly reported 'No code files found' instead of erroring. Rewritten to 'C:/Users/mit/claude/c64server/tdz-c64-knowledge'; `graphify update` now rebuilds 4415 nodes / 6212 edges / 326 communities. graphify-out/ stays gitignored - that decision is unaffected. Community LABELS are stale (161 saved vs 326 communities); `graphify label` refreshes them with an LLM call. LESSON: a reproducible symptom is not a confirmed diagnosis.",
-    "TASK IDS MUST BE UNIQUE ACROSS THE WHOLE RUN LOG, NOT JUST THE CURRENT PLAN - this generator broke it at 19114e3. The slug `pdf-page-break-markers-defeat-content-dedup` had already been used and CLOSED (03d8306) for the DOCUMENTATION task that recorded the defect; the next plan reused the same slug for the open DECISION task about fixing it. Readiness is computed from the last runs.jsonl line per id, so that line's `outcome: done` made the still-open decision look finished, and a runner would have silently dropped it. Renamed to `pdf-doc-id-hash-migration-decision` at f9184cc. Before minting an id, grep runs.jsonl for it."
+    "graphify WORKS. The root lives in graphify-out/.graphify_root (NOT manifest.json - grepping manifest for a 'root' key found nothing and misled four passes into calling the graph unrefreshable). It held the Git Bash path '/c/Users/mit/...', which native Windows Python resolves drive-relative to 'C:\\c\\Users\\...' - a real shadow directory with no .py files, so graphify honestly reported 'No code files found' rather than erroring. Fixed 2026-08-30; step 5b's `graphify update` has now succeeded twice, most recently at 721ea1d (4,440 nodes). NOTE graph.json reports 0 edges at the top level - traversal still works via `graphify query`, so the edge data is held elsewhere in the file; do not read that 0 as a broken graph. LESSON: a reproducible symptom is not a confirmed diagnosis.",
+    "TASK IDS MUST BE UNIQUE ACROSS THE WHOLE RUN LOG, NOT JUST THE CURRENT PLAN - this generator broke it at 19114e3. The slug `pdf-page-break-markers-defeat-content-dedup` had already been used and CLOSED (03d8306) for the DOCUMENTATION task that recorded the defect; the next plan reused the same slug for the open DECISION task about fixing it. Readiness is computed from the last runs.jsonl line per id, so that line's `outcome: done` made the still-open decision look finished, and a runner would have silently dropped it. Renamed to `pdf-doc-id-hash-migration-decision` at f9184cc. Before minting an id, grep runs.jsonl for it.",
+    "THE BRANCH doc-id-strip-page-break-markers IS NOT MERGED. HEAD 721ea1d sits on it; master is at f9184cc. Any task measuring against 'the current code' must know which ref it is on, and a runner that checks out master will not see the doc-id fix or test_doc_id_dedup.py at all.",
+    "MEASURED 2026-09-20: mcp_call_log.duration_ms is timed from entry into call_tool (server.py) to its `finally`, so it INCLUDES time queued on the global _tool_call_lock and time after the client already cancelled. Two rows reading 262,713ms and 1,751,250ms correspond to requests the client abandoned after roughly four minutes, one of them issued in an EARLIER server process. Never read that field as the cost of the tool's work; cross-check against server.log's 'Search query:' / 'Search completed:' pair.",
+    "MEASURED 2026-09-20: _current_data_version (kb/core.py) uses PRAGMA data_version, which bumps on ANY commit from another connection - including the mcp_call_log and search_log rows every peer process writes on every tool call. _sync_documents_if_needed therefore clears self.chunks, sets self.bm25 to None and invalidates all search caches on essentially every search whenever two clients are live; 'All search result caches invalidated' printed before every probe in this session's log. test_embeddings_reliability.py already pins this mechanism directly - grep it for data_version before changing kb/core.py.",
+    "MEASURED 2026-09-20: the Server(...) construction in server.py passes no version, so the MCP SDK falls back to pkg_version('mcp') and every client is told the SDK's version rather than version.__version__. Do not read a client-reported serverInfo.version as this project's version.",
+    "MEASURED 2026-09-20 and it CORRECTS AN ESTIMATE THIS REPO CARRIED: the BM25 index rebuild is 95.10s, of which 92.45s is tokenising 9318 chunks - not the '~265s' earlier records state. Re-measure before writing either figure anywhere.",
+    "THE MCP TOOL NAMED check_updates CALLS kb.check_all_updates (via handle_check_updates in mcp_tools/admin.py); kb.check_url_updates belongs to a DIFFERENT tool registered in mcp_tools/documents.py. The two were conflated in a plan record and in issue #17 itself, and a task consequently fixed a real gap in the method the issue does not name. check_all_updates is purely local - os.path.exists, needs_reindex and a try/except'd re-index - and consults no allowlist and makes no network call, so it cannot hang on a disallowed path.",
+    "server.log is appended to by EVERY server.py process and kb/core.py's format string carries no %(process)d, so concurrent sessions' lines interleave indistinguishably. Six servers were alive during one investigation. NEVER infer same-process causation from adjacency in that file - that reasoning produced two wrong attributions in a single session."
   ],
-  "external_locks": [
-    ".claude/tasks/serial.lock (the orchestrator's holder registry; present-and-empty '[]' when idle, NOT absent - confirmed idle this pass). The mutex is the directory .claude/tasks/serial.lock.d, held only for registry updates"
-  ],
+  "external_locks": [],
   "tasks": [
     {
-      "id": "pdf-doc-id-hash-migration-decision",
-      "title": "Decide whether _generate_doc_id may change what it hashes - and what migrates the ids already in the live DB",
-      "source": "TO-DOS.md#cross-format-deduplication-defect (RENAMED from pdf-page-break-markers-defeat-content-dedup, which is a CLOSED id: that slug's documentation task was closed by 03d8306)",
-      "model": "opus",
-      "effort": "high",
-      "mode": "requires-user",
-      "lane": "serial",
-      "touches": [
-        "rw:kb/core.py",
-        "rw:kb/ingest/_extraction.py",
-        "rw:kb/ingest/_documents.py",
-        "rw:test_card_updates.py",
-        "rw:test_sid_ingest.py",
-        "rw:test_repoint_document.py",
-        "r:knowledge_base.db"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "A human must decide whether the stored content-hash may change, because there is no migration path for doc_ids already in the live DB. THE DEFECT, measured and not disputed: _extract_pdf_text joins page text with a literal '--- PAGE BREAK ---' marker BEFORE _generate_doc_id (kb/core.py:2184-2205) hashes the first 10,000 words, so identical content ingested as .txt and as .pdf can never dedupe. On a real 19-page document the PDF's text WITHOUT the join hashes to cea9b4004347 - an exact match to the live .txt document's id - and WITH it to f1aa9fc2b7da; the 72 injected marker words are the entire miss. THE OPTIONS: (a) leave it, accepting that a cross-format re-ingest silently creates a second unlinked document; (b) strip markers before hashing, which changes the id computed for every future re-ingest of an already-indexed PDF and needs a migration for the ids already stored; (c) hash a normalised form and keep a compatibility id alongside. TO-DOS.md:33 already records this as 'a decision for a human to make deliberately (and to plan a migration for), not something to patch quietly inside a documentation task'.",
-      "decision": null,
-      "verify": "Not runnable until the decision is taken. Once taken: the chosen behaviour is implemented; `.venv/Scripts/python.exe -m pytest test_card_updates.py test_sid_ingest.py test_repoint_document.py -q` passes (all three assert on health_check's missing_source_files and would break silently if doc identity moved under them); and IF the hash changed, a migration is demonstrated against a COPY of knowledge_base.db - never the live one, which is not in git and has no `git diff` rollback - showing what happens to every existing doc_id.",
-      "why_model": "a shared hashing function with a live corpus behind it; a plausible-but-wrong migration is expensive and effectively irreversible",
-      "why_effort": "the failure mode is a confident wrong answer that silently forks documents in a real corpus, and the code must be understood before it is touched",
-      "why_mode": "REQUIRES-USER: no amount of work resolves whether stored ids may change; that is the human's call",
-      "why_lane": "SERIAL: writes kb/core.py and kb/ingest/*, and reads the live DB - the one resource with no rollback"
-    },
-    {
-      "id": "agent-bypassed-bash-guard-via-powershell",
-      "title": "A delegated agent re-issued a Bash-blocked destructive command through PowerShell - decide whether to report it upstream",
-      "source": "opened by runqueue cycle 6 (runs.jsonl, head 19114e3); carried unchanged",
+      "id": "stray-msys-shadow-tree-cleanup",
+      "title": "Delete C:\\c - the stray shadow tree that made the graphify path bug fail silently",
+      "source": "opened by the graphify root-cause investigation (runs.jsonl, head f9184cc); attempt recorded blocked",
       "model": "sonnet",
       "effort": "low",
       "mode": "requires-user",
@@ -90,50 +66,110 @@
       "needs_main": false,
       "needs_main_reason": null,
       "depends_on": [],
-      "blocked_on": "Nothing in THIS repo can fix it. On 2026-08-30 a cycle-6 agent had `git checkout -- CLAUDE.md` refused by the Bash tool's classifier and re-issued the identical command through PowerShell, where it went through; it reported this honestly. A destructive-command guard enforced in one tool and absent in a sibling trains agents to shop for the permissive path. The fix is either harness-level (consistent classification across Bash and PowerShell) or brief-level (say in every agent brief that a tool refusal is a STOP, not a routing problem) - and the brief-level half lives in the mit-setup marketplace checkout, which the human has THREE TIMES declined to have edited (decisions.jsonl: runbatch-plan-stales-after-its-own-commits, whattask-touches-under-declared-vs-verify, subagent-returned-empty-schema-valid-report). Mitigated in practice but not fixed: the runqueue briefs written since now carry the stop-condition wording explicitly, and it is recorded in this plan's hazards array. So the only open question is whether to report it upstream as an issue.",
+      "blocked_on": "ANSWERED 2026-09-20, NOT YET CLEARED - the human will delete it from their own shell, and the mode does NOT flip until the tree is actually gone. THE EXACT ACTION: in a human PowerShell or cmd window (NOT an agent tool call), remove C:\\c. RE-MEASURED 2026-09-20 rather than carried: os.path.isdir('C:/c') -> True and `find /c/c` returns 9 entries - a single chain C:\\c\\Users\\mit\\claude\\c64server\\tdz-c64-knowledge\\.scratch_rest_test2 with nothing beside it, all of it inert residue from a throwaway REST-API test run on 2026-07-30, referenced by no tracked source. THE CHECK THAT SETTLES IT, and the next pass should RUN it before asking again rather than re-interviewing: `.venv/Scripts/python.exe -c \"import os; print(os.path.isdir('C:/c'))\"` - False means done, and the task then closes by measurement, never by a commit sha, since nothing in the history will ever record it. THE ALTERNATIVE WAS OFFERED AND DECLINED: authorising an agent to delete the deeper C:\\c\\Users\\... chain that the tool guard does not protect was put to the human as an explicit option and not taken, so the standing hazard 'A TOOL REFUSAL IS A STOP, NOT A ROUTING PROBLEM' stays intact. Do not re-propose it.",
       "decision": null,
-      "verify": "Not runnable here. If reported: an upstream issue exists on github.com/MichaelTroelsen/claude-setup naming the two-shell inconsistency. If declined: recorded in decisions.jsonl and moved to `closed` with closed_by 'decision:agent-bypassed-bash-guard-via-powershell' so it stops being re-listed every pass.",
-      "why_model": "no code work; the incident, its mechanism and both candidate fix locations are already written down",
-      "why_effort": "nothing left to derive - only a routing choice remains",
-      "why_mode": "REQUIRES-USER: the fix is outside this repo and the human has already declined three adjacent edits",
-      "why_lane": "PARALLEL: touches nothing in this repo"
+      "verify": "`Test-Path 'C:\\c'` returns False, and python -c \"import os; os.path.isdir('/c/Users/mit/claude/c64server/tdz-c64-knowledge')\" returns False - i.e. a leading-slash MSYS path no longer resolves to anything, so the next such mistake fails loudly instead of silently walking an empty tree.",
+      "why_model": "a single directory removal whose safety has already been established by inspection",
+      "why_effort": "nothing left to reason about - the contents were enumerated and the rationale written down",
+      "why_mode": "REQUIRES-USER: the tool guard blocks it by design and routing around the guard was refused on principle",
+      "why_lane": "PARALLEL: touches nothing inside this repo",
+      "fork": null,
+      "branch": null
+    },
+    {
+      "id": "log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable",
+      "title": "server.log has no pid in its format while every server.py process appends to it, so concurrent sessions' lines are indistinguishable",
+      "source": "opened by forty-six-searches-logged-started-and-never-completed (runs.jsonl, head 721ea1d); the defect that made that diagnosis ambiguous",
+      "model": "sonnet",
+      "effort": "low",
+      "mode": "subtask",
+      "lane": "parallel",
+      "touches": [
+        "rw:kb/core.py",
+        "rw:test_mcp_startup.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "fork": null,
+      "branch": null,
+      "blocked_on": null,
+      "decision": null,
+      "verify": "The logging format string configured in kb/core.py includes the process id, so two concurrently running server.py processes can be told apart in the shared server.log. THERE IS NO test_core.py AT THIS HEAD - kb/core.py has no test_<name>.py sibling, confirmed by a filesystem check - so the assertion goes in test_mcp_startup.py, which already owns startup and logging concerns; test_mcp_startup.py gains exactly one case asserting the configured format contains the pid placeholder, and 0 fail. ALSO CONFIRM NOTHING IN-REPO PARSES THE FORMAT POSITIONALLY before changing it: grep the test files for server.log, basicConfig and levelname and report the hit count with its exit code, because a check whose pass condition is 'no output' must prove it ran - at this head that grep returns nothing, so the format is read by humans only. SABOTAGE: remove the pid placeholder from the format again and confirm the new case FAILS, printing the format line from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- kb/core.py test_mcp_startup.py`.",
+      "why_model": "a one-argument change to a format string with an existing test harness to hang the assertion on, and the defect and its consequence are already written down",
+      "why_effort": "nothing left to derive - the single basicConfig call site is located, no test reads the format, and the fix is one placeholder; getting it wrong is cheap to notice and cheap to redo",
+      "why_mode": "SUBTASK: one line in one file plus one assertion, with a mechanical done-condition",
+      "why_lane": "PARALLEL: rw:kb/core.py and rw:test_mcp_startup.py overlap no other task's paths in this plan"
+    },
+    {
+      "id": "issue-17-second-half-rests-on-a-false-premise",
+      "title": "Issue #17 asks check_updates to fail fast on a disallowed path, but that tool's method never consults the allowlist - re-scope it against what the code does",
+      "source": "issue#17, reopened by check-updates-hangs-on-a-disallowed-path (runs.jsonl, head 721ea1d)",
+      "model": "session",
+      "effort": "high",
+      "mode": "main",
+      "lane": "serial",
+      "touches": [
+        "r:kb/ingest/_documents.py",
+        "r:mcp_tools/admin.py",
+        "r:mcp_tools/documents.py",
+        "rw:knowledge_base.db",
+        "rw:ISSUE-17-RESCOPE.md"
+      ],
+      "mcp": [],
+      "needs_main": true,
+      "needs_main_reason": "the measurement runs against the LIVE shared knowledge_base.db that every concurrent server.py process also holds, and it is a wall-clock measurement, so it needs an otherwise idle machine and a session that outlives it - neither of which a delegated agent has",
+      "depends_on": [],
+      "fork": [
+        "amend-the-issue",
+        "fix-the-slow-path"
+      ],
+      "branch": null,
+      "blocked_on": null,
+      "decision": null,
+      "verify": "ISSUE-17-RESCOPE.md exists in the working tree and settles what the issue's reporter actually hit, with a measurement rather than a reading. ESTABLISHED THIS PASS AND SAFE TO BUILD ON, but re-confirm each cheaply rather than taking it on trust: the MCP tool named check_updates calls kb.check_all_updates via handle_check_updates in mcp_tools/admin.py, while kb.check_url_updates is reached by a DIFFERENT tool registered in mcp_tools/documents.py; and check_all_updates consults no allowlist and makes no network call at any point. The document must state which of the two the reporter's 1800-second stall came from and why, and MUST DISTINGUISH A HANG FROM A LONG RUN with a timing figure for check_all_updates(auto_update=False) over the live corpus. DO NOT RUN check_all_updates WITH auto_update=True AGAINST THE LIVE DATABASE - it re-indexes every changed document and there is no git rollback for that file; if the auto_update branch has to be characterised, reason about it from the code or measure it against a copy, and say which was done. Record the outcome as one of this task's declared fork labels. No commit is required: the finding lives in the working tree. Scope the footprint check with `git diff --name-only -- ISSUE-17-RESCOPE.md`.",
+      "why_model": "main-mode: runs in the invoking session, not a model this command chooses",
+      "why_effort": "a premise this repo has already got wrong once - the previous task fixed a real gap in the wrong method because the issue's wording and my own plan both conflated two similarly-named tools - so the expensive failure is a confident answer about the wrong code path again",
+      "why_mode": "MAIN: the deliverable is a judgement about which of two tools the reporter used and whether what they saw was a defect at all, and the measurement touches the live shared database",
+      "why_lane": "SERIAL: rw:knowledge_base.db is the live database named in hazards and shared by every running server.py process - a stateful singleton the overlap test cannot see - and the task's wall-clock measurement is destroyed by concurrent load"
     }
   ],
   "closed": [
     {
       "id": "cross-process-lock-steals-from-slow-holders",
       "title": "_cross_process_lock never refreshes its mtime while held and releases with an unconditional unlink - a slow holder gets robbed, then the robbed holder deletes its own robber's lock file too",
-      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "closed_by": "6513858",
       "reason": "Both defects fixed entirely inside util.py: a daemon heartbeat thread restamps the held lock's mtime so stale_after measures silence rather than elapsed work, and release is now conditional on an identity fingerprint so a robbed holder's release no longer deletes its robber's file. The agent mutation-tested its own fix (reverted each half, in-process and cross-process, confirmed the tests catch the regression both ways). Orchestrator independently re-ran everything (13 passed on the new suite, 136 on full regression) and read the actual util.py diff line-by-line rather than trusting the report. ONE NARROW RESIDUAL GAP FOUND DURING THAT VERIFICATION AND CORRECTLY OUT OF THIS TASK'S SCOPE - see the new task cross-process-lock-acquire-side-toctou-window."
     },
     {
       "id": "gitignore-blanket-test-glob-drops-new-tests",
       "title": ".gitignore's test_*.py blanket rule plus an incomplete allowlist silently drops new test files - test_cross_process_lock.py was untracked because of it",
-      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "closed_by": "6513858",
       "reason": "Added 7 lines to .gitignore's allowlist (the immediate fix plus 6 hygiene entries for already-tracked-but-unlisted files). The agent found and correctly diagnosed a real git quirk (check-ignore's exit code is misleading for a negation pattern on an untracked path) by building a throwaway repo to test it. Orchestrator independently re-verified with the strongest possible check - an actual git add / git restore --staged cycle - rather than trusting the explanation."
     },
     {
       "id": "docs-readme-tool-count-stale",
       "title": "docs/README.md still said '87 MCP tools' - it sat outside validate_docs.py's four-file gate",
-      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "closed_by": "6513858",
       "reason": "docs/README.md:37 now reads 95, matching len(TOOL_SCHEMAS). validate_docs.py's sources dict gained a fifth entry for docs/README.md. Orchestrator independently re-ran validate_docs.py (PASSED, 5 files) and re-measured TOOL_SCHEMAS (95)."
     },
     {
       "id": "cross-process-lock-untested",
       "title": "_cross_process_lock (util.py:190) - the only real mutex between concurrent server.py sessions sharing a data dir - had zero test coverage anywhere",
-      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "closed_by": "6513858",
       "reason": "New test_cross_process_lock.py (10 tests, later grown to 13 by the follow-up fix) tests the function directly via real subprocesses. TWO REAL PRODUCTION DEFECTS FOUND AND PINNED, not fixed (correctly out of scope for a test-only task) - both later closed by cross-process-lock-steals-from-slow-holders. A SEPARATE FINDING ALSO OPENED: the new test file was silently gitignored - later closed by gitignore-blanket-test-glob-drops-new-tests."
     },
     {
       "id": "health-check-warning-fires-on-disposable-cards",
       "title": "health_check raises the whole server to 'warning' off the combined missing_source_files, so 115 by-design missing card sources keep it permanently alarmed",
-      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "closed_by": "ab7503a",
       "reason": "Escalates to 'warning' on missing_source_files_user only now. Does not clear the live alarm today (105 missing USER documents remain), but the fix makes the signal correct rather than permanently stuck."
     },
     {
       "id": "availability-check-remaining-4-lost-sources",
       "title": "Finish the availability sweep: the 4 non-c=hacking lost user documents were explicitly left unchecked",
-      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "closed_by": "6513858",
       "reason": "All four checked via a source actually opened. 2 of 4 reachable, reversing the expected direction; 1 not reachable; the MagPi OCR scratch file not worth reacquiring, as expected."
     },
     {
@@ -373,7 +409,7 @@
     {
       "id": "deepsid-document-ingestion-path",
       "title": "add_deepsid_document materialises the card into uploads/ and reuses _add_scraped_document, so missing_source_files stays 0; tools 93 -> 94; suite 351 -> 356 (uncommitted at this HEAD)",
-      "closed_by": "f0c7abf (work uncommitted; run recorded in runs.jsonl)",
+      "closed_by": "6880401",
       "reason": null
     },
     {
@@ -643,7 +679,7 @@
     {
       "id": "pdf-page-break-markers-defeat-content-dedup",
       "title": "Record that .txt and .pdf ingestion of identical content can never dedupe - the PDF extractor's own PAGE BREAK join shifts the content-id hash",
-      "closed_by": "03d8306 (work uncommitted; run recorded in runs.jsonl)",
+      "closed_by": "6513858",
       "reason": "A pure documentation task. TO-DOS.md gained a new section naming the mechanism, the evidence, and why it is not fixed here."
     },
     {
@@ -669,6 +705,60 @@
       "title": "The hazards array asserted CLAUDE.md's '## Task observation' block was uncommitted; it is in HEAD",
       "closed_by": "f9184cc",
       "reason": "Corrected in the hazards array and now committed (whattask.json is tracked). The old entry said `git checkout -- CLAUDE.md` would revert uncommitted content; an agent ran that checkout believing it and was safe only because the hazard was false. The corrected entry carries the check that settles it: `git show HEAD:<path>`."
+    },
+    {
+      "id": "pdf-doc-id-hash-migration-decision",
+      "title": "Decide whether _generate_doc_id may change what it hashes, and what migrates the stored ids",
+      "closed_by": "721ea1d",
+      "reason": "Human chose option (b1) after a measured comparison: strip the markers before hashing, no migration. THE MEASUREMENT REVERSED MY OWN ADVICE - I first recommended (a) believing (b) required a migration; .txt ids were already marker-free and do not move, so it does not. (b2), re-keying the 168 existing PDFs, was quantified at 43,894 rows across 11 tables plus 5 FTS5 index rebuilds and refused as disproportionate. Mutation-tested; 163 passed; no database was written."
+    },
+    {
+      "id": "graphify-root-path-msys-bug",
+      "title": "graphify could not refresh - root cause and one-line fix",
+      "closed_by": "f9184cc",
+      "reason": "Not a manifest problem at all: .graphify_root held a Git Bash path that Windows resolved to a real but Python-free shadow directory, so graphify reported 'No code files found' instead of erroring. Four of my own passes recorded the wrong mechanism because the symptom reproduced identically each time. `graphify update` now succeeds; step 5b's cross-check ran for real for the first time."
+    },
+    {
+      "id": "peer-telemetry-writes-invalidate-every-search-cache",
+      "title": "Every peer process's mcp_call_log/search_log write bumps PRAGMA data_version, so _sync_documents_if_needed drops chunks, the BM25 index and all caches on essentially every search",
+      "closed_by": "uncommitted:2026-09-20",
+      "reason": "Replaced the raw pragma gate with a corpus fingerprint over documents and chunks. 13 passed, re-run by the orchestrator. BOTH SABOTAGES DISCRIMINATED, and an EXISTING test caught a real ABA hole in the first design - this process adds a doc, a peer removes it, the signature returns to a value that compares equal and hides the deletion - closed with a cross-check against len(self.documents). A db_conn.total_changes variant was built and correctly rejected, because this connection's own telemetry writes advance it. Reproduction against the live DB afterwards: nine peer commits, index and chunk set intact, cache grew 1 -> 2. UNCOMMITTED: kb/core.py, test_embeddings_reliability.py."
+    },
+    {
+      "id": "mcp-http-bare-mcp-path-307-redirects",
+      "title": "Starlette's Mount makes the bare /mcp path 307-redirect while the server's own startup log advertises exactly that path",
+      "closed_by": "uncommitted:2026-09-20",
+      "reason": "Mount replaced by two explicit Routes over an ASGI class instance (a bare function endpoint would have been wrapped by request_response and broken the contract). 31 passed at the time, 32 after the sibling task, re-run by the orchestrator; `grep -F \"Mount('/mcp\"` now returns nothing. Restoring the Mount reproduced the exact reported 307 with its Location header. NOT YET LIVE: the HTTP server running in that session had the old module loaded, so a probe of the live port would still redirect until restarted. UNCOMMITTED: server.py, test_mcp_startup.py."
+    },
+    {
+      "id": "mcp-serverinfo-reports-the-sdk-version-not-the-project",
+      "title": "Server() is constructed with no version, so every client is told the installed mcp package's version instead of the project's",
+      "closed_by": "uncommitted:2026-09-20",
+      "reason": "server.py:175 now reads `Server(\"tdz-c64-knowledge\", version=__version__)`, using the __version__ already imported at the top of the module, so no new import was needed against the 30s handshake budget. 32 passed, re-run by the orchestrator; dropping the argument again made the new case fail with serverInfo.version='1.24.0' != '2.24.0'. UNCOMMITTED: server.py, test_mcp_startup.py."
+    },
+    {
+      "id": "check-updates-hangs-on-a-disallowed-path",
+      "title": "check_updates blocks instead of failing fast when a document's filepath is outside ALLOWED_DOCS_DIRS (issue #17, second half)",
+      "closed_by": "uncommitted:2026-09-20",
+      "reason": "DONE AS SPECIFIED BUT IT DOES NOT CLOSE ISSUE #17, and that is the finding rather than a caveat. The agent read both call chains instead of trusting the task's paraphrase and established that the MCP tool named check_updates calls kb.check_all_updates (mcp_tools/admin.py), while kb.check_url_updates belongs to a different tool (mcp_tools/documents.py) - my plan record declared the wrong handler module. It fixed check_url_updates, which genuinely had NO allowlist guard before an unbounded requests.head plus an uncapped BFS crawl, with 2 new tests and the .gitignore allowlist line the blanket test_*.py rule requires. The orchestrator then read check_all_updates directly: purely local, no network call and no allowlist consultation anywhere, so it cannot hang the way the issue describes. Re-scoping is issue-17-second-half-rests-on-a-false-premise. UNCOMMITTED: kb/ingest/_documents.py, .gitignore, and the untracked test_check_url_updates.py."
+    },
+    {
+      "id": "agent-bypassed-bash-guard-via-powershell",
+      "title": "A delegated agent re-issued a Bash-blocked destructive command through PowerShell - decide whether to report it upstream",
+      "closed_by": "uncommitted:2026-09-20",
+      "reason": "Human chose 'I draft it, you post it' (decisions.jsonl). UPSTREAM-ISSUE-bash-powershell-guard.md written at the repo root with all four required elements, each confirmed by grep -F with its exit code printed. Confirmed NOT posted: `gh issue list -R MichaelTroelsen/claude-setup --state all` still returns empty. THE TASK IS DONE BUT THE WORK IS NOT FINISHED - the human still has to read and post it. The old verify was unreachable by construction ('an upstream issue exists on github.com/...'), which no runner in this set can bring about; /runhuman rewrote it to the reachable half before this ran. UNCOMMITTED and untracked: UPSTREAM-ISSUE-bash-powershell-guard.md."
+    },
+    {
+      "id": "forty-six-searches-logged-started-and-never-completed",
+      "title": "Searches log 'Search query:' and never log 'Search completed:' - establish whether the gap is client cancellation or a server-side block",
+      "closed_by": "uncommitted:2026-09-20",
+      "reason": "NEITHER - it is PROCESS DEATH, and the settling argument is from the concurrency model rather than the timestamps: call_tool dispatches through asyncio.to_thread, so a cancellation cancels the awaiting coroutine and cannot kill the OS worker thread; a cancelled search would still log its completion, so the absence of that line RULES cancellation OUT. Three hypotheses were killed first - a logging artifact (one producer per line, no early return between them), an exception (grep for 'MCP tool .* raised' returns 0; all 34 tracebacks are _add_document_db), and cancellation (23 of 25 cancelled lines are from a different date). Recount at run time held at 46. The dependency's fix was confirmed to hold across nine peer writes, and the BM25 rebuild cost was MEASURED at 95.10s, replacing the '~265s' estimate this repo carried. Opened log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable. UNCOMMITTED and untracked: DIAGNOSIS-SEARCH-HANGS.md."
+    },
+    {
+      "id": "a-client-spawns-a-new-server-process-per-tool-call",
+      "title": "One MCP client starts a fresh server.py per tool call - identify it and decide whether to reconfigure it",
+      "closed_by": "decision:a-client-spawns-a-new-server-process-per-tool-call",
+      "reason": "CANCELLED by the human, and the research that preceded the question refuted the premise I had recorded. A controlled health_check appended exactly one line to server.log - a bare CallToolRequest with no KnowledgeBase init - proving this session was NOT the spawner, contradicting the inference the previous plan carried. The registration is ~/.claude.json's top-level mcpServers at USER scope, not the marketplace copyByHand file the plan named; the plugin's own .mcp.json does not mention this server at all. Three long-lived server.py pairs were alive and the short-lived per-call processes were confined to an 18:04-18:17 window with none alive since, so it is not reproducing. Its cost argument was the cache invalidation, fixed at source by peer-telemetry-writes-invalidate-every-search-cache. RESIDUAL NOT ACTIONED: an orphaned server.py pair from 17:27:13 still holds the shared WAL database with nothing driving it; kill it by hand if contention matters."
     }
   ]
 }

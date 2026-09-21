@@ -35,6 +35,7 @@ Run with:  pytest test_mcp_startup.py -v
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -97,7 +98,32 @@ class MCPSession:
             env=_env(self.data_dir),
             cwd=str(REPO),
         )
+        # Drain stderr for the life of the session. Without this the server
+        # blocks on its own stderr write as soon as the pipe fills, mid-startup,
+        # and the handshake simply never arrives - a hang with no diagnostic,
+        # indistinguishable from a slow import. The buffer is far smaller than
+        # the 64KB usually quoted: measured 2026-09-21, the server wrote 3911
+        # bytes of startup logging and fitted, then 4181 bytes (the same lines
+        # with a pid added to the format) and wedged, so the effective limit
+        # here is 4096. That is 185 bytes of headroom, which is no headroom at
+        # all - adding one log line, or one field to the format, was enough to
+        # make every session in this file fail to connect.
+        self._stderr_chunks = []
+        self._stderr_thread = threading.Thread(
+            target=self._stderr_loop, daemon=True, name="mcpsession-stderr",
+        )
+        self._stderr_thread.start()
         return self
+
+    def _stderr_loop(self):
+        for line in iter(self.proc.stderr.readline, b""):
+            self._stderr_chunks.append(line)
+
+    def stderr_text(self):
+        """What the server logged. Safe to call while the session is alive,
+        because the reader thread owns the pipe - reading it directly here
+        would block until the process exits."""
+        return b"".join(self._stderr_chunks).decode("utf-8", "replace")
 
     def __exit__(self, *exc):
         if self.proc and self.proc.poll() is None:
@@ -329,6 +355,48 @@ def test_stdout_carries_only_jsonrpc(data_dir):
     # handshake response and failed to parse.
     assert response.get("jsonrpc") == "2.0"
     assert "protocolVersion" in response["result"]
+
+
+def test_log_format_includes_pid_so_concurrent_servers_are_distinguishable(tmp_path):
+    """Every MCP session spawns its own server.py, and they all append to one
+    shared server.log in TDZ_DATA_DIR. Without a pid in the format, two
+    interleaved processes' lines cannot be told apart, and a diagnosis read
+    off the log can attribute one process's line to another.
+
+    Configures the real logging setup (kb.core.CoreMixin.__init__) in a
+    subprocess and asserts the FORMATTED log line contains that subprocess's
+    actual pid - not just that the format string literal contains the pid
+    placeholder, which would pass even if a different format were the one
+    actually installed.
+    """
+    log_dir = tmp_path / "logtest"
+    log_dir.mkdir()
+    probe = "\n".join([
+        "import os",
+        "import kb.core",
+        "try:",
+        f"    kb.core.CoreMixin({str(log_dir)!r})",
+        "except Exception:",
+        "    pass  # CoreMixin is not standalone; the logging setup at the",
+        "          # top of __init__ has already run by the time later",
+        "          # mixin-only attributes are missing.",
+        "print('PID', os.getpid())",
+    ])
+    out = subprocess.run(
+        [PYTHON, "-c", probe],
+        capture_output=True, env=_env(log_dir), cwd=str(REPO), timeout=60,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    stdout = out.stdout.decode(errors="replace")
+    pid_line = [ln for ln in stdout.splitlines() if ln.startswith("PID")][-1]
+    pid = pid_line.split()[1]
+
+    log_text = (log_dir / "server.log").read_text(encoding="utf-8", errors="replace")
+    assert re.search(rf"\b{re.escape(pid)}\b", log_text), (
+        f"server.log does not contain this process's pid ({pid}) anywhere, "
+        "so the configured logging format is not actually emitting it. "
+        f"log tail: {log_text[-800:]!r}"
+    )
 
 
 def test_database_uses_wal_mode(data_dir):
@@ -602,13 +670,9 @@ FIRST_SEARCH_BUDGET_S = 60.0
 def test_first_search_returns_over_a_long_lived_stdio_session(data_dir):
     """search_docs must answer on a session that stays open - see above."""
     with MCPSession(data_dir, client_name="first-search") as s:
-        # Nothing else drains stderr, and the KB logs several lines per search;
-        # a full stderr pipe would stall the server for a reason that has
-        # nothing to do with what is under test.
-        threading.Thread(
-            target=lambda: list(iter(s.proc.stderr.readline, b"")), daemon=True,
-        ).start()
-
+        # The drain this test used to start for itself now lives in
+        # MCPSession.__enter__, because every session needed it, not just this
+        # one. Two readers on one pipe would steal lines from each other.
         response, _ = s.initialize(timeout=HANDSHAKE_BUDGET_S)
         assert response is not None, "handshake failed"
 

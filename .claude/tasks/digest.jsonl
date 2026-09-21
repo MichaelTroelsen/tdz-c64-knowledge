@@ -48,6 +48,8 @@
 {"id":"graphify-root-path-msys-bug","summary":null}
 {"id":"health-check-warning-fires-on-disposable-cards","summary":null}
 {"id":"health-metric-missing-source-files","summary":null}
+{"id":"issue-17-second-half-rests-on-a-false-premise","summary":"Re-scoped issue #17's second request out of existence with the measurement rather than a reading: check_updates takes one boolean and no path, so it cannot fail fast on a disallowed one, and the 1800s stall was a 323-document re-index running correctly with no progress output - the read-only scan takes 2.66s over 1,138 documents."}
+{"id":"log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable","summary":"Put the pid in the shared log format with a test that checks the formatted output rather than the source string - and, chasing the one failure the agent wrote off as an unrelated flake, found it was deterministic and its own: MCPSession never drained the server's stderr, and startup logging sits 185 bytes under a 4096-byte pipe buffer. Drain moved into the session; 40 passed."}
 {"id":"markitdown-docs","summary":null}
 {"id":"markitdown-fallback-extractor","summary":null}
 {"id":"markitdown-feature-flag","summary":null}

@@ -62,6 +62,7 @@
 {"id":"mcp-streamable-http-transport","summary":null}
 {"id":"missing-source-metric-counts-disposable-cards","summary":null}
 {"id":"no-test-asserts-a-tool-call-returns-within-a-bound","summary":"Root-caused the cascade to an undrained stderr pipe in the test harness itself - not a product defect - fixed it, and the suite now passes skip-by-default with the assertion intact; the full repo is green at 412 passed / 4 skipped for the first time, and a real scrape_url hang was found and left in scope for whoever can touch util.py."}
+{"id":"non-blocking-dispatch-test-uses-a-benign-blocker","summary":"Replaced the sleeping stand-in with one that holds the lock the search path actually takes, and added the missing case pairing tool calls with the live extraction worker; 41 passed, and my own re-run of the sabotage confirms the new blocker fails the assertion in 1.66s where the old one never could."}
 {"id":"pdf-doc-id-hash-migration-decision","summary":null}
 {"id":"pdf-page-break-markers-defeat-content-dedup","summary":null}
 {"id":"peer-telemetry-writes-invalidate-every-search-cache","summary":"Replaced the raw PRAGMA data_version gate with a corpus fingerprint over documents and chunks, so a peer's telemetry write no longer drops the chunk cache, the BM25 index and every search cache; 13 passed, both sabotages discriminated, and an existing test caught a real ABA hole in the first design."}

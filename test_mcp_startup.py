@@ -35,6 +35,7 @@ Run with:  pytest test_mcp_startup.py -v
 import json
 import logging
 import os
+import random
 import re
 import subprocess
 import sys
@@ -876,45 +877,308 @@ def test_add_documents_bulk_does_not_block_the_event_loop(data_dir, tmp_path):
     )
 
 
-def test_a_slow_non_bulk_tool_also_does_not_block_the_event_loop(data_dir):
-    """R5: add_documents_bulk was not the only tool that froze the session.
+# ---------------------------------------------------------------------------
+# A stand-in blocker that only sleeps proves nothing.
+#
+# The two tests below replace the one that monkeypatched a handler to
+# time.sleep(3) and asserted an unrelated kb_stats still answered. time.sleep
+# in a worker thread holds no lock, touches no shared structure and releases
+# the GIL, so it is precisely the one kind of blocker that CANNOT reproduce
+# the production failure - a tool wedged *inside* the shared-cache path, with
+# KnowledgeBase._lock in its hand. Measured on this tree 2026-09-21:
+#
+#   stand-in = time.sleep(3)          -> a concurrent search_docs answered in
+#                                        ~0.2s. The test was green and pinned
+#                                        nothing.
+#   stand-in = holds kb._lock forever -> the same search_docs did not answer
+#                                        in 20s with the default 600s bound.
+#
+# kb._lock (kb/core.py) is what the search path itself takes: search_docs ->
+# _preprocess_text -> `with self._lock` while the stemmer/stopwords are built
+# on first use (kb/search/_retrieval.py:281). It also guards the ingest side
+# (4 sites in kb/ingest/_documents.py). Holding it is therefore not a
+# contrived wedge; it is the state a real slow ingest holds.
+#
+# Note that the sibling issue-#13 test above still uses a plain sleep. That is
+# deliberate: it reproduces one specific reported incident (a bulk ingest that
+# was CPU-bound on the event loop thread) and its assertion is about the loop,
+# not about shared state. The generic claim - "a slow tool does not take the
+# session down" - is pinned here instead.
+# ---------------------------------------------------------------------------
 
-    Every other handler in the ~3300-line dispatch ran inline on the event loop
-    - add_document (OCR of a scanned PDF takes minutes), scrape_url (a
-    whole-site crawl can run for hours), topic training, backup/restore. Only
-    add_documents_bulk had been wrapped in asyncio.to_thread, so the class of
-    bug survived the fix for issue #13. scrape_url stands in for all of them
-    here; the mechanism under test is generic (the whole dispatch runs on a
-    worker thread), not per-tool.
+# Short enough to keep the test quick, far above a healthy kb_stats/search
+# (~100-300ms). The shipped default is 600s.
+LOCKED_WEDGE_BOUND_S = "3"
+
+_SHARED_LOCK_WEDGE_PROBE = """
+import asyncio, os, sys, threading, time
+import server
+
+BOUND = float(os.environ["TDZ_TOOL_TIMEOUT_S"])
+CEILING = BOUND * 6 + 10
+held = threading.Event()
+
+def hold_the_kb_lock(kb, name, arguments):
+    # NOT a sleep. This is what a real slow ingest looks like from the rest of
+    # the process: the shared KnowledgeBase lock is taken and not given back.
+    with kb._lock:
+        held.set()
+        threading.Event().wait()
+    raise AssertionError("unreachable")
+
+server.HANDLERS["scrape_url"] = hold_the_kb_lock
+
+async def main():
+    server._tool_call_lock = None          # stdio transport: no serialisation
+    kb = server.get_kb()
+    t0 = time.time()
+    wedged = asyncio.create_task(server.call_tool(
+        "scrape_url", {"url": "https://example.invalid/", "max_pages": 1}))
+    for _ in range(200):                   # bounded wait for the lock to be taken
+        if held.is_set():
+            break
+        await asyncio.sleep(0.05)
+
+    # (a) a tool that needs nothing the wedge holds must still answer fast:
+    #     that is the event loop being free, which is what the old sleeping
+    #     stand-in tested and all it tested.
+    s0 = time.time()
+    try:
+        stats = await asyncio.wait_for(server.call_tool("kb_stats", {}), CEILING)
+        stats_ok = bool(stats) and not stats[0].text.startswith("Error")
+    except (asyncio.TimeoutError, TimeoutError):
+        stats_ok = False
+    stats_s = time.time() - s0
+
+    # (b) a tool that DOES need it - search_docs takes kb._lock in
+    #     _preprocess_text - cannot answer until the dispatch bound fires.
+    #     It must still come back, as an error, rather than going silent.
+    q0 = time.time()
+    try:
+        later = await asyncio.wait_for(
+            server.call_tool("search_docs", {"query": "raster interrupt"}), CEILING)
+        search_returned = bool(later)
+        search_errored = search_returned and later[0].text.startswith("Error")
+    except (asyncio.TimeoutError, TimeoutError):
+        search_returned = search_errored = False
+    search_s = time.time() - q0
+
+    print("RESULT", held.is_set(), kb.use_preprocessing, stats_ok,
+          round(stats_s, 2), search_returned, search_errored,
+          round(search_s, 2), round(time.time() - t0, 2), flush=True)
+    sys.stdout.flush()
+    # The abandoned workers are live non-daemon threads; a normal exit would
+    # block in the executor join asyncio.run performs on the way out.
+    os._exit(0)
+
+asyncio.run(main())
+"""
+
+
+def test_a_tool_holding_the_shared_kb_lock_does_not_take_the_session_down(data_dir):
+    """R5: a slow non-bulk tool must not freeze the session - measured with a
+    blocker that actually holds what the search path needs.
+
+    Two separate properties, and the sleeping stand-in could only ever show
+    the first:
+
+      (a) the event loop stays free, so a tool that touches none of the
+          wedged state (kb_stats) answers in its usual ~200ms;
+      (b) a tool that DOES contend for the wedged state (search_docs, via
+          `with self._lock` in _preprocess_text) is genuinely blocked - and
+          still comes back, bounded, as an error rather than silence.
+
+    (b) is the half with teeth. If it ever passes *fast*, the stand-in has
+    stopped holding anything and the test is back to proving nothing, so the
+    "was actually blocked" check below is an assertion, not a comment.
     """
-    probe = (
-        "import asyncio, time, server\n"
-        "def slow_scrape(self, *a, **kw):\n"
-        "    time.sleep(3)\n"
-        "    return {'success': True, 'pages_scraped': 0, 'documents_added': 0,\n"
-        "            'documents': [], 'failed': []}\n"
-        "server.KnowledgeBase.scrape_url = slow_scrape\n"
-        "async def main():\n"
-        "    t0 = time.time()\n"
-        "    slow = asyncio.create_task(server.call_tool(\n"
-        "        'scrape_url', {'url': 'https://example.invalid/', 'max_pages': 1}))\n"
-        "    await asyncio.sleep(0)\n"
-        "    await server.call_tool('kb_stats', {})\n"
-        "    kb_elapsed = time.time() - t0\n"
-        "    await slow\n"
-        "    print('RESULT', kb_elapsed < 1.5, kb_elapsed)\n"
-        "asyncio.run(main())\n"
-    )
+    env = _env(data_dir)
+    env["TDZ_TOOL_TIMEOUT_S"] = LOCKED_WEDGE_BOUND_S
+    bound = float(LOCKED_WEDGE_BOUND_S)
     out = subprocess.run(
-        [PYTHON, "-c", probe],
-        capture_output=True, env=_env(data_dir), cwd=str(REPO), timeout=60,
+        [PYTHON, "-c", _SHARED_LOCK_WEDGE_PROBE],
+        capture_output=True, env=env, cwd=str(REPO), timeout=180,
     )
     assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
-    line = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")][-1]
-    assert line.startswith("RESULT True"), (
-        f"kb_stats queued behind a slow scrape_url: {line!r} - the dispatch is "
-        "still running on the event loop thread"
+    lines = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")]
+    assert lines, (
+        "the shared-lock wedge probe produced no RESULT line; stderr:\n"
+        + out.stderr.decode(errors="replace")[-2000:]
     )
+    p = lines[-1].split()
+    held, preproc = p[1] == "True", p[2] == "True"
+    stats_ok, stats_s = p[3] == "True", float(p[4])
+    search_returned, search_errored, search_s = p[5] == "True", p[6] == "True", float(p[7])
+    raw = lines[-1]
+
+    assert held, f"the stand-in never acquired kb._lock: {raw!r}"
+    assert preproc, (
+        f"query preprocessing is off on this install ({raw!r}), so search_docs "
+        "never reaches `with self._lock` and this stand-in holds nothing the "
+        "search path wants. Needs nltk (USE_QUERY_PREPROCESSING=1)."
+    )
+
+    # (a) the loop is free.
+    assert stats_ok and stats_s < 1.5, (
+        f"kb_stats queued behind a wedged scrape_url: {raw!r} - the dispatch is "
+        "back on the event loop thread"
+    )
+
+    # (b) the stand-in is NOT benign. A sleeping stand-in answers here in
+    # ~0.2s; this assertion is what rejects it.
+    assert search_s >= bound * 0.8, (
+        f"search_docs answered in {search_s:.2f}s while the stand-in supposedly "
+        f"held kb._lock ({raw!r}). Either the search path stopped taking that "
+        "lock or the stand-in stopped holding it - either way this test is "
+        "benign again and pins nothing. Do not 'fix' it by relaxing this bound."
+    )
+    # ... and being blocked must still end in an answer, not silence.
+    assert search_returned and search_errored, (
+        f"search_docs blocked on kb._lock and never came back: {raw!r}. One "
+        "wedged tool has silenced a later one - the dispatch bound "
+        "(TDZ_TOOL_TIMEOUT_S) is not firing."
+    )
+
+
+# ---------------------------------------------------------------------------
+# "One client per process" is not "no concurrency".
+#
+# The stdio dispatch takes no lock at all (_tool_call_lock is set only by the
+# HTTP transport, server.py:655), while the entity-extraction worker is started
+# in the KnowledgeBase constructor (kb/core.py, daemon thread
+# "EntityExtractionWorker" running _extraction_worker_loop) and is therefore
+# already running before the first tool call arrives. Two threads, one set of
+# caches, one self.documents, from boot - and nothing in this suite exercised
+# that pairing.
+#
+# The worker's real job body calls an LLM (extract_entities raises
+# "LLM not configured" immediately without one), so a stock test environment
+# drains any queue in milliseconds and would overlap nothing. The probe
+# therefore substitutes a job body that does the shared-state work the real one
+# does - _get_chunks_db, iterating self.documents, writing self._entity_cache
+# (kb/entities/_extraction.py:507) - for the duration of a job, and runs it
+# through the REAL worker thread and the REAL queue. The overlap is then
+# measured, not assumed: a run where no search coincided with a busy worker
+# fails instead of quietly passing.
+# ---------------------------------------------------------------------------
+
+_WORKER_CONCURRENCY_PROBE = """
+import asyncio, os, sys, time
+import server
+from pathlib import Path
+
+CORPUS = sys.argv[1]
+JOB_WORK_S = 0.4
+SEARCHES = 12
+PER_CALL_CEILING = 20.0
+
+def busy_extract(self, doc_id, confidence_threshold=0.6, force_regenerate=False):
+    end = time.time() + JOB_WORK_S
+    n = 0
+    while time.time() < end:
+        chunks = self._get_chunks_db(doc_id)
+        for _did, meta in list(self.documents.items()):
+            n += len(meta.tags)
+        if self._entity_cache is not None:
+            self._entity_cache[f"{doc_id}:{confidence_threshold}"] = {
+                'entity_count': len(chunks), 'entities': []}
+        n += len(chunks)
+    return {'entity_count': n, 'entities': []}
+
+server.KnowledgeBase.extract_entities = busy_extract
+
+async def main():
+    kb = server.get_kb()
+    docs = [kb.add_document(str(p)).doc_id for p in sorted(Path(CORPUS).glob("*.txt"))]
+    # Distinct thresholds: the entity cache is keyed "doc_id:threshold", so
+    # equal ones would be served from cache and the worker would idle.
+    for r in range(5):
+        for d in docs:
+            kb.queue_entity_extraction(d, confidence_threshold=0.30 + r * 0.01,
+                                       skip_if_exists=False)
+
+    worst, overlapped, bad = 0.0, 0, 0
+    for _i in range(SEARCHES):
+        busy = kb._extraction_queue.unfinished_tasks > 0
+        t0 = time.time()
+        try:
+            out = await asyncio.wait_for(
+                server.call_tool("search_docs", {"query": "VIC-II raster interrupt"}),
+                PER_CALL_CEILING)
+            worst = max(worst, time.time() - t0)
+            if busy:
+                overlapped += 1
+            if not out or out[0].text.startswith("Error"):
+                bad += 1
+        except (asyncio.TimeoutError, TimeoutError):
+            bad += 1
+            break
+        await asyncio.sleep(0.05)
+
+    print("RESULT", len(docs), overlapped, bad, round(worst, 2),
+          kb._extraction_worker.is_alive(), flush=True)
+    sys.stdout.flush()
+    os._exit(0)
+
+asyncio.run(main())
+"""
+
+
+def test_search_keeps_answering_while_the_extraction_worker_runs(tmp_path):
+    """Tool calls overlap the background entity-extraction worker from boot.
+
+    Not a hypothetical: the worker thread starts in the KnowledgeBase
+    constructor, so every stdio session has a second thread walking
+    self.documents, the chunk cache and the entity TTLCache while tool calls
+    run with no lock between them. Repeated search_docs calls must keep
+    answering, bounded, while that worker is actively processing jobs.
+
+    Fails, never hangs: every call has its own asyncio.wait_for ceiling and the
+    probe prints a RESULT line.
+    """
+    corpus = tmp_path / "worker_corpus"
+    corpus.mkdir()
+    words = ("VIC-II raster interrupt sprite SID register Commodore CIA timer "
+             "bitmap charset border sync NMI IRQ kernal basic chip MOS").split()
+    rng = random.Random(6510)
+    for i in range(6):
+        (corpus / f"d{i}.txt").write_text(
+            " ".join(rng.choice(words) for _ in range(25000)), encoding="utf-8")
+
+    # Its own data dir, not the module-scoped one: this test ingests a corpus,
+    # and tests later in the file (health_check's bm25 lazy-build case) assert
+    # on a fresh, empty KB.
+    own_data = tmp_path / "worker_data"
+    own_data.mkdir()
+    env = _env(own_data)
+    env["ALLOWED_DOCS_DIRS"] = str(corpus)
+    out = subprocess.run(
+        [PYTHON, "-c", _WORKER_CONCURRENCY_PROBE, str(corpus)],
+        capture_output=True, env=env, cwd=str(REPO), timeout=300,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    lines = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")]
+    assert lines, (
+        "the worker-concurrency probe produced no RESULT line; stderr:\n"
+        + out.stderr.decode(errors="replace")[-2000:]
+    )
+    p = lines[-1].split()
+    n_docs, overlapped, bad, worst, alive = (
+        int(p[1]), int(p[2]), int(p[3]), float(p[4]), p[5] == "True")
+    raw = lines[-1]
+
+    assert n_docs == 6, f"corpus did not ingest: {raw!r}"
+    assert alive, f"the extraction worker thread died during the run: {raw!r}"
+    assert overlapped >= 8, (
+        f"only {overlapped}/12 searches were issued while the extraction queue "
+        f"had unfinished work ({raw!r}); the worker idled through the run, so "
+        "this test exercised no concurrency at all"
+    )
+    assert bad == 0, (
+        f"{bad} of 12 search_docs calls timed out or errored while the entity "
+        f"extraction worker was running: {raw!r}"
+    )
+    assert worst < 10.0, f"a search took {worst:.2f}s behind the worker: {raw!r}"
 
 
 def test_bulk_add_default_pattern_actually_matches_files(data_dir, tmp_path):

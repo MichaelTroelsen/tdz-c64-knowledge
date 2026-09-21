@@ -1,13 +1,13 @@
 {
   "generated_from": {
-    "head": "e0ea054",
+    "head": "89e7710",
     "sources": [
-      "issues: #17, #18, #19, #20 all still OPEN - but #18's BOTH halves are now done in the working tree, so it is closable once the tree is committed; that is the human's call, not this command's",
+      "issues: #17, #19, #20 OPEN; #18 CLOSED this session against 7fa124b once both its halves landed",
       "PRs: none open",
-      "TO-DOS.md (one entry added 2026-09-21 by /addtask, now a task; the 4 older non-struck bullets all have `done` records and remain residue)",
+      "TO-DOS.md (its 2026-09-21 entry became admin-common-format-timestamp-missing-datetime-import and is now closed; the 4 older non-struck bullets all have `done` records and remain residue)",
       "docs/ROADMAP.md",
       "whats-next.md (a pointer document by its own first line - contributes no tasks)",
-      ".claude/tasks/runs.jsonl (106 ids, last line per id)",
+      ".claude/tasks/runs.jsonl (108 ids, last line per id)",
       ".claude/tasks/decisions.jsonl (20 ids, last line per id)",
       "graphify code graph (refreshed this pass)"
     ],
@@ -55,7 +55,9 @@
     "_tool_call_lock is set ONLY by the HTTP transport, so the stdio dispatch path takes no lock at all. 'One client per process' is true for stdio but is NOT the same as 'no concurrency': the background entity-extraction worker starts at boot and runs in the same process over the same caches and self.documents. Any reasoning about stdio being single-threaded is wrong in a way that no current test covers.",
     "A TEST THAT HANGS IS NOT A TEST THAT FAILS, and this repo has both shapes. test_mcp_tool_dispatch.py calls call_tool with no timeout, so a wedged tool stalls the runner instead of naming itself; and the non-blocking case in test_mcp_startup.py blocks with time.sleep, which holds no lock and so cannot expose a tool wedged inside shared state. Both were green through the whole period four tools never returned. Any new liveness assertion must use asyncio.wait_for or a deadline and fail by name.",
     "MEASURED 2026-09-21: the new per-tool liveness suite in test_mcp_tool_dispatch.py drives 95 tools over a long-lived stdio server with a per-call bound, and a full `pytest -q` over the repo ran past 25 minutes against a 5m53s baseline measured before it existed. Budget for that, or scope a routine run to exclude it. Re-measure both figures rather than quoting these.",
-    "A TASK WHOSE TEST SPAWNS server.py IS A READER OF server.py AND MUST DECLARE r:server.py. Measured 2026-09-20: no-test-asserts-a-tool-call-returns-within-a-bound declared only its own test file, was scheduled beside a task holding rw:server.py, and its live findings were contaminated by the sibling rewriting the server under it - including transient sabotage states. The conflict matrix cannot see a dependency that exists only inside a subprocess invocation."
+    "A TASK WHOSE TEST SPAWNS server.py IS A READER OF server.py AND MUST DECLARE r:server.py. Measured 2026-09-20: no-test-asserts-a-tool-call-returns-within-a-bound declared only its own test file, was scheduled beside a task holding rw:server.py, and its live findings were contaminated by the sibling rewriting the server under it - including transient sabotage states. The conflict matrix cannot see a dependency that exists only inside a subprocess invocation.",
+    "test_http_transport_rejects_a_bad_api_key BINDS A LOCAL PORT and has been seen to fail once with a ConnectionError during a full run while a sibling agent was live in the same tree, then pass alone and in two subsequent full runs. Treat a lone ConnectionError there as suspected port contention under fan-out rather than a regression - but re-run it alone before believing either reading. If it recurs outside a fan-out it is a real defect and needs its own task.",
+    "MEASURED 2026-09-21: test_mcp_tool_dispatch.py does not merely slow the suite, it FAILS - a full run showed one F inside it while every other file was green (378 passed / 3 skipped / 0 failed with it excluded). Run alone it exceeded twenty minutes with no output. It is deliberately excluded from the commits at 7fa124b and 89e7710 and remains uncommitted in the working tree."
   ],
   "external_locks": [],
   "tasks": [
@@ -150,7 +152,7 @@
       "title": "Nothing asserts an individual tool call completes, so four permanently-hanging tools ship green",
       "source": "issue#19, merged with liveness-suite-needs-one-clean-run-and-r-server-py-in-touches which its own partial run record opened - SAME SUBJECT, one task, never two records",
       "model": "sonnet",
-      "effort": "medium",
+      "effort": "high",
       "mode": "subtask",
       "lane": "parallel",
       "touches": [
@@ -166,64 +168,11 @@
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "RESUME, DO NOT RESTART - the harness and the sabotage case are already written and working in test_mcp_tool_dispatch.py, and the one thing missing is a clean end-to-end run. What already landed and must be preserved: an MCPSession driving ONE long-lived server.py subprocess with a persistent reader thread, ids correlated through a queue with a deadline so a hang becomes a named failure; and test_a_permanently_blocked_handler_fails_naming_the_tool_not_the_suite, which wedges a handler in an ISOLATED subprocess and asserts both that the real handler source was read before mutating and that a SABOTAGE-ACTIVE marker reached that subprocess's stderr. Re-confirm those two still pass rather than rewriting them. WHAT IS ACTUALLY LEFT: one run of test_every_tool_returns_within_bound_over_a_long_lived_stdio_session with NOTHING ELSE writing server.py, and a decision about its wall-clock cost. THE PREVIOUS RUN'S FINDINGS ARE UNRELIABLE AND MUST BE RE-MEASURED, NOT CARRIED: it reported translate_query never returning and one hang cascading to wedge every later tool, but it ran while a sibling task held rw:server.py and was mutating it, so those observations are contaminated. A probe against the stable tree afterwards got translate_query returning and no cascade, which does not disprove the hang (that probe used an empty data dir) but does mean the cascade claim must be re-derived from scratch. Report what THIS run measures. ALSO SETTLE THE COST: with this suite present, a full `pytest -q` over the repo ran past 25 minutes against a 5m53s baseline measured before it existed - re-measure both numbers at run time rather than trusting these, and either bring the suite's contribution down or mark it so a routine full run can skip it, saying which you chose and why. 0 fail. SABOTAGE: confirm the existing blocked-handler case still FAILS NAMING THE TOOL within its bound rather than hanging, printing the patched region from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- test_mcp_tool_dispatch.py`.",
+      "verify": "RESUME, DO NOT RESTART - the harness and the sabotage case are already written and working in test_mcp_tool_dispatch.py, and what is missing is a clean end-to-end run. ALREADY LANDED AND TO BE PRESERVED: an MCPSession driving ONE long-lived server.py subprocess with a persistent reader thread, ids correlated through a queue with a deadline so a hang becomes a named failure; and test_a_permanently_blocked_handler_fails_naming_the_tool_not_the_suite, which wedges a handler in an ISOLATED subprocess and asserts both that the real handler source was read before mutating and that a SABOTAGE-ACTIVE marker reached that subprocess's stderr. Re-confirm those pass rather than rewriting them - the blocked-handler case was re-run alone and passed, so the working half is known good. NEW SINCE THE LAST PLAN, AND IT RAISES THE BAR: this file is not merely slow, it FAILS. A full run showed one F inside it, and every other file in the repo is green - re-derive both halves at run time rather than trusting these figures, but the split to expect is that test_every_tool_returns_within_bound_over_a_long_lived_stdio_session is the failing case while its sibling passes. Run the file ALONE and name which case fails and why, rather than reporting the file as a unit. THE PREVIOUS RUN'S FINDINGS ARE UNRELIABLE AND MUST BE RE-MEASURED, NOT CARRIED: it reported translate_query never returning and one hang cascading to wedge every later tool, but it ran while a sibling task held rw:server.py and was mutating it. A probe against a stable tree afterwards got translate_query returning and no cascade, which does not disprove the hang (that probe used an empty data dir) but does mean the cascade claim must be re-derived from scratch. Report what THIS run measures. ALSO SETTLE THE COST: the file alone exceeded twenty minutes without producing output, while the rest of the repo completes in around five minutes - re-measure both at run time, then either bring this file's contribution down or mark it so a routine full run can skip it, saying which you chose and why. The done-condition is that the file passes AND a full run over the repo completes in a time you state. SABOTAGE: confirm the existing blocked-handler case still FAILS NAMING THE TOOL within its bound rather than hanging, printing the patched region from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- test_mcp_tool_dispatch.py`.",
       "why_model": "a test-harness addition against an existing file, where the shape of the assertion is already specified in the issue and nothing has to be diagnosed first",
-      "why_effort": "the code is written and the judgement left is a cost trade-off plus one honest re-measurement, not a diagnosis",
+      "why_effort": "it is no longer just a cost trade-off - the file actively fails, the previous run's evidence is contaminated and must be redone, and the wall-clock decision still has to be made on top",
       "why_mode": "SUBTASK: one test file, and the done-condition is a named failure under a deliberate sabotage",
       "why_lane": "PARALLEL: rw:test_mcp_tool_dispatch.py and r:mcp_tools/schemas.py overlap no other task's paths - deliberately kept off test_mcp_startup.py, which four other tasks write"
-    },
-    {
-      "id": "ensure-embeddings-loaded-has-the-same-unbounded-stdin-wait",
-      "title": "semantic_search's faiss/model load carries the identical unbounded stdin wait that _ensure_nltk was just given a deadline for",
-      "source": "opened by first-search-lazy-import-is-unbounded-and-unlogged (runs.jsonl, head e0ea054)",
-      "model": "opus",
-      "effort": "high",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:kb/search/_retrieval.py",
-        "rw:test_mcp_startup.py",
-        "r:features.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "fork": null,
-      "branch": null,
-      "blocked_on": null,
-      "decision": null,
-      "verify": "semantic_search over a LONG-LIVED stdio server returns rather than hanging on its first call, and the bound is observable in the log the way _ensure_nltk's now is. ESTABLISHED BY MEASUREMENT AND SAFE TO BUILD ON, but re-confirm cheaply rather than trusting it: importing faiss stalls identically under a pending read on the process's stdin, which is the same mechanism already root-caused for nltk - Windows serialises I/O on the stdin file object and the BLAS-linked DLL initialisations touch it, so the import waits for a client message that the blocked client will never send. numpy stalls too but is already imported eagerly at server.py module level so it lands before the transport starts; rapidfuzz does not stall. Grep kb/search/_retrieval.py for _ensure_embeddings_loaded to find the site rather than trusting any line number. THE SHAPE OF THE FIX IS ALREADY IN THE TREE: features.py's _ensure_nltk runs its import on a named daemon thread and waits with an env-tunable deadline, and _preprocess_text degrades for one call on TimeoutError without latching the capability off. Follow that pattern rather than inventing a second one, and say plainly what semantic_search DOES when the index is not ready yet - degrading to FTS5 and a clear message is a legitimate answer, silently returning nothing is not. THE HANDSHAKE BUDGET IS A CONSTRAINT: FORBIDDEN_AT_STARTUP and the 30s initialize budget still hold, so importing faiss at module scope is NOT an acceptable fix and the existing startup cases must still pass. test_mcp_startup.py gains at least one case that FAILS rather than hangs when the bound is absent, and 0 fail. SABOTAGE: remove the bound and confirm the new case fails on its deadline, printing the changed region from disk FIRST to prove the mutation landed; separately confirm the FORBIDDEN_AT_STARTUP guard still fails when a heavy module is imported at module scope. Scope the footprint check with `git diff --name-only -- kb/search/_retrieval.py test_mcp_startup.py`.",
-      "why_model": "the same class of defect whose first diagnosis was confidently wrong and publicly retracted, in shared code every semantic query goes through",
-      "why_effort": "the mechanism is already understood so this is not a fresh root-cause hunt, but deciding what semantic_search returns while the index is still loading is a real behaviour choice that a wrong answer makes silently useless",
-      "why_mode": "SUBTASK: one named function, one test file, and a done-condition that is a bounded return",
-      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps two other tasks that also add cases to it"
-    },
-    {
-      "id": "admin-common-format-timestamp-missing-datetime-import",
-      "title": "format_timestamp calls datetime but admin_common.py never imports it, so every Streamlit page that renders a timestamp crashes",
-      "source": "TO-DOS.md (## Admin GUI crashes on any page that formats a timestamp - 2026-09-21), from a user screenshot of the Scraped Websites page",
-      "model": "sonnet",
-      "effort": "low",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:admin_common.py",
-        "rw:test_admin_gui.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "fork": null,
-      "branch": null,
-      "blocked_on": null,
-      "decision": null,
-      "verify": "Importing admin_common and calling format_timestamp with a valid ISO-8601 string returns a formatted '%Y-%m-%d %H:%M:%S' string instead of raising NameError, AND calling it with a non-ISO string still returns that string unchanged through the existing except path. CONFIRMED THIS PASS, re-check rather than trust: admin_common.py has NO datetime import at all - grep it for '^import datetime' and '^from datetime' and print the exit code, because at this head both return nothing - while format_timestamp calls datetime.fromisoformat. THE SECOND DEFECT IS THE ONE A NARROW FIX WOULD MISS: that function's own `except (ValueError, TypeError, AttributeError)` does not list NameError, which is exactly why the error escaped a guard that looks like it should have absorbed it. Decide and SAY whether the guard should also catch the broader case, rather than only adding the import and leaving the next name error in there equally unguarded. THE BLAST RADIUS IS WIDER THAN THE REPORT: the fault is in the shared helper, so besides admin_pages/web_scraping.py it also reaches admin_pages/documents.py - grep both for format_timestamp to enumerate the call sites rather than trusting this sentence. NO test_admin_common.py EXISTS AT THIS HEAD, confirmed by a filesystem check, so test_admin_gui.py is the home and this is coverage the task ADDS rather than extends. 0 fail. SABOTAGE: remove the import again and confirm the new case FAILS with NameError, printing the import block from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- admin_common.py test_admin_gui.py`.",
-      "why_model": "a missing import plus one deliberately-scoped except clause, in a small helper with an obvious reproduction",
-      "why_effort": "the import is trivial; the only judgement is how wide the except clause should be, and getting that wrong is cheap to notice and cheap to redo",
-      "why_mode": "SUBTASK: two files and a done-condition that is a return value rather than a judgement",
-      "why_lane": "PARALLEL: admin_common.py and test_admin_gui.py are touched by nothing else in this plan"
     }
   ],
   "closed": [
@@ -868,6 +817,18 @@
       "title": "One wedged tool call blocks every later call in the same process, including health_check",
       "closed_by": "uncommitted:2026-09-21",
       "reason": "Bounded, and the baseline measurement CORRECTED BOTH THIS PLAN AND ISSUE#18. There were two unbounded waits, not one, and they differ by transport: on stdio a later kb_stats ALREADY answered in 0.21s while another call was wedged, because mcp's lowlevel server does tg.start_soon per message - so stdio was already concurrent and its only defect was that the wedged caller got nothing. The 'one hang kills the server' half is HTTP-ONLY, caused by holding _tool_call_lock across a dispatch whose worker thread cannot be cancelled. The bound is opt-OUT (every tool bounded by default, 23 by-design-long tools exempted to a separate unbounded knob) so a tool added tomorrow is bounded rather than forgotten, pinned by a test asserting an unknown tool name gets the default. TWO COSTS WRITTEN INTO THE CODE RATHER THAN GLOSSED: wait_for cancels the await and not the thread, so an abandoned worker keeps running and may still write the DB; and on HTTP, blowing the bound releases the lock while that thread runs. Both argued, both only after a 10-minute overrun. 37 passed, re-run independently. UNCOMMITTED: server.py, test_mcp_startup.py."
+    },
+    {
+      "id": "ensure-embeddings-loaded-has-the-same-unbounded-stdin-wait",
+      "title": "semantic_search's faiss/model load carried the identical unbounded stdin wait",
+      "closed_by": "89e7710",
+      "reason": "Bounded behind a deadline on a named embeddings-warmup thread, mirroring _ensure_nltk rather than inventing a second mechanism. RE-MEASURING WIDENED THE FINDING: with the pipe's write end held open, faiss, numpy AND sentence_transformers all hang past 25s under a pending stdin read, each released ~0.2s after one byte is poked in, so the whole worker body moves rather than only _load_embeddings. THE AGENT CAUGHT ITS OWN BROKEN HARNESS FIRST: its initial run said faiss did not stall, and the control - scipy.linalg.blas, the documented known-positive - also failed to stall, which exposed subprocess.communicate() closing the child's stdin write end so os.read returned EOF instead of blocking. It reported the false result and the cause rather than re-running until the numbers agreed. semantic_search raises rather than falling back to FTS5, because the MCP handler renders only title/filename/doc_id/similarity/snippet so a 'these are really lexical' marker could not reach the caller; returning [] was rejected as indistinguishable from 'no matches'. kb/search/__init__.py asserts each sub-mixin's exact method set, so both helpers are module-level functions rather than a grant this agent gave itself. 39 passed, re-run independently."
+    },
+    {
+      "id": "admin-common-format-timestamp-missing-datetime-import",
+      "title": "format_timestamp called datetime but admin_common.py never imported it",
+      "closed_by": "89e7710",
+      "reason": "`from datetime import datetime` added; 19 passed. THE EXCEPT-CLAUSE CALL WENT AGAINST THE TASK'S OWN FRAMING, CORRECTLY: the verify asked whether the guard should also catch the broader case, and the agent kept `except (ValueError, TypeError, AttributeError)` narrow on the grounds that widening it would silently swallow the NEXT NameError in that function, and that the fix for a NameError escaping a guard is removing the NameError rather than making it an expected case. Blast radius confirmed read-only as instructed: the shared helper is called from admin_pages/documents.py and admin_pages/web_scraping.py, both already correct, so the single fix covers both live crash surfaces and no file outside the grant was edited. The sabotage reproduced the user's exact reported error at the reported line."
     }
   ]
 }

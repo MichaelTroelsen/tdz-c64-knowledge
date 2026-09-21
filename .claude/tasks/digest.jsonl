@@ -59,7 +59,7 @@
 {"id":"mcp-serverinfo-reports-the-sdk-version-not-the-project","summary":"Passed version=__version__ into the Server(...) construction so clients are told the project's version instead of the MCP SDK's; 32 passed and dropping the argument again made the new case fail."}
 {"id":"mcp-streamable-http-transport","summary":null}
 {"id":"missing-source-metric-counts-disposable-cards","summary":null}
-{"id":"no-test-asserts-a-tool-call-returns-within-a-bound","summary":"The isolated sabotage case works and proves a hang becomes a named failure, but the live whole-suite run was contaminated by a sibling agent rewriting server.py under it, so its translate_query and cascade findings are unreliable and the run needs repeating alone."}
+{"id":"no-test-asserts-a-tool-call-returns-within-a-bound","summary":"Root-caused the cascade to an undrained stderr pipe in the test harness itself - not a product defect - fixed it, and the suite now passes skip-by-default with the assertion intact; the full repo is green at 412 passed / 4 skipped for the first time, and a real scrape_url hang was found and left in scope for whoever can touch util.py."}
 {"id":"pdf-doc-id-hash-migration-decision","summary":null}
 {"id":"pdf-page-break-markers-defeat-content-dedup","summary":null}
 {"id":"peer-telemetry-writes-invalidate-every-search-cache","summary":"Replaced the raw PRAGMA data_version gate with a corpus fingerprint over documents and chunks, so a peer's telemetry write no longer drops the chunk cache, the BM25 index and every search cache; 13 passed, both sabotages discriminated, and an existing test caught a real ABA hole in the first design."}

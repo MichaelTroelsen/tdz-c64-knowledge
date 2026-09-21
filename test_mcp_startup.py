@@ -579,6 +579,92 @@ def test_ensure_nltk_degrades_instead_of_hanging_on_a_stalled_download(data_dir)
     )
 
 
+# --- A search over a LONG-LIVED stdio session must actually return ---
+#
+# Distinct from issue #12 above, and it does not reproduce in a fresh process:
+# a one-shot interpreter answered the identical query in 0.8s while a
+# long-lived stdio server left it unanswered for 90s. Measured cause
+# (2026-09-20): _preprocess_text's deferred `import nltk` pulls in
+# nltk.collocations -> scipy.stats -> scipy.linalg, a chain of C-extension DLL
+# loads that each touch this process's stdin. Windows serialises operations on
+# a synchronous file object, and the stdio transport always has a reader thread
+# parked in a read on stdin that only completes when the client sends its next
+# message - which it never does, because it is waiting for this search. Poking
+# that wedged server with one extra request per second let the search finish
+# after exactly 11 of them.
+#
+# So this test must NOT write anything else to stdin while it waits: every
+# extra byte advances the very import whose stall it is trying to catch. And
+# it must fail on a deadline rather than hang, which _readline() gives it.
+FIRST_SEARCH_BUDGET_S = 60.0
+
+
+def test_first_search_returns_over_a_long_lived_stdio_session(data_dir):
+    """search_docs must answer on a session that stays open - see above."""
+    with MCPSession(data_dir, client_name="first-search") as s:
+        # Nothing else drains stderr, and the KB logs several lines per search;
+        # a full stderr pipe would stall the server for a reason that has
+        # nothing to do with what is under test.
+        threading.Thread(
+            target=lambda: list(iter(s.proc.stderr.readline, b"")), daemon=True,
+        ).start()
+
+        response, _ = s.initialize(timeout=HANDSHAKE_BUDGET_S)
+        assert response is not None, "handshake failed"
+
+        start = time.time()
+        s._send({
+            "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+            "params": {
+                "name": "search_docs",
+                "arguments": {"query": "raster interrupt stable timing", "max_results": 3},
+            },
+        })
+        line = s._readline(FIRST_SEARCH_BUDGET_S)
+        elapsed = time.time() - start
+
+    assert line is not None, (
+        f"search_docs never answered over a long-lived stdio session "
+        f"({FIRST_SEARCH_BUDGET_S}s). The deferred nltk import is waiting on "
+        f"stdin behind the transport's own pending read, and the client that "
+        f"would release it is blocked on this reply."
+    )
+    payload = json.loads(line)
+    assert payload.get("id") == 7, payload
+    assert "result" in payload, payload
+    assert elapsed < FIRST_SEARCH_BUDGET_S, f"search took {elapsed:.1f}s"
+
+
+def test_ensure_nltk_returns_on_a_deadline_instead_of_waiting_for_the_import(data_dir):
+    """The bound itself: a one-time import that never finishes must not be
+    waited on forever. Stands in for the stdin stall above without needing a
+    live stdio session, and fails fast if the deadline is ever removed."""
+    probe = chr(10).join([
+        "import features, threading, time",
+        # An import that can never complete - the shape the stdin stall has
+        # from the caller side.
+        "features._nltk_import_worker = lambda: threading.Event().wait()",
+        "start = time.time()",
+        "raised = ''",
+        "try:",
+        "    features._ensure_nltk(timeout=2.0)",
+        "except TimeoutError:",
+        "    raised = 'TimeoutError'",
+        "print('RESULT', raised, time.time() - start < 10)",
+    ])
+    out = subprocess.run(
+        [PYTHON, "-c", probe],
+        capture_output=True, env=_env(data_dir), cwd=str(REPO), timeout=120,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    line = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")][-1]
+    assert line == "RESULT TimeoutError True", (
+        f"_ensure_nltk did not return on its deadline: {line!r}. Without that "
+        "bound, every search_docs/semantic_search/fuzzy_search/answer_question "
+        "call inherits an unbounded wait on the first one."
+    )
+
+
 def test_ensure_embeddings_degrades_instead_of_hanging_when_offline(data_dir):
     """The exact issue #12 failure for semantic_search: model load hangs.
 
@@ -1377,3 +1463,188 @@ def test_stdio_remains_the_default(data_dir):
     args = server_module._resolve_transport_config([])
     assert args.transport == "stdio"
     assert args.host == "127.0.0.1"
+
+
+# ---------------------------------------------------------------------------
+# issue #18: one wedged tool call must not silence every LATER call
+#
+# The reported symptom was not "search is slow". It was that health_check,
+# kb_stats and list_docs - each timed at 100-200ms in the same session moments
+# earlier - all stopped answering once a search call wedged first. That is the
+# difference between one broken tool and a dead server, and it is a separate
+# defect from whatever wedged the search: the hang is a bug in one handler, the
+# silence afterwards is a missing bound in the dispatch.
+#
+# Measured on this tree before the bound existed (server.py records the same
+# numbers next to the fix):
+#
+#   stdio (no _tool_call_lock) : a later kb_stats answered in 0.21s, but the
+#                                wedged call itself NEVER returned
+#   HTTP  (_tool_call_lock set): the later kb_stats never returned either
+#
+# Both transports are exercised below, because _tool_call_lock is set only by
+# the HTTP transport and the two paths therefore fail differently.
+#
+# The wedge is threading.Event().wait() rather than a sleep on purpose: a sleep
+# ends by itself and would pass an implementation with no bound at all. It is
+# also not the real faiss-under-a-pending-stdin-read wedge, deliberately - over
+# a live stdio session, sending the unrelated probe request is itself what
+# advances the stalled DLL chain (see the long-lived-session test above), so
+# that setup would report "the later call returned" for the wrong reason. An
+# in-process wedge has no such feedback path.
+#
+# Every wait in the probe has a ceiling and the probe prints a RESULT line, so
+# a missing bound makes these tests FAIL rather than hang.
+# ---------------------------------------------------------------------------
+
+# Short enough to keep the tests quick, long enough that a healthy kb_stats
+# (~100-200ms) is nowhere near it. The shipped default is 600s.
+WEDGE_BOUND_S = "3"
+
+_WEDGED_CALL_PROBE = """
+import asyncio, os, sys, threading, time
+import server
+
+BOUND = float(os.environ["TDZ_TOOL_TIMEOUT_S"])
+USE_LOCK = sys.argv[1] == "lock"
+CEILING = BOUND * 6 + 10
+
+def wedge(kb, name, arguments):
+    threading.Event().wait()          # never returns, cannot be cancelled
+    raise AssertionError("unreachable")
+
+server.HANDLERS["search_docs"] = wedge
+
+async def main():
+    server._tool_call_lock = asyncio.Lock() if USE_LOCK else None
+    t0 = time.time()
+    wedged = asyncio.create_task(
+        server.call_tool("search_docs", {"query": "raster interrupt"}))
+    await asyncio.sleep(0.2)          # let it reach the wedge and take the lock
+
+    try:
+        later = await asyncio.wait_for(server.call_tool("kb_stats", {}), CEILING)
+        later_ok = bool(later) and not later[0].text.startswith("Error")
+    except (asyncio.TimeoutError, TimeoutError):
+        later_ok = False
+    later_s = time.time() - t0
+
+    try:
+        out = await asyncio.wait_for(asyncio.shield(wedged), CEILING)
+        wedged_err = bool(out) and out[0].text.startswith("Error")
+    except (asyncio.TimeoutError, TimeoutError):
+        wedged_err = False
+    wedged_s = time.time() - t0
+
+    print("RESULT", later_ok, wedged_err, server._orphaned_tool_calls,
+          round(later_s, 2), round(wedged_s, 2), flush=True)
+    sys.stdout.flush()
+    # The abandoned worker is a live non-daemon thread, so a normal exit would
+    # block in the executor join asyncio.run performs on the way out.
+    os._exit(0)
+
+asyncio.run(main())
+"""
+
+
+def _run_wedge_probe(data_dir, mode):
+    env = _env(data_dir)
+    env["TDZ_TOOL_TIMEOUT_S"] = WEDGE_BOUND_S
+    env["TDZ_TOOL_LOCK_WAIT_S"] = WEDGE_BOUND_S
+    out = subprocess.run(
+        [PYTHON, "-c", _WEDGED_CALL_PROBE, mode],
+        capture_output=True, env=env, cwd=str(REPO), timeout=180,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    lines = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")]
+    assert lines, (
+        "the wedge probe produced no RESULT line; stderr:\n"
+        + out.stderr.decode(errors="replace")[-2000:]
+    )
+    parts = lines[-1].split()
+    return {
+        "later_ok": parts[1] == "True",
+        "wedged_errored": parts[2] == "True",
+        "orphaned": int(parts[3]),
+        "later_s": float(parts[4]),
+        "wedged_s": float(parts[5]),
+        "raw": lines[-1],
+    }
+
+
+def test_a_wedged_tool_call_returns_an_error_instead_of_silence(data_dir):
+    """stdio path (_tool_call_lock is None): the wedged call must come back.
+
+    Before the bound this half failed on both transports - the caller waited
+    forever and the client eventually gave up with nothing to show for it.
+    """
+    r = _run_wedge_probe(data_dir, "nolock")
+    bound = float(WEDGE_BOUND_S)
+    assert r["wedged_errored"], (
+        f"a wedged search_docs never returned anything to its caller: {r['raw']!r}. "
+        "Without a per-call bound the caller waits on a thread that cannot be "
+        "cancelled, and the session just goes quiet (issue #18)."
+    )
+    assert r["wedged_s"] < bound * 3, f"the bound did not hold: {r['raw']!r}"
+    assert r["orphaned"] >= 1, (
+        f"the abandoned worker was not recorded: {r['raw']!r} - _orphaned_tool_calls "
+        "is how a process learns it is leaking wedged threads."
+    )
+    assert r["later_ok"], f"an unrelated kb_stats did not succeed: {r['raw']!r}"
+
+
+def test_a_wedged_tool_call_does_not_silence_later_calls_over_http(data_dir):
+    """HTTP path (_tool_call_lock set): THE asymmetry.
+
+    _tool_call_lock is set only by the HTTP transport, so this is the path
+    where one wedged call took every later call down with it - the lock was
+    held for the whole dispatch and its holder never finished. stdio has no
+    such lock and never showed this half of the failure, which is why both
+    transports are tested rather than one standing in for the other.
+    """
+    r = _run_wedge_probe(data_dir, "lock")
+    bound = float(WEDGE_BOUND_S)
+    assert r["later_ok"], (
+        f"an unrelated kb_stats never returned while another call was wedged: "
+        f"{r['raw']!r}. It is queued behind _tool_call_lock, whose holder is a "
+        "thread that cannot be cancelled - this is what made the server look dead."
+    )
+    assert r["later_s"] < bound * 3, (
+        f"kb_stats returned, but only after {r['later_s']}s: {r['raw']!r}"
+    )
+    assert r["wedged_errored"], f"the wedged call itself never returned: {r['raw']!r}"
+
+
+def test_long_running_tools_are_real_tools_and_exempt_from_the_bound(data_dir):
+    """The exemption list is the part that can rot silently.
+
+    A flat bound would abort work that is long BY DESIGN - OCR in
+    add_document, a whole-site scrape_url, topic training, backup/restore - so
+    those names are exempted. A typo in that set would put a long tool back
+    under the 600s bound and kill a legitimate hour-long call, and nothing else
+    in the suite would notice. Assert the set against the live schema list, and
+    assert the two sides of the policy actually differ.
+    """
+    probe = chr(10).join([
+        "import server",
+        "from mcp_tools.schemas import TOOL_SCHEMAS",
+        "names = {t.name for t in TOOL_SCHEMAS}",
+        "unknown = sorted(server._LONG_RUNNING_TOOLS - names)",
+        "print('RESULT', unknown,",
+        "      server._tool_timeout_s('health_check'),",
+        "      server._tool_timeout_s('add_document'),",
+        "      server._tool_timeout_s('a_tool_added_tomorrow'))",
+    ])
+    out = subprocess.run(
+        [PYTHON, "-c", probe],
+        capture_output=True, env=_env(data_dir), cwd=str(REPO), timeout=120,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    line = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")][-1]
+    assert line == "RESULT [] 600.0 None 600.0", (
+        f"the per-call bound policy is not what server.py documents: {line!r}. "
+        "Expected: no unknown names in _LONG_RUNNING_TOOLS; health_check bounded "
+        "at the 600s default; add_document exempt (None); and an unrecognised "
+        "tool name bounded by DEFAULT - the bound has to be opt-out, or the next "
+        "tool somebody adds inherits the unbounded wait this guards against."
+    )

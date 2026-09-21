@@ -19,7 +19,11 @@ performance". Keep it that way: do not turn any of the `_module_available`
 checks below into a real top-level import.
 """
 
+import logging
+import os
 import sys
+import threading
+import time
 import importlib.util
 
 from util import _LazyModule, _network_timeout
@@ -81,41 +85,123 @@ if not NLTK_SUPPORT:
 
 _nltk_ready = False
 
+# Importing nltk pulls in nltk.collocations -> nltk.metrics.association ->
+# scipy.stats -> scipy.linalg, which loads a chain of C-extension DLLs. Each
+# of those DLL initialisations touches this process's stdin, and Windows
+# serialises operations on a synchronous file object. Under the MCP stdio
+# transport a reader thread is permanently parked in a read on stdin that only
+# completes when the client sends its next message, so every DLL in the chain
+# queues behind it - while the client is itself blocked waiting for the reply
+# to the search that started the import. Nothing breaks the tie and the search
+# never returns.
+#
+# Measured, 2026-09-20: a search over a long-lived stdio session was still
+# unanswered after 90s; feeding that same server one extra request per second
+# let it finish after exactly 11 of them. The identical import costs 0.2s in a
+# process with no pending read on stdin, and the minimal reproduction is a
+# thread blocked in os.read(0, 1) plus `import scipy.linalg.blas` - which
+# completes 0.2s after one byte is written to the pipe.
+#
+# So the import runs once, on its own daemon thread, and callers wait for it
+# with a deadline instead of inheriting that unbounded wait. A caller that hits
+# the deadline degrades for that one call (see _preprocess_text) while the
+# import carries on in the background and lands as soon as any further client
+# traffic releases stdin, so the next call gets the real stemmer. Warming it at
+# module level instead is not an option: that is exactly the ~16s startup
+# regression CLAUDE.md and test_mcp_startup.py's FORBIDDEN_AT_STARTUP forbid.
+NLTK_IMPORT_TIMEOUT_S = float(os.environ.get('TDZ_NLTK_IMPORT_TIMEOUT_S', '5'))
 
-def _ensure_nltk():
-    """Import nltk and download its corpora on first use.
+# Once one caller has already waited out the full deadline, later callers
+# wait only this long. Under the stdin stall the import advances by roughly
+# one DLL per client message, so re-paying the full deadline on every search
+# would charge it to each of the ~11 messages the chain needs; measured cold
+# in a process with no pending read on stdin the whole thing costs 0.64s, so
+# a caller that has seen the deadline blown is looking at the stalled case
+# and should degrade immediately rather than wait again.
+_NLTK_RETRY_WAIT_S = 0.05
 
-    Returns (PorterStemmer_cls, stopwords_mod, word_tokenize_fn) or None if
-    nltk is unavailable or its data cannot be fetched.
+_nltk_parts = None
+_nltk_done = threading.Event()
+_nltk_start_lock = threading.Lock()
+_nltk_thread = None
+_nltk_deadline_missed = False
+_nltk_logger = logging.getLogger(__name__)
+
+
+def _nltk_import_worker() -> None:
+    """Import nltk and fetch its corpora exactly once, off the caller's thread.
+
+    Never raises: a failure leaves _nltk_parts None and _ensure_nltk returns
+    None, which callers already treat as "degrade to no preprocessing".
     """
-    global _nltk_ready
+    global _nltk_parts, _nltk_ready
+    started = time.monotonic()
+    try:
+        import nltk
+        from nltk.corpus import stopwords
+        from nltk.stem import PorterStemmer
+        from nltk.tokenize import word_tokenize
+        _nltk_logger.info("nltk import finished in %.2fs", time.monotonic() - started)
+        if not _nltk_ready:
+            # Ensure NLTK data is available. This can hit the network, which is
+            # why it must never run at import time - a slow or offline mirror
+            # would stall the MCP handshake instead of just this one call.
+            try:
+                stopwords.words('english')
+            except LookupError:
+                try:
+                    with _network_timeout():
+                        nltk.download('stopwords', quiet=True)
+                        nltk.download('punkt', quiet=True)
+                        nltk.download('punkt_tab', quiet=True)
+                except Exception as e:
+                    # Network unreachable/filtered - the caller's except-and-
+                    # degrade logic (see _preprocess_text) handles this fine as
+                    # long as we don't hang here first. Mark ready regardless so
+                    # every subsequent search doesn't re-attempt (and re-wait
+                    # out) the same doomed download.
+                    print(f"Warning: NLTK data download failed or timed out: {e}", file=sys.stderr)
+            _nltk_ready = True
+        _nltk_parts = (PorterStemmer, stopwords, word_tokenize)
+    except Exception as e:
+        _nltk_logger.warning("nltk unavailable, query preprocessing will degrade: %s", e)
+    finally:
+        _nltk_logger.info("nltk warm-up returned after %.2fs", time.monotonic() - started)
+        _nltk_done.set()
+
+
+def _ensure_nltk(timeout: float | None = None):
+    """Start (once) and wait on the deferred nltk import, with a deadline.
+
+    Returns (PorterStemmer_cls, stopwords_mod, word_tokenize_fn), or None if
+    nltk is unavailable or its data could not be fetched.
+
+    Raises TimeoutError if the one-time import is still in flight after
+    `timeout` seconds (default NLTK_IMPORT_TIMEOUT_S). That is a "not yet",
+    not a failure: the caller degrades for this one call and retries on the
+    next, because the import does finish - see the comment above for what it
+    is waiting on and why the caller must not wait with it.
+    """
+    global _nltk_thread, _nltk_deadline_missed
     if not NLTK_SUPPORT:
         return None
-    import nltk
-    from nltk.corpus import stopwords
-    from nltk.stem import PorterStemmer
-    from nltk.tokenize import word_tokenize
-    if not _nltk_ready:
-        # Ensure NLTK data is available. This can hit the network, which is
-        # why it must never run at import time - a slow or offline mirror
-        # would stall the MCP handshake instead of just this one call.
-        try:
-            stopwords.words('english')
-        except LookupError:
-            try:
-                with _network_timeout():
-                    nltk.download('stopwords', quiet=True)
-                    nltk.download('punkt', quiet=True)
-                    nltk.download('punkt_tab', quiet=True)
-            except Exception as e:
-                # Network unreachable/filtered - the caller's except-and-
-                # degrade logic (see _preprocess_text) handles this fine as
-                # long as we don't hang here first. Mark ready regardless so
-                # every subsequent search doesn't re-attempt (and re-wait
-                # out) the same doomed download.
-                sys.stderr.write(f"Warning: NLTK data download failed or timed out: {e}\n")
-        _nltk_ready = True
-    return PorterStemmer, stopwords, word_tokenize
+    if not _nltk_done.is_set():
+        with _nltk_start_lock:
+            if _nltk_thread is None:
+                _nltk_thread = threading.Thread(
+                    target=_nltk_import_worker, name='nltk-warmup', daemon=True,
+                )
+                _nltk_thread.start()
+        if timeout is None:
+            timeout = _NLTK_RETRY_WAIT_S if _nltk_deadline_missed else NLTK_IMPORT_TIMEOUT_S
+        if not _nltk_done.wait(timeout):
+            _nltk_deadline_missed = True
+            raise TimeoutError(
+                f"nltk is still importing after {timeout:.1f}s; degrading this "
+                f"call rather than blocking on it (TDZ_NLTK_IMPORT_TIMEOUT_S "
+                f"tunes the deadline)"
+            )
+    return _nltk_parts
 
 
 # Semantic search support (sentence-transformers + faiss imported lazily)

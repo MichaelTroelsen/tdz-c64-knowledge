@@ -1,15 +1,15 @@
 {
   "generated_from": {
-    "head": "721ea1d",
+    "head": "e0ea054",
     "sources": [
-      "TO-DOS.md (4 non-struck bullets; all have `done` records - informational residue, no open work)",
+      "issues: #17, #18, #19, #20 all still OPEN - but #18's BOTH halves are now done in the working tree, so it is closable once the tree is committed; that is the human's call, not this command's",
+      "PRs: none open",
+      "TO-DOS.md (one entry added 2026-09-21 by /addtask, now a task; the 4 older non-struck bullets all have `done` records and remain residue)",
       "docs/ROADMAP.md",
       "whats-next.md (a pointer document by its own first line - contributes no tasks)",
-      ".claude/tasks/runs.jsonl (103 ids, last line per id; 6 tasks closed by this session's /runqueue drain)",
-      ".claude/tasks/decisions.jsonl (20 ids, last line per id; 3 answered this session by /runhuman)",
-      "issues: issue#17 still OPEN and now re-scoped rather than closed",
-      "PRs: none open",
-      "graphify code graph (refreshed this pass: 4601 nodes, 6529 edges)"
+      ".claude/tasks/runs.jsonl (106 ids, last line per id)",
+      ".claude/tasks/decisions.jsonl (20 ids, last line per id)",
+      "graphify code graph (refreshed this pass)"
     ],
     "focus": null
   },
@@ -50,33 +50,15 @@
     "MEASURED 2026-09-20 and it CORRECTS AN ESTIMATE THIS REPO CARRIED: the BM25 index rebuild is 95.10s, of which 92.45s is tokenising 9318 chunks - not the '~265s' earlier records state. Re-measure before writing either figure anywhere.",
     "THE MCP TOOL NAMED check_updates CALLS kb.check_all_updates (via handle_check_updates in mcp_tools/admin.py); kb.check_url_updates belongs to a DIFFERENT tool registered in mcp_tools/documents.py. The two were conflated in a plan record and in issue #17 itself, and a task consequently fixed a real gap in the method the issue does not name. check_all_updates is purely local - os.path.exists, needs_reindex and a try/except'd re-index - and consults no allowlist and makes no network call, so it cannot hang on a disallowed path.",
     "server.log is appended to by EVERY server.py process and kb/core.py's format string carries no %(process)d, so concurrent sessions' lines interleave indistinguishably. Six servers were alive during one investigation. NEVER infer same-process causation from adjacency in that file - that reasoning produced two wrong attributions in a single session.",
-    "MEASURED 2026-09-20 AND IT CORRECTS A CONCLUSION THIS REPO COMMITTED THE SAME DAY: a search that logs 'Search query:' and never 'Search completed:' is NOT evidence of process death. search() enters _preprocess_text -> _ensure_nltk between those two lines, and the first call in a cold process imports nltk plus its whole scipy chain there. A live, healthy process was observed blocked in that import for 8m52s with CPU flat at 1.2s and an identical stack, while a sibling process ran the identical query in 724ms. Cancelling the blocked request produced NO completion line, which refutes the thread-survives-cancellation argument that the wrong conclusion rested on. WHY THE WINDOW IS INVISIBLE: there is no instrumentation between the two log lines, so a search dying in there is indistinguishable from one never dispatched."
+    "MEASURED 2026-09-20 AND IT CORRECTS A CONCLUSION THIS REPO COMMITTED THE SAME DAY: a search that logs 'Search query:' and never 'Search completed:' is NOT evidence of process death. search() enters _preprocess_text -> _ensure_nltk between those two lines, and the first call in a cold process imports nltk plus its whole scipy chain there. A live, healthy process was observed blocked in that import for 8m52s with CPU flat at 1.2s and an identical stack, while a sibling process ran the identical query in 724ms. Cancelling the blocked request produced NO completion line, which refutes the thread-survives-cancellation argument that the wrong conclusion rested on. WHY THE WINDOW IS INVISIBLE: there is no instrumentation between the two log lines, so a search dying in there is indistinguishable from one never dispatched.",
+    "MEASURED 2026-09-20, and it is the cheapest discriminator for the search-hang class: the tools that hang over a long-lived stdio server (search_docs, semantic_search, fuzzy_search, answer_question) are exactly those reaching _preprocess_text, which calls _ensure_nltk. search_code returns because it goes straight to a SQL cursor over code_fts and never touches that path, and health_check/kb_stats/list_docs return for the same reason. Use that split to tell this defect from any other before investigating.",
+    "_tool_call_lock is set ONLY by the HTTP transport, so the stdio dispatch path takes no lock at all. 'One client per process' is true for stdio but is NOT the same as 'no concurrency': the background entity-extraction worker starts at boot and runs in the same process over the same caches and self.documents. Any reasoning about stdio being single-threaded is wrong in a way that no current test covers.",
+    "A TEST THAT HANGS IS NOT A TEST THAT FAILS, and this repo has both shapes. test_mcp_tool_dispatch.py calls call_tool with no timeout, so a wedged tool stalls the runner instead of naming itself; and the non-blocking case in test_mcp_startup.py blocks with time.sleep, which holds no lock and so cannot expose a tool wedged inside shared state. Both were green through the whole period four tools never returned. Any new liveness assertion must use asyncio.wait_for or a deadline and fail by name.",
+    "MEASURED 2026-09-21: the new per-tool liveness suite in test_mcp_tool_dispatch.py drives 95 tools over a long-lived stdio server with a per-call bound, and a full `pytest -q` over the repo ran past 25 minutes against a 5m53s baseline measured before it existed. Budget for that, or scope a routine run to exclude it. Re-measure both figures rather than quoting these.",
+    "A TASK WHOSE TEST SPAWNS server.py IS A READER OF server.py AND MUST DECLARE r:server.py. Measured 2026-09-20: no-test-asserts-a-tool-call-returns-within-a-bound declared only its own test file, was scheduled beside a task holding rw:server.py, and its live findings were contaminated by the sibling rewriting the server under it - including transient sabotage states. The conflict matrix cannot see a dependency that exists only inside a subprocess invocation."
   ],
   "external_locks": [],
   "tasks": [
-    {
-      "id": "stray-msys-shadow-tree-cleanup",
-      "title": "Delete C:\\c - the stray shadow tree that made the graphify path bug fail silently",
-      "source": "opened by the graphify root-cause investigation (runs.jsonl, head f9184cc); attempt recorded blocked",
-      "model": "sonnet",
-      "effort": "low",
-      "mode": "requires-user",
-      "lane": "parallel",
-      "touches": [],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "blocked_on": "ANSWERED 2026-09-20, NOT YET CLEARED - the human will delete it from their own shell, and the mode does NOT flip until the tree is actually gone. THE EXACT ACTION: in a human PowerShell or cmd window (NOT an agent tool call), remove C:\\c. RE-MEASURED 2026-09-20 rather than carried: os.path.isdir('C:/c') -> True and `find /c/c` returns 9 entries - a single chain C:\\c\\Users\\mit\\claude\\c64server\\tdz-c64-knowledge\\.scratch_rest_test2 with nothing beside it, all of it inert residue from a throwaway REST-API test run on 2026-07-30, referenced by no tracked source. THE CHECK THAT SETTLES IT, and the next pass should RUN it before asking again rather than re-interviewing: `.venv/Scripts/python.exe -c \"import os; print(os.path.isdir('C:/c'))\"` - False means done, and the task then closes by measurement, never by a commit sha, since nothing in the history will ever record it. THE ALTERNATIVE WAS OFFERED AND DECLINED: authorising an agent to delete the deeper C:\\c\\Users\\... chain that the tool guard does not protect was put to the human as an explicit option and not taken, so the standing hazard 'A TOOL REFUSAL IS A STOP, NOT A ROUTING PROBLEM' stays intact. Do not re-propose it.",
-      "decision": null,
-      "verify": "`Test-Path 'C:\\c'` returns False, and python -c \"import os; os.path.isdir('/c/Users/mit/claude/c64server/tdz-c64-knowledge')\" returns False - i.e. a leading-slash MSYS path no longer resolves to anything, so the next such mistake fails loudly instead of silently walking an empty tree.",
-      "why_model": "a single directory removal whose safety has already been established by inspection",
-      "why_effort": "nothing left to reason about - the contents were enumerated and the rationale written down",
-      "why_mode": "REQUIRES-USER: the tool guard blocks it by design and routing around the guard was refused on principle",
-      "why_lane": "PARALLEL: touches nothing inside this repo",
-      "fork": null,
-      "branch": null
-    },
     {
       "id": "log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable",
       "title": "server.log has no pid in its format while every server.py process appends to it, so concurrent sessions' lines are indistinguishable",
@@ -136,17 +118,18 @@
       "why_lane": "SERIAL: rw:knowledge_base.db is the live database named in hazards and shared by every running server.py process - a stateful singleton the overlap test cannot see - and the task's wall-clock measurement is destroyed by concurrent load"
     },
     {
-      "id": "first-search-lazy-import-is-unbounded-and-unlogged",
-      "title": "The first search in any cold process imports nltk and its scipy chain inside the unlogged window in search(), where nothing bounds it",
-      "source": "opened by the corrected forty-six-searches-logged-started-and-never-completed record (runs.jsonl, head d38ec79)",
+      "id": "non-blocking-dispatch-test-uses-a-benign-blocker",
+      "title": "The non-blocking test blocks with time.sleep, which holds no lock, so it passes while the real shared-cache wedge blocks everything",
+      "source": "issue#20",
       "model": "opus",
       "effort": "high",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
-        "rw:kb/search/_retrieval.py",
-        "rw:features.py",
-        "rw:test_mcp_startup.py"
+        "rw:test_mcp_startup.py",
+        "r:server.py",
+        "r:kb/core.py",
+        "r:kb/entities/_extraction.py"
       ],
       "mcp": [],
       "needs_main": false,
@@ -156,11 +139,91 @@
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "A search that stalls inside the lazy-import chain is DISTINGUISHABLE IN THE LOG from one that was never dispatched, which it is not today. search() logs its start and its completion with no instrumentation between them, and _preprocess_text enters `_ensure_nltk` in that gap - grep kb/search/_retrieval.py for `_ensure_nltk` and features.py for the import it performs, rather than trusting any line number, because earlier edits have shifted these repeatedly. At minimum the first call must emit a log line before and after that import naming what is being loaded and how long it took. THE HANDSHAKE BUDGET IS THE CONSTRAINT THAT MAKES THIS NON-TRIVIAL and must not be traded away: CLAUDE.md defers nltk, sentence-transformers, torch and transformers off the module level to keep the MCP initialize handshake inside 30s, and test_mcp_startup.py enforces that with a FORBIDDEN_AT_STARTUP list - so moving the import to module scope is NOT an acceptable fix, and the existing startup cases must still pass. If warming is done at all it must be behind an explicit opt-in flag, off by default, with the startup cost measured and reported rather than assumed. test_mcp_startup.py gains at least one case pinning that the heavy modules are still absent at startup AND that the first-search path is instrumented, and 0 fail. SABOTAGE: remove the instrumentation again and confirm the new case FAILS, printing the region from disk FIRST to prove the mutation landed; then separately confirm the pre-existing startup guard still fails when a heavy module is imported at module scope, so this change has not quietly weakened it. Scope the footprint check with `git diff --name-only -- kb/search/_retrieval.py features.py test_mcp_startup.py`.",
-      "why_model": "it changes the lazy-import strategy at the centre of every search while a startup-budget guard constrains it from the other side, and the plausible-but-wrong fix - importing eagerly - reintroduces the handshake failure the deferral exists to prevent",
-      "why_effort": "the two constraints pull against each other and the failure mode is invisible until a session times out on connect, so the boundary has to be reasoned about rather than tried",
-      "why_mode": "SUBTASK: bounded to three named files with a mechanical done-condition, and the diagnosis it rests on is already written down",
-      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable"
+      "verify": "The suite contains a non-blocking-dispatch case whose stand-in blocker HOLDS SHARED STATE rather than sleeping innocently, and a case exercising tool calls concurrently with the background entity-extraction worker. Today's test monkeypatches a handler to time.sleep and asserts an unrelated tool still returns - grep test_mcp_startup.py for the sleeping stand-in rather than trusting any line number. time.sleep in a worker thread holds no lock, touches no shared structure and releases the GIL, so it is the one kind of blocker that CANNOT expose the production failure, which is a tool wedged inside the shared-cache path. The replacement must block while holding whatever the real search path touches. SECOND HALF, separable and stated because it is the part with no coverage at all: the stdio dispatch path takes no lock (_tool_call_lock is set only by the HTTP transport) while the entity-extraction worker starts at boot and runs concurrently in the same process over the same caches and self.documents - so 'one client per process' does not mean 'no concurrency', and nothing exercises that pairing. Add a case that issues repeated search calls while the worker is actively running over a populated corpus. Both new cases must FAIL rather than HANG when the property is absent. 0 fail. SABOTAGE, and this task is where it matters most because the whole finding is that a green test proved nothing: confirm the NEW shared-state blocker makes the non-blocking assertion fail where the time.sleep one does not, printing both stand-ins from disk to show they differ in what they hold. If the new blocker also passes, the case pins nothing and must be rewritten. Scope the footprint check with `git diff --name-only -- test_mcp_startup.py`.",
+      "why_model": "writing a test whose predecessor passed while the property was violated in production - a falsification exercise where the failure mode is another green test that proves nothing",
+      "why_effort": "the difficulty is entirely in choosing a stand-in blocker that holds the right shared structure; get that wrong and the replacement is as vacuous as the original, which is the measured failure this task exists to correct",
+      "why_mode": "SUBTASK: one test file plus read-only source, with a mechanical sabotage as the done-condition",
+      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps three other tasks that also add cases to it"
+    },
+    {
+      "id": "no-test-asserts-a-tool-call-returns-within-a-bound",
+      "title": "Nothing asserts an individual tool call completes, so four permanently-hanging tools ship green",
+      "source": "issue#19, merged with liveness-suite-needs-one-clean-run-and-r-server-py-in-touches which its own partial run record opened - SAME SUBJECT, one task, never two records",
+      "model": "sonnet",
+      "effort": "medium",
+      "mode": "subtask",
+      "lane": "parallel",
+      "touches": [
+        "rw:test_mcp_tool_dispatch.py",
+        "r:mcp_tools/schemas.py",
+        "r:server.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "fork": null,
+      "branch": null,
+      "blocked_on": null,
+      "decision": null,
+      "verify": "RESUME, DO NOT RESTART - the harness and the sabotage case are already written and working in test_mcp_tool_dispatch.py, and the one thing missing is a clean end-to-end run. What already landed and must be preserved: an MCPSession driving ONE long-lived server.py subprocess with a persistent reader thread, ids correlated through a queue with a deadline so a hang becomes a named failure; and test_a_permanently_blocked_handler_fails_naming_the_tool_not_the_suite, which wedges a handler in an ISOLATED subprocess and asserts both that the real handler source was read before mutating and that a SABOTAGE-ACTIVE marker reached that subprocess's stderr. Re-confirm those two still pass rather than rewriting them. WHAT IS ACTUALLY LEFT: one run of test_every_tool_returns_within_bound_over_a_long_lived_stdio_session with NOTHING ELSE writing server.py, and a decision about its wall-clock cost. THE PREVIOUS RUN'S FINDINGS ARE UNRELIABLE AND MUST BE RE-MEASURED, NOT CARRIED: it reported translate_query never returning and one hang cascading to wedge every later tool, but it ran while a sibling task held rw:server.py and was mutating it, so those observations are contaminated. A probe against the stable tree afterwards got translate_query returning and no cascade, which does not disprove the hang (that probe used an empty data dir) but does mean the cascade claim must be re-derived from scratch. Report what THIS run measures. ALSO SETTLE THE COST: with this suite present, a full `pytest -q` over the repo ran past 25 minutes against a 5m53s baseline measured before it existed - re-measure both numbers at run time rather than trusting these, and either bring the suite's contribution down or mark it so a routine full run can skip it, saying which you chose and why. 0 fail. SABOTAGE: confirm the existing blocked-handler case still FAILS NAMING THE TOOL within its bound rather than hanging, printing the patched region from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- test_mcp_tool_dispatch.py`.",
+      "why_model": "a test-harness addition against an existing file, where the shape of the assertion is already specified in the issue and nothing has to be diagnosed first",
+      "why_effort": "the code is written and the judgement left is a cost trade-off plus one honest re-measurement, not a diagnosis",
+      "why_mode": "SUBTASK: one test file, and the done-condition is a named failure under a deliberate sabotage",
+      "why_lane": "PARALLEL: rw:test_mcp_tool_dispatch.py and r:mcp_tools/schemas.py overlap no other task's paths - deliberately kept off test_mcp_startup.py, which four other tasks write"
+    },
+    {
+      "id": "ensure-embeddings-loaded-has-the-same-unbounded-stdin-wait",
+      "title": "semantic_search's faiss/model load carries the identical unbounded stdin wait that _ensure_nltk was just given a deadline for",
+      "source": "opened by first-search-lazy-import-is-unbounded-and-unlogged (runs.jsonl, head e0ea054)",
+      "model": "opus",
+      "effort": "high",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/search/_retrieval.py",
+        "rw:test_mcp_startup.py",
+        "r:features.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "fork": null,
+      "branch": null,
+      "blocked_on": null,
+      "decision": null,
+      "verify": "semantic_search over a LONG-LIVED stdio server returns rather than hanging on its first call, and the bound is observable in the log the way _ensure_nltk's now is. ESTABLISHED BY MEASUREMENT AND SAFE TO BUILD ON, but re-confirm cheaply rather than trusting it: importing faiss stalls identically under a pending read on the process's stdin, which is the same mechanism already root-caused for nltk - Windows serialises I/O on the stdin file object and the BLAS-linked DLL initialisations touch it, so the import waits for a client message that the blocked client will never send. numpy stalls too but is already imported eagerly at server.py module level so it lands before the transport starts; rapidfuzz does not stall. Grep kb/search/_retrieval.py for _ensure_embeddings_loaded to find the site rather than trusting any line number. THE SHAPE OF THE FIX IS ALREADY IN THE TREE: features.py's _ensure_nltk runs its import on a named daemon thread and waits with an env-tunable deadline, and _preprocess_text degrades for one call on TimeoutError without latching the capability off. Follow that pattern rather than inventing a second one, and say plainly what semantic_search DOES when the index is not ready yet - degrading to FTS5 and a clear message is a legitimate answer, silently returning nothing is not. THE HANDSHAKE BUDGET IS A CONSTRAINT: FORBIDDEN_AT_STARTUP and the 30s initialize budget still hold, so importing faiss at module scope is NOT an acceptable fix and the existing startup cases must still pass. test_mcp_startup.py gains at least one case that FAILS rather than hangs when the bound is absent, and 0 fail. SABOTAGE: remove the bound and confirm the new case fails on its deadline, printing the changed region from disk FIRST to prove the mutation landed; separately confirm the FORBIDDEN_AT_STARTUP guard still fails when a heavy module is imported at module scope. Scope the footprint check with `git diff --name-only -- kb/search/_retrieval.py test_mcp_startup.py`.",
+      "why_model": "the same class of defect whose first diagnosis was confidently wrong and publicly retracted, in shared code every semantic query goes through",
+      "why_effort": "the mechanism is already understood so this is not a fresh root-cause hunt, but deciding what semantic_search returns while the index is still loading is a real behaviour choice that a wrong answer makes silently useless",
+      "why_mode": "SUBTASK: one named function, one test file, and a done-condition that is a bounded return",
+      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps two other tasks that also add cases to it"
+    },
+    {
+      "id": "admin-common-format-timestamp-missing-datetime-import",
+      "title": "format_timestamp calls datetime but admin_common.py never imports it, so every Streamlit page that renders a timestamp crashes",
+      "source": "TO-DOS.md (## Admin GUI crashes on any page that formats a timestamp - 2026-09-21), from a user screenshot of the Scraped Websites page",
+      "model": "sonnet",
+      "effort": "low",
+      "mode": "subtask",
+      "lane": "parallel",
+      "touches": [
+        "rw:admin_common.py",
+        "rw:test_admin_gui.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "fork": null,
+      "branch": null,
+      "blocked_on": null,
+      "decision": null,
+      "verify": "Importing admin_common and calling format_timestamp with a valid ISO-8601 string returns a formatted '%Y-%m-%d %H:%M:%S' string instead of raising NameError, AND calling it with a non-ISO string still returns that string unchanged through the existing except path. CONFIRMED THIS PASS, re-check rather than trust: admin_common.py has NO datetime import at all - grep it for '^import datetime' and '^from datetime' and print the exit code, because at this head both return nothing - while format_timestamp calls datetime.fromisoformat. THE SECOND DEFECT IS THE ONE A NARROW FIX WOULD MISS: that function's own `except (ValueError, TypeError, AttributeError)` does not list NameError, which is exactly why the error escaped a guard that looks like it should have absorbed it. Decide and SAY whether the guard should also catch the broader case, rather than only adding the import and leaving the next name error in there equally unguarded. THE BLAST RADIUS IS WIDER THAN THE REPORT: the fault is in the shared helper, so besides admin_pages/web_scraping.py it also reaches admin_pages/documents.py - grep both for format_timestamp to enumerate the call sites rather than trusting this sentence. NO test_admin_common.py EXISTS AT THIS HEAD, confirmed by a filesystem check, so test_admin_gui.py is the home and this is coverage the task ADDS rather than extends. 0 fail. SABOTAGE: remove the import again and confirm the new case FAILS with NameError, printing the import block from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- admin_common.py test_admin_gui.py`.",
+      "why_model": "a missing import plus one deliberately-scoped except clause, in a small helper with an obvious reproduction",
+      "why_effort": "the import is trivial; the only judgement is how wide the except clause should be, and getting that wrong is cheap to notice and cheap to redo",
+      "why_mode": "SUBTASK: two files and a done-condition that is a return value rather than a judgement",
+      "why_lane": "PARALLEL: admin_common.py and test_admin_gui.py are touched by nothing else in this plan"
     }
   ],
   "closed": [
@@ -787,6 +850,24 @@
       "title": "One MCP client starts a fresh server.py per tool call - identify it and decide whether to reconfigure it",
       "closed_by": "decision:a-client-spawns-a-new-server-process-per-tool-call",
       "reason": "CANCELLED by the human, and the research that preceded the question refuted the premise I had recorded. A controlled health_check appended exactly one line to server.log - a bare CallToolRequest with no KnowledgeBase init - proving this session was NOT the spawner, contradicting the inference the previous plan carried. The registration is ~/.claude.json's top-level mcpServers at USER scope, not the marketplace copyByHand file the plan named; the plugin's own .mcp.json does not mention this server at all. Three long-lived server.py pairs were alive and the short-lived per-call processes were confined to an 18:04-18:17 window with none alive since, so it is not reproducing. Its cost argument was the cache invalidation, fixed at source by peer-telemetry-writes-invalidate-every-search-cache. RESIDUAL NOT ACTIONED: an orphaned server.py pair from 17:27:13 still holds the shared WAL database with nothing driving it; kill it by hand if contention matters."
+    },
+    {
+      "id": "stray-msys-shadow-tree-cleanup",
+      "title": "Delete C:\\c - the stray shadow tree that made the graphify path bug fail silently",
+      "closed_by": "measured:2026-09-20",
+      "reason": "THE HUMAN DELETED IT, and this pass confirmed it by running the check rather than by re-interviewing: `os.path.isdir('C:/c')` -> False, where it returned True with 9 entries earlier the same day. A sha would be a fabrication - nothing in the history records a directory outside the repo being removed, which is exactly what the measured: form exists for. The /runhuman answer recorded resolved:false and sharpened blocked_on to name the exact command and the check that settles it, specifically so the next pass would re-measure instead of asking again; that worked. CONSEQUENCE WORTH KEEPING: a leading-slash MSYS path no longer resolves to a real directory on this machine, so the next time native Windows Python is handed one it will fail loudly rather than silently walking an empty tree - which is the failure mode that hid the graphify root bug through four investigation passes. The guard-avoidance alternative was offered and declined, so the standing 'A TOOL REFUSAL IS A STOP' hazard stays intact."
+    },
+    {
+      "id": "first-search-lazy-import-is-unbounded-and-unlogged",
+      "title": "Every tool that reaches _preprocess_text hangs forever in a long-lived stdio server",
+      "closed_by": "uncommitted:2026-09-21",
+      "reason": "ROOT CAUSE IS WINDOWS I/O SERIALISATION ON THE STDIN FILE OBJECT, and both candidates this plan named were refuted by bisect rather than argument. The BLAS-linked DLL initialisations inside nltk's import chain touch stdin; the MCP stdio transport always has a read pending there, so the import waits for a client message while the client waits for the reply. Not a deadlock - an unbounded wait on client traffic. I reproduced the mechanism with my own harness: no reader 0.229s, an IDLE extra thread 0.235s (the control that rules out generic thread interference), a pending os.read(0,1) HUNG past 25s, and the same shape released 0.2s after one byte was written to the pipe. It explains every earlier observation, including why the HTTP transport returned the identical query in 724ms and why my own isolation tests all looked clean - none of them had a pending stdin read. Fixed by moving the import to a named daemon thread behind an env-tunable deadline with both ends logged; 34 passed, re-run independently. UNCOMMITTED: features.py, kb/search/_retrieval.py, test_mcp_startup.py."
+    },
+    {
+      "id": "tool-dispatch-has-no-per-call-timeout",
+      "title": "One wedged tool call blocks every later call in the same process, including health_check",
+      "closed_by": "uncommitted:2026-09-21",
+      "reason": "Bounded, and the baseline measurement CORRECTED BOTH THIS PLAN AND ISSUE#18. There were two unbounded waits, not one, and they differ by transport: on stdio a later kb_stats ALREADY answered in 0.21s while another call was wedged, because mcp's lowlevel server does tg.start_soon per message - so stdio was already concurrent and its only defect was that the wedged caller got nothing. The 'one hang kills the server' half is HTTP-ONLY, caused by holding _tool_call_lock across a dispatch whose worker thread cannot be cancelled. The bound is opt-OUT (every tool bounded by default, 23 by-design-long tools exempted to a separate unbounded knob) so a tool added tomorrow is bounded rather than forgotten, pinned by a test asserting an unknown tool name gets the default. TWO COSTS WRITTEN INTO THE CODE RATHER THAN GLOSSED: wait_for cancels the await and not the thread, so an abandoned worker keeps running and may still write the DB; and on HTTP, blowing the bound releases the lock while that thread runs. Both argued, both only after a 10-minute overrun. 37 passed, re-run independently. UNCOMMITTED: server.py, test_mcp_startup.py."
     }
   ]
 }

@@ -227,6 +227,126 @@ def _call_tool_impl(name: str, arguments: dict) -> list[TextContent]:
 _tool_call_lock = None
 
 
+# --- Per-call bound: one wedged call must not silence the whole process ----
+#
+# issue #18 records health_check, kb_stats and list_docs each answering in
+# 100-200ms, then every one of them going quiet once a search call wedged
+# first. That is what turns "one tool is broken" into "the server is dead".
+#
+# Measured here (2026-09-20) before this bound existed, with one handler
+# wedged on a never-set threading.Event - the shape a DLL load stalled on
+# stdin has from the caller's side:
+#
+#   stdio  (_tool_call_lock is None) : a later kb_stats answered in 0.21s,
+#                                      but the wedged call NEVER returned
+#   HTTP   (_tool_call_lock set)     : the later kb_stats never returned either
+#
+# So there are two distinct unbounded waits and each needs its own bound:
+#   1. a call waiting on ITSELF            -> _TOOL_TIMEOUT_S
+#   2. a call waiting on SOMEBODY ELSE'S   -> _TOOL_LOCK_WAIT_S   (HTTP only)
+# Only (2) is transport-specific; that is the asymmetry _tool_call_lock
+# creates, and it is why the HTTP path looks worse than stdio under a wedge.
+#
+# THE BOUND IS A DEFAULT WITH EXEMPTIONS, NOT AN OPT-IN LIST. The job of this
+# guard is the NEXT unbounded wait, not the one already diagnosed (features.py
+# already bounds the nltk import; _ensure_embeddings_loaded's faiss import is
+# measured and still exposed). A tool added tomorrow must inherit the bound.
+# An opt-in list of bounded tools would leave that tool unbounded, which is
+# precisely the bug.
+#
+# It is deliberately generous. add_document with OCR, a whole-site scrape_url,
+# topic training and backup/restore run for minutes to hours BY DESIGN (see
+# call_tool's docstring). A short flat timeout would abort real work and be
+# worse than no timeout at all, so those tools are named below and get
+# _LONG_TOOL_TIMEOUT_S, which defaults to 0 = unbounded: today's behaviour,
+# deliberately unchanged, because inventing a ceiling for an 887-page OCR is
+# exactly the mistake this comment warns against. They are NOT exempt from
+# _TOOL_LOCK_WAIT_S - waiting behind someone else's hour-long crawl is what
+# killed the session, and the waiter is normally a 200ms health_check.
+#
+# 600s for everything else is not a latency budget; normal is sub-second. It
+# is a liveness floor: far above any healthy call, far below "forever".
+
+
+def _env_timeout_s(var: str, default: str) -> Optional[float]:
+    """Read a seconds-valued env knob. 0 (or anything unparseable as a
+    positive number) means "no bound", expressed as None so it can be handed
+    straight to asyncio.wait_for."""
+    try:
+        value = float(os.environ.get(var, default))
+    except (TypeError, ValueError):
+        value = float(default)
+    return value if value > 0 else None
+
+
+_TOOL_TIMEOUT_S = _env_timeout_s('TDZ_TOOL_TIMEOUT_S', '600')
+_LONG_TOOL_TIMEOUT_S = _env_timeout_s('TDZ_LONG_TOOL_TIMEOUT_S', '0')
+_TOOL_LOCK_WAIT_S = _env_timeout_s('TDZ_TOOL_LOCK_WAIT_S', '600')
+
+# Tools whose normal, successful runtime is minutes to hours: whole-corpus
+# passes, OCR, crawls, model training and whole-database backup/restore.
+# Every name here must exist in mcp_tools.schemas.TOOL_SCHEMAS - a typo would
+# silently drop a long tool back under the 600s bound and abort real work, so
+# test_mcp_startup.py asserts the set against the live schema list.
+_LONG_RUNNING_TOOLS = frozenset({
+    'add_deepsid_document', 'add_deepsid_folder', 'add_document',
+    'add_documents_bulk', 'auto_tag_all', 'batch_ocr_figures',
+    'build_knowledge_graph', 'check_updates', 'check_url_updates',
+    'create_backup', 'export_documents_bulk', 'extract_entities_bulk',
+    'ocr_document_figures', 'reconcile_chunk_cache', 'reconcile_embeddings',
+    'remove_documents_bulk', 'rescrape_document', 'restore_backup',
+    'scrape_url', 'summarize_all', 'train_bertopic', 'train_lda_topics',
+    'train_nmf_topics',
+})
+
+# Incremented whenever a dispatch blows its bound. The thread is still out
+# there - see _run_bounded - so a non-zero count means this process is
+# leaking wedged workers and should be recycled rather than trusted.
+_orphaned_tool_calls = 0
+
+
+def _tool_timeout_s(name: str) -> Optional[float]:
+    return _LONG_TOOL_TIMEOUT_S if name in _LONG_RUNNING_TOOLS else _TOOL_TIMEOUT_S
+
+
+async def _run_bounded(name: str, arguments: dict, timeout_s: Optional[float]) -> list[TextContent]:
+    """Run one dispatch on a worker thread, bounded by timeout_s.
+
+    Returns an "Error: ..." TextContent on expiry instead of raising, for two
+    reasons: the caller gets a readable sentence naming the knob, and
+    call_tool's finally block already treats a leading "Error" as a failure,
+    so a timeout is recorded in mcp_call_log alongside every other failure
+    rather than existing only as a protocol-level error some clients render
+    as a dead session.
+
+    asyncio.wait_for cancels THE AWAIT, NOT THE THREAD. A thread blocked in a
+    DLL load cannot be interrupted at all, so on expiry the dispatch is still
+    running, still holding whatever it holds, and may still write to the
+    database and the shared caches later. This bound buys an answer for the
+    caller and a live process; it does not clean up. Hence
+    _orphaned_tool_calls.
+    """
+    global _orphaned_tool_calls
+    call = asyncio.to_thread(_call_tool_impl, name, arguments)
+    if timeout_s is None:
+        return await call
+    try:
+        return await asyncio.wait_for(call, timeout_s)
+    except (asyncio.TimeoutError, TimeoutError):
+        _orphaned_tool_calls += 1
+        kb.logger.error(
+            f"MCP tool {name!r} exceeded its {timeout_s:.0f}s bound; abandoning "
+            f"the wait. The worker thread is STILL RUNNING and cannot be "
+            f"cancelled ({_orphaned_tool_calls} orphaned so far in this "
+            f"process) - recycle the server if this recurs."
+        )
+        return [TextContent(type="text", text=(
+            f"Error: tool {name!r} exceeded its {timeout_s:.0f}s bound and was "
+            f"abandoned. The work may still be running in the background. "
+            f"TDZ_TOOL_TIMEOUT_S tunes this bound (0 disables it)."
+        ))]
+
+
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """
@@ -252,9 +372,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     start_time = time.time()
     error_message = None
     result = None
+    timeout_s = _tool_timeout_s(name)
     try:
         if _tool_call_lock is None:
-            result = await asyncio.to_thread(_call_tool_impl, name, arguments)
+            result = await _run_bounded(name, arguments, timeout_s)
         else:
             # Over HTTP one process serves several clients, so two tool calls
             # can now overlap. Thread-local connections keep SQLite safe (see
@@ -287,8 +408,39 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             # than a slow one. Revisit if multi-client HTTP use makes the
             # serialisation actually painful; write the concurrency tests
             # first.
-            async with _tool_call_lock:
-                result = await asyncio.to_thread(_call_tool_impl, name, arguments)
+            #
+            # The acquire is bounded too, and that bound applies to EVERY
+            # tool including the _LONG_RUNNING_TOOLS ones: a caller must not
+            # inherit the holder's runtime. Measured above, this is the whole
+            # difference between the transports under a wedge - stdio's later
+            # kb_stats answered in 0.21s, this one never answered at all.
+            #
+            # Blowing the run bound releases the lock while the abandoned
+            # thread is still running, so the next call can now overlap a
+            # dispatch this lock exists to exclude - the caches, the
+            # documents dict and the faiss index enumerated above are all
+            # back in play. That is a deliberate trade, not an oversight: a
+            # process where every later call hangs forever is already dead,
+            # and the stdio path has run with no exclusion at all since the
+            # dispatch moved onto worker threads. It only happens after a
+            # tool has already overrun by 10 minutes; _orphaned_tool_calls
+            # records that it happened.
+            acquired = False
+            try:
+                await asyncio.wait_for(_tool_call_lock.acquire(), _TOOL_LOCK_WAIT_S)
+                acquired = True
+            except (asyncio.TimeoutError, TimeoutError):
+                result = [TextContent(type="text", text=(
+                    f"Error: {name!r} waited {_TOOL_LOCK_WAIT_S:.0f}s for another "
+                    f"tool call on this server to finish and gave up. The server "
+                    f"is alive; a previous call is overrunning. "
+                    f"TDZ_TOOL_LOCK_WAIT_S tunes this bound (0 disables it)."
+                ))]
+            if acquired:
+                try:
+                    result = await _run_bounded(name, arguments, timeout_s)
+                finally:
+                    _tool_call_lock.release()
         return result
     except Exception as e:
         error_message = str(e)

@@ -38,6 +38,7 @@
 {"id":"figure-ocr-availability-discrepancy","summary":null}
 {"id":"figure-ocr-status-reachability","summary":null}
 {"id":"figure-ocr-unavailable-message-misleading","summary":null}
+{"id":"first-search-lazy-import-is-unbounded-and-unlogged","summary":"Root-caused the long-lived-stdio search hang to Windows serialising I/O on the stdin file object - a BLAS-linked import inside nltk blocks until a client message completes the transport's pending read - refuting both candidates the plan named, and bounded it with a deadline; 34 passed and I reproduced the mechanism independently."}
 {"id":"forty-six-searches-logged-started-and-never-completed","summary":"SUPERSEDES the earlier record: the cause is not process death but a heavyweight lazy nltk/scipy import inside the unlogged window in search(), proven by a stack dump of a live blocked process and by a cancellation that produced no completion line."}
 {"id":"gitattributes-jsonl-line-endings","summary":null}
 {"id":"gitignore-blanket-test-glob-drops-new-tests","summary":null}
@@ -56,6 +57,7 @@
 {"id":"mcp-serverinfo-reports-the-sdk-version-not-the-project","summary":"Passed version=__version__ into the Server(...) construction so clients are told the project's version instead of the MCP SDK's; 32 passed and dropping the argument again made the new case fail."}
 {"id":"mcp-streamable-http-transport","summary":null}
 {"id":"missing-source-metric-counts-disposable-cards","summary":null}
+{"id":"no-test-asserts-a-tool-call-returns-within-a-bound","summary":"The isolated sabotage case works and proves a hang becomes a named failure, but the live whole-suite run was contaminated by a sibling agent rewriting server.py under it, so its translate_query and cascade findings are unreliable and the run needs repeating alone."}
 {"id":"pdf-doc-id-hash-migration-decision","summary":null}
 {"id":"pdf-page-break-markers-defeat-content-dedup","summary":null}
 {"id":"peer-telemetry-writes-invalidate-every-search-cache","summary":"Replaced the raw PRAGMA data_version gate with a corpus fingerprint over documents and chunks, so a peer's telemetry write no longer drops the chunk cache, the BM25 index and every search cache; 13 passed, both sabotages discriminated, and an existing test caught a real ABA hole in the first design."}
@@ -94,6 +96,7 @@
 {"id":"to-dos-md-markitdown-section-stale","summary":null}
 {"id":"to-dos-md-stale-entries","summary":null}
 {"id":"to-dos-repoint-bullet-stale-framing","summary":null}
+{"id":"tool-dispatch-has-no-per-call-timeout","summary":"Bounded tool dispatch with an opt-out default plus a separate lock-wait bound, after measuring that the 'one hang kills the server' half is HTTP-only and stdio was already concurrent; 37 passed and the sabotage failed on a deadline rather than hanging."}
 {"id":"uploads-retention-policy","summary":null}
 {"id":"validate-docs-should-assert-tool-count","summary":null}
 {"id":"verify-http-transport-across-machines","summary":null}

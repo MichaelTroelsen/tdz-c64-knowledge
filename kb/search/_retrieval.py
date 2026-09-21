@@ -172,6 +172,17 @@ class _RetrievalMixin:
                         PorterStemmer, stopwords, _ = nltk_parts
                         self.stemmer = PorterStemmer()
                         self.stop_words = set(stopwords.words('english'))
+                    except TimeoutError as e:
+                        # Still importing, not broken. Under the stdio transport
+                        # that import can only advance while the client is
+                        # sending something, and the client is currently
+                        # blocked waiting for the reply to this very search -
+                        # so answer with unpreprocessed tokens instead of
+                        # waiting for it, and leave _preprocessing_ready False
+                        # so the next search picks up the real stemmer once the
+                        # background import lands. See features._ensure_nltk.
+                        self.logger.warning(f"Query preprocessing not ready yet: {e}")
+                        return text.lower().split()
                     except Exception as e:
                         # Degrade to no preprocessing rather than failing the search
                         self.logger.warning(f"Query preprocessing unavailable, disabling: {e}")

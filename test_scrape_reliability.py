@@ -196,3 +196,61 @@ def test_rescrape_removes_old_only_after_successful_new_scrape(kb, monkeypatch, 
     assert result['old_doc_kept'] is False
     assert old_doc.doc_id not in kb.documents, "superseded document was not retired"
     assert new_doc.doc_id in kb.documents
+
+
+def test_mdscrape_is_not_handed_this_process_inherited_stdin(kb, monkeypatch):
+    """scrape_url must not let mdscrape inherit this process's stdin.
+
+    Regression, measured: under the MCP stdio transport this process's stdin
+    is a pipe the client holds open for the whole session. An mdscrape spawned
+    with that handle inherited never exits, so `while process.poll() is None`
+    in scrape_url spins until SCRAPE_TIMEOUT_S - default 3600s. The liveness
+    case in test_mcp_tool_dispatch.py hit exactly this: scrape_url against the
+    closed port 127.0.0.1:9 had not returned after 120s, with the mdscrape
+    process still alive, while the same command line run from an ordinary
+    parent exits in 0.55s.
+
+    The model here is faithful to that mechanism rather than to its symptom:
+    the stand-in for mdscrape exits only when its stdin reaches EOF, and the
+    fake Popen supplies a never-closed pipe as stdin ONLY IF scrape_url did
+    not specify one itself. Pass stdin=DEVNULL and the child gets EOF at once;
+    inherit, and it blocks exactly as the real one did. SCRAPE_TIMEOUT_S is
+    pinned low so a regression fails this test on its own deadline instead of
+    hanging the runner.
+    """
+    monkeypatch.setenv('SCRAPE_TIMEOUT_S', '8')
+    monkeypatch.setattr(kb, '_find_mdscrape_executable', lambda: 'fake-mdscrape')
+    # Keep this test on the subprocess, not the network: the frame probe is a
+    # real outbound GET, and is covered in test_scrape_politeness.py instead.
+    monkeypatch.setattr(kb, '_detect_and_extract_frames', lambda url: [])
+
+    read_end, write_end = os.pipe()  # write end stays open while the child runs
+    real_popen = subprocess.Popen
+    seen = {}
+
+    def fake_popen(cmd, **kwargs):
+        seen['stdin'] = kwargs.get('stdin', 'INHERITED')
+        kwargs.setdefault('stdin', read_end)
+        return real_popen([PYTHON, '-c', 'import sys; sys.stdin.read()'], **kwargs)
+
+    monkeypatch.setattr(subprocess, 'Popen', fake_popen)
+    try:
+        start = time.time()
+        result = kb.scrape_url('http://example.invalid/', max_pages=5, threads=1, delay=100)
+        elapsed = time.time() - start
+    finally:
+        os.close(write_end)
+        os.close(read_end)
+
+    assert seen['stdin'] is subprocess.DEVNULL, (
+        f"mdscrape was spawned with stdin={seen['stdin']!r} - anything other than "
+        "DEVNULL lets it inherit the MCP client's pipe and never exit"
+    )
+    assert result.get('stop_reason') != 'timeout', (
+        'the stand-in mdscrape never reached EOF on stdin, so scrape_url had to '
+        'be rescued by SCRAPE_TIMEOUT_S - that is the hang, not a fix'
+    )
+    assert elapsed < 8, (
+        f'scrape_url took {elapsed:.1f}s against a child that exits the moment '
+        'its stdin closes'
+    )

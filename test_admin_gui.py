@@ -86,6 +86,75 @@ def test_page_renders_without_exception(tmp_path, monkeypatch, label):
     assert len(at.main) > 0, f"{label!r} produced no elements"
 
 
+def test_url_monitoring_renders_with_url_sourced_document(tmp_path, monkeypatch):
+    """Regression: render() imported `json` and `datetime` mid-function (in
+    a button branch near the end), making both names local to the WHOLE
+    function per Python scoping rules. Every reference above those inline
+    imports was unbound unless that button had already been clicked.
+
+    The default PAGES fixture has no url-sourced documents, so the loop
+    body touching `json` never executes and the bug stays hidden. This
+    test injects a document with BOTH source_url and a non-null
+    scrape_config so the json.loads() call on page load is actually
+    exercised, then clicks 'Run Check' (patching check_url_updates to
+    avoid real network I/O) to exercise the datetime.now() call too.
+    """
+    from models import DocumentMeta
+
+    label = "🌐 URL Monitoring"
+    at = _run_page(tmp_path, monkeypatch, label)
+    assert list(at.exception) == [], f"initial boot raised: {list(at.exception)}"
+
+    kb = at.session_state["kb"]
+    kb.documents["fake-doc-1"] = DocumentMeta(
+        doc_id="fake-doc-1",
+        filename="fake.html",
+        title="Fake Scraped Page",
+        filepath="http://example.invalid/fake.html",
+        file_type="html",
+        total_pages=None,
+        total_chunks=1,
+        indexed_at="2024-01-01T00:00:00",
+        tags=[],
+        source_url="http://example.invalid/fake.html",
+        scrape_config='{"base_url": "http://example.invalid"}',
+    )
+
+    # Re-render (same AppTest instance, so session_state incl. our injected
+    # doc and the kb object persist) with the url-sourced document present:
+    # this alone must hit the json.loads() call on page load (previously
+    # UnboundLocalError).
+    at.run()
+    assert list(at.exception) == [], (
+        f"rendering with a source_url+scrape_config doc raised: {list(at.exception)}"
+    )
+
+    # Now drive the 'Run Update Check' button branch, which reaches the
+    # datetime.now() call (previously also UnboundLocalError). Patch
+    # check_url_updates to avoid a real network call.
+    kb.check_url_updates = lambda **kwargs: {
+        "unchanged": [],
+        "changed": [],
+        "new_pages": [],
+        "missing_pages": [],
+        "failed": [],
+        "scrape_sessions": [
+            {
+                "base_url": "http://example.invalid",
+                "docs_count": 1,
+                "unchanged": 1,
+                "changed": 0,
+            }
+        ],
+    }
+
+    run_buttons = [b for b in at.button if b.label == "▶️ Run Check"]
+    assert run_buttons, "Run Check button not found"
+    run_buttons[0].click().run()
+    assert list(at.exception) == [], f"Run Check click raised: {list(at.exception)}"
+    assert at.session_state["last_url_check"] is not None
+
+
 def test_non_vacuous_a_broken_page_is_caught(tmp_path, monkeypatch):
     """Demonstrate the harness actually detects a broken page.
 

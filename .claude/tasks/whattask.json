@@ -1,13 +1,13 @@
 {
   "generated_from": {
-    "head": "89e7710",
+    "head": "6af624a",
     "sources": [
-      "issues: #17, #19, #20 OPEN; #18 CLOSED this session against 7fa124b once both its halves landed",
+      "issues: #17, #20, #21 OPEN; #18 and #19 CLOSED this session against 7fa124b and 6af624a",
       "PRs: none open",
-      "TO-DOS.md (its 2026-09-21 entry became admin-common-format-timestamp-missing-datetime-import and is now closed; the 4 older non-struck bullets all have `done` records and remain residue)",
+      "TO-DOS.md (8 non-struck bullets; its 2026-09-21 url_monitoring entry becomes a task here, and the older ones all have `done` records)",
       "docs/ROADMAP.md",
       "whats-next.md (a pointer document by its own first line - contributes no tasks)",
-      ".claude/tasks/runs.jsonl (108 ids, last line per id)",
+      ".claude/tasks/runs.jsonl (109 ids, last line per id)",
       ".claude/tasks/decisions.jsonl (20 ids, last line per id)",
       "graphify code graph (refreshed this pass)"
     ],
@@ -57,7 +57,9 @@
     "MEASURED 2026-09-21: the new per-tool liveness suite in test_mcp_tool_dispatch.py drives 95 tools over a long-lived stdio server with a per-call bound, and a full `pytest -q` over the repo ran past 25 minutes against a 5m53s baseline measured before it existed. Budget for that, or scope a routine run to exclude it. Re-measure both figures rather than quoting these.",
     "A TASK WHOSE TEST SPAWNS server.py IS A READER OF server.py AND MUST DECLARE r:server.py. Measured 2026-09-20: no-test-asserts-a-tool-call-returns-within-a-bound declared only its own test file, was scheduled beside a task holding rw:server.py, and its live findings were contaminated by the sibling rewriting the server under it - including transient sabotage states. The conflict matrix cannot see a dependency that exists only inside a subprocess invocation.",
     "test_http_transport_rejects_a_bad_api_key BINDS A LOCAL PORT and has been seen to fail once with a ConnectionError during a full run while a sibling agent was live in the same tree, then pass alone and in two subsequent full runs. Treat a lone ConnectionError there as suspected port contention under fan-out rather than a regression - but re-run it alone before believing either reading. If it recurs outside a fan-out it is a real defect and needs its own task.",
-    "MEASURED 2026-09-21: test_mcp_tool_dispatch.py does not merely slow the suite, it FAILS - a full run showed one F inside it while every other file was green (378 passed / 3 skipped / 0 failed with it excluded). Run alone it exceeded twenty minutes with no output. It is deliberately excluded from the commits at 7fa124b and 89e7710 and remains uncommitted in the working tree."
+    "MEASURED 2026-09-21: test_mcp_tool_dispatch.py does not merely slow the suite, it FAILS - a full run showed one F inside it while every other file was green (378 passed / 3 skipped / 0 failed with it excluded). Run alone it exceeded twenty minutes with no output. It is deliberately excluded from the commits at 7fa124b and 89e7710 and remains uncommitted in the working tree.",
+    "util.py's robots_allows ALREADY bounds its robots.txt fetch with _network_timeout(10) and fails open on any exception. Two separate records have guessed the robots fetch as the cause of a scrape hang; a ten-second bound cannot produce a ninety-second one. Check that function before repeating the guess.",
+    "test_admin_gui.py parametrizes over PAGES and renders every admin page, but against a fixture KB with no documents - so any page whose crash lives inside a `for doc in ...` body renders green while dying in production. That is how the url_monitoring UnboundLocalError shipped. A page-render test proves the module imports, not that the page works."
   ],
   "external_locks": [],
   "tasks": [
@@ -148,17 +150,19 @@
       "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps three other tasks that also add cases to it"
     },
     {
-      "id": "no-test-asserts-a-tool-call-returns-within-a-bound",
-      "title": "Nothing asserts an individual tool call completes, so four permanently-hanging tools ship green",
-      "source": "issue#19, merged with liveness-suite-needs-one-clean-run-and-r-server-py-in-touches which its own partial run record opened - SAME SUBJECT, one task, never two records",
-      "model": "sonnet",
+      "id": "scrape-url-hangs-against-an-unreachable-host-instead-of-failing-fast",
+      "title": "scrape_url does not return within 90s against a closed localhost port, and the hang is before the TCP connect",
+      "source": "issue#21, merged with the id opened by no-test-asserts-a-tool-call-returns-within-a-bound (runs.jsonl, head 6af624a) - ONE defect, two references",
+      "model": "opus",
       "effort": "high",
       "mode": "subtask",
-      "lane": "parallel",
+      "lane": "serial",
       "touches": [
-        "rw:test_mcp_tool_dispatch.py",
-        "r:mcp_tools/schemas.py",
-        "r:server.py"
+        "rw:util.py",
+        "rw:kb/ingest/_documents.py",
+        "rw:test_scrape_politeness.py",
+        "rw:test_scrape_reliability.py",
+        "r:test_mcp_tool_dispatch.py"
       ],
       "mcp": [],
       "needs_main": false,
@@ -168,11 +172,37 @@
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "RESUME, DO NOT RESTART - the harness and the sabotage case are already written and working in test_mcp_tool_dispatch.py, and what is missing is a clean end-to-end run. ALREADY LANDED AND TO BE PRESERVED: an MCPSession driving ONE long-lived server.py subprocess with a persistent reader thread, ids correlated through a queue with a deadline so a hang becomes a named failure; and test_a_permanently_blocked_handler_fails_naming_the_tool_not_the_suite, which wedges a handler in an ISOLATED subprocess and asserts both that the real handler source was read before mutating and that a SABOTAGE-ACTIVE marker reached that subprocess's stderr. Re-confirm those pass rather than rewriting them - the blocked-handler case was re-run alone and passed, so the working half is known good. NEW SINCE THE LAST PLAN, AND IT RAISES THE BAR: this file is not merely slow, it FAILS. A full run showed one F inside it, and every other file in the repo is green - re-derive both halves at run time rather than trusting these figures, but the split to expect is that test_every_tool_returns_within_bound_over_a_long_lived_stdio_session is the failing case while its sibling passes. Run the file ALONE and name which case fails and why, rather than reporting the file as a unit. THE PREVIOUS RUN'S FINDINGS ARE UNRELIABLE AND MUST BE RE-MEASURED, NOT CARRIED: it reported translate_query never returning and one hang cascading to wedge every later tool, but it ran while a sibling task held rw:server.py and was mutating it. A probe against a stable tree afterwards got translate_query returning and no cascade, which does not disprove the hang (that probe used an empty data dir) but does mean the cascade claim must be re-derived from scratch. Report what THIS run measures. ALSO SETTLE THE COST: the file alone exceeded twenty minutes without producing output, while the rest of the repo completes in around five minutes - re-measure both at run time, then either bring this file's contribution down or mark it so a routine full run can skip it, saying which you chose and why. The done-condition is that the file passes AND a full run over the repo completes in a time you state. SABOTAGE: confirm the existing blocked-handler case still FAILS NAMING THE TOOL within its bound rather than hanging, printing the patched region from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- test_mcp_tool_dispatch.py`.",
-      "why_model": "a test-harness addition against an existing file, where the shape of the assertion is already specified in the issue and nothing has to be diagnosed first",
-      "why_effort": "it is no longer just a cost trade-off - the file actively fails, the previous run's evidence is contaminated and must be redone, and the wall-clock decision still has to be made on top",
-      "why_mode": "SUBTASK: one test file, and the done-condition is a named failure under a deliberate sabotage",
-      "why_lane": "PARALLEL: rw:test_mcp_tool_dispatch.py and r:mcp_tools/schemas.py overlap no other task's paths - deliberately kept off test_mcp_startup.py, which four other tasks write"
+      "verify": "scrape_url returns an error within a few seconds when handed a host that cannot be reached, instead of not returning at all. THE REPRODUCTION IS ALREADY WRITTEN AND COSTS NOTHING TO RUN: the liveness case in test_mcp_tool_dispatch.py hands it 127.0.0.1:9, a closed localhost port chosen deliberately so the tool 'must fail fast, not hang', and it is the only one of the 95 tools that fails. Run it with TDZ_RUN_FULL_DISPATCH_TEST=1 and watch that case; an isolated 90-second probe measured elapsed=90.01s got_response=False, three times. A raw TCP connect to that address is REFUSED INSTANTLY on Windows, so whatever hangs happens BEFORE the connect. THE LEADING HYPOTHESIS IS ALREADY REFUTED - do not spend the task re-deriving it. The run record that opened this task guessed the robots.txt fetch, and issue#21 repeats that guess; both are WRONG. `robots_allows` in util.py already wraps `parser.read()` in `_network_timeout(10)` and fails open on any exception - grep util.py for _network_timeout to confirm rather than trusting this sentence. A ten-second bound cannot produce a ninety-second hang. Candidates not yet excluded, to be tested rather than assumed: the retry/backoff path that honours Retry-After, the mdscrape subprocess invocation, and the _discover_urls crawl - and whichever it is, the done-condition is that you NAME it with the measurement that settles it, not that you add a timeout somewhere plausible. TEST PAIRING, checked on the filesystem rather than assumed: there is NO test_util.py and NO test__documents.py at this head. `robots_allows` is covered by test_scrape_politeness.py, and test_scrape_reliability.py covers the scrape path more broadly; both are granted rw: because whichever layer turns out to hold the defect, its pinning test lives in one of them. NAME which file you added the case to. 0 fail across both. SABOTAGE: remove whatever bound you add and confirm the new case FAILS on its own deadline rather than hanging the runner, printing the changed region from disk FIRST to prove the mutation landed. WHY A SHORTER GLOBAL BOUND IS THE WRONG FIX and must not be the answer: scrape_url is in the 23-tool exempt set on _LONG_TOOL_TIMEOUT_S, unbounded by default, precisely because a real site crawl legitimately runs for minutes. Fast failure on an unreachable host is the fix; shortening the dispatch bound would break real crawls. Scope the footprint check with `git diff --name-only -- util.py kb/ingest/_documents.py test_scrape_politeness.py test_scrape_reliability.py`.",
+      "why_model": "a root-cause hunt through an outbound-network path with several plausible culprits, where the first stated hypothesis has already been refuted and a second plausible-but-wrong answer is cheap to produce",
+      "why_effort": "the reproduction is free and deterministic, but the cause is genuinely unknown after the obvious candidate was eliminated, and the wrong fix - a shorter global bound - would break legitimate multi-minute crawls",
+      "why_mode": "SUBTASK: a bounded hunt with a deterministic reproduction and a mechanical done-condition",
+      "why_lane": "SERIAL: rw:kb/ingest/_documents.py overlaps the r: that issue-17-second-half-rests-on-a-false-premise declares"
+    },
+    {
+      "id": "url-monitoring-function-local-imports-raise-unboundlocalerror",
+      "title": "render() imports json and datetime mid-function, so both names are unbound everywhere above those lines and the page crashes",
+      "source": "TO-DOS.md (## Admin GUI: two UnboundLocalErrors from function-local imports - 2026-09-21), from a user screenshot of the URL Monitoring Dashboard",
+      "model": "sonnet",
+      "effort": "low",
+      "mode": "subtask",
+      "lane": "parallel",
+      "touches": [
+        "rw:admin_pages/url_monitoring.py",
+        "rw:test_admin_gui.py"
+      ],
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "depends_on": [],
+      "fork": null,
+      "branch": null,
+      "blocked_on": null,
+      "decision": null,
+      "verify": "Rendering the URL Monitoring page against a KB containing at least one document with BOTH a source_url AND a non-null scrape_config completes without UnboundLocalError, and the update-check path that reaches the datetime call does too. CONFIRMED THIS PASS, re-derive rather than trust: admin_pages/url_monitoring.py is a single function, render(kb); `import json` and `from datetime import datetime` both sit inside it, in a button branch near the end - grep the file for 'import json' and 'from datetime' to find them rather than trusting any line number. Python makes a name local to the WHOLE function if it is assigned anywhere in it, so every json. and datetime. reference above those imports is unbound unless that button was clicked first. THE FIX IS TO HOIST BOTH TO MODULE SCOPE, NOT TO ADD ANYTHING: this is NOT the same defect as the admin_common.py one closed in 89e7710, which was a genuinely MISSING import raising NameError. TWO BUGS, NOT ONE - fix both or the second surfaces on the next click: the json one runs on page load, while the datetime one needs the 'Run Update Check' button and a later json reference needs the export button. Enumerate every json. and datetime. reference and confirm each is above or below its import. THE EXISTING COVERAGE IS VACUOUS FOR THIS AND THAT IS THE POINT: test_admin_gui.py already parametrizes over PAGES and renders this page, and it PASSES, because the fixture KB has no url-sourced documents so the loop body that touches json never executes. A fix that does not make the test populate such a document leaves the page exactly as untested as it is now. There is NO test_url_monitoring.py at this head, confirmed by a filesystem check, so test_admin_gui.py is the home and this is coverage the task ADDS. 0 fail. SABOTAGE: move either import back inside the function and confirm the new case FAILS with UnboundLocalError, printing the import block from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- admin_pages/url_monitoring.py test_admin_gui.py`.",
+      "why_model": "two import statements moved to module scope, with a reproduction already in hand from a screenshot",
+      "why_effort": "mechanical once understood; the only real work is enumerating the call sites so the second, unreported bug is not left behind, and getting it wrong is cheap to notice",
+      "why_mode": "SUBTASK: one page module and one test file, with a done-condition that is a render completing",
+      "why_lane": "PARALLEL: admin_pages/url_monitoring.py and test_admin_gui.py are touched by nothing else in this plan"
     }
   ],
   "closed": [
@@ -829,6 +859,12 @@
       "title": "format_timestamp called datetime but admin_common.py never imported it",
       "closed_by": "89e7710",
       "reason": "`from datetime import datetime` added; 19 passed. THE EXCEPT-CLAUSE CALL WENT AGAINST THE TASK'S OWN FRAMING, CORRECTLY: the verify asked whether the guard should also catch the broader case, and the agent kept `except (ValueError, TypeError, AttributeError)` narrow on the grounds that widening it would silently swallow the NEXT NameError in that function, and that the fix for a NameError escaping a guard is removing the NameError rather than making it an expected case. Blast radius confirmed read-only as instructed: the shared helper is called from admin_pages/documents.py and admin_pages/web_scraping.py, both already correct, so the single fix covers both live crash surfaces and no file outside the grant was edited. The sabotage reproduced the user's exact reported error at the reported line."
+    },
+    {
+      "id": "no-test-asserts-a-tool-call-returns-within-a-bound",
+      "title": "Nothing asserted an individual tool call completes, so four permanently-hanging tools shipped green",
+      "closed_by": "6af624a",
+      "reason": "THE CASCADE WAS OUR TEST, NOT THE SERVER - third explanation and the correct one. MCPSession never drained the subprocess's stderr while the session was alive, so once the server filled stderr's ~64KB OS pipe buffer its own next write blocked MID-DISPATCH and the session died. The textbook subprocess.PIPE gotcha. Confirmed by THREAD STATE rather than inference: both processes had threads parked in EventPairLow, the Windows blocked-synchronous-pipe-I/O signature, at the moment progress stalled. That also explains an earlier orchestrator probe that found no cascade - it used an empty data dir and a handful of calls, so the buffer never filled. BOTH of the file's critical properties were broken, not just the failing one: the sabotage case called stderr_text() on a LIVE process, a blocking read on a pipe that only EOFs at process death, and hung four minutes before being killed by hand. The expensive case is skip-by-default behind TDZ_RUN_FULL_DISPATCH_TEST, mirroring test_retrieval_quality.py's pre-existing RUN_SEMANTIC_TESTS skipif; the ASSERTION IS UNTOUCHED - it is not run by default because it currently, correctly, catches a real defect now tracked as issue#21. Full repo 412 passed / 4 skipped / 0 failed in 6m01s, re-run independently - the first fully green tree of the drain. Issue #19 closed."
     }
   ]
 }

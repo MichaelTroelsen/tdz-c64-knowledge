@@ -84,6 +84,7 @@
 {"id":"repoint-missing-md-and-txt-sources","summary":null}
 {"id":"roadmap-phase-4-build-or-drop","summary":null}
 {"id":"roadmap-phase-4-items-unmarked","summary":null}
+{"id":"scrape-url-hangs-against-an-unreachable-host-instead-of-failing-fast","summary":"Root-caused the scrape hang to two defects no hypothesis in the plan named - mdscrape inheriting the MCP client's stdin pipe, and a refused connect being retried with backoff - taking scrape_url from never returning to 4.8s; partial because the liveness suite stays red for a separate loader-lock defect outside its grant, and because it refuted two claims the brief asserted, both of them mine."}
 {"id":"sid-archive-ingestion","summary":null}
 {"id":"sid-extension-surfaces","summary":null}
 {"id":"sid-lha-archive-support","summary":null}
@@ -100,6 +101,7 @@
 {"id":"to-dos-repoint-bullet-stale-framing","summary":null}
 {"id":"tool-dispatch-has-no-per-call-timeout","summary":"Bounded tool dispatch with an opt-out default plus a separate lock-wait bound, after measuring that the 'one hang kills the server' half is HTTP-only and stdio was already concurrent; 37 passed and the sabotage failed on a deadline rather than hanging."}
 {"id":"uploads-retention-policy","summary":null}
+{"id":"url-monitoring-function-local-imports-raise-unboundlocalerror","summary":"Hoisted both function-local imports to module scope, killing the page-load crash and the Run-Check crash together, and replaced the vacuous page-render coverage with a case that injects a document carrying source_url and scrape_config; 20 passed and the sabotage reproduced the user's exact error."}
 {"id":"validate-docs-should-assert-tool-count","summary":null}
 {"id":"verify-http-transport-across-machines","summary":null}
 {"id":"whats-next-md-drift","summary":null}

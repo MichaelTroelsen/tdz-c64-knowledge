@@ -913,6 +913,18 @@ class _DocumentsMixin:
 
             process = subprocess.Popen(
                 cmd,
+                # NOT optional, and not cosmetic: without this the child
+                # inherits THIS process's stdin, which under the MCP stdio
+                # transport is a pipe the client holds open for the life of
+                # the session. mdscrape then never exits, `process.poll()`
+                # below never returns an exit code, and scrape_url sits in
+                # the monitor loop until SCRAPE_TIMEOUT_S (default 3600s).
+                # Measured: the same call that returns in 11.9s with
+                # DEVNULL had not returned after 120s without it, while the
+                # mdscrape process was still alive - and mdscrape run from a
+                # normal parent exits in 0.55s, so this is the stdin handle,
+                # not the scrape.
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

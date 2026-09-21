@@ -170,3 +170,47 @@ def test_crawl_defaults_are_gentle():
 
     assert threads <= 4, f"default threads={threads} is too aggressive for small sites"
     assert delay >= 300, f"default delay={delay}ms is too short between requests"
+
+
+def test_an_unreachable_endpoint_is_not_retried_with_backoff(monkeypatch):
+    """Backing off from "nothing is listening there" only wastes the caller.
+
+    The backoff above exists for 429/5xx - a server asking to be given room.
+    A refused connect or a failed name lookup is settled for the duration of
+    the call, and sleeping base_delay*(2**n) between re-attempts cannot make
+    the host appear. Measured before this bound: three attempts against the
+    closed port 127.0.0.1:9 cost 9.1s (3 x 2.05s connect + 1s + 2s of sleep),
+    which was most of the time scrape_url spent before it could even report
+    an unreachable host.
+
+    The sleeps are recorded rather than served, so a regression fails here on
+    the assertion instead of making the suite sit out its own backoff.
+    """
+    import requests
+
+    sleeps = []
+    monkeypatch.setattr(util_module.time, 'sleep', lambda s: sleeps.append(s))
+
+    # Port 9 is the discard port and is closed; nothing is bound here.
+    started = time.time()
+    with pytest.raises(requests.exceptions.ConnectionError):
+        util_module.http_get_polite('http://127.0.0.1:9/', timeout=5,
+                                    max_attempts=3, base_delay=5)
+    elapsed = time.time() - started
+
+    assert sleeps == [], (
+        f'backed off {sleeps} between attempts at a host that refused the '
+        'connection - no delay can change a refused connect'
+    )
+    assert elapsed < 15, f'took {elapsed:.1f}s to give up on a refused connect'
+
+
+def test_a_transient_failure_is_still_retried(local_site):
+    """The bound above must not have turned the backoff off altogether."""
+    base, handler = local_site
+    handler.fail_times = 1
+
+    resp = server_module.http_get_polite(f"{base}/flaky", base_delay=0.01, max_attempts=3)
+    assert resp.status_code == 200
+    attempts = len([p for p, _ in handler.requests_seen if p == '/flaky'])
+    assert attempts == 2, f"expected 1 failure + 1 success, got {attempts} attempts"

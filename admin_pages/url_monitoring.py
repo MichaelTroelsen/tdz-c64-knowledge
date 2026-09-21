@@ -4,6 +4,9 @@ Moved out of admin_gui.py's 16-branch if/elif chain by R18. `kb` is a
 parameter rather than a module global so this module never imports
 admin_gui, which dispatches to it.
 """
+import json
+from datetime import datetime
+
 import pandas as pd
 import streamlit as st
 
@@ -268,9 +271,6 @@ def render(kb):
                         # Export option
                         st.markdown("---")
                         if st.button("📥 Export Results as JSON"):
-                            import json
-                            from datetime import datetime
-
                             filename = f"url_check_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                             json_str = json.dumps(results, indent=2, default=str)
 

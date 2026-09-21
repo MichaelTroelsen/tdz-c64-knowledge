@@ -1,3 +1,4 @@
+{"id":"admin-common-format-timestamp-missing-datetime-import","summary":"Added the missing datetime import that crashed every admin page rendering a timestamp, and argued for keeping the except clause narrow rather than widening it to swallow the next NameError; 19 passed and the sabotage reproduced the user's exact error."}
 {"id":"admin-gui-apptest-coverage","summary":null}
 {"id":"agent-bypassed-bash-guard-via-powershell","summary":"Drafted the upstream issue about the Bash/PowerShell guard inconsistency into the working tree per the human's decision; verified present, all four elements found, and confirmed NOT posted."}
 {"id":"architecture-md-json-output-list-incomplete","summary":null}
@@ -33,6 +34,7 @@
 {"id":"docs-readme-tool-count-stale","summary":null}
 {"id":"docs-stale-after-decomposition","summary":null}
 {"id":"docs-tool-count-stale-after-deepsid-tool","summary":null}
+{"id":"ensure-embeddings-loaded-has-the-same-unbounded-stdin-wait","summary":"Bounded the embeddings load behind a deadline on a named warm-up thread after re-measuring that faiss, numpy AND sentence_transformers all stall under a pending stdin read; 58 passed, and the agent caught its own broken harness when the known-positive control failed to stall."}
 {"id":"extract-server-helpers-to-util","summary":null}
 {"id":"extract-server-models-and-flags","summary":null}
 {"id":"figure-ocr-availability-discrepancy","summary":null}

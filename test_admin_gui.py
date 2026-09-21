@@ -19,8 +19,23 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
+import admin_common
 import admin_pages
 from admin_pages import PAGES
+
+
+def test_format_timestamp_valid_iso8601():
+    """Regression: admin_common.py had no datetime import at all, so this
+    raised NameError instead of formatting the timestamp."""
+    result = admin_common.format_timestamp("2024-03-15T10:30:00")
+    assert result == "2024-03-15 10:30:00"
+
+
+def test_format_timestamp_non_iso_string_passthrough():
+    """The except clause must still absorb genuinely malformed input and
+    return it unchanged."""
+    result = admin_common.format_timestamp("not-a-timestamp")
+    assert result == "not-a-timestamp"
 
 LIVE_DATA_DIR = Path(os.path.expanduser("~/.tdz-c64-knowledge"))
 LIVE_DB = LIVE_DATA_DIR / "knowledge_base.db"

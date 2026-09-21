@@ -1648,3 +1648,124 @@ def test_long_running_tools_are_real_tools_and_exempt_from_the_bound(data_dir):
         "tool name bounded by DEFAULT - the bound has to be opt-out, or the next "
         "tool somebody adds inherits the unbounded wait this guards against."
     )
+# --- The faiss/sentence-transformers load carries the SAME unbounded wait ---
+#
+# test_ensure_nltk_returns_on_a_deadline_instead_of_waiting_for_the_import
+# above bounds the nltk import. _ensure_embeddings_loaded had the identical
+# hole: it imports sentence_transformers, and via _load_embeddings first
+# touches faiss, and BOTH stall on a pending read of this process's stdin
+# exactly the way the scipy/BLAS chain does.
+#
+# Re-measured 2026-09-21 in fresh child processes, each handed a pipe on stdin
+# whose write end the parent KEEPS OPEN (closing it hands the child EOF and
+# the stall vanishes - the reproduction is worthless without that):
+#
+#   no pending read on stdin  : faiss 0.12s, sentence_transformers 3.26s
+#   an IDLE extra thread      : faiss 0.12s   (control - a thread is harmless)
+#   pending os.read(0, 1)     : BOTH still unfinished at 25s
+#   same, one byte at t+6s    : released at the poke (5.60s / 8.42s)
+#
+# These two cases stand in for that stall without needing a live stdio
+# session: the one-time load is replaced by one that can never finish, which
+# is what the stall looks like from the caller's side. They FAIL on their own
+# deadline rather than hanging if the bound is ever removed.
+
+
+def test_ensure_embeddings_returns_on_a_deadline_instead_of_waiting_for_the_load(data_dir):
+    """The bound itself, and that a missed deadline is not a failure.
+
+    A timeout must NOT latch use_semantic off the way a real load failure
+    does (see the two issue #12/#14 cases above): the load is still running
+    and the next call should get the real index.
+    """
+    probe = chr(10).join([
+        "import server, threading, time",
+        "import kb.search._retrieval as _r",
+        # A load that can never complete - the shape the stdin stall has from
+        # the caller side. Patched at module scope, which is where the real
+        # worker lives (kb/search/__init__.py pins the mixin method set).
+        "_r._embeddings_load_worker = lambda kb: threading.Event().wait()",
+        "kb = server.KnowledgeBase(server.os.environ['TDZ_DATA_DIR'])",
+        "assert kb.use_semantic, 'test setup: semantic search should be enabled'",
+        "start = time.time()",
+        "raised = ''",
+        "try:",
+        "    kb._ensure_embeddings_loaded(timeout=2.0, raise_on_timeout=True)",
+        "except TimeoutError:",
+        "    raised = 'TimeoutError'",
+        "bounded = time.time() - start < 10",
+        # A second caller must not re-pay the full deadline.
+        "start2 = time.time()",
+        "kb._ensure_embeddings_loaded()",
+        "fast_retry = time.time() - start2 < 1.0",
+        "print('RESULT', raised, bounded, kb.use_semantic is True, fast_retry)",
+    ])
+    out = subprocess.run(
+        [PYTHON, "-c", probe],
+        capture_output=True, env=_env(data_dir), cwd=str(REPO), timeout=120,
+    )
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    line = [ln for ln in out.stdout.decode().splitlines() if ln.startswith("RESULT")][-1]
+    assert line == "RESULT TimeoutError True True True", (
+        f"_ensure_embeddings_loaded did not return on its deadline: {line!r}. "
+        "Expected, in order: TimeoutError raised; it returned inside 10s; "
+        "use_semantic still True (a 'not yet' is not a failure); and a second "
+        "caller degraded immediately instead of re-paying the whole deadline. "
+        "Without that bound every semantic_search/hybrid_search/answer_question "
+        "call inherits an unbounded wait on the first one."
+    )
+
+
+def test_semantic_search_says_the_index_is_loading_rather_than_returning_nothing(data_dir):
+    """What semantic_search DOES when the index is not ready yet.
+
+    There is no degraded semantic answer, so it raises rather than inventing
+    one. An empty list would be indistinguishable from "no matches" - the one
+    answer that is definitely wrong - and handle_semantic_search renders only
+    title/doc_id/similarity/snippet, so silently substituting FTS5 hits could
+    not be labelled as such and would be read as semantic. The exception
+    reaches the user verbatim as "Semantic search error: ...", and the same
+    text is on stderr as a warning, which is how the bound is observable in
+    the log the way _ensure_nltk's is.
+    """
+    probe = chr(10).join([
+        "import server, threading, time",
+        "import kb.search._retrieval as _r",
+        "_r._embeddings_load_worker = lambda kb: threading.Event().wait()",
+        "kb = server.KnowledgeBase(server.os.environ['TDZ_DATA_DIR'])",
+        "assert kb.use_semantic, 'test setup: semantic search should be enabled'",
+        "start = time.time()",
+        "msg = ''",
+        "results = 'NOT-RAISED'",
+        "try:",
+        "    results = kb.semantic_search('raster interrupt stable timing', 3)",
+        "except TimeoutError as e:",
+        "    msg = str(e)",
+        "print('RESULT', repr(results), 'still loading' in msg,",
+        "      'search_docs' in msg, time.time() - start < 10)",
+    ])
+    env = _env(data_dir)
+    # Proves the env knob is what sets the deadline: without it this would
+    # wait the full 20s default.
+    env["TDZ_EMBEDDINGS_LOAD_TIMEOUT_S"] = "2"
+    start = time.time()
+    out = subprocess.run(
+        [PYTHON, "-c", probe],
+        capture_output=True, env=env, cwd=str(REPO), timeout=120,
+    )
+    elapsed = time.time() - start
+    assert out.returncode == 0, out.stderr.decode(errors="replace")[-2000:]
+    stdout = out.stdout.decode(errors="replace")
+    stderr = out.stderr.decode(errors="replace")
+    line = [ln for ln in stdout.splitlines() if ln.startswith("RESULT")][-1]
+    assert line == "RESULT 'NOT-RAISED' True True True", (
+        f"semantic_search did not bound its first call: {line!r} (whole run "
+        f"{elapsed:.1f}s). Expected it to raise TimeoutError (so 'results' is "
+        "still the sentinel), with a message that says the index is still "
+        "loading and names search_docs as the thing to use meanwhile."
+    )
+    assert "Embeddings warm-up deadline missed" in stderr, (
+        "the missed deadline was not logged, so an operator watching the "
+        "server log cannot tell a stalled load from a slow one. stderr tail: "
+        f"{stderr[-1500:]!r}"
+    )

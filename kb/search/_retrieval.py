@@ -24,7 +24,122 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
+
+
+# --- Bounding the deferred faiss / sentence-transformers load --------------
+#
+# _ensure_embeddings_loaded imports sentence_transformers, and via
+# _load_embeddings first touches faiss. Both are BLAS-linked C-extension
+# chains and both stall exactly the way the nltk import did: Windows
+# serialises operations on a synchronous file object, those DLL
+# initialisations touch this process's stdin, and under the MCP stdio
+# transport a reader thread is permanently parked in a read on stdin that
+# only completes when the client sends its next message - while that client
+# is itself blocked waiting for the reply to the search that started the
+# import. Nothing breaks the tie and the search never returns.
+#
+# Measured here, 2026-09-21, in fresh child processes each handed a pipe on
+# stdin. The parent must KEEP the write end open: closing it hands the child
+# EOF, os.read(0, 1) returns b'' immediately and the stall vanishes - which is
+# how this first failed to reproduce.
+#
+#   no pending read on stdin  : faiss 0.12s, sentence_transformers 3.26s
+#   an IDLE extra thread      : faiss 0.12s   (control - a thread is harmless)
+#   pending os.read(0, 1)     : BOTH hung past 25s
+#   same, one byte at t+6s    : released at the poke (5.60s / 8.42s)
+#
+# So the load runs once on its own daemon thread and callers wait for it with
+# a deadline instead of inheriting that unbounded wait - the same shape
+# features.py already uses for nltk (_ensure_nltk / _nltk_import_worker).
+# Warming it at module level instead is not an option: sentence_transformers
+# and torch are on test_mcp_startup.py's FORBIDDEN_AT_STARTUP list precisely
+# because importing them eagerly cost the ~16s that broke the 30s handshake.
+EMBEDDINGS_LOAD_TIMEOUT_S = float(os.environ.get('TDZ_EMBEDDINGS_LOAD_TIMEOUT_S', '20'))
+
+# Once one caller has waited out the full deadline, later callers wait only
+# this long. Under the stdin stall the load advances by roughly one DLL per
+# client message, so re-paying the full deadline on every call would charge it
+# to each of them; a caller that has seen the deadline blown is looking at the
+# stalled case and should degrade immediately rather than wait again.
+_EMBEDDINGS_RETRY_WAIT_S = 0.05
+
+# Guards the one-time creation of a KnowledgeBase's warm-up state and the
+# single start of its thread.
+_embeddings_start_lock = threading.Lock()
+
+
+def _embeddings_warmup_state(kb):
+    """Per-instance warm-up bookkeeping, created exactly once.
+
+    A module-level function, not a method: kb/search/__init__.py asserts the
+    exact method set each sub-mixin contributes and rejects any addition.
+    """
+    state = getattr(kb, '_embeddings_warmup', None)
+    if state is None:
+        with _embeddings_start_lock:
+            state = getattr(kb, '_embeddings_warmup', None)
+            if state is None:
+                state = {'done': threading.Event(), 'thread': None, 'missed': False}
+                kb._embeddings_warmup = state
+    return state
+
+
+def _embeddings_load_worker(kb):
+    """Load the bi-encoder and the FAISS index exactly once, off the
+    caller's thread. See the module-level comment for what stalls and why
+    the caller must not wait on it without a deadline.
+
+    Never raises: a real failure leaves embeddings_model None and turns
+    semantic search off, which is what every caller already treats as
+    "the model is unavailable" (issues #12 and #14, and the two
+    degrade-instead-of-hanging cases in test_mcp_startup.py). A missed
+    DEADLINE is not a failure and does not touch use_semantic - the load
+    is still running and lands as soon as client traffic releases stdin.
+    """
+    state = _embeddings_warmup_state(kb)
+    started = time.time()
+    try:
+        # Load the sentence transformer model (this is the slow part)
+        model_name = os.getenv('SEMANTIC_MODEL', 'all-MiniLM-L6-v2')
+        kb.logger.info(f"Lazy loading embeddings model: {model_name} (first semantic search)")
+        try:
+            # Fast path: model should already be cached on disk. In
+            # theory local_files_only=True means no network at all, but
+            # some sentence-transformers/huggingface_hub versions still
+            # issue a revision/etag check even with that flag set, and a
+            # blocked/filtered connection to that check hangs forever
+            # with no timeout of its own (see issue #14 - a single
+            # add_document call hung 28+ minutes here with zero CPU
+            # usage, despite the model already being fully cached).
+            # Bound it with the same socket timeout as the fallback path
+            # below so this can never hang the caller indefinitely.
+            with _network_timeout():
+                kb.embeddings_model = SentenceTransformer(model_name, local_files_only=True)
+        except Exception:
+            # Not cached yet - fetch it, but bound the wait. Without
+            # this, an unreachable Hugging Face Hub (offline machine,
+            # filtered egress) can block this call indefinitely, taking
+            # every semantic_search call down with it.
+            with _network_timeout():
+                kb.embeddings_model = SentenceTransformer(model_name)
+
+        # Load the pre-computed embeddings index. This is where faiss is
+        # first touched, and it stalls on stdin the same way the model
+        # import does - which is why both are on this thread.
+        kb._load_embeddings()
+
+        kb._embeddings_loaded = True
+        kb.logger.info(
+            f"Embeddings model and index loaded successfully in {time.time() - started:.2f}s")
+    except Exception as e:
+        kb.logger.error(f"Failed to lazy load embeddings: {e}")
+        kb.use_semantic = False
+        kb._embeddings_loaded = False
+    finally:
+        kb.logger.info(f"Embeddings warm-up returned after {time.time() - started:.2f}s")
+        state['done'].set()
 
 
 class _RetrievalMixin:
@@ -1098,50 +1213,62 @@ class _RetrievalMixin:
         self._fanout_cache = (n, fanout)
         return fanout
 
-    def _ensure_embeddings_loaded(self):
-        """
-        Lazy load embeddings model and index on first use.
+    def _ensure_embeddings_loaded(self, timeout: Optional[float] = None,
+                                  raise_on_timeout: bool = False):
+        """Start (once) and wait on the deferred embeddings load, with a deadline.
 
-        This significantly improves startup time by deferring the ~2.5 second
-        model loading until semantic search is actually needed.
+        Returns once the model and index are loaded, or once the load has
+        failed - in which case use_semantic is off and embeddings_model is
+        None, the pre-existing contract every caller already checks.
+
+        If the one-time load is still in flight after `timeout` seconds
+        (default EMBEDDINGS_LOAD_TIMEOUT_S, env TDZ_EMBEDDINGS_LOAD_TIMEOUT_S)
+        this logs a warning and either raises TimeoutError
+        (raise_on_timeout=True) or returns with the model still unloaded.
+        That is a "not yet", not a failure: the load carries on in the
+        background and lands as soon as any further client traffic releases
+        stdin, so the next call gets the real index.
+
+        The default is non-raising because the other seven call sites
+        (kb/topics.py training and clustering, kb/admin.py's reconcile,
+        kb/ingest/_documents.py's post-add embed) are batch paths that
+        already branch on "embeddings_model is None", and a half-finished
+        ingest must not be aborted by a transient "not yet".
+
+        semantic_search is the exception and passes raise_on_timeout=True,
+        because there is no degraded semantic answer to give - see the
+        comment at its call site.
         """
         if not self.use_semantic or self._embeddings_loaded:
             return
+        state = _embeddings_warmup_state(self)
+        if state['done'].is_set():
+            return
 
-        try:
-            # Load the sentence transformer model (this is the slow part)
-            model_name = os.getenv('SEMANTIC_MODEL', 'all-MiniLM-L6-v2')
-            self.logger.info(f"Lazy loading embeddings model: {model_name} (first semantic search)")
-            try:
-                # Fast path: model should already be cached on disk. In
-                # theory local_files_only=True means no network at all, but
-                # some sentence-transformers/huggingface_hub versions still
-                # issue a revision/etag check even with that flag set, and a
-                # blocked/filtered connection to that check hangs forever
-                # with no timeout of its own (see issue #14 - a single
-                # add_document call hung 28+ minutes here with zero CPU
-                # usage, despite the model already being fully cached).
-                # Bound it with the same socket timeout as the fallback path
-                # below so this can never hang the caller indefinitely.
-                with _network_timeout():
-                    self.embeddings_model = SentenceTransformer(model_name, local_files_only=True)
-            except Exception:
-                # Not cached yet - fetch it, but bound the wait. Without
-                # this, an unreachable Hugging Face Hub (offline machine,
-                # filtered egress) can block this call indefinitely, taking
-                # every semantic_search call down with it.
-                with _network_timeout():
-                    self.embeddings_model = SentenceTransformer(model_name)
+        with _embeddings_start_lock:
+            if state['thread'] is None:
+                state['thread'] = threading.Thread(
+                    target=lambda: _embeddings_load_worker(self),
+                    name='embeddings-warmup', daemon=True,
+                )
+                state['thread'].start()
 
-            # Load the pre-computed embeddings index
-            self._load_embeddings()
+        if timeout is None:
+            timeout = _EMBEDDINGS_RETRY_WAIT_S if state['missed'] else EMBEDDINGS_LOAD_TIMEOUT_S
+        if state['done'].wait(timeout):
+            return
 
-            self._embeddings_loaded = True
-            self.logger.info("Embeddings model and index loaded successfully")
-        except Exception as e:
-            self.logger.error(f"Failed to lazy load embeddings: {e}")
-            self.use_semantic = False
-            self._embeddings_loaded = False
+        state['missed'] = True
+        message = (
+            f"the embeddings model and FAISS index are still loading after "
+            f"{timeout:.1f}s, so semantic search cannot answer this call yet - "
+            f"retry it, or use search_docs (FTS5) meanwhile. The load is still "
+            f"running in the background (TDZ_EMBEDDINGS_LOAD_TIMEOUT_S tunes "
+            f"the deadline)"
+        )
+        self.logger.warning(f"Embeddings warm-up deadline missed: {message}")
+        if raise_on_timeout:
+            raise TimeoutError(message)
 
     def _load_embeddings(self):
         """Load FAISS embeddings index from disk (acquires the cross-process lock)."""
@@ -1549,8 +1676,20 @@ class _RetrievalMixin:
         if not self.use_semantic:
             raise RuntimeError("Semantic search not available. Enable with USE_SEMANTIC_SEARCH=1")
 
-        # Lazy load embeddings model on first use (saves ~2.5s on startup)
-        self._ensure_embeddings_loaded()
+        # Lazy load embeddings model on first use (saves ~2.5s on startup).
+        # Bounded, and the TimeoutError is deliberately allowed to propagate:
+        # there is no degraded SEMANTIC answer, and both alternatives are
+        # worse. Returning [] is indistinguishable from "no matches", which is
+        # the one answer that is definitely wrong. Quietly substituting FTS5
+        # hits is worse still from here: handle_semantic_search renders only
+        # title/doc_id/similarity/snippet, so a "these are really lexical"
+        # marker on the result dicts would never reach the caller and they
+        # would read lexical hits as semantic ones. The exception does reach
+        # them verbatim - handle_semantic_search prints "Semantic search
+        # error: <message>" - and that message names search_docs as the thing
+        # to use meanwhile and says the load is still advancing, so a retry
+        # after the next client message gets the real index.
+        self._ensure_embeddings_loaded(raise_on_timeout=True)
 
         if self.embeddings_model is None:
             raise RuntimeError("Failed to load embeddings model")

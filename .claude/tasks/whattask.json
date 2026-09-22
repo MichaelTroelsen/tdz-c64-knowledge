@@ -1,16 +1,16 @@
 {
   "generated_from": {
-    "head": "6261716",
+    "head": "1934078",
     "sources": [
-      "issues: NONE open - #17, #22 and #23 were all closed at 6261716 with their measurements. The context block's 'no reachable issue tracker' is a misread of EMPTY output; gh works and the tracker is simply empty.",
+      "plugin staleness probe: not applicable in this repo - it compares the installed plugin against a plugins/mit-setup tree this repo does not contain",
+      "issues: NONE open (gh works; the tracker is empty - #19 to #23 closed)",
       "PRs: none open",
-      "TO-DOS.md (8 sections; its two 2026-09-21 admin-GUI sections are stale and become a task here, the rest are residue with `done` records)",
+      "TO-DOS.md: every open bullet (#16 cross-machine HTTP, the TOCTOU window, the md/txt repoint sweep, c=hacking availability) is already in `closed` from earlier plans",
       "docs/ROADMAP.md",
-      "whats-next.md - SPENT and now two sessions stale. It records HEAD 19114e3, twelve commits behind, and by its own first line carries no task list. Contributes nothing; delete it or re-point it.",
-      ".claude/tasks/runs.jsonl (122 ids, last line per id; every task from the previous plan is `done`)",
-      ".claude/tasks/decisions.jsonl (20 ids, last line per id)",
-      "a TDZ_ env-var diff of the source against README.md / CLAUDE.md / docs/ARCHITECTURE.md, run this pass",
-      "graphify code graph (refreshed this pass: 4762 nodes / 6771 edges / 333 communities)"
+      "whats-next.md - a pointer file, not a task list; it still says it was checked against 19114e3 and is stale on that one line. Contributes no tasks.",
+      ".claude/tasks/runs.jsonl (last line per id; every task from the 6261716 plan is done, the two check-updates/heartbeat partials superseded by done records)",
+      ".claude/tasks/decisions.jsonl (every resolved decision is already done or closed; stray-msys-shadow-tree-cleanup stays closed as measured:2026-09-21)",
+      "graphify code graph (refreshed this pass: 4772 nodes / 6792 edges / 323 communities)"
     ],
     "focus": null
   },
@@ -29,7 +29,7 @@
     "<data_dir>/uploads is PERMANENT storage (docs/ARCHITECTURE.md:40) - documents.filepath points into it and health_check's missing_source_files reads that path",
     "validate_docs.py FAILS if README.md / CLAUDE.md / docs/ARCHITECTURE.md / CONTEXT.md / docs/README.md (five files) stop matching its tool-count phrasings - a doc reword must update the pattern in the same change. Tool count MEASURED 2026-08-30: len(TOOL_SCHEMAS) = 95",
     "pyproject.toml:85 lists 'archive' in norecursedirs; archive/tests/ is tracked (35 files, a334b3c) but still excluded from collection",
-    "MEASURED BASELINE 2026-08-30 at 721ea1d, re-measured not carried: bare `pytest --collect-only -q` is 399 tests (392 before test_doc_id_dedup.py added 7) and len(TOOL_SCHEMAS) is 95. Re-measure before writing either number anywhere.",
+    "MEASURED BASELINE 2026-09-22 at 1934078, re-measured not carried: `.venv/Scripts/python.exe -m pytest --collect-only -q` is 445 tests; len(TOOL_SCHEMAS) was 95 at 6261716 and no tool was added since. Re-measure before writing either number anywhere.",
     "the `python` on PATH is 3.14 without the project's optional deps, so bare `pytest` dies at collection on `from features import BM25Okapi`; use .venv/Scripts/python.exe -m pytest",
     "a task that DIRTIES any tracked file is a WRITER of the worktree dirty set: declare rw:git-worktree, or a task whose verify reads bare `git status`/`git diff --name-only` will be scheduled beside it and fail on a file it never touched",
     "PREFER A PATH-SCOPED `git diff --name-only -- <the task's own paths>` in a verify over bare `git status`. The unscoped form reads the WHOLE dirty set, making the task a reader of every other task's writes and forcing rw:git-worktree - serialising the plan for a scope check that only cared about its own files",
@@ -44,7 +44,7 @@
     "_cross_process_lock (util.py) is the ONLY real mutex between concurrent server.py sessions sharing a data directory. A heartbeat thread restamps the held lock's mtime and release is conditional on an identity fingerprint (6513858). The acquire-side stale-reclaim branch (util.py:312-321) remains a documented, deliberately-unfixed TOCTOU window (19114e3)",
     "graphify WORKS. The root lives in graphify-out/.graphify_root (NOT manifest.json - grepping manifest for a 'root' key found nothing and misled four passes into calling the graph unrefreshable). It held the Git Bash path '/c/Users/mit/...', which native Windows Python resolves drive-relative to 'C:\\c\\Users\\...' - a real shadow directory with no .py files, so graphify honestly reported 'No code files found' rather than erroring. Fixed 2026-08-30; step 5b's `graphify update` has now succeeded twice, most recently at 721ea1d (4,440 nodes). NOTE graph.json reports 0 edges at the top level - traversal still works via `graphify query`, so the edge data is held elsewhere in the file; do not read that 0 as a broken graph. LESSON: a reproducible symptom is not a confirmed diagnosis.",
     "TASK IDS MUST BE UNIQUE ACROSS THE WHOLE RUN LOG, NOT JUST THE CURRENT PLAN - this generator broke it at 19114e3. The slug `pdf-page-break-markers-defeat-content-dedup` had already been used and CLOSED (03d8306) for the DOCUMENTATION task that recorded the defect; the next plan reused the same slug for the open DECISION task about fixing it. Readiness is computed from the last runs.jsonl line per id, so that line's `outcome: done` made the still-open decision look finished, and a runner would have silently dropped it. Renamed to `pdf-doc-id-hash-migration-decision` at f9184cc. Before minting an id, grep runs.jsonl for it.",
-    "THE BRANCH doc-id-strip-page-break-markers IS NOT MERGED. HEAD 721ea1d sits on it; master is at f9184cc. Any task measuring against 'the current code' must know which ref it is on, and a runner that checks out master will not see the doc-id fix or test_doc_id_dedup.py at all.",
+    "MERGED 2026-09-22: doc-id-strip-page-break-markers was fast-forwarded into master at 1934078, so master now carries the doc-id fix, test_doc_id_dedup.py and everything since. The branch still exists and equals master; measuring against either ref gives the same code at that head.",
     "MEASURED 2026-09-20: mcp_call_log.duration_ms is timed from entry into call_tool (server.py) to its `finally`, so it INCLUDES time queued on the global _tool_call_lock and time after the client already cancelled. Two rows reading 262,713ms and 1,751,250ms correspond to requests the client abandoned after roughly four minutes, one of them issued in an EARLIER server process. Never read that field as the cost of the tool's work; cross-check against server.log's 'Search query:' / 'Search completed:' pair.",
     "MEASURED 2026-09-20: _current_data_version (kb/core.py) uses PRAGMA data_version, which bumps on ANY commit from another connection - including the mcp_call_log and search_log rows every peer process writes on every tool call. _sync_documents_if_needed therefore clears self.chunks, sets self.bm25 to None and invalidates all search caches on essentially every search whenever two clients are live; 'All search result caches invalidated' printed before every probe in this session's log. test_embeddings_reliability.py already pins this mechanism directly - grep it for data_version before changing kb/core.py.",
     "MEASURED 2026-09-20: the Server(...) construction in server.py passes no version, so the MCP SDK falls back to pkg_version('mcp') and every client is told the SDK's version rather than version.__version__. Do not read a client-reported serverInfo.version as this project's version.",
@@ -58,7 +58,7 @@
     "MEASURED 2026-09-21: the new per-tool liveness suite in test_mcp_tool_dispatch.py drives 95 tools over a long-lived stdio server with a per-call bound, and a full `pytest -q` over the repo ran past 25 minutes against a 5m53s baseline measured before it existed. Budget for that, or scope a routine run to exclude it. Re-measure both figures rather than quoting these.",
     "A TASK WHOSE TEST SPAWNS server.py IS A READER OF server.py AND MUST DECLARE r:server.py. Measured 2026-09-20: no-test-asserts-a-tool-call-returns-within-a-bound declared only its own test file, was scheduled beside a task holding rw:server.py, and its live findings were contaminated by the sibling rewriting the server under it - including transient sabotage states. The conflict matrix cannot see a dependency that exists only inside a subprocess invocation.",
     "test_http_transport_rejects_a_bad_api_key BINDS A LOCAL PORT and has been seen to fail once with a ConnectionError during a full run while a sibling agent was live in the same tree, then pass alone and in two subsequent full runs. Treat a lone ConnectionError there as suspected port contention under fan-out rather than a regression - but re-run it alone before believing either reading. If it recurs outside a fan-out it is a real defect and needs its own task.",
-    "MEASURED 2026-09-21: test_mcp_tool_dispatch.py does not merely slow the suite, it FAILS - a full run showed one F inside it while every other file was green (378 passed / 3 skipped / 0 failed with it excluded). Run alone it exceeded twenty minutes with no output. It is deliberately excluded from the commits at 7fa124b and 89e7710 and remains uncommitted in the working tree.",
+    "SUPERSEDED 2026-09-22: test_mcp_tool_dispatch.py no longer fails and is committed. Full `pytest -q` at 1934078 ran green in about 7.3 minutes (0 failed). Re-measure rather than quoting that time.",
     "util.py's robots_allows ALREADY bounds its robots.txt fetch with _network_timeout(10) and fails open on any exception. Two separate records have guessed the robots fetch as the cause of a scrape hang; a ten-second bound cannot produce a ninety-second one. Check that function before repeating the guess.",
     "test_admin_gui.py parametrizes over PAGES and renders every admin page, but against a fixture KB with no documents - so any page whose crash lives inside a `for doc in ...` body renders green while dying in production. That is how the url_monitoring UnboundLocalError shipped. A page-render test proves the module imports, not that the page works.",
     "THE EFFECTIVE STDERR PIPE BUFFER FOR A SPAWNED server.py IS 4096 BYTES, not the 64KB usually quoted, and startup logging is 3911 of them - 185 bytes of headroom. Any harness that pipes the server's stderr MUST drain it on a thread or the server blocks on its own write mid-startup and the handshake never arrives. This bug has now been found twice in two different test harnesses (test_mcp_tool_dispatch.py at 6af624a, test_mcp_startup.py at daf145c); a third rediscovery means the pattern needs a shared helper. Tracked as issue #23.",
@@ -72,23 +72,25 @@
     "THIS MACHINE'S .env IS GITIGNORED AND LOAD-BEARING: server.py loads it via python-dotenv at import, and it sets ALLOWED_DOCS_DIRS among others. Behaviour that looks like a code default may be coming from there, and it is invisible to git. Check .env before concluding a setting is unconfigurable - and never write a test that depends on it.",
     "AN EMPTY-DIFF PROOF IS VALID ONLY AGAINST A CLEAN TREE. 'Prove you did not touch this file by showing `git diff --name-only` is empty' is unsatisfiable when the file is already modified-uncommitted, and the only way to satisfy it is a destructive git checkout. THREE agents in one drain were handed this instruction and all three correctly refused it. When a task grants r: on a path that is already dirty, give the agent a sha256 or diff-stat BASELINE to compare against instead.",
     "`pip show <pkg>` ON THIS MACHINE READS THE SYSTEM INTERPRETER, NOT THE VENV, and they differ: mcp is 2.2.0 system-wide and 1.24.0 in .venv. A brief that quotes a dependency version must get it from `.venv/Scripts/python.exe -m pip show`, or it can send a whole task down a false path.",
-    "THE PROGRESS CHANNEL IS BUILT AND UNUSED. server.py's emit_tool_progress() has no callers outside its own module at this head, so any claim that a particular tool reports progress to a client is false until a handler adopts it. The generic ack and heartbeat DO fire for every tool."
+    "MEASURED 2026-09-22: check_updates is the ONLY handler that emits per-item progress (mcp_tools/admin.py, d90c732); every other tool gets only the generic ack and heartbeat. AND A TRAP ANY NEW ADOPTER WILL HIT: the live server runs server.py as __main__, so `from server import emit_tool_progress` inside a handler imports a SECOND module whose _progress_channel contextvar is always empty, and every emit silently returns False with no error. mcp_tools/admin.py's _server_module() prefers sys.modules['__main__'] when it has emit_tool_progress - reuse it rather than importing server directly. An in-process test that imports server normally does NOT reproduce the trap; only a real stdio session does.",
+    "A WIRE-LEVEL TEST THAT NEEDS A TOOL TO OUTLIVE AN INTERVAL: test_mcp_startup.py's heartbeat case holds a real SQLite write lock (`BEGIN IMMEDIATE`) on the child's knowledge_base.db and releases it from a thread after 1s. Do NOT instead wait for SQLite to give up: util.py's _retry_on_db_locked wraps writes in up to 5 attempts, each waiting the full TDZ_DB_BUSY_TIMEOUT_MS, plus 0.5*2^n backoff, so a 4s busy timeout costs about 27.5s - measured at 29.67s against a 30s frame read before it was fixed."
   ],
   "external_locks": [],
   "tasks": [
     {
-      "id": "check-updates-adopts-emit-tool-progress",
-      "title": "The progress channel exists and nothing calls it; check_updates is the handler it was built for",
-      "source": "the residue of mcp-progress-notifications-are-not-plumbed-through-call-tool (runs.jsonl, closed at 6261716), and of issue#17's second request",
+      "id": "add-documents-bulk-adopts-emit-tool-progress",
+      "title": "add_documents_bulk still reports no per-file progress to the client, and admin.py carries a comment saying no handler can",
+      "source": "the named next adopter in check-updates-adopts-emit-tool-progress (runs.jsonl, closed at d90c732), plus the stale comment its orchestrator flagged",
       "model": "sonnet",
       "effort": "medium",
       "mode": "subtask",
-      "lane": "serial",
+      "lane": "parallel",
       "touches": [
         "rw:mcp_tools/admin.py",
         "rw:test_check_updates_progress.py",
         "r:server.py",
-        "r:kb/ingest/_documents.py"
+        "r:kb/ingest/_documents.py",
+        "r:test_mcp_startup.py"
       ],
       "mcp": [],
       "needs_main": false,
@@ -98,89 +100,11 @@
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "A client that sends a progressToken and calls check_updates with auto_update=true receives a progress notification PER DOCUMENT re-indexed, not just the generic ack and heartbeat every session already gets. THE MACHINERY IS BUILT AND UNUSED - confirm by grep rather than trusting: `grep -rn emit_tool_progress --include=*.py .` returns hits in server.py only, so nothing outside that module calls it at this head. server.py defines emit_tool_progress(progress, total, message) which returns False rather than raising when there is no in-flight call or no token, so a handler can call it unconditionally; a contextvar carries the channel into the worker thread that asyncio.to_thread runs the synchronous handler on, which is why no argument has to be threaded through the kb layer. WHERE IT PLUGS IN: kb.check_all_updates already accepts a progress_callback, and handle_check_updates in mcp_tools/admin.py already passes a logging callback when auto_update is true. That callback is the seam - the same place the log line is emitted is where the notification goes. DO NOT ADD A SECOND CALLBACK PARAMETER to the kb method; it has one. KEEP THE LOG HEARTBEAT WORKING. It is the operator-visible channel for someone tailing the server process and must survive unchanged - the notification is the CLIENT-visible one and they are not substitutes. A change that replaces the log line rather than adding beside it is wrong. SEND A REAL total WHERE ONE IS KNOWN, and only there: check_all_updates knows how many documents changed before it starts re-indexing them, so a per-document notification can carry progress and total honestly. The generic heartbeat in server.py deliberately sends NO total because a tool's runtime is unknown; do not copy that decision here, where the count is real. TEST PAIRING, checked on the filesystem: test_check_updates_progress.py exists and already owns this path - it drives check_all_updates with a callback against a temp TDZ_DATA_DIR and asserts the recorded events. Extend it. The client-observed half belongs there too if you can drive it; MCPSession.call_tool_frames in test_mcp_startup.py is the existing way to read notification frames off the wire, but test_mcp_startup.py is NOT granted here, so if the wire-level assertion needs to live in that file, STOP and report it rather than widening. DO NOT RUN check_all_updates WITH auto_update=True AGAINST THE LIVE DATABASE at C:/Users/mit/.tdz-c64-knowledge: it re-indexes every changed document and there is no git rollback for that file. Build a small corpus in a temp TDZ_DATA_DIR, and say which you did. SABOTAGE: remove the emit call and confirm the new assertion FAILS, printing the changed region from disk FIRST to prove the mutation landed. Then restore by re-editing. Scope the footprint check with `git diff --name-only -- mcp_tools/admin.py test_check_updates_progress.py`.",
-      "why_model": "one call added at a seam that already exists, with the mechanism documented in the file it calls into",
-      "why_effort": "the placement is obvious but two judgements are not - keeping the log channel intact beside the new one, and sending a real total where the generic path deliberately sends none",
-      "why_mode": "SUBTASK: one handler, one test file, and a done-condition a client can observe",
-      "why_lane": "SERIAL: r:server.py overlaps the heartbeat task's rw:"
-    },
-    {
-      "id": "heartbeat-tick-never-observed-by-a-real-client",
-      "title": "The progress heartbeat is proved in-process with a fake channel; no test watches a second tick arrive over stdio",
-      "source": "flagged by mcp-progress-notifications-are-not-plumbed-through-call-tool in its own report (runs.jsonl, 6261716)",
-      "model": "sonnet",
-      "effort": "medium",
-      "mode": "subtask",
-      "lane": "serial",
-      "touches": [
-        "rw:test_mcp_startup.py",
-        "rw:server.py"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "fork": null,
-      "branch": null,
-      "blocked_on": null,
-      "decision": null,
-      "verify": "A client reading frames off a real stdio session observes at least TWO progress notifications from one tool call - the ack and a later heartbeat tick - so the repeating half of the heartbeat is pinned by something a client actually sees. WHAT IS ALREADY PROVED AND MUST NOT BE REDONE: test_client_receives_a_progress_notification_before_the_tool_result watches the immediate ack arrive over the wire, and that half is solid. The gap is the REPEAT: test_heartbeat_keeps_ticking_while_a_tool_runs drives _progress_heartbeat in-process with a fake channel, and its own docstring says so, because no tool in the suite reliably outlives one tick. THE OBSTACLE IS THE INTERVAL, AND IT IS THE DESIGN QUESTION: the default is 15 seconds, so an honest wire-level test either waits that long or shortens the interval for one session. TDZ_PROGRESS_INTERVAL_S already exists and MCPSession takes an extra_env parameter, so a sub-second interval for one session is reachable without touching production defaults - prefer that over a 15-second test, and say what interval you used and why the test still proves the repeat rather than proving the env var. YOU ALSO NEED A TOOL THAT OUTLIVES THE INTERVAL. Say how you got one. If that means a test-only handler registered into server.HANDLERS for the duration of the session, that is legitimate and is why server.py is granted rw: - but if the honest answer is that no such seam exists without a production change you would not otherwise make, STOP and report that rather than bending the server to fit the test. A test-only branch left in shipped code is a worse outcome than an unobserved second tick. MIND THE STERR BUDGET: test_startup_writes_well_under_the_stderr_pipe_buffer asserts startup stderr stays under 1024 bytes with no ' - INFO - ' line. New logging at INFO fails THAT test, not yours. TEST PAIRING: test_mcp_startup.py already owns MCPSession and call_tool_frames and is the home; there is no live test_server.py at this head (archive/tests/test_server.py is archived and not collected). SABOTAGE: disable the repeating half - cancel the heartbeat immediately after the ack, or set the interval so no second tick can fire - and confirm the new case FAILS naming how many frames it saw, printing the changed region from disk FIRST. Restore by re-editing. Scope the footprint check with `git diff --name-only -- test_mcp_startup.py server.py`.",
-      "why_model": "a test against machinery that exists and a harness that already reads notification frames",
-      "why_effort": "the trap is a test that proves TDZ_PROGRESS_INTERVAL_S works rather than that the heartbeat repeats, and telling those apart is the whole judgement",
-      "why_mode": "SUBTASK: one test file, with a stated escape hatch if the seam does not exist",
-      "why_lane": "SERIAL: rw:server.py overlaps the check-updates task's r:"
-    },
-    {
-      "id": "thirteen-tdz-env-vars-are-undocumented",
-      "title": "Thirteen TDZ_ environment variables exist in code and appear in no doc, six of them shipped this session",
-      "source": "measured this pass by diffing the TDZ_ names in the source against README.md, CLAUDE.md and docs/ARCHITECTURE.md",
-      "model": "sonnet",
-      "effort": "low",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:README.md",
-        "rw:CLAUDE.md",
-        "rw:docs/ARCHITECTURE.md"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "fork": null,
-      "branch": null,
-      "blocked_on": null,
-      "decision": null,
-      "verify": "Every TDZ_ environment variable the shipped code reads appears in at least one of README.md, CLAUDE.md or docs/ARCHITECTURE.md, with what it does and its default. RE-DERIVE THE LIST rather than trusting this one, because the code moves: collect the names with a grep over the .py files excluding archive/, then check each against the three docs. Measured this pass, 13 of 32 were absent: TDZ_ALLOW_CWD, TDZ_DEEPSID_BASE_URL, TDZ_EMBEDDINGS_LOAD_TIMEOUT_S, TDZ_EXTRACTION_RECOVER_LIMIT, TDZ_EXTRACTION_STALE_MINUTES, TDZ_LONG_TOOL_TIMEOUT_S, TDZ_NLTK_IMPORT_TIMEOUT_S, TDZ_PROGRESS_INTERVAL_S, TDZ_RECOVER_EXTRACTION_JOBS, TDZ_RESPECT_ROBOTS, TDZ_REST_ALLOW_INSECURE, TDZ_RUN_FULL_DISPATCH_TEST, TDZ_STDERR_LOG_LEVEL, TDZ_TOOL_LOCK_WAIT_S, TDZ_TOOL_TIMEOUT_S, TDZ_USER_AGENT. READ THE DEFAULT OUT OF THE CODE, NEVER GUESS IT - each is an os.getenv or _env_timeout_s call with the default as its second argument, and a documented default that disagrees with the code is worse than no entry at all. Note where 0 means 'unbounded' rather than 'zero seconds', which is the convention the timeout knobs use. TWO ARE NOT ORDINARY KNOBS AND SHOULD SAY SO: TDZ_ALLOW_CWD widens the directory allowlist that guards add_document and scrape_url, and TDZ_REST_ALLOW_INSECURE and TDZ_MCP_ALLOW_INSECURE disable a transport-security refusal. Document those with the consequence, not just the syntax. TDZ_RUN_FULL_DISPATCH_TEST is a TEST knob rather than a runtime one; CLAUDE.md's testing section is its natural home rather than README's env-var list. ALSO CORRECT TWO CLAIMS CLAUDE.md MAKES THAT THE CODE NO LONGER SUPPORTS, found this pass: it describes server.py as 576 lines when the file is now over a thousand, and its 'MCP startup performance' section describes the lazy-import fix without mentioning the polling stdin reader that now sits under it - the thing a future reader most needs to know before touching that file. Prefer describing what server.py CONTAINS over restating a line count that goes stale on every commit. NO CODE CHANGE: this task edits documentation only, and `git diff --name-only` limited to the three doc paths is the whole footprint. A doc pass that needed to change behaviour to make a sentence true should STOP and report that instead. Scope the footprint check with `git diff --name-only -- README.md CLAUDE.md docs/ARCHITECTURE.md`.",
-      "why_model": "reconciling a list of names against three documents, with the defaults readable in the source",
-      "why_effort": "mechanical, and wrong entries are cheap to spot - the only real care is reading each default out of the code rather than inferring it",
-      "why_mode": "SUBTASK: three documents, a derivable list, and no behaviour to reason about",
-      "why_lane": "PARALLEL: no other task in this plan touches README.md, CLAUDE.md or docs/ARCHITECTURE.md"
-    },
-    {
-      "id": "to-dos-md-still-lists-two-admin-gui-bugs-that-shipped",
-      "title": "TO-DOS.md's two 2026-09-21 admin-GUI sections describe defects fixed in 609f764 and 89e7710",
-      "source": "TO-DOS.md sections dated 2026-09-21, reconciled against the run log and the commits this pass",
-      "model": "sonnet",
-      "effort": "low",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:TO-DOS.md"
-      ],
-      "mcp": [],
-      "needs_main": false,
-      "needs_main_reason": null,
-      "depends_on": [],
-      "fork": null,
-      "branch": null,
-      "blocked_on": null,
-      "decision": null,
-      "verify": "TO-DOS.md no longer presents fixed work as open, and each entry it marks fixed names the commit that fixed it. THE TWO SECTIONS, both dated 2026-09-21 and both closed since: 'Admin GUI crashes on any page that formats a timestamp' - the missing datetime import in admin_common.py, fixed in 89e7710 - and 'Admin GUI: two UnboundLocalErrors from function-local imports' - the json and datetime imports inside render() in admin_pages/url_monitoring.py, hoisted to module scope in 609f764. CONFIRM EACH AGAINST THE CODE rather than against this description, because a sentence in a plan is not evidence: the imports are either at module scope in those files or they are not. FOLLOW THE FILE'S OWN CONVENTION, WHICH IT ALREADY HAS: earlier entries are struck through with ~~...~~ and annotated with a DONE marker and a commit, rather than deleted - there are 12 such strikethroughs at this head. Match that. Deleting the entries would lose the reasoning, and this file is read as a history of what was decided as much as a list of what is open. DO NOT SWEEP THE WHOLE FILE. The older sections - MCP Expansion Caveats, Figure OCR, HTTP Transport cross-machine verification, the cross-process lock residual risk, markitdown - are residue whose status this task has not checked, and marking them on a guess is the failure this task exists to undo one instance of. If you look at one and find it also closed, say so in your report and leave it alone unless you can cite the commit. There is no test for a markdown file and none is implied, so no test file is granted and no SABOTAGE step applies - say that explicitly rather than inventing a check. The done-condition is the file read back. Scope the footprint check with `git diff --name-only -- TO-DOS.md`.",
-      "why_model": "a two-entry reconciliation against commits already identified",
-      "why_effort": "small and self-correcting; the only way to get it wrong is to sweep entries whose status was never checked, which the verify forbids",
-      "why_mode": "SUBTASK: one file, two entries, and a convention the file already demonstrates",
-      "why_lane": "PARALLEL: nothing else in this plan touches TO-DOS.md"
+      "verify": "A client that sends a progressToken and calls add_documents_bulk receives a notifications/progress frame per file ingested, beyond the generic ack and heartbeat. THE SEAM: kb.add_documents_bulk already accepts progress_callback, and handle_add_documents_bulk in mcp_tools/admin.py calls it WITHOUT one - pass a callback there, the same way handle_check_updates does. REUSE _server_module() from the same file to reach emit_tool_progress; a plain `from server import ...` reaches a dead contextvar in the live server (see hazards), and only a real stdio session exposes that. DO NOT add a callback parameter to the kb method. TOTAL: forward a total only where the kb layer really knows it. Read the method's ProgressUpdate calls before deciding - grep for operation=\"add_documents_bulk\" in kb/ingest/_documents.py rather than trusting a line number - and do not assume the answer is the same as check_all_updates, whose per-document total was fabricated. Say which events carry a total and why. ALSO REWRITE THE COMMENT above handle_check_updates' callback that says nothing plumbs progress to the client and that add_documents_bulk 'doesn't reach the client with it either' - after this task both statements are false. TEST PAIRING, checked on the filesystem: there is no test file dedicated to add_documents_bulk progress; extend test_check_updates_progress.py, which already owns the in-process contextvar test and the wire-level MCPSession test (it imports MCPSession from test_mcp_startup.py read-only - do not edit that file). A brand-new test_*.py would need a .gitignore allowlist line, which is not granted. Use a temp TDZ_DATA_DIR with a few small files, NEVER the live database. The file gains exactly the new cases you add, and 0 fail. SABOTAGE: remove the new emit call, print the changed region from disk first, confirm the new assertions fail by name, then restore by re-editing. If a total is forwarded, sabotage that too (swap it for None or for current) and confirm the total assertion fails. Scope the footprint check with `git diff --name-only -- mcp_tools/admin.py test_check_updates_progress.py`.",
+      "why_model": "the same one-call adoption just done for check_updates, in the same file, with the trap already documented",
+      "why_effort": "mechanical once the __main__ trap is known; the one judgement is whether each event's total is real",
+      "why_mode": "SUBTASK: one handler, one test file, and a client-observable done-condition",
+      "why_lane": "PARALLEL: the only task in the plan"
     }
   ],
   "closed": [
@@ -993,6 +917,42 @@
       "title": "call_tool was one blocking request and response with no way to report progress",
       "closed_by": "6261716",
       "reason": "WIRED, NOT CLOSED - the SDK supports it and the close path was correctly not taken. call_tool now opens a progress channel when the client sends a progressToken: an immediate progress=0.0 ack BEFORE dispatch so the frame precedes the result, then a heartbeat every TDZ_PROGRESS_INTERVAL_S (default 15, 0 disables). emit_tool_progress() reaches a synchronous handler through a contextvar that asyncio.to_thread copies into the worker, so handlers adopt it without threading an argument, and every channel failure is swallowed at DEBUG so a dead client cannot fail a successful call. The heartbeat sends no `total` deliberately - a fabricated one renders as a lying progress bar. PROVED BY A CLIENT READING FRAMES OFF THE WIRE, not by asserting the server called a method: MCPSession.call_tool_frames returns every stdout frame in wire order, and the orchestrator re-ran the sabotage itself, getting \"no notifications/progress frame with our token reached the client\" in 2.90s. TWO RETRACTIONS, BOTH CORRECT: the dispatch's SDK version was wrong (the venv has mcp 1.24.0; the orchestrator had read the SYSTEM pip's 2.2.0), and the prior task's claim that the SDK 'carries no plumbing' was false - it had only established that server.py threaded nothing. Adoption by check_updates is carried forward as its own task."
+    },
+    {
+      "id": "check-updates-adopts-emit-tool-progress",
+      "title": "The progress channel exists and nothing calls it; check_updates is the handler it was built for",
+      "closed_by": "d90c732",
+      "reason": "Per-document notifications/progress reach a real stdio client beside the unchanged log line. Two corrections to the plan landed with it: server.py runs as __main__, so a plain import reaches a dead contextvar (fixed by _server_module()); and check_all_updates does NOT know the changed count up front, so per-document frames carry no total while the up-front event keeps total_docs. Took two attempts; the first forwarded a fabricated total == current."
+    },
+    {
+      "id": "heartbeat-tick-never-observed-by-a-real-client",
+      "title": "The progress heartbeat is proved in-process with a fake channel; no test watches a second tick arrive over stdio",
+      "closed_by": "d90c732",
+      "reason": "test_a_real_client_observes_the_heartbeat_repeat_over_stdio sees the ack plus repeated ticks from one add_document call stalled on a test-held SQLite lock, and fails with \"got 2\" when the repeat is sabotaged in server.py. No production code changed. Took two attempts; the first relied on a ~30s busy-timeout chain finishing inside a 30s frame read."
+    },
+    {
+      "id": "thirteen-tdz-env-vars-are-undocumented",
+      "title": "Thirteen TDZ_ environment variables exist in code and appear in no doc, six of them shipped this session",
+      "closed_by": "d91c7d7",
+      "reason": null
+    },
+    {
+      "id": "to-dos-md-still-lists-two-admin-gui-bugs-that-shipped",
+      "title": "TO-DOS.md's two 2026-09-21 admin-GUI sections describe defects fixed in 609f764 and 89e7710",
+      "closed_by": "d91c7d7",
+      "reason": null
+    },
+    {
+      "id": "liveness-suite-needs-one-clean-run-and-r-server-py-in-touches",
+      "title": "The liveness suite needs one clean run, and tasks spawning server.py must declare r:server.py",
+      "closed_by": "measured:2026-09-22",
+      "reason": "An opened id from no-test-asserts-a-tool-call-returns-within-a-bound that no plan ever emitted. Both halves are satisfied: two full `pytest -q` runs on 2026-09-22, including test_mcp_tool_dispatch.py, finished 0 failed; and the r:server.py rule is recorded in hazards and was applied throughout the 6261716 plan."
+    },
+    {
+      "id": "health-check-missing-source-test-fixture-is-a-card",
+      "title": "The health_check missing-source test fixture is itself a card",
+      "closed_by": "measured:2026-09-22",
+      "reason": "SUSPECTED DUPLICATE, not dropped: an opened id from health-check-warning-fires-on-disposable-cards that no plan ever emitted. Its subject (disposable card documents inflating missing_source_files) is the defect missing-source-metric-counts-disposable-cards closed at ab7503a with the _user/_generated split, which test_card_updates.py test_health_check_missing_source_files_splits_user_vs_generated now pins. Overrule this if the fixture itself is still wrong."
     }
   ]
 }

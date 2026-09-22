@@ -1,15 +1,15 @@
 {
   "generated_from": {
-    "head": "6af624a",
+    "head": "8947b8d",
     "sources": [
-      "issues: #17, #20, #21 OPEN; #18 and #19 CLOSED this session against 7fa124b and 6af624a",
+      "issues: #17, #22, #23 OPEN - but #22 and #23 are FIXED IN THE WORKING TREE and uncommitted, and #17's two halves are both settled (request 1 by .env, request 2 re-scoped at daf145c); all three want closing once the tree is committed",
       "PRs: none open",
-      "TO-DOS.md (8 non-struck bullets; its 2026-09-21 url_monitoring entry becomes a task here, and the older ones all have `done` records)",
+      "TO-DOS.md (9 non-struck bullets, all with `done` records or closed-by-decision; contributes no new task)",
       "docs/ROADMAP.md",
-      "whats-next.md (a pointer document by its own first line - contributes no tasks)",
-      ".claude/tasks/runs.jsonl (109 ids, last line per id)",
-      ".claude/tasks/decisions.jsonl (20 ids, last line per id)",
-      "graphify code graph (refreshed this pass)"
+      "whats-next.md - SPENT. It records HEAD 19114e3, nine commits behind, and by its own first line carries no task list. Contributes nothing and should be deleted or re-pointed.",
+      ".claude/tasks/runs.jsonl (118 ids, last line per id; 5 were not `done` and all 5 are closed or carried forward this pass)",
+      ".claude/tasks/decisions.jsonl (20 ids, last line per id; 2 refused authorisations moved to closed)",
+      "graphify code graph (refreshed this pass: 4722 nodes / 6710 edges / 323 communities)"
     ],
     "focus": null
   },
@@ -59,21 +59,32 @@
     "test_http_transport_rejects_a_bad_api_key BINDS A LOCAL PORT and has been seen to fail once with a ConnectionError during a full run while a sibling agent was live in the same tree, then pass alone and in two subsequent full runs. Treat a lone ConnectionError there as suspected port contention under fan-out rather than a regression - but re-run it alone before believing either reading. If it recurs outside a fan-out it is a real defect and needs its own task.",
     "MEASURED 2026-09-21: test_mcp_tool_dispatch.py does not merely slow the suite, it FAILS - a full run showed one F inside it while every other file was green (378 passed / 3 skipped / 0 failed with it excluded). Run alone it exceeded twenty minutes with no output. It is deliberately excluded from the commits at 7fa124b and 89e7710 and remains uncommitted in the working tree.",
     "util.py's robots_allows ALREADY bounds its robots.txt fetch with _network_timeout(10) and fails open on any exception. Two separate records have guessed the robots fetch as the cause of a scrape hang; a ten-second bound cannot produce a ninety-second one. Check that function before repeating the guess.",
-    "test_admin_gui.py parametrizes over PAGES and renders every admin page, but against a fixture KB with no documents - so any page whose crash lives inside a `for doc in ...` body renders green while dying in production. That is how the url_monitoring UnboundLocalError shipped. A page-render test proves the module imports, not that the page works."
+    "test_admin_gui.py parametrizes over PAGES and renders every admin page, but against a fixture KB with no documents - so any page whose crash lives inside a `for doc in ...` body renders green while dying in production. That is how the url_monitoring UnboundLocalError shipped. A page-render test proves the module imports, not that the page works.",
+    "THE EFFECTIVE STDERR PIPE BUFFER FOR A SPAWNED server.py IS 4096 BYTES, not the 64KB usually quoted, and startup logging is 3911 of them - 185 bytes of headroom. Any harness that pipes the server's stderr MUST drain it on a thread or the server blocks on its own write mid-startup and the handshake never arrives. This bug has now been found twice in two different test harnesses (test_mcp_tool_dispatch.py at 6af624a, test_mcp_startup.py at daf145c); a third rediscovery means the pattern needs a shared helper. Tracked as issue #23.",
+    "test_mcp_startup.py's `data_dir` fixture is MODULE-SCOPED and shared by every test in the file. Any new test there that INGESTS documents must bring its own tmp_path data dir, or it contaminates later tests that assume an empty KB - test_health_check_bm25_not_built_is_not_reported_as_an_issue is the one that fails first.",
+    "THE BACKGROUND ENTITY-EXTRACTION WORKER IS A NO-OP WITHOUT AN LLM. kb.extract_entities raises 'LLM not configured' immediately, so on any install with no LLM_PROVIDER/API key every queued job aborts. A test that queues extraction and assumes work happens is measuring nothing - measure the overlap rather than assuming it.",
+    "faulthandler is UNRELIABLE in this venv once torch or faiss are loaded - every dump prints '<freed thread state>'. Use sys._current_frames() plus traceback.format_stack from a thread started BEFORE the heavy import instead. py-spy is also unreliable against this CPython 3.14.7.",
+    "A CONNECT TO A CLOSED LOCAL PORT IS NOT INSTANT ON WINDOWS: 127.0.0.1:9 costs ~2.05s of SYN retry, measured three times. Two plans have built an inference on the opposite assumption. Any reasoning of the form 'the connect is instant, therefore the delay is elsewhere' is void.",
+    "A TASK THAT CHANGES A CONTRACT OTHER TESTS CONSUME NEEDS A FULL-SUITE VERIFY, not a paired-file one. MEASURED 2026-09-21: the queue-time LLM refusal passed 26 tests in its own file and broke two in files its grant never named, because 'test pairing' finds the file that pins the changed function and misses the files that merely call it. When a verify changes a return shape or a precondition, say `pytest -q` over the whole repo in the done-condition.",
+    "WRITING PYTHON TEST SOURCE THROUGH A QUOTED BASH HEREDOC IS UNSAFE: a backslash-n inside an f-string arrived on disk as a REAL newline and broke collection with 'unterminated f-string literal'. Something between the tool and the shell unescapes it. Emit the backslash as chr(92), or write the file with the Write tool instead.",
+    "test_mcp_tool_dispatch.py's liveness sweep runs with USE_SEMANTIC_SEARCH=0, so its zero-timeout result says NOTHING about the embeddings warm-up path. Any claim about torch/faiss behaviour under concurrency must turn semantic search on before measuring.",
+    "THIS MACHINE'S .env IS GITIGNORED AND LOAD-BEARING: server.py loads it via python-dotenv at import, and it sets ALLOWED_DOCS_DIRS among others. Behaviour that looks like a code default may be coming from there, and it is invisible to git. Check .env before concluding a setting is unconfigurable - and never write a test that depends on it."
   ],
   "external_locks": [],
   "tasks": [
     {
-      "id": "log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable",
-      "title": "server.log has no pid in its format while every server.py process appends to it, so concurrent sessions' lines are indistinguishable",
-      "source": "opened by forty-six-searches-logged-started-and-never-completed (runs.jsonl, head 721ea1d); the defect that made that diagnosis ambiguous",
+      "id": "two-tests-queue-extraction-without-an-llm-and-now-get-refused",
+      "title": "Two tests queue entity extraction with no LLM configured and now get refused, so the suite is red",
+      "source": "opened by extraction-worker-fails-every-job-without-an-llm-configured (runs.jsonl, head 8947b8d)",
       "model": "sonnet",
       "effort": "low",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
-        "rw:kb/core.py",
-        "rw:test_mcp_startup.py"
+        "rw:test_figure_ocr.py",
+        "rw:test_mcp_startup.py",
+        "r:kb/entities/_extraction.py",
+        "r:test_llm_integration.py"
       ],
       "mcp": [],
       "needs_main": false,
@@ -83,57 +94,25 @@
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "The logging format string configured in kb/core.py includes the process id, so two concurrently running server.py processes can be told apart in the shared server.log. THERE IS NO test_core.py AT THIS HEAD - kb/core.py has no test_<name>.py sibling, confirmed by a filesystem check - so the assertion goes in test_mcp_startup.py, which already owns startup and logging concerns; test_mcp_startup.py gains exactly one case asserting the configured format contains the pid placeholder, and 0 fail. ALSO CONFIRM NOTHING IN-REPO PARSES THE FORMAT POSITIONALLY before changing it: grep the test files for server.log, basicConfig and levelname and report the hit count with its exit code, because a check whose pass condition is 'no output' must prove it ran - at this head that grep returns nothing, so the format is read by humans only. SABOTAGE: remove the pid placeholder from the format again and confirm the new case FAILS, printing the format line from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- kb/core.py test_mcp_startup.py`.",
-      "why_model": "a one-argument change to a format string with an existing test harness to hang the assertion on, and the defect and its consequence are already written down",
-      "why_effort": "nothing left to derive - the single basicConfig call site is located, no test reads the format, and the fix is one placeholder; getting it wrong is cheap to notice and cheap to redo",
-      "why_mode": "SUBTASK: one line in one file plus one assertion, with a mechanical done-condition",
-      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps first-search-lazy-import-is-unbounded-and-unlogged, which also writes that file"
+      "verify": "The full repo suite runs with no failures. THE CAUSE IS KNOWN AND THE FIX IS ON THE TEST SIDE, NOT THE PRODUCTION SIDE - do not 'fix' this by reverting the guard. Uncommitted in the working tree, queue_entity_extraction in kb/entities/_extraction.py now refuses when no LLM is configured, returning {'queued': False, 'reason': 'LLM not configured...'} instead of creating a job row the worker then aborts. That is the intended new contract and it is correct. Two tests were written against the OLD contract, where the queue accepted regardless: test_figure_ocr.py::test_a_pending_figure_job_does_not_block_entity_extraction asserts queued is True, and test_mcp_startup.py::test_search_keeps_answering_while_the_extraction_worker_runs reports 'only 0/12 searches were issued while the extraction queue had unfinished work' because the queue never fills. Reproduce both before changing anything. THE PATTERN TO COPY ALREADY EXISTS AND IS GRANTED r: FOR THAT REASON: test_llm_integration.py's new test_configuring_an_llm_later_lets_the_same_call_queue_normally shows how to make get_llm_client() return a stub so the queue accepts. Read it rather than inventing a second way to fake an LLM. EACH TEST STILL HAS TO PIN WHAT IT WAS FOR: the figure-OCR one is about a pending figures job not being mistaken for pending entity work, and the startup one is about searches answering while the worker is genuinely busy - so the startup one must still OVERLAP real queue work, not merely stop failing. Its own assertion (overlapped >= 8 of 12) is the guard against that and must stay. SABOTAGE: with your change in place, remove the LLM stub again from ONE of the two and confirm that test returns to the failure quoted above, printing the changed region from disk FIRST to prove the mutation landed. Then restore by re-editing. DO NOT RUN ONLY YOUR TWO FILES: the done-condition is the whole suite, because this task exists precisely because a file-scoped verify missed these two. Run `.venv/Scripts/python.exe -m pytest -q` and paste the tail. Scope the footprint check with `git diff --name-only -- test_figure_ocr.py test_mcp_startup.py`.",
+      "why_model": "two tests adapted to a contract change whose shape is already demonstrated in a third test",
+      "why_effort": "mechanical once the stub pattern is read, and cheap to notice if wrong - the suite says so immediately",
+      "why_mode": "SUBTASK: two named tests, a named cause, and a done-condition that is a green suite",
+      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps the embeddings-warmup task"
     },
     {
-      "id": "issue-17-second-half-rests-on-a-false-premise",
-      "title": "Issue #17 asks check_updates to fail fast on a disallowed path, but that tool's method never consults the allowlist - re-scope it against what the code does",
-      "source": "issue#17, reopened by check-updates-hangs-on-a-disallowed-path (runs.jsonl, head 721ea1d)",
-      "model": "session",
-      "effort": "high",
-      "mode": "main",
-      "lane": "serial",
-      "touches": [
-        "r:kb/ingest/_documents.py",
-        "r:mcp_tools/admin.py",
-        "r:mcp_tools/documents.py",
-        "rw:knowledge_base.db",
-        "rw:ISSUE-17-RESCOPE.md"
-      ],
-      "mcp": [],
-      "needs_main": true,
-      "needs_main_reason": "the measurement runs against the LIVE shared knowledge_base.db that every concurrent server.py process also holds, and it is a wall-clock measurement, so it needs an otherwise idle machine and a session that outlives it - neither of which a delegated agent has",
-      "depends_on": [],
-      "fork": [
-        "amend-the-issue",
-        "fix-the-slow-path"
-      ],
-      "branch": null,
-      "blocked_on": null,
-      "decision": null,
-      "verify": "ISSUE-17-RESCOPE.md exists in the working tree and settles what the issue's reporter actually hit, with a measurement rather than a reading. ESTABLISHED THIS PASS AND SAFE TO BUILD ON, but re-confirm each cheaply rather than taking it on trust: the MCP tool named check_updates calls kb.check_all_updates via handle_check_updates in mcp_tools/admin.py, while kb.check_url_updates is reached by a DIFFERENT tool registered in mcp_tools/documents.py; and check_all_updates consults no allowlist and makes no network call at any point. The document must state which of the two the reporter's 1800-second stall came from and why, and MUST DISTINGUISH A HANG FROM A LONG RUN with a timing figure for check_all_updates(auto_update=False) over the live corpus. DO NOT RUN check_all_updates WITH auto_update=True AGAINST THE LIVE DATABASE - it re-indexes every changed document and there is no git rollback for that file; if the auto_update branch has to be characterised, reason about it from the code or measure it against a copy, and say which was done. Record the outcome as one of this task's declared fork labels. No commit is required: the finding lives in the working tree. Scope the footprint check with `git diff --name-only -- ISSUE-17-RESCOPE.md`.",
-      "why_model": "main-mode: runs in the invoking session, not a model this command chooses",
-      "why_effort": "a premise this repo has already got wrong once - the previous task fixed a real gap in the wrong method because the issue's wording and my own plan both conflated two similarly-named tools - so the expensive failure is a confident answer about the wrong code path again",
-      "why_mode": "MAIN: the deliverable is a judgement about which of two tools the reporter used and whether what they saw was a defect at all, and the measurement touches the live shared database",
-      "why_lane": "SERIAL: rw:knowledge_base.db is the live database named in hazards and shared by every running server.py process - a stateful singleton the overlap test cannot see - and the task's wall-clock measurement is destroyed by concurrent load"
-    },
-    {
-      "id": "non-blocking-dispatch-test-uses-a-benign-blocker",
-      "title": "The non-blocking test blocks with time.sleep, which holds no lock, so it passes while the real shared-cache wedge blocks everything",
-      "source": "issue#20",
+      "id": "embeddings-warmup-holds-the-loader-lock-for-the-import-duration",
+      "title": "The embeddings warm-up thread loads torch and faiss, holding the Windows loader lock for that import's length",
+      "source": "opened by loader-lock-blocks-five-tools-behind-the-nltk-warmup (runs.jsonl, head 8947b8d)",
       "model": "opus",
       "effort": "high",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
+        "rw:kb/search/_retrieval.py",
         "rw:test_mcp_startup.py",
         "r:server.py",
-        "r:kb/core.py",
-        "r:kb/entities/_extraction.py"
+        "r:features.py"
       ],
       "mcp": [],
       "needs_main": false,
@@ -143,26 +122,25 @@
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "The suite contains a non-blocking-dispatch case whose stand-in blocker HOLDS SHARED STATE rather than sleeping innocently, and a case exercising tool calls concurrently with the background entity-extraction worker. Today's test monkeypatches a handler to time.sleep and asserts an unrelated tool still returns - grep test_mcp_startup.py for the sleeping stand-in rather than trusting any line number. time.sleep in a worker thread holds no lock, touches no shared structure and releases the GIL, so it is the one kind of blocker that CANNOT expose the production failure, which is a tool wedged inside the shared-cache path. The replacement must block while holding whatever the real search path touches. SECOND HALF, separable and stated because it is the part with no coverage at all: the stdio dispatch path takes no lock (_tool_call_lock is set only by the HTTP transport) while the entity-extraction worker starts at boot and runs concurrently in the same process over the same caches and self.documents - so 'one client per process' does not mean 'no concurrency', and nothing exercises that pairing. Add a case that issues repeated search calls while the worker is actively running over a populated corpus. Both new cases must FAIL rather than HANG when the property is absent. 0 fail. SABOTAGE, and this task is where it matters most because the whole finding is that a green test proved nothing: confirm the NEW shared-state blocker makes the non-blocking assertion fail where the time.sleep one does not, printing both stand-ins from disk to show they differ in what they hold. If the new blocker also passes, the case pins nothing and must be rewritten. Scope the footprint check with `git diff --name-only -- test_mcp_startup.py`.",
-      "why_model": "writing a test whose predecessor passed while the property was violated in production - a falsification exercise where the failure mode is another green test that proves nothing",
-      "why_effort": "the difficulty is entirely in choosing a stand-in blocker that holds the right shared structure; get that wrong and the replacement is as vacuous as the original, which is the measured failure this task exists to correct",
-      "why_mode": "SUBTASK: one test file plus read-only source, with a mechanical sabotage as the done-condition",
-      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps three other tasks that also add cases to it"
+      "verify": "A tool that starts a thread returns within its bound while the embeddings warm-up is in flight, measured with USE_SEMANTIC_SEARCH=1 so the warm-up actually runs. THE SAME MECHANISM AS THE NLTK ONE, ONE DEGREE MILDER, and the difference is the whole question. Uncommitted in the working tree, server.py now reads stdin through a polling reader that never parks a read on the pipe, which removed the unbounded part: an import in a background thread no longer advances one DLL per client message. But a native-extension load still holds the Windows loader lock for its own duration, and torch plus faiss are not a short import - so Thread.start() anywhere else in the process still waits that long. FIRST ESTABLISH WHETHER THIS IS WORTH FIXING AT ALL, with a number: measure how long a concurrent Thread.start() actually blocks during the warm-up. If it is a second or two, say so and record the task as not worth the complexity rather than building a fix nobody needs - a measurement that closes a task is a good outcome here. WHY IT IS NOT ALREADY MEASURED: the liveness sweep in test_mcp_tool_dispatch.py runs with USE_SEMANTIC_SEARCH=0, so the warm-up never starts there and the existing zero-timeout result says nothing about this path. Any measurement must turn it on. THE PRIOR ART IS IN THE TREE AND SHOULD BE READ BEFORE DESIGNING: features.py's nltk warm-up and kb/search/_retrieval.py's embeddings warm-up already share a deadline-on-a-named-thread shape, and server.py's polling reader carries a comment explaining the pipe mechanism. Both are granted r:. kb/search/__init__.py asserts each sub-mixin's exact method set, so a new helper in _retrieval.py must be a module-level function rather than a method - a previous task hit this and it is not in your grant to change. TEST PAIRING, checked on the filesystem: there is no test_retrieval.py and no kb/search/test_*.py at this head; test_mcp_startup.py owns the startup and warm-up assertions (it already asserts 'Embeddings warm-up deadline missed' reaches stderr) and is the home. SABOTAGE, if a fix is built: revert it and confirm the new assertion FAILS on its own deadline rather than hanging, printing the changed region from disk FIRST. If the measurement says no fix is warranted, no sabotage is required - say that explicitly instead. Scope the footprint check with `git diff --name-only -- kb/search/_retrieval.py test_mcp_startup.py`.",
+      "why_model": "the honest answer may be 'not worth fixing', which is exactly the judgement a cheaper tier tends to resolve by building something",
+      "why_effort": "the mechanism is known but its remaining cost is unmeasured, and the expensive mistake is engineering a second warm-up machinery for a two-second wait",
+      "why_mode": "SUBTASK: a bounded measurement with a named env flag and a clear close-or-fix decision",
+      "why_lane": "SERIAL: rw:test_mcp_startup.py overlaps two other tasks"
     },
     {
-      "id": "scrape-url-hangs-against-an-unreachable-host-instead-of-failing-fast",
-      "title": "scrape_url does not return within 90s against a closed localhost port, and the hang is before the TCP connect",
-      "source": "issue#21, merged with the id opened by no-test-asserts-a-tool-call-returns-within-a-bound (runs.jsonl, head 6af624a) - ONE defect, two references",
+      "id": "mcp-progress-notifications-are-not-plumbed-through-call-tool",
+      "title": "call_tool is one blocking request and response, so no long-running tool can report progress to an MCP client",
+      "source": "opened by check-updates-auto-update-reports-no-progress (runs.jsonl, head 8947b8d)",
       "model": "opus",
       "effort": "high",
       "mode": "subtask",
       "lane": "serial",
       "touches": [
-        "rw:util.py",
-        "rw:kb/ingest/_documents.py",
-        "rw:test_scrape_politeness.py",
-        "rw:test_scrape_reliability.py",
-        "r:test_mcp_tool_dispatch.py"
+        "rw:server.py",
+        "rw:test_mcp_startup.py",
+        "r:mcp_tools/admin.py",
+        "r:kb/ingest/_documents.py"
       ],
       "mcp": [],
       "needs_main": false,
@@ -172,23 +150,25 @@
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "scrape_url returns an error within a few seconds when handed a host that cannot be reached, instead of not returning at all. THE REPRODUCTION IS ALREADY WRITTEN AND COSTS NOTHING TO RUN: the liveness case in test_mcp_tool_dispatch.py hands it 127.0.0.1:9, a closed localhost port chosen deliberately so the tool 'must fail fast, not hang', and it is the only one of the 95 tools that fails. Run it with TDZ_RUN_FULL_DISPATCH_TEST=1 and watch that case; an isolated 90-second probe measured elapsed=90.01s got_response=False, three times. A raw TCP connect to that address is REFUSED INSTANTLY on Windows, so whatever hangs happens BEFORE the connect. THE LEADING HYPOTHESIS IS ALREADY REFUTED - do not spend the task re-deriving it. The run record that opened this task guessed the robots.txt fetch, and issue#21 repeats that guess; both are WRONG. `robots_allows` in util.py already wraps `parser.read()` in `_network_timeout(10)` and fails open on any exception - grep util.py for _network_timeout to confirm rather than trusting this sentence. A ten-second bound cannot produce a ninety-second hang. Candidates not yet excluded, to be tested rather than assumed: the retry/backoff path that honours Retry-After, the mdscrape subprocess invocation, and the _discover_urls crawl - and whichever it is, the done-condition is that you NAME it with the measurement that settles it, not that you add a timeout somewhere plausible. TEST PAIRING, checked on the filesystem rather than assumed: there is NO test_util.py and NO test__documents.py at this head. `robots_allows` is covered by test_scrape_politeness.py, and test_scrape_reliability.py covers the scrape path more broadly; both are granted rw: because whichever layer turns out to hold the defect, its pinning test lives in one of them. NAME which file you added the case to. 0 fail across both. SABOTAGE: remove whatever bound you add and confirm the new case FAILS on its own deadline rather than hanging the runner, printing the changed region from disk FIRST to prove the mutation landed. WHY A SHORTER GLOBAL BOUND IS THE WRONG FIX and must not be the answer: scrape_url is in the 23-tool exempt set on _LONG_TOOL_TIMEOUT_S, unbounded by default, precisely because a real site crawl legitimately runs for minutes. Fast failure on an unreachable host is the fix; shortening the dispatch bound would break real crawls. Scope the footprint check with `git diff --name-only -- util.py kb/ingest/_documents.py test_scrape_politeness.py test_scrape_reliability.py`.",
-      "why_model": "a root-cause hunt through an outbound-network path with several plausible culprits, where the first stated hypothesis has already been refuted and a second plausible-but-wrong answer is cheap to produce",
-      "why_effort": "the reproduction is free and deterministic, but the cause is genuinely unknown after the obvious candidate was eliminated, and the wrong fix - a shorter global bound - would break legitimate multi-minute crawls",
-      "why_mode": "SUBTASK: a bounded hunt with a deterministic reproduction and a mechanical done-condition",
-      "why_lane": "SERIAL: rw:kb/ingest/_documents.py overlaps the r: that issue-17-second-half-rests-on-a-false-premise declares"
+      "verify": "A long-running tool call emits progress an MCP client can observe mid-call, or this task records with evidence that the installed SDK cannot support it and closes. ESTABLISHED BY A PRIOR TASK READING THE SOURCE, and cheap to re-confirm rather than take on trust: call_tool in server.py is a single blocking request-to-response with no progressToken threaded anywhere, and the installed mcp package (mcp/server/lowlevel/server.py, mcp/shared/session.py) was inspected and found to carry no plumbing this server uses. The consequence is concrete: check_updates with auto_update=true can re-index hundreds of documents and the caller sees nothing until it returns, which is what made issue #17's reporter abort a working run at 30 minutes. add_documents_bulk has the same shape - its handler never passes the progress_callback its kb method accepts. THE MCP SPEC HAS notifications/progress AND progressToken; whether THIS SDK version exposes them to a lowlevel Server is the actual open question. Check the installed package version and its own source before designing, and if the answer is that it cannot, that is a legitimate close - record the version and the file you read. IF IT CAN: the two handlers that would use it are granted r: as the callers to keep consistent with, not as files to edit in this task - wire the transport-level capability in server.py and say which handler should adopt it next. Do not rewrite both handlers here. DO NOT DEGRADE WHAT ALREADY WORKS: the per-document logger heartbeat added to check_all_updates is the operator-visible channel and must keep working whatever happens to the client-visible one. TEST PAIRING, checked on the filesystem: there is no live test_server.py (archive/tests/test_server.py is archived and not collected), so test_mcp_startup.py is the home for any assertion, and it already drives real stdio sessions through MCPSession. SABOTAGE, if a capability is wired: revert it and confirm the new assertion FAILS rather than silently passing on a client that never receives a notification, printing the changed region from disk FIRST. Scope the footprint check with `git diff --name-only -- server.py test_mcp_startup.py`.",
+      "why_model": "a protocol-level change to the file every session's connectivity depends on, where the correct answer may be that it cannot be done at all",
+      "why_effort": "reading an SDK to establish what it does not support is exactly where a confident wrong answer is cheap, and server.py is the file that breaks every session when it is wrong",
+      "why_mode": "SUBTASK: bounded by one file and a yes-or-no about the installed SDK",
+      "why_lane": "SERIAL: rw:server.py and rw:test_mcp_startup.py each overlap another task"
     },
     {
-      "id": "url-monitoring-function-local-imports-raise-unboundlocalerror",
-      "title": "render() imports json and datetime mid-function, so both names are unbound everywhere above those lines and the page crashes",
-      "source": "TO-DOS.md (## Admin GUI: two UnboundLocalErrors from function-local imports - 2026-09-21), from a user screenshot of the URL Monitoring Dashboard",
+      "id": "allowed-docs-dirs-has-no-live-test",
+      "title": "The directory allowlist guards an SSRF-capable tool and no collected test exercises it",
+      "source": "opened by allowed-docs-dirs-cannot-be-extended-without-a-code-change (runs.jsonl); that id's LATEST record superseded the one carrying this in `opened`, so it survives only here",
       "model": "sonnet",
-      "effort": "low",
+      "effort": "medium",
       "mode": "subtask",
       "lane": "parallel",
       "touches": [
-        "rw:admin_pages/url_monitoring.py",
-        "rw:test_admin_gui.py"
+        "rw:test_docs_dir_allowlist.py",
+        "rw:.gitignore",
+        "r:kb/core.py",
+        "r:models.py"
       ],
       "mcp": [],
       "needs_main": false,
@@ -198,11 +178,11 @@
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "Rendering the URL Monitoring page against a KB containing at least one document with BOTH a source_url AND a non-null scrape_config completes without UnboundLocalError, and the update-check path that reaches the datetime call does too. CONFIRMED THIS PASS, re-derive rather than trust: admin_pages/url_monitoring.py is a single function, render(kb); `import json` and `from datetime import datetime` both sit inside it, in a button branch near the end - grep the file for 'import json' and 'from datetime' to find them rather than trusting any line number. Python makes a name local to the WHOLE function if it is assigned anywhere in it, so every json. and datetime. reference above those imports is unbound unless that button was clicked first. THE FIX IS TO HOIST BOTH TO MODULE SCOPE, NOT TO ADD ANYTHING: this is NOT the same defect as the admin_common.py one closed in 89e7710, which was a genuinely MISSING import raising NameError. TWO BUGS, NOT ONE - fix both or the second surfaces on the next click: the json one runs on page load, while the datetime one needs the 'Run Update Check' button and a later json reference needs the export button. Enumerate every json. and datetime. reference and confirm each is above or below its import. THE EXISTING COVERAGE IS VACUOUS FOR THIS AND THAT IS THE POINT: test_admin_gui.py already parametrizes over PAGES and renders this page, and it PASSES, because the fixture KB has no url-sourced documents so the loop body that touches json never executes. A fix that does not make the test populate such a document leaves the page exactly as untested as it is now. There is NO test_url_monitoring.py at this head, confirmed by a filesystem check, so test_admin_gui.py is the home and this is coverage the task ADDS. 0 fail. SABOTAGE: move either import back inside the function and confirm the new case FAILS with UnboundLocalError, printing the import block from disk FIRST to prove the mutation landed. Scope the footprint check with `git diff --name-only -- admin_pages/url_monitoring.py test_admin_gui.py`.",
-      "why_model": "two import statements moved to module scope, with a reproduction already in hand from a screenshot",
-      "why_effort": "mechanical once understood; the only real work is enumerating the call sites so the second, unreported bug is not left behind, and getting it wrong is cheap to notice",
-      "why_mode": "SUBTASK: one page module and one test file, with a done-condition that is a render completing",
-      "why_lane": "PARALLEL: admin_pages/url_monitoring.py and test_admin_gui.py are touched by nothing else in this plan"
+      "verify": "A collected test asserts that a path outside the allowlist is rejected and one inside it is accepted, so the boundary is pinned rather than merely present. THE MECHANISM ALREADY WORKS AND IS NOT WHAT THIS TASK CHANGES - this is coverage only, and no production file is granted rw:. ESTABLISHED, confirm by grep rather than trusting: kb/core.py reads ALLOWED_DOCS_DIRS from the environment, splits it on commas, resolves each entry and merges it with four server-controlled defaults under data_dir (scraped_docs, downloads, temp, uploads); TDZ_ALLOW_CWD=1 additionally admits the working directory, and the comment there explains why cwd is excluded by default. A rejection raises SecurityError from models.py. WHY THIS MATTERS MORE THAN AN ORDINARY COVERAGE GAP: this transport exposes add_document and scrape_url, so the allowlist is the control that stops an arbitrary-path read. The only existing tests that touch it are under archive/tests/, which the default pytest run does not collect - so at this head nothing collected would notice if the check stopped working. COVER THE DEFAULTS TOO, not just the env var: a test that only proves a configured directory is accepted would pass even if the four data_dir defaults were dropped. Include the cwd-exclusion behaviour and the TDZ_ALLOW_CWD opt-in, since that is the case the code comment says was a deliberate decision. USE A TEMP TDZ_DATA_DIR. Do not construct a KnowledgeBase against C:/Users/mit/.tdz-c64-knowledge, and do not read this machine's .env - the test must set the environment it asserts on, so it does not pass or fail based on one machine's configuration. TEST PAIRING, checked on the filesystem: there is NO live test covering this at this head, so this task CREATES test_docs_dir_allowlist.py. A new top-level test_*.py needs an allowlist line in .gitignore, which is why .gitignore is granted rw:; add `!/test_docs_dir_allowlist.py` beside the existing ones and confirm the file is visible with `git status --porcelain`, NOT with `git check-ignore -v`, which reports the rule rather than the effective result. SABOTAGE: temporarily widen the check in kb/core.py so a disallowed path is accepted, confirm the new case FAILS, print the changed region from disk FIRST to prove the mutation landed, and restore by RE-EDITING - kb/core.py is r: and must end the task byte-identical, which `git diff --name-only -- kb/core.py` returning empty is the proof of. Scope the footprint check with `git diff --name-only -- test_docs_dir_allowlist.py .gitignore`.",
+      "why_model": "writing tests against a mechanism that already works and is documented in place",
+      "why_effort": "the trap is a test that passes on this machine's .env rather than on an environment it sets itself, which is a judgement rather than a keystroke",
+      "why_mode": "SUBTASK: one new test file, no production change, and a mechanical done-condition",
+      "why_lane": "PARALLEL: no other task in this plan writes test_docs_dir_allowlist.py or .gitignore"
     }
   ],
   "closed": [
@@ -865,6 +845,132 @@
       "title": "Nothing asserted an individual tool call completes, so four permanently-hanging tools shipped green",
       "closed_by": "6af624a",
       "reason": "THE CASCADE WAS OUR TEST, NOT THE SERVER - third explanation and the correct one. MCPSession never drained the subprocess's stderr while the session was alive, so once the server filled stderr's ~64KB OS pipe buffer its own next write blocked MID-DISPATCH and the session died. The textbook subprocess.PIPE gotcha. Confirmed by THREAD STATE rather than inference: both processes had threads parked in EventPairLow, the Windows blocked-synchronous-pipe-I/O signature, at the moment progress stalled. That also explains an earlier orchestrator probe that found no cascade - it used an empty data dir and a handful of calls, so the buffer never filled. BOTH of the file's critical properties were broken, not just the failing one: the sabotage case called stderr_text() on a LIVE process, a blocking read on a pipe that only EOFs at process death, and hung four minutes before being killed by hand. The expensive case is skip-by-default behind TDZ_RUN_FULL_DISPATCH_TEST, mirroring test_retrieval_quality.py's pre-existing RUN_SEMANTIC_TESTS skipif; the ASSERTION IS UNTOUCHED - it is not run by default because it currently, correctly, catches a real defect now tracked as issue#21. Full repo 412 passed / 4 skipped / 0 failed in 6m01s, re-run independently - the first fully green tree of the drain. Issue #19 closed."
+    },
+    {
+      "id": "non-blocking-dispatch-test-uses-a-benign-blocker",
+      "title": "The non-blocking test blocked with time.sleep, which holds no lock, so it passed while pinning nothing",
+      "closed_by": "8947b8d",
+      "reason": "The stand-in now holds KnowledgeBase._lock - what the search path itself takes, via _preprocess_text building the stemmer under it on first use - instead of sleeping. Measured: with a sleep, a concurrent search_docs answered in ~0.2s; holding the lock, the same search did not answer in 20s. SABOTAGE RE-RUN BY THE ORCHESTRATOR rather than read from the agent's transcript, because this task's whole finding is that a green test proved nothing: swapping the body back to a sleep failed the case in 1.66s on its own assertion, not by hanging. The failure message tells the next reader not to repair it by relaxing the bound, which is the repair that would recreate the benign test. Second case added for the half with no coverage at all - _tool_call_lock is set only by the HTTP transport while EntityExtractionWorker runs from the constructor, so the stdio path has two threads over one set of caches from boot; forcing the worker idle fails that case, so it cannot pass vacuously. The issue-#13 bulk test keeps its sleep deliberately. 41 passed. Issue #20 closed."
+    },
+    {
+      "id": "url-monitoring-function-local-imports-raise-unboundlocalerror",
+      "title": "render() imported json and datetime mid-function, so both names were unbound above those lines",
+      "closed_by": "609f764",
+      "reason": "Both hoisted to module scope - moved, not duplicated, which a grep for indented imports confirms. The page-load crash and the Run-Check crash were one defect with two surfaces and both are gone. THE EXISTING COVERAGE WAS VACUOUS AND THAT WAS THE POINT: test_admin_gui.py rendered this page green because the fixture KB has no documents, so the loop touching json never ran. The new case injects a DocumentMeta carrying both source_url and a non-null scrape_config, and re-runs the SAME AppTest instance rather than building a fresh one - a fresh instance would reset the KB and discard the injected document, putting the test straight back into the vacuous state it exists to escape. The sabotage reproduced the user's screenshot exactly: UnboundLocalError at line 31, the page-load path. 20 passed."
+    },
+    {
+      "id": "log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable",
+      "title": "Every server.py process appended to one server.log with no pid in the format",
+      "closed_by": "daf145c",
+      "reason": "%(process)d added, with a test that constructs the real CoreMixin in a subprocess and asserts the FORMATTED log contains that subprocess's own pid - proving the installed formatter emits it, not merely that a string in the source mentions it. THE AGENT'S ONE FAILING TEST WAS NOT THE FLAKE IT RECORDED: it saw test_handshake_completes_within_budget fail once and pass once and called it environmental. Six isolated runs with the pid in failed; three with it out passed. Deterministic, and caused by its own change - which exposed the real defect. MCPSession piped stderr and never drained it, the same bug fixed in test_mcp_tool_dispatch.py at 6af624a and still present in this sibling harness. The effective pipe buffer is 4096 bytes, not 64KB, and startup logging is 3911 of them, so seven bytes on each of 36 lines crossed it. Drain moved into MCPSession.__enter__; the local drain one test had started for itself removed, since two readers on one pipe steal lines. 40 passed with the pid in place. Recorded `done` rather than the `partial` returned. Residual volume filed as issue #23."
+    },
+    {
+      "id": "issue-17-second-half-rests-on-a-false-premise",
+      "title": "Issue #17 asked check_updates to fail fast on a disallowed path, which it can never see",
+      "closed_by": "daf145c",
+      "reason": "ISSUE-17-RESCOPE.md records the finding and the fork answered `amend-the-issue`. check_all_updates has the full signature (self, auto_update: bool = False) - no path of any kind - consults no allowlist and makes no network call, so there is nothing for it to fail fast on; the issue is worded as though it were check_url_updates, a different tool in a different module. The 1800-second stall was a long run: 2.66s for the read-only scan over 1,138 documents, against 323 changed documents each re-indexed by auto_update=true in a tool deliberately exempt from the dispatch bound. MEASURED TWICE BY INDEPENDENT ROUTES - a transcribed loop against the read-only DB and then the real method once a concurrent lock released - identical counts. Issue #22's loader-lock mechanism was checked against this path and ruled out rather than assumed irrelevant. Request 1 of the issue stands and is carried forward as its own task. Posted as a comment on issue #17."
+    },
+    {
+      "id": "scrape-url-hangs-against-an-unreachable-host-instead-of-failing-fast",
+      "title": "scrape_url never returned against an unreachable host",
+      "closed_by": "609f764",
+      "reason": "RECORDED `partial` AND CLOSED HERE ANYWAY, because its residue is a different defect in different files and is now issue #22, carried as its own task. What this task owned is fixed: the mdscrape Popen inherited the server's stdin - under stdio a pipe the client holds open for the session's life - so the child never exited; and http_get_polite retried a REFUSED connect with its 429/5xx backoff. scrape_url over a real MCP session went from 120.01s with no response to 4.80 / 4.77 / 4.80s. IT REFUTED TWO CLAIMS ITS OWN BRIEF ASSERTED, both written by the orchestrator: that a connect to 127.0.0.1:9 is refused instantly on Windows (measured 2.05s, so the 'hang is before the connect' inference was void) and that scrape_url was the only failing tool of 95 (four more surfaced once it stopped wedging the session). Issue #21 closed with the robots.txt hypothesis explicitly retracted."
+    },
+    {
+      "id": "archive-tests-untracked-in-git",
+      "title": "archive/tests was gitignored, so two fixes living there existed only on one disk",
+      "closed_by": "measured:2026-09-21",
+      "reason": "RESOLVED OUTSIDE THE PIPELINE, by the human command the task was waiting for. `git ls-files archive/tests` now returns 35 tracked files, so the un-ignore was followed by the add and commit that the `partial` record said was all that remained. Recorded as `measured:` rather than a sha because this pass observed the tracked state directly and did not trace which commit did it. The record's other finding stands as history: the plan's verify carried a stale collection count of 260 against a real baseline of 366, and the agent compared before-to-after rather than to the stated number, which is the only reason it did not report a spurious failure."
+    },
+    {
+      "id": "commit-pending-changelog-and-task-log",
+      "title": "A commit task, which every runner in this set refuses by construction",
+      "closed_by": "measured:2026-09-21",
+      "reason": "The working tree is clean apart from the untracked whats-next.md, so the pending work this task named has been committed. IT SHOULD NEVER HAVE BEEN A TASK, which its own blocked record argued: no command in this set commits, so a commit-* task is unrunnable by construction under /runqueue, /runbatch and /runtask alike and would be refused on every pass forever. Closed rather than re-listed as requires-user, because the thing it was waiting for has happened. Do not regenerate a commit task; the human commits."
+    },
+    {
+      "id": "stray-msys-shadow-tree-cleanup",
+      "title": "C:\\c held a shadow tree left by an MSYS path handed to native Python",
+      "closed_by": "measured:2026-09-21",
+      "reason": "The directory is gone - `ls /c/c` reports no such path at this pass, where the blocked record left it present. It was removed in a human shell, which is exactly what that record asked for. THE RECORD'S OWN POINT IS WORTH KEEPING: the agent had `Remove-Item C:\\c` refused as a protected system path and deliberately did NOT route around it via Bash or a deeper path, applying to itself the rule that a tool refusal is a stop rather than a routing problem. The shadow tree's existence was also what made the graphify root bug silent, since a leading-slash MSYS path resolved to a real directory; with it gone, the same mistake now fails loudly. decisions.jsonl still carries this id as resolved=false - that line is stale and should be ignored rather than re-asked."
+    },
+    {
+      "id": "loader-lock-blocks-five-tools-behind-the-nltk-warmup",
+      "title": "The nltk warm-up held the Windows loader lock, wedging every tool that started a thread",
+      "closed_by": "uncommitted:2026-09-22",
+      "reason": "FIXED IN THE WORKING TREE, NOT YET COMMITTED - server.py, features.py, test_mcp_tool_dispatch.py. The fix removes the CONDITION rather than mitigating the symptom: on Windows with a pipe stdin, a _PollingStdin asks PeekNamedPipe how many bytes are buffered, reads only those, and otherwise backs off 1ms to 25ms, so no read is ever parked on the handle and the serialisation Windows applies to it never engages. That is why a server.py-only change cleared tools in files it could not touch. Liveness sweep went from 4 timeouts in 103.5s to ZERO in 34.3s, re-run by the orchestrator; the first search_docs went from 5.02s degraded (blowing the 5s nltk deadline, no stemmer) to 0.63s with the real stemmer; test_mcp_startup.py 41 passed with the handshake and no-heavy-imports guards intact. Orchestrator sabotage of the platform switch failed the new case in 48s naming both tools, on its own deadline rather than hanging. TWO CORRECTIONS WORTH KEEPING: the baseline showed FOUR timeouts not the five issue #22 names - remove_documents_bulk is tool #31 and the stalled import had advanced through its DLLs by then - and os.dup(0) does NOT help, so it is the pipe HANDLE that is serialised rather than the CRT fd slot, which rules out the cheap fix a later reader would try first. Issue #22 is fixed but stays OPEN until this is committed."
+    },
+    {
+      "id": "startup-stderr-volume-has-185-bytes-of-headroom",
+      "title": "server.py wrote 3911 bytes to stderr before it could answer, against a 4096-byte pipe buffer",
+      "closed_by": "uncommitted:2026-09-22",
+      "reason": "FIXED IN THE WORKING TREE - kb/core.py, test_mcp_startup.py. Fork answered `quieten-startup`, taking `assert-a-budget` with it. The mechanism is a LEVEL SPLIT rather than a deletion: the stderr handler defaults to WARNING via TDZ_STDERR_LOG_LEVEL while the file handler keeps INFO, so server.log still carries the full trace with the pid. Branch (c), dropping the stderr handler under stdio, was rejected because it would also drop warnings and errors from the client's log view for no extra gain. MEASURED BY LEVEL BEFORE CHOOSING: 36 INFO lines / 4033 bytes against 1 WARNING line / 65 bytes, so INFO was 98% of the volume and the headroom went from 185 bytes to roughly 4000. The 1024-byte budget test is paired with a knob test asserting INFO both reaches stderr AND exceeds the budget when TDZ_STDERR_LOG_LEVEL=INFO, so the budget cannot pass merely because the server went quiet. Sabotage of the default failed the budget at 4509 bytes. Issue #23 is fixed but stays OPEN until this is committed."
+    },
+    {
+      "id": "check-updates-auto-update-reports-no-progress",
+      "title": "check_updates with auto_update=true re-indexed hundreds of documents silently",
+      "closed_by": "uncommitted:2026-09-22",
+      "reason": "FIXED IN THE WORKING TREE - kb/ingest/_documents.py, mcp_tools/admin.py, mcp_tools/schemas.py, test_check_updates_progress.py, .gitignore. THE MOST VALUABLE PART IS WHAT THE AGENT REFUSED TO CLAIM: told to match add_documents_bulk's progress_callback, it checked whether that callback ever reaches an MCP caller, found it does NOT (the handler never passes it), then read server.py and the installed mcp package and found no notifications/progress plumbing at all. So it matched the pattern at the level it exists at, wired a per-document logger heartbeat, rewrote the schema description to state what auto_update=true costs, and said in the code and the test docstring that a stdio client observes nothing new until the call returns. A less careful agent would have threaded the callback and reported progress no client can see. The client-visible channel is carried forward as mcp-progress-notifications-are-not-plumbed-through-call-tool."
+    },
+    {
+      "id": "extraction-worker-fails-every-job-without-an-llm-configured",
+      "title": "The background worker aborted every job on any install with no LLM configured",
+      "closed_by": "uncommitted:2026-09-22",
+      "reason": "RECORDED `partial` IN THE RUN LOG AND CLOSED HERE, because its residue is a different file set and is carried as two-tests-queue-extraction-without-an-llm-and-now-get-refused. What this task owned is done: queue_entity_extraction now declines at QUEUE time - the single choke point for both enqueue sites, the automatic one in add_document and the explicit MCP tool - so no extraction_jobs row and no queue.put() ever happen and there is nothing for the worker to abort. The check is not latched, so a caller who configures an LLM later gets queued:True on the very next call, with a test for exactly that. 26 passed in its own file; the sabotage reproduced the old per-job pattern in the captured log rather than merely turning a test red. THE LESSON FOR THE PLANNER, recorded because it cost a red suite: a task that changes a CONTRACT other tests consume needs a full-suite verify, not a paired-file one - test pairing found the file pinning the changed function and missed the two that merely call it."
+    },
+    {
+      "id": "allowed-docs-dirs-cannot-be-extended-without-a-code-change",
+      "title": "Issue #17 request 1, the directory allowlist and the brain tree",
+      "closed_by": "measured:2026-09-22",
+      "reason": "THE TASK'S PREMISE WAS FALSE AND THE PLANNER WROTE IT. ALLOWED_DOCS_DIRS has always been readable from the environment, and this repo's gitignored .env - which server.py loads through python-dotenv at import - already carries C:/Users/mit/claude/brain in it. Found sideways: the stderr-budget sabotage pasted the server's INFO startup banner into a failure message and the resolved allowed_dirs list was in it. So issue #17 request 1 is satisfied by configuration on this machine, and the earlier `blocked` record for this id - which said the config change was still owed - is superseded by a later record for the same id. The residue is coverage, carried as allowed-docs-dirs-has-no-live-test. A CAVEAT THE RECORD CANNOT SETTLE: whether the scheduled brain-weekly-review job's launch loads this .env was not verified; server.py loads it relative to its own path, so any launch of this server.py does."
+    },
+    {
+      "id": "commit-deepsid-document-ingestion",
+      "title": "Commit the DeepSID document ingestion path",
+      "closed_by": "measured:2026-09-22",
+      "reason": "A COMMIT TASK, AND THOSE ARE UNRUNNABLE BY CONSTRUCTION - no command in this set commits, merges or pushes, so a commit-* task would be refused on every pass forever. It is also moot: the work shipped (9ed08e9 / 9bf4358). Closed rather than re-listed. Do not regenerate commit tasks; the human commits, and the plan should carry the WORK, never the act of recording it."
+    },
+    {
+      "id": "commit-deepsid-folder-enumeration",
+      "title": "Commit the DeepSID folder enumeration",
+      "closed_by": "measured:2026-09-22",
+      "reason": "A COMMIT TASK, AND THOSE ARE UNRUNNABLE BY CONSTRUCTION - no command in this set commits, merges or pushes, so a commit-* task would be refused on every pass forever. It is also moot: the work shipped (9bf4358). Closed rather than re-listed. Do not regenerate commit tasks; the human commits, and the plan should carry the WORK, never the act of recording it."
+    },
+    {
+      "id": "commit-deepsid-folder-ingestion",
+      "title": "Commit the DeepSID folder ingestion",
+      "closed_by": "measured:2026-09-22",
+      "reason": "A COMMIT TASK, AND THOSE ARE UNRUNNABLE BY CONSTRUCTION - no command in this set commits, merges or pushes, so a commit-* task would be refused on every pass forever. It is also moot: the work shipped (9ed08e9). Closed rather than re-listed. Do not regenerate commit tasks; the human commits, and the plan should carry the WORK, never the act of recording it."
+    },
+    {
+      "id": "commit-deepsid-folder-mcp-tool",
+      "title": "Commit the DeepSID folder MCP tool",
+      "closed_by": "measured:2026-09-22",
+      "reason": "A COMMIT TASK, AND THOSE ARE UNRUNNABLE BY CONSTRUCTION - no command in this set commits, merges or pushes, so a commit-* task would be refused on every pass forever. It is also moot: the work shipped (9ed08e9). Closed rather than re-listed. Do not regenerate commit tasks; the human commits, and the plan should carry the WORK, never the act of recording it."
+    },
+    {
+      "id": "push-deepsid-commits-to-origin",
+      "title": "Push the DeepSID commits",
+      "closed_by": "measured:2026-09-22",
+      "reason": "A COMMIT TASK, AND THOSE ARE UNRUNNABLE BY CONSTRUCTION - no command in this set commits, merges or pushes, so a commit-* task would be refused on every pass forever. It is also moot: the work shipped (origin carries them). Closed rather than re-listed. Do not regenerate commit tasks; the human commits, and the plan should carry the WORK, never the act of recording it."
+    },
+    {
+      "id": "claude-md-hazard-says-uncommitted-but-is-in-head",
+      "title": "A CLAUDE.md hazard described work as uncommitted that had landed",
+      "closed_by": "measured:2026-09-22",
+      "reason": "`grep -n uncommitted CLAUDE.md` returns nothing at this head, so the stale sentence is gone. Closed on the file's current content rather than on a commit, because this pass did not trace which commit removed it."
+    },
+    {
+      "id": "subagent-returned-empty-schema-valid-report",
+      "title": "An agent returned a schema-valid report carrying the literal word 'test' in every field",
+      "closed_by": "decision:subagent-returned-empty-schema-valid-report",
+      "reason": "AUTHORISATION REFUSED in decisions.jsonl - the plugin command files are not to be edited - so the task is cancelled, not open. The finding stands as a standing hazard instead: no schema can reject a well-formed vacuous report, which is why every runner does its own independent verification. Never re-list this as open."
+    },
+    {
+      "id": "whattask-touches-under-declared-vs-verify",
+      "title": "Plans have named a path in a verify string without declaring it in touches",
+      "closed_by": "decision:whattask-touches-under-declared-vs-verify",
+      "reason": "AUTHORISATION REFUSED in decisions.jsonl - commands/whattask.md is not to be edited - so the task is cancelled, not open. Under-declarations will keep happening and runners will keep reporting them; this pass's own step-5b reconciliation is the mitigation. Never re-list this as open."
     }
   ]
 }

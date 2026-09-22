@@ -259,9 +259,14 @@ def test_queueing_creates_a_figures_typed_job(figure_kb):
     assert row == ('figures', 'queued') or row[0] == 'figures'
 
 
-def test_a_pending_figure_job_does_not_block_entity_extraction(figure_kb):
+def test_a_pending_figure_job_does_not_block_entity_extraction(figure_kb, monkeypatch):
     """Both job kinds share one table; their dedup checks must not collide."""
     kb, docs = figure_kb
+    # queue_entity_extraction now declines up front when no LLM is configured
+    # (kb/entities/_extraction.py) - stub one in so this test still exercises
+    # the dedup logic it's actually named for, not the unrelated LLM gate.
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     pdf = _make_pdf_with_figures(str(docs / "both.pdf"), [(0, (400, 300), "x")])
     doc = kb.add_document(pdf)
 

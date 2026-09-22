@@ -55,14 +55,31 @@ class CoreMixin:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Setup logging with UTF-8 encoding to handle Unicode characters
+        # Setup logging with UTF-8 encoding to handle Unicode characters.
+        #
+        # The file gets everything; stderr gets WARNING and above by default.
+        # Under the stdio transport stderr is a pipe the MCP client owns, and
+        # the server blocks on its own write the moment that pipe is full.
+        # Measured 2026-09-21: the effective buffer is 4096 bytes, and the
+        # INFO-level startup banner alone was 3911 of them - adding a pid to
+        # the format was enough to wedge every session in a harness that did
+        # not drain the pipe (issue #23). Nothing an operator needs at INFO is
+        # lost: server.log carries it, with the pid, for every process.
+        # TDZ_STDERR_LOG_LEVEL=INFO restores the old console behaviour for
+        # anyone running the server by hand.
         log_file = self.data_dir / "server.log"
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setLevel(
+            logging.getLevelNamesMapping().get(
+                os.getenv('TDZ_STDERR_LOG_LEVEL', 'WARNING').upper(), logging.WARNING
+            )
+        )
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(process)d - %(name)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler(log_file, encoding='utf-8'),
-                logging.StreamHandler(sys.stderr)
+                stderr_handler,
             ]
         )
         self.logger = logging.getLogger(__name__)

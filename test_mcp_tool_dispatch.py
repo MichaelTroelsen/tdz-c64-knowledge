@@ -358,18 +358,19 @@ def populated_data_dir(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(not os.getenv('TDZ_RUN_FULL_DISPATCH_TEST'),
                     reason="spawns a real server subprocess and drives all 95 tools over "
-                           "one long-lived session (~1-3 min); set TDZ_RUN_FULL_DISPATCH_TEST=1. "
-                           "Currently reproduces a genuine, real hang: scrape_url, given a "
-                           "deliberately-unreachable target specifically so it should fail fast, "
-                           "does not return even within a 90s budget (measured directly, isolated "
-                           "from the rest of this test - see PR/commit history). The bound is a "
-                           "raw TCP connect to a closed localhost port, which Windows refuses "
-                           "instantly, so the hang is before the connect - almost certainly in "
-                           "kb/util.py's robots.txt fetch or outbound-network-politeness path, "
-                           "both out of this test file's touch scope. Not flaky: reproduced on "
-                           "3 separate runs on an otherwise-idle tree. Skipped by default so a routine "
-                           "full-repo run isn't blocked on an out-of-scope product bug; run "
-                           "explicitly to confirm whether it has been fixed.")
+                           "one long-lived session (~100s); set TDZ_RUN_FULL_DISPATCH_TEST=1. "
+                           "Skipped by default only because of that runtime - it is a sweep, "
+                           "not a per-commit guard. The hang it used to reproduce (scrape_url, "
+                           "add_deepsid_document, add_deepsid_folder and add_documents_bulk each "
+                           "burning the full budget and never replying) was NOT in the "
+                           "robots.txt/outbound-network path this reason used to blame: a "
+                           "background native import - features.py's nltk warm-up - held the "
+                           "Windows loader lock, so every Thread.start() in the process blocked, "
+                           "and that import in turn only advanced when the client sent more "
+                           "traffic. Fixed in server.py by never leaving a read parked on stdin, "
+                           "and pinned per-commit by "
+                           "test_thread_starting_tools_return_while_the_nltk_warmup_is_in_flight "
+                           "below, which is NOT gated on this flag.")
 def test_every_tool_returns_within_bound_over_a_long_lived_stdio_session(populated_data_dir):
     data_dir = populated_data_dir["data_dir"]
     tmp = populated_data_dir["tmp_path"]
@@ -450,6 +451,99 @@ def test_every_tool_returns_within_bound_over_a_long_lived_stdio_session(populat
             "assertion itself is broken"
         )
         assert not failures, "Tools that did not return within the bound:\n" + "\n".join(failures)
+
+
+def test_thread_starting_tools_return_while_the_nltk_warmup_is_in_flight(populated_data_dir):
+    """The loader-lock regression, isolated: two tool calls, no extra traffic.
+
+    search_docs starts features.py's one-shot nltk warm-up on a background
+    thread. That import loads native extensions, and on Windows a native
+    load holds the process-wide loader lock - while it is held, NO new
+    thread can start anywhere in the process, because a new thread cannot
+    run its DLL_THREAD_ATTACH callbacks first. threading.Thread.start()
+    then sits in _started.wait() with no deadline of its own.
+
+    Both tools below start a thread on the way to their answer (scrape_url
+    spawns two readers for mdscrape's output; add_documents_bulk takes the
+    cross-process lock, which runs a heartbeat thread), and both are in
+    server._LONG_RUNNING_TOOLS, so _run_bounded deliberately gives them no
+    timeout either. So while that import ran, they did not return - ever,
+    not slowly: the import itself only advanced when the client sent
+    another message, and the client was waiting for the reply to the call
+    that was stuck.
+
+    Measured at the head this test was written against (2026-09-21, full
+    dispatch run, TDZ_RUN_FULL_DISPATCH_TEST=1): scrape_url, then
+    add_deepsid_document, add_deepsid_folder and add_documents_bulk, all
+    four at 20.00s = the budget, having never replied. With server.py's
+    polling stdin reader in place: 4.81s and ~0.6s respectively.
+
+    This test is deliberately NOT gated on TDZ_RUN_FULL_DISPATCH_TEST - it
+    costs about ten seconds, against the ~100s of the full sweep, and it is
+    the one that must run on every commit. Its assertion is the DISPATCH
+    property (does the call come back), not the diagnosis; the warm-up's
+    own timing line is printed alongside as corroboration, not asserted,
+    so a machine without nltk installed still tests something real.
+
+    NO artificial traffic is sent. Adding any would hide the defect: one
+    unrelated client message is exactly what unsticks the stalled import.
+    """
+    data_dir = populated_data_dir["data_dir"]
+    tmp = populated_data_dir["tmp_path"]
+
+    # Both start a thread before they can answer; neither needs the network
+    # to succeed, and neither is allowed to need it - scrape_url is pointed
+    # at a closed localhost port on purpose. (A connect to 127.0.0.1:9 is
+    # NOT instant on Windows: it costs ~2s of SYN retry, twice over here
+    # with the robots.txt fetch, which is why the budget is the same
+    # generous TOOL_CALL_BUDGET_S the sweep uses and not something tight.)
+    thread_starting_calls = [
+        ("scrape_url", {"url": "http://127.0.0.1:9/does-not-resolve"}),
+        ("add_documents_bulk", {"directory": str(tmp)}),
+    ]
+
+    failures = []
+    with MCPSession(data_dir, tmp) as session:
+        response, elapsed = session.initialize(HANDSHAKE_BUDGET_S)
+        assert response is not None, (
+            f"MCP handshake did not complete within {HANDSHAKE_BUDGET_S}s"
+        )
+
+        # The trigger. It must come back too: before the fix its own reply
+        # arrived only because _ensure_nltk gives up on its 5s deadline and
+        # degrades - so a slow answer here is itself the defect's shadow.
+        response, search_elapsed = session.call_tool(
+            "search_docs", {"query": "VIC-II sprites"}, TOOL_CALL_BUDGET_S
+        )
+        assert response is not None, (
+            f"search_docs did not return within {TOOL_CALL_BUDGET_S}s - the "
+            "warm-up trigger itself is wedged, so the rest of this test "
+            "would be measuring the wrong thing"
+        )
+        print(f"search_docs (starts the warm-up): {search_elapsed:.2f}s", flush=True)
+
+        for name, args in thread_starting_calls:
+            response, elapsed = session.call_tool(name, args, TOOL_CALL_BUDGET_S)
+            print(f"{name}: {'returned' if response else 'TIMEOUT'} after {elapsed:.2f}s", flush=True)
+            if response is None:
+                failures.append(
+                    f"{name}: no response within {TOOL_CALL_BUDGET_S}s "
+                    f"(args={args}) - HUNG rather than returning, "
+                    f"{elapsed:.2f}s after the nltk warm-up was started by "
+                    "search_docs and with no other client traffic sent"
+                )
+
+        # Diagnostic only. features.py logs this from the warm-up thread
+        # itself; if the stall is back the line is simply absent, because
+        # the import never finished.
+        warmup = [ln for ln in session.stderr_text().splitlines()
+                  if "nltk warm-up returned" in ln or "stdin reader" in ln]
+        print("\n".join(warmup) or "(no warm-up/stdin-reader line on stderr)", flush=True)
+
+    assert not failures, (
+        "Thread-starting tools wedged behind the nltk warm-up's loader "
+        "lock:\n" + "\n".join(failures)
+    )
 
 
 def test_a_permanently_blocked_handler_fails_naming_the_tool_not_the_suite(populated_data_dir):

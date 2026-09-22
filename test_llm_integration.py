@@ -164,3 +164,95 @@ def test_unsupported_provider_is_rejected(monkeypatch):
     monkeypatch.setenv('LLM_PROVIDER', 'not-a-provider')
     with pytest.raises(ValueError, match="Unsupported provider"):
         LLMClient()
+
+
+# --- queue_entity_extraction with no LLM configured --------------------------
+#
+# kb.extract_entities raises ValueError('LLM not configured...') and, until
+# fixed, the background worker caught that per queued job and logged one
+# "Extraction job N aborted" line per document - on an install with no
+# LLM_PROVIDER/API key that is every install's default state, so every
+# ingested document produced an aborted job. The fix declines in
+# queue_entity_extraction itself, before a job row (or queue entry) is ever
+# created, so there is nothing left for the worker to abort.
+
+from server import KnowledgeBase
+
+
+@pytest.fixture
+def kb_no_llm(monkeypatch, tmp_path):
+    monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    monkeypatch.delenv('LLM_PROVIDER', raising=False)
+    monkeypatch.setenv('ALLOWED_DOCS_DIRS', str(tmp_path))
+    # This is the axis under test: no automatic queueing on ingest either,
+    # so the test controls exactly when queue_entity_extraction runs.
+    monkeypatch.setenv('AUTO_EXTRACT_ENTITIES', '0')
+
+    kb_instance = KnowledgeBase(str(tmp_path))
+    yield kb_instance, tmp_path
+    kb_instance.close()
+
+
+def _make_doc(kb, tmp_path, name="doc.md"):
+    p = tmp_path / name
+    p.write_text("# Title\n\nSome content mentioning the VIC-II chip.\n", encoding="utf-8")
+    return kb.add_document(str(p))
+
+
+def test_queueing_without_an_llm_declines_once_with_a_named_reason(kb_no_llm):
+    kb, tmp_path = kb_no_llm
+    doc = _make_doc(kb, tmp_path)
+
+    result = kb.queue_entity_extraction(doc.doc_id)
+
+    assert result['queued'] is False
+    assert 'LLM' in result['reason']
+    assert 'LLM_PROVIDER' in result['reason']
+
+
+def test_queueing_without_an_llm_creates_no_job_row(kb_no_llm):
+    """The old bug: a job row got created and then failed per-document.
+
+    Nothing should land in extraction_jobs when the decline happens at
+    queue time - there is no job left for the worker to pick up and abort.
+    """
+    kb, tmp_path = kb_no_llm
+    doc = _make_doc(kb, tmp_path)
+
+    kb.queue_entity_extraction(doc.doc_id)
+
+    cursor = kb.db_conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM extraction_jobs WHERE doc_id = ?", (doc.doc_id,))
+    assert cursor.fetchone()[0] == 0
+
+
+def test_many_documents_without_an_llm_produce_no_aborted_jobs(kb_no_llm, caplog):
+    """The reported symptom at scale: N documents, N 'aborted' log lines."""
+    import logging
+    kb, tmp_path = kb_no_llm
+    docs = [_make_doc(kb, tmp_path, name=f"doc{i}.md") for i in range(5)]
+
+    with caplog.at_level(logging.INFO):
+        for doc in docs:
+            result = kb.queue_entity_extraction(doc.doc_id)
+            assert result['queued'] is False
+
+    assert 'aborted' not in caplog.text
+
+
+def test_configuring_an_llm_later_lets_the_same_call_queue_normally(kb_no_llm, monkeypatch):
+    """A caller who sets an LLM up after startup must not stay declined -
+    the check is per-call, not a one-time flag latched at construction."""
+    kb, tmp_path = kb_no_llm
+    doc = _make_doc(kb, tmp_path)
+
+    declined = kb.queue_entity_extraction(doc.doc_id)
+    assert declined['queued'] is False
+
+    monkeypatch.setenv('LLM_PROVIDER', 'anthropic')
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'test-key')
+
+    queued = kb.queue_entity_extraction(doc.doc_id)
+    assert queued['queued'] is True
+    assert 'job_id' in queued

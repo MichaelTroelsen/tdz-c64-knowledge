@@ -736,6 +736,26 @@ Important:
                     'existing_job_id': existing_job[0]
                 }
 
+        # Decline here, once, instead of enqueuing a job that the worker
+        # would only abort with the same error - on an install with no LLM
+        # configured that turned every queued document into one "Extraction
+        # job N aborted" log line, undifferentiated from a real failure.
+        # Checked fresh on every call (not cached) so a caller who sets
+        # LLM_PROVIDER and an API key later gets a normal queued response
+        # without restarting the server.
+        try:
+            from llm_integration import get_llm_client
+        except ImportError:
+            return {
+                'queued': False,
+                'reason': "llm_integration module not found. Install required dependencies.",
+            }
+        if not get_llm_client():
+            return {
+                'queued': False,
+                'reason': "LLM not configured. Set LLM_PROVIDER and appropriate API key (ANTHROPIC_API_KEY or OPENAI_API_KEY)",
+            }
+
         # Create extraction job record
         cursor = self.db_conn.cursor()
         cursor.execute("""

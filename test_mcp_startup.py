@@ -84,9 +84,10 @@ def data_dir(tmp_path_factory):
 class MCPSession:
     """Minimal MCP stdio client: spawn server.py and speak JSON-RPC to it."""
 
-    def __init__(self, data_dir, client_name="pytest"):
+    def __init__(self, data_dir, client_name="pytest", extra_env=None):
         self.data_dir = data_dir
         self.client_name = client_name
+        self.extra_env = dict(extra_env or {})
         self.proc = None
         self.stderr = b""
 
@@ -96,7 +97,7 @@ class MCPSession:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=_env(self.data_dir),
+            env={**_env(self.data_dir), **self.extra_env},
             cwd=str(REPO),
         )
         # Drain stderr for the life of the session. Without this the server
@@ -167,6 +168,32 @@ class MCPSession:
         line = self._readline(timeout)
         return json.loads(line) if line else None
 
+    def call_tool_frames(self, name, arguments=None, progress_token=None,
+                         req_id=7, timeout=60):
+        """Call a tool and return EVERY frame read until its response arrives.
+
+        Deliberately returns the raw frames in wire order rather than just the
+        result: notifications/progress is a separate JSON-RPC frame the server
+        pushes mid-call, and the only honest proof a client can observe it is
+        to read it off stdout BEFORE the response with the matching id.
+        """
+        params = {"name": name, "arguments": dict(arguments or {})}
+        if progress_token is not None:
+            params["_meta"] = {"progressToken": progress_token}
+        self._send({"jsonrpc": "2.0", "id": req_id,
+                    "method": "tools/call", "params": params})
+        frames = []
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = self._readline(max(0.5, deadline - time.time()))
+            if not line:
+                break
+            frame = json.loads(line)
+            frames.append(frame)
+            if frame.get("id") == req_id and ("result" in frame or "error" in frame):
+                break
+        return frames
+
 
 def test_handshake_completes_within_budget(data_dir):
     """A single session must connect well inside the client's 30s timeout."""
@@ -179,6 +206,55 @@ def test_handshake_completes_within_budget(data_dir):
     )
     assert "result" in response, f"initialize returned an error: {response}"
     assert elapsed < HANDSHAKE_BUDGET_S, f"handshake took {elapsed:.1f}s"
+
+
+# The MCP client owns the server's stderr pipe under the stdio transport, and
+# the server blocks on its own write the moment that pipe is full. The
+# effective buffer measured here is 4096 bytes, not the 64KB usually quoted,
+# and before daf145c/this change the INFO startup banner alone was 3911 of
+# them: adding a pid to the log format wedged every session in this file.
+# The fix is that stderr carries WARNING and above by default while
+# server.log keeps INFO. The ceiling below is a quarter of the buffer - room
+# for a handful of genuine warnings, and a loud failure the moment INFO
+# leaks back onto the pipe.
+STARTUP_STDERR_BUDGET_BYTES = 1024
+
+
+def _startup_stderr_bytes(data_dir, extra_env=None):
+    with MCPSession(data_dir, client_name="stderr-budget", extra_env=extra_env) as s:
+        response, _ = s.initialize(timeout=HANDSHAKE_BUDGET_S)
+        assert response is not None, "handshake failed"
+        # Let the post-handshake log lines (if any) land before we measure.
+        time.sleep(0.5)
+        text = s.stderr_text()
+    return len(text.encode("utf-8")), text
+
+
+def test_startup_writes_well_under_the_stderr_pipe_buffer(data_dir):
+    """A client that does not drain stderr must still get a handshake."""
+    n, text = _startup_stderr_bytes(data_dir)
+    assert n < STARTUP_STDERR_BUDGET_BYTES, (
+        f"server wrote {n} bytes to stderr before/at startup, budget is "
+        f"{STARTUP_STDERR_BUDGET_BYTES} (pipe buffer is 4096). An undrained "
+        f"client would wedge. stderr was:\n{text[-1500:]}"
+    )
+    assert " - INFO - " not in text, (
+        "INFO-level lines reached stderr; they belong in server.log only. "
+        f"stderr was:\n{text[-1500:]}"
+    )
+
+
+def test_stderr_log_level_knob_restores_info_on_the_console(data_dir):
+    """The default is a policy, not a lost capability: TDZ_STDERR_LOG_LEVEL=INFO
+    puts the startup trace back on stderr for someone running the server by
+    hand. This also proves the budget test above passes because of the level
+    split, not because the server went quiet."""
+    n, text = _startup_stderr_bytes(data_dir, {"TDZ_STDERR_LOG_LEVEL": "INFO"})
+    assert " - INFO - " in text, f"INFO did not reach stderr with the knob set:\n{text[-1500:]}"
+    assert n > STARTUP_STDERR_BUDGET_BYTES, (
+        f"only {n} bytes with INFO enabled - the budget test is not "
+        "discriminating anything if INFO output fits under it"
+    )
 
 
 def test_serverinfo_reports_project_version(data_dir):
@@ -1152,6 +1228,14 @@ def test_search_keeps_answering_while_the_extraction_worker_runs(tmp_path):
     own_data.mkdir()
     env = _env(own_data)
     env["ALLOWED_DOCS_DIRS"] = str(corpus)
+    # queue_entity_extraction now declines up front with no LLM configured
+    # (kb/entities/_extraction.py), so without a stub nothing would ever be
+    # queued for the worker to be busy with. The probe patches
+    # extract_entities itself to busy_extract, so this credential is never
+    # actually used to call out - it only has to make get_llm_client() truthy
+    # so queue_entity_extraction lets the job through.
+    env["LLM_PROVIDER"] = "anthropic"
+    env["ANTHROPIC_API_KEY"] = "test-key"
     out = subprocess.run(
         [PYTHON, "-c", _WORKER_CONCURRENCY_PROBE, str(corpus)],
         capture_output=True, env=env, cwd=str(REPO), timeout=300,
@@ -2097,3 +2181,97 @@ def test_semantic_search_says_the_index_is_loading_rather_than_returning_nothing
         "server log cannot tell a stalled load from a slow one. stderr tail: "
         f"{stderr[-1500:]!r}"
     )
+
+
+# --- notifications/progress -----------------------------------------------
+#
+# issue #17's reporter killed a working check_updates at 30 minutes because a
+# tool call is one blocking request-to-response: the client saw nothing until
+# it returned. These drive a REAL stdio session and read the notification
+# frames off the wire, because "the server called send_progress_notification"
+# is not evidence any client received anything.
+
+
+def test_client_receives_a_progress_notification_before_the_tool_result(data_dir):
+    """A client that sends a progressToken gets notifications/progress for
+    that token, ON THE WIRE, ahead of the response frame."""
+    with MCPSession(data_dir, client_name="progress") as s:
+        response, _ = s.initialize(timeout=HANDSHAKE_BUDGET_S)
+        assert response is not None and "result" in response, response
+        frames = s.call_tool_frames("health_check", {}, progress_token="tok-17",
+                                    req_id=41, timeout=90)
+        stderr = s.stderr_text()
+
+    methods = [f.get("method") or f"response(id={f.get('id')})" for f in frames]
+    progress = [
+        f for f in frames
+        if f.get("method") == "notifications/progress"
+        and f.get("params", {}).get("progressToken") == "tok-17"
+    ]
+    assert progress, (
+        "no notifications/progress frame with our token reached the client "
+        f"during the call. Frames read, in wire order: {methods}. "
+        f"server stderr: {stderr[-1500:]!r}"
+    )
+    assert "result" in frames[-1] or "error" in frames[-1], frames[-1]
+    assert frames.index(progress[0]) < len(frames) - 1, (
+        "the progress frame did not precede the result, so it bought the "
+        f"caller nothing: {methods}"
+    )
+    params = progress[0]["params"]
+    assert "progress" in params, params
+    assert "health_check" in (params.get("message") or ""), (
+        f"the notification does not say which tool it is about: {params}"
+    )
+
+
+def test_no_progress_notifications_when_the_client_sends_no_token(data_dir):
+    """Per spec, no progressToken means no notifications. A server that
+    pushed them anyway would be talking to clients that never asked."""
+    with MCPSession(data_dir, client_name="no-progress") as s:
+        response, _ = s.initialize(timeout=HANDSHAKE_BUDGET_S)
+        assert response is not None and "result" in response, response
+        frames = s.call_tool_frames("health_check", {}, progress_token=None,
+                                    req_id=42, timeout=90)
+
+    assert len(frames) == 1 and ("result" in frames[0] or "error" in frames[0]), (
+        "the server sent unsolicited frames to a client that asked for no "
+        f"progress: {[f.get('method') for f in frames]}"
+    )
+
+
+def test_heartbeat_keeps_ticking_while_a_tool_runs():
+    """The ack alone would still leave a 30-minute call looking dead after
+    the first second. The heartbeat is what answers 'alive or wedged', so
+    tick it directly - no tool in the suite reliably runs long enough to
+    observe a second tick through a real session without wasting minutes."""
+    import asyncio as _asyncio
+    import server as srv
+
+    sent = []
+
+    class _FakeChannel:
+        async def asend(self, progress, total=None, message=None):
+            sent.append((progress, total, message))
+            return True
+
+    async def drive():
+        original = srv._PROGRESS_INTERVAL_S
+        srv._PROGRESS_INTERVAL_S = 0.05
+        try:
+            task = _asyncio.create_task(
+                srv._progress_heartbeat(_FakeChannel(), "check_updates", time.time())
+            )
+            await _asyncio.sleep(0.35)
+            task.cancel()
+        finally:
+            srv._PROGRESS_INTERVAL_S = original
+
+    _asyncio.run(drive())
+
+    assert len(sent) >= 2, f"heartbeat produced {len(sent)} ticks: {sent}"
+    progresses = [p for p, _, _ in sent]
+    assert progresses == sorted(progresses) and len(set(progresses)) == len(progresses), (
+        f"progress must strictly increase per the MCP spec: {progresses}"
+    )
+    assert all("check_updates" in (m or "") for _, _, m in sent), sent

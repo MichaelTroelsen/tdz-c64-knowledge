@@ -1,6 +1,8 @@
 {"id":"admin-common-format-timestamp-missing-datetime-import","summary":"Added the missing datetime import that crashed every admin page rendering a timestamp, and argued for keeping the except clause narrow rather than widening it to swallow the next NameError; 19 passed and the sabotage reproduced the user's exact error."}
 {"id":"admin-gui-apptest-coverage","summary":null}
 {"id":"agent-bypassed-bash-guard-via-powershell","summary":"Drafted the upstream issue about the Bash/PowerShell guard inconsistency into the working tree per the human's decision; verified present, all four elements found, and confirmed NOT posted."}
+{"id":"allowed-docs-dirs-cannot-be-extended-without-a-code-change","summary":"Superseded: the brain path is already in the gitignored .env's ALLOWED_DOCS_DIRS, which server.py loads at import, so issue #17's first request is satisfied by configuration on this machine; the remaining gap is that no live test pins the allowlist."}
+{"id":"allowed-docs-dirs-has-no-live-test","summary":"Pinned the directory allowlist with six collected tests covering the four data_dir defaults, the env-var extension, the cwd exclusion and its opt-in, plus a permanent negative control that mutates allowed_dirs in memory; they pass unchanged under a hostile ambient ALLOWED_DOCS_DIRS, and kb/core.py is byte-identical to its pre-dispatch hash."}
 {"id":"architecture-md-json-output-list-incomplete","summary":null}
 {"id":"architecture-md-missing-source-policy-stale","summary":null}
 {"id":"architecture-md-stale-output-list","summary":null}
@@ -12,6 +14,7 @@
 {"id":"bm25-empty-vocabulary-zerodivision","summary":null}
 {"id":"changelog-2-24-0-duplicate","summary":null}
 {"id":"changelog-version-history-overlap","summary":null}
+{"id":"check-updates-auto-update-reports-no-progress","summary":"Added a per-document progress callback to check_all_updates and a cost warning to the tool schema - and established, by reading the server and the mcp package, that no MCP client can see mid-call progress from this server at all, so the honest deliverable is an operator-visible log heartbeat plus a warning before the call; 4 passed."}
 {"id":"check-updates-hangs-on-a-disallowed-path","summary":"Added the missing allowlist guard to check_url_updates before its unbounded network path, with 2 new tests - but the agent proved, and I confirmed, that this is NOT the tool issue #17 names, so the issue stays open and a re-scoping task was opened."}
 {"id":"code-review-md-close-r12","summary":null}
 {"id":"code-review-md-restore-backup-identifier","summary":null}
@@ -34,9 +37,11 @@
 {"id":"docs-readme-tool-count-stale","summary":null}
 {"id":"docs-stale-after-decomposition","summary":null}
 {"id":"docs-tool-count-stale-after-deepsid-tool","summary":null}
+{"id":"embeddings-warmup-holds-the-loader-lock-for-the-import-duration","summary":"Closed by measurement rather than by a fix: a concurrent Thread.start() blocks at most ~155 ms during the embeddings warm-up - one 263 MB torch DLL, not the 3.5 s import - which I reproduced independently at 154 and 161 ms, so the task's own 'a second or two' threshold says leave it alone, and the title's 'for the import duration' premise is retracted."}
 {"id":"ensure-embeddings-loaded-has-the-same-unbounded-stdin-wait","summary":"Bounded the embeddings load behind a deadline on a named warm-up thread after re-measuring that faiss, numpy AND sentence_transformers all stall under a pending stdin read; 58 passed, and the agent caught its own broken harness when the known-positive control failed to stall."}
 {"id":"extract-server-helpers-to-util","summary":null}
 {"id":"extract-server-models-and-flags","summary":null}
+{"id":"extraction-worker-fails-every-job-without-an-llm-configured","summary":"Moved the no-LLM refusal to queue time so no job row or queue entry is ever created - the right design, 26 passed in its own file with the sabotage reproducing the old per-job pattern - but the full suite shows two tests in files outside its grant that queue extraction without an LLM and now get refused; partial until those stub an LLM client."}
 {"id":"figure-ocr-availability-discrepancy","summary":null}
 {"id":"figure-ocr-status-reachability","summary":null}
 {"id":"figure-ocr-unavailable-message-misleading","summary":null}
@@ -49,6 +54,7 @@
 {"id":"health-check-warning-fires-on-disposable-cards","summary":null}
 {"id":"health-metric-missing-source-files","summary":null}
 {"id":"issue-17-second-half-rests-on-a-false-premise","summary":"Re-scoped issue #17's second request out of existence with the measurement rather than a reading: check_updates takes one boolean and no path, so it cannot fail fast on a disallowed one, and the 1800s stall was a 323-document re-index running correctly with no progress output - the read-only scan takes 2.66s over 1,138 documents."}
+{"id":"loader-lock-blocks-five-tools-behind-the-nltk-warmup","summary":"Replaced the parked stdin read with a PeekNamedPipe-polling reader on Windows so the nltk import no longer serialises behind client messages; the liveness sweep went from 4 timeouts in 103s to zero in 34s, the first search from 5.02s degraded to 0.63s with the real stemmer, and my own sabotage of the platform switch fails the new case in 48s naming both tools."}
 {"id":"log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable","summary":"Put the pid in the shared log format with a test that checks the formatted output rather than the source string - and, chasing the one failure the agent wrote off as an unrelated flake, found it was deterministic and its own: MCPSession never drained the server's stderr, and startup logging sits 185 bytes under a 4096-byte pipe buffer. Drain moved into the session; 40 passed."}
 {"id":"markitdown-docs","summary":null}
 {"id":"markitdown-fallback-extractor","summary":null}
@@ -58,6 +64,7 @@
 {"id":"mcp-http-bare-mcp-path-307-redirects","summary":"Replaced Mount('/mcp') with two explicit Routes over an ASGI class instance so the bare path serves 200 instead of 307-redirecting; 31 passed and restoring the Mount reproduced the exact reported redirect."}
 {"id":"mcp-http-client-deprecated-alias","summary":null}
 {"id":"mcp-http-concurrency-audit","summary":null}
+{"id":"mcp-progress-notifications-are-not-plumbed-through-call-tool","summary":"Wired real notifications/progress through call_tool - an immediate ack before dispatch, a 15s heartbeat, and an emit_tool_progress() a handler can adopt from a worker thread via a contextvar - proved by a client reading frames off the wire rather than by a method-call assertion, and it refuted both the dispatch's SDK version and the prior task's claim that the SDK offered nothing."}
 {"id":"mcp-serverinfo-reports-the-sdk-version-not-the-project","summary":"Passed version=__version__ into the Server(...) construction so clients are told the project's version instead of the MCP SDK's; 32 passed and dropping the argument again made the new case fail."}
 {"id":"mcp-streamable-http-transport","summary":null}
 {"id":"missing-source-metric-counts-disposable-cards","summary":null}
@@ -97,12 +104,14 @@
 {"id":"split-oversized-kb-modules","summary":null}
 {"id":"split-server-py-mcp-layer","summary":null}
 {"id":"stale-merged-branches","summary":null}
+{"id":"startup-stderr-volume-has-185-bytes-of-headroom","summary":"Chose quieten-startup with a budget: stderr now carries WARNING and above by default while server.log keeps INFO, taking startup stderr from 3911 bytes to ~65 against a 4096-byte buffer; a 1024-byte budget test and a knob test that proves it is not vacuous both pass, and the sabotage fails the budget at 4509 bytes."}
 {"id":"stray-msys-shadow-tree-cleanup","summary":null}
 {"id":"to-dos-md-deepsid-entry-stale","summary":null}
 {"id":"to-dos-md-markitdown-section-stale","summary":null}
 {"id":"to-dos-md-stale-entries","summary":null}
 {"id":"to-dos-repoint-bullet-stale-framing","summary":null}
 {"id":"tool-dispatch-has-no-per-call-timeout","summary":"Bounded tool dispatch with an opt-out default plus a separate lock-wait bound, after measuring that the 'one hang kills the server' half is HTTP-only and stdio was already concurrent; 37 passed and the sabotage failed on a deadline rather than hanging."}
+{"id":"two-tests-queue-extraction-without-an-llm-and-now-get-refused","summary":"Stubbed an LLM into the two tests the queue-time guard had broken - env vars in-process for the figure-OCR one and on the subprocess env for the startup one, since its KB runs in a child interpreter - leaving the guard and the overlap assertion untouched; the full suite is 429 passed, 4 skipped, 0 failed on my own re-run, green for the first time in this drain."}
 {"id":"uploads-retention-policy","summary":null}
 {"id":"url-monitoring-function-local-imports-raise-unboundlocalerror","summary":"Hoisted both function-local imports to module scope, killing the page-load crash and the Run-Check crash together, and replaced the vacuous page-render coverage with a case that injects a document carrying source_url and scrape_config; 20 passed and the sabotage reproduced the user's exact error."}
 {"id":"validate-docs-should-assert-tool-count","summary":null}

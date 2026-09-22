@@ -5,6 +5,7 @@ A Model Context Protocol server for searching C64 documentation.
 """
 
 import asyncio
+import contextvars
 import os
 import sys
 import json
@@ -347,6 +348,144 @@ async def _run_bounded(name: str, arguments: dict, timeout_s: Optional[float]) -
         ))]
 
 
+# --- Client-visible progress: notifications/progress ----------------------
+#
+# issue #17's reporter aborted a WORKING check_updates run at 30 minutes
+# because a tool call is one blocking request-to-response and the client saw
+# nothing until it returned. The per-document logger heartbeat in
+# check_all_updates is the OPERATOR-visible channel (server.log / stderr) and
+# is untouched here; this is the CLIENT-visible one.
+#
+# The SDK does support it - verified against the installed mcp 1.24.0, not
+# assumed:
+#   mcp/types.py:62            RequestParams.Meta.progressToken
+#   mcp/shared/session.py:367  the responder is built with
+#                              request_meta=params.meta, so the token a client
+#                              sent in _meta reaches the handler
+#   mcp/server/lowlevel/server.py:735  request_ctx is set per request, exposed
+#                              as Server.request_context
+#   mcp/server/session.py:450  ServerSession.send_progress_notification(
+#                              progress_token, progress, total, message,
+#                              related_request_id)
+#
+# WIRED AT THE TRANSPORT LEVEL ONLY. Nothing here knows what any tool is
+# doing, so it reports elapsed time, not work done: an immediate ack when the
+# dispatch starts and a tick every _PROGRESS_INTERVAL_S until it returns. That
+# alone answers "is it alive or is it wedged", which is the question that made
+# #17's reporter kill the run.
+#
+# FINE-GRAINED PROGRESS IS A HANDLER'S JOB, and the next handler to adopt it
+# is mcp_tools/admin.py's check_updates: kb.check_all_updates already takes a
+# progress_callback its MCP handler never passes, so it can call
+# emit_tool_progress(i, total, title) per document with no further plumbing.
+# add_documents_bulk (mcp_tools/documents.py) has the identical shape and is
+# second. Neither is edited here.
+#
+# A client that sends no progressToken gets nothing, per spec: no token means
+# no notifications, and _progress_channel stays None so emit_tool_progress is
+# a cheap no-op.
+
+_PROGRESS_INTERVAL_S = _env_timeout_s('TDZ_PROGRESS_INTERVAL_S', '15')
+
+
+class _ProgressChannel:
+    """Sends notifications/progress for ONE in-flight tool call.
+
+    Lives on the event loop's session but is called from the worker thread
+    that runs _call_tool_impl, so every send is marshalled back with
+    run_coroutine_threadsafe. Failures are swallowed: a client that hung up,
+    or a transport that will not take a notification, must never turn a
+    successful tool call into an error.
+    """
+
+    def __init__(self, session, token, request_id, loop):
+        self._session = session
+        self._token = token
+        self._request_id = request_id
+        self._loop = loop
+
+    async def asend(self, progress: float, total: Optional[float] = None,
+                    message: Optional[str] = None) -> bool:
+        """Send from the event loop thread."""
+        try:
+            await self._session.send_progress_notification(
+                self._token, float(progress), total=total, message=message,
+                related_request_id=self._request_id,
+            )
+            return True
+        except Exception as e:
+            kb.logger.debug(f"progress notification dropped: {e!r}")
+            return False
+
+    def send(self, progress: float, total: Optional[float] = None,
+             message: Optional[str] = None) -> bool:
+        """Send from a worker thread."""
+        try:
+            fut = asyncio.run_coroutine_threadsafe(
+                self.asend(progress, total, message), self._loop
+            )
+            return bool(fut.result(timeout=5))
+        except Exception as e:
+            kb.logger.debug(f"progress notification dropped: {e!r}")
+            return False
+
+
+# Set per tool call. asyncio.to_thread copies the caller's context into the
+# worker thread, so a SYNCHRONOUS handler reached from _call_tool_impl sees
+# the same value - which is what lets a handler emit progress without this
+# module threading an argument through the whole dispatch.
+_progress_channel: contextvars.ContextVar = contextvars.ContextVar(
+    "tdz_progress_channel", default=None
+)
+
+
+def emit_tool_progress(progress: float, total: Optional[float] = None,
+                       message: Optional[str] = None) -> bool:
+    """Report progress for the tool call running on this thread.
+
+    Safe and cheap to call from anywhere: returns False when the caller is
+    not inside a tool call, or the client asked for no progress, and never
+    raises. THIS IS THE FUNCTION A HANDLER ADOPTS - see the comment above.
+    """
+    channel = _progress_channel.get()
+    if channel is None:
+        return False
+    return channel.send(progress, total, message)
+
+
+def _open_progress_channel():
+    """Build a channel from the in-flight request, or None.
+
+    Returns None when there is no request context at all (tests call
+    call_tool() directly) or the client sent no progressToken.
+    """
+    try:
+        ctx = server.request_context
+    except LookupError:
+        return None
+    meta = getattr(ctx, "meta", None)
+    token = getattr(meta, "progressToken", None) if meta is not None else None
+    if token is None:
+        return None
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+    return _ProgressChannel(ctx.session, token, ctx.request_id, loop)
+
+
+async def _progress_heartbeat(channel, name: str, started: float):
+    """Tick until cancelled. Progress is elapsed seconds, so it is strictly
+    increasing, which the spec requires. No total: the runtime is unknown,
+    and inventing one would be a lie the client renders as a progress bar."""
+    if _PROGRESS_INTERVAL_S is None:
+        return
+    while True:
+        await asyncio.sleep(_PROGRESS_INTERVAL_S)
+        elapsed = time.time() - started
+        await channel.asend(elapsed, None, f"{name} still running ({elapsed:.0f}s)")
+
+
 @server.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """
@@ -373,6 +512,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     error_message = None
     result = None
     timeout_s = _tool_timeout_s(name)
+    # None unless THIS client asked for progress on THIS request.
+    channel = _open_progress_channel()
+    token = _progress_channel.set(channel)
+    heartbeat = None
+    if channel is not None:
+        # Sent before any work starts: the client learns the call was picked
+        # up, which is exactly what #17's caller never saw. It also fixes the
+        # frame order - this notification is on the wire ahead of the result.
+        await channel.asend(0.0, None, f"{name} started")
+        heartbeat = asyncio.create_task(
+            _progress_heartbeat(channel, name, start_time)
+        )
     try:
         if _tool_call_lock is None:
             result = await _run_bounded(name, arguments, timeout_s)
@@ -450,6 +601,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         kb.logger.exception(f"MCP tool {name!r} raised")
         raise
     finally:
+        if heartbeat is not None:
+            heartbeat.cancel()
+        _progress_channel.reset(token)
         duration_ms = (time.time() - start_time) * 1000
         success = error_message is None
         if success and result:
@@ -702,6 +856,197 @@ async def _run_http(host: str, port: int) -> None:
     await uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level='info')).serve()
 
 
+# --- stdin must never have a read parked on it ---------------------------
+#
+# THE DEFECT THIS EXISTS FOR: a background native import holds the Windows
+# loader lock, and while it is held NO new thread can start anywhere in the
+# process - a new thread cannot run its DLL_THREAD_ATTACH callbacks until
+# the lock is free, so threading.Thread.start() sits in _started.wait()
+# with no deadline of its own. Every tool that starts a thread (scrape_url's
+# two mdscrape output readers, the cross-process-lock heartbeat behind the
+# bulk add/remove and deepsid paths) therefore hangs for as long as that
+# import runs - and all of those tools are in _LONG_RUNNING_TOOLS, so
+# _run_bounded gives them no bound either.
+#
+# What made "as long as that import runs" unbounded is stdin. Under the
+# stdio transport a worker thread is permanently parked in a blocking read
+# on stdin that only completes when the client sends its next message, and
+# while that read is outstanding the DLL chain advances by roughly one
+# library per client message. The client is meanwhile waiting for the reply
+# to the call that is blocked, so it sends nothing and nothing breaks the
+# tie. features.py's _ensure_nltk comment records the same stall from the
+# importing side.
+#
+# Measured here, 2026-09-21, four child processes whose stdin is a pipe the
+# parent never writes to, each timing the same nltk import chain, sole
+# variable being what the process does with stdin:
+#
+#   no reader thread at all                 0.97s
+#   thread parked in stdin.readline()      >60s   (never completed)
+#   thread parked in os.read(os.dup(0),1)  >60s   (so it is the pipe, not
+#                                                  the C-runtime fd slot -
+#                                                  duplicating the fd does
+#                                                  not help)
+#   thread polling stdin, never parked      1.02s
+#
+# So the fix is to stop parking the read, not to manufacture traffic that
+# releases it: the reader below asks PeekNamedPipe whether anything is
+# there, reads only what is already buffered, and otherwise sleeps. Between
+# polls there is no outstanding read, so a concurrent import runs at full
+# speed and the loader lock is held for ~1s instead of forever.
+#
+# Cost: up to _STDIN_POLL_MAX_S of added latency on the first byte of a
+# message that arrives after an idle period, and a wakeup every 1-25ms
+# while idle. The sleep backs off from 1ms to 25ms so an idle server is not
+# spinning, and resets to 1ms as soon as bytes arrive, which keeps the
+# back-to-back case (a client streaming requests) at ~1ms.
+#
+# Only Windows has a loader lock to contend for; POSIX keeps the stock
+# blocking reader. So does a stdin that is not a pipe (a console or a
+# redirected file), where PeekNamedPipe does not apply - the constructor
+# probes for that and _stdio_streams() falls back.
+
+_STDIN_POLL_MIN_S = 0.001
+_STDIN_POLL_MAX_S = 0.025
+
+# PeekNamedPipe's ways of saying "the write end is gone" - i.e. EOF, which
+# is how a client disconnect reaches us and how the server learns to stop.
+_STDIN_EOF_WINERRORS = frozenset({
+    6,    # ERROR_INVALID_HANDLE   - handle closed under us
+    38,   # ERROR_HANDLE_EOF
+    109,  # ERROR_BROKEN_PIPE
+    232,  # ERROR_NO_DATA
+    233,  # ERROR_PIPE_NOT_CONNECTED
+})
+
+
+class _PollingStdin:
+    """Text `readline()` over a stdin pipe that never leaves a read parked.
+
+    Deliberately minimal: stdio_server only ever does `async for line in
+    stdin`, which anyio.AsyncFile turns into repeated readline() calls on a
+    worker thread, so readline() and close() are the whole contract.
+
+    Raises OSError from __init__ if fd is not a pipe, which is the signal
+    for the caller to use stdio_server's own blocking reader instead.
+    """
+
+    def __init__(self, fd: int = 0, encoding: str = 'utf-8'):
+        import ctypes
+        from ctypes import wintypes
+        import msvcrt
+
+        self._fd = fd
+        self._encoding = encoding
+        self._buf = bytearray()
+        self._eof = False
+        self._ctypes = ctypes
+        self._dword = wintypes.DWORD
+        self._handle = msvcrt.get_osfhandle(fd)
+
+        peek = ctypes.WinDLL('kernel32', use_last_error=True).PeekNamedPipe
+        peek.argtypes = [
+            wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        peek.restype = wintypes.BOOL
+        self._peek = peek
+
+        self._available()  # probe now, so the caller can fall back cleanly
+
+    def _available(self) -> int:
+        """Bytes readable right now, or -1 at EOF.
+
+        Raises OSError if this fd is not a pipe at all - a console or a
+        regular file - which only ever happens on the very first call,
+        from __init__.
+        """
+        count = self._dword(0)
+        if self._peek(self._handle, None, 0, None, self._ctypes.byref(count), None):
+            return count.value
+        err = self._ctypes.get_last_error()
+        if err in _STDIN_EOF_WINERRORS:
+            return -1
+        raise OSError(f'PeekNamedPipe failed on stdin fd {self._fd}: WinError {err}')
+
+    def readline(self) -> str:
+        """One line including its trailing newline, '' at EOF.
+
+        Decodes whole lines only, so a multi-byte UTF-8 sequence split
+        across two reads is never decoded half-finished. errors='replace'
+        rather than 'strict': a malformed byte then fails as a JSON parse
+        error, which stdio_server already forwards to the session as an
+        exception, instead of killing the reader task outright.
+        """
+        if self._eof and not self._buf:
+            return ''
+        delay = _STDIN_POLL_MIN_S
+        while True:
+            newline = self._buf.find(b'\n')
+            if newline >= 0:
+                line = bytes(self._buf[:newline + 1])
+                del self._buf[:newline + 1]
+                return line.decode(self._encoding, errors='replace')
+            if self._eof:
+                line = bytes(self._buf)
+                self._buf.clear()
+                return line.decode(self._encoding, errors='replace')
+
+            try:
+                count = self._available()
+                if count > 0:
+                    chunk = os.read(self._fd, min(count, 65536))
+                    if chunk:
+                        self._buf.extend(chunk)
+                        delay = _STDIN_POLL_MIN_S
+                        continue
+                    count = -1
+            except OSError:
+                count = -1  # pipe torn down mid-session: that is EOF
+
+            if count < 0:
+                self._eof = True
+                continue
+
+            time.sleep(delay)
+            delay = min(delay * 2, _STDIN_POLL_MAX_S)
+
+    def close(self) -> None:
+        """No-op: stdin is a process-standard handle. stdio_server
+        deliberately does not close it either - see its own comment."""
+
+
+def _stdio_streams():
+    """The (stdin, stdout) pair to hand stdio_server().
+
+    (None, None) means "use stdio_server's own defaults" - that is its
+    documented signature, and it is what every path but a Windows pipe
+    gets. stdout is never replaced: a write is never left outstanding the
+    way the reader's blocking read is.
+    """
+    logger = logging.getLogger(__name__)
+    if sys.platform != 'win32':
+        return None, None
+    try:
+        import anyio  # already imported by mcp.server.stdio; free here
+        reader = _PollingStdin(0)
+    except Exception as exc:
+        logger.info(
+            'stdin is not a pollable pipe (%s); using the stock blocking '
+            'reader. A long native import on a background thread can then '
+            'stall until the client sends more traffic.', exc,
+        )
+        return None, None
+    logger.info(
+        'stdin reader: polling (%.0f-%.0fms backoff), so no read is left '
+        'parked on the pipe while a background import holds the loader lock',
+        _STDIN_POLL_MIN_S * 1000, _STDIN_POLL_MAX_S * 1000,
+    )
+    return anyio.wrap_file(reader), None
+
+
 async def main(argv=None):
     """Run the MCP server."""
     # Log version information
@@ -722,7 +1067,10 @@ async def main(argv=None):
         if args.transport == 'http':
             await _run_http(args.host, args.port)
         else:
-            async with stdio_server() as (read_stream, write_stream):
+            stdin_stream, stdout_stream = _stdio_streams()
+            async with stdio_server(stdin_stream, stdout_stream) as (
+                read_stream, write_stream,
+            ):
                 await server.run(
                     read_stream,
                     write_stream,

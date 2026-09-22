@@ -102,6 +102,18 @@ _nltk_ready = False
 # thread blocked in os.read(0, 1) plus `import scipy.linalg.blas` - which
 # completes 0.2s after one byte is written to the pipe.
 #
+# Since 2026-09-21 the stdio transport no longer parks that read: server.py's
+# _PollingStdin peeks the pipe and sleeps between polls, so on Windows this
+# import now finishes in ~0.6-1.0s on a live session (measured in
+# test_mcp_tool_dispatch.py's warm-up test). That matters beyond search:
+# while this thread is inside a native-extension load it holds the Windows
+# loader lock, and NO other thread in the process can start until it is
+# released - a Thread.start() elsewhere sits in _started.wait() with no
+# deadline. Four tools that start threads (scrape_url, add_deepsid_document,
+# add_deepsid_folder, add_documents_bulk) hung for exactly that reason. The
+# deadline below stays as defence in depth for the cases the polling reader
+# does not cover (a non-pipe stdin, the HTTP transport, other platforms).
+#
 # So the import runs once, on its own daemon thread, and callers wait for it
 # with a deadline instead of inheriting that unbounded wait. A caller that hits
 # the deadline degrades for that one call (see _preprocess_text) while the

@@ -644,13 +644,13 @@ TOOL_SCHEMAS: list[Tool] = [
         ),
         Tool(
             name="check_updates",
-            description="Check all indexed documents for updates. Detects files that have been modified since indexing and optionally re-indexes them automatically.",
+            description="Check all indexed documents for updates. Detects files that have been modified since indexing. With auto_update=false (the default) this is a read-only scan that completes in a few seconds even over a corpus of 1000+ documents. With auto_update=true it re-indexes every changed document (a full remove-then-add per document), which can take minutes to hours over a large corpus and returns nothing until the whole pass is done - it is not hung, but the only way to see it progressing is server-side logs, not this tool's response.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "auto_update": {
                         "type": "boolean",
-                        "description": "Automatically re-index changed documents (default: false)",
+                        "description": "Automatically re-index changed documents (default: false). WARNING: turns a several-second scan into a re-index of every changed document, which can run for minutes to hours with no response until it completes.",
                         "default": False
                     }
                 }

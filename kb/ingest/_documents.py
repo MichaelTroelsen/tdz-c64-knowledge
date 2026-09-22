@@ -2104,12 +2104,21 @@ class _DocumentsMixin:
 
         self.logger.info(f"Updated tags for document {doc_id[:12]}: {tags}")
 
-    def check_all_updates(self, auto_update: bool = False) -> dict:
+    def check_all_updates(self, auto_update: bool = False, progress_callback: ProgressCallback = None) -> dict:
         """
         Check all indexed documents for updates.
 
         Args:
-            auto_update: If True, automatically re-index changed documents
+            auto_update: If True, automatically re-index changed documents. This
+                turns a read-only scan (seconds, even over a large corpus) into a
+                full remove-then-add re-index of every changed document (minutes
+                to hours). progress_callback is the only way to observe that it
+                is running rather than wedged before it returns.
+            progress_callback: Optional callback for progress updates, invoked
+                once before the scan starts and again after each document that
+                required a re-index (only meaningful when auto_update=True;
+                the scan-only path is fast enough that per-document progress
+                would just be noise).
 
         Returns:
             Dictionary with lists of unchanged, changed, and missing documents
@@ -2120,6 +2129,19 @@ class _DocumentsMixin:
             'missing': [],
             'updated': []  # Only populated if auto_update=True
         }
+
+        total_docs = len(self.documents)
+
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="check_all_updates",
+                current=0,
+                total=total_docs,
+                message=f"Checking {total_docs} documents for updates"
+                        + (" (auto_update: changed documents will be re-indexed)" if auto_update else ""),
+            ))
+
+        reindexed_count = 0
 
         for doc_id, doc in list(self.documents.items()):
             filepath = doc.filepath
@@ -2151,12 +2173,37 @@ class _DocumentsMixin:
                         })
                     except Exception as e:
                         self.logger.error(f"Failed to update {filepath}: {e}")
+                    finally:
+                        reindexed_count += 1
+                        if progress_callback:
+                            # The total number of changed documents isn't known
+                            # until the whole corpus has been scanned, so this
+                            # can't report a true fraction-complete - only a
+                            # running count, which is still enough to show the
+                            # loop is moving rather than wedged.
+                            progress_callback(ProgressUpdate(
+                                operation="check_all_updates",
+                                current=reindexed_count,
+                                total=reindexed_count,
+                                message=f"Re-indexed {reindexed_count} changed document(s) so far",
+                                item=filepath
+                            ))
             else:
                 results['unchanged'].append({
                     'doc_id': doc_id,
                     'filepath': filepath,
                     'title': doc.title
                 })
+
+        if progress_callback:
+            progress_callback(ProgressUpdate(
+                operation="check_all_updates",
+                current=total_docs,
+                total=total_docs,
+                message=f"Check complete: {len(results['unchanged'])} unchanged, "
+                        f"{len(results['changed'])} changed, {len(results['missing'])} missing"
+                        + (f", {len(results['updated'])} re-indexed" if auto_update else ""),
+            ))
 
         return results
 

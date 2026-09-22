@@ -263,7 +263,24 @@ def handle_find_by_reference(kb, name: str, arguments: dict) -> list[TextContent
 
 def handle_check_updates(kb, name: str, arguments: dict) -> list[TextContent]:
     auto_update = arguments.get("auto_update", False)
-    results = kb.check_all_updates(auto_update)
+
+    # MCP tool calls in this server are a single blocking request/response -
+    # nothing plumbs kb-level ProgressUpdate callbacks into an MCP
+    # notifications/progress message the caller would see (add_documents_bulk
+    # accepts the same kind of callback and doesn't reach the client with it
+    # either). So a caller waiting on this response over stdio sees nothing
+    # at all until it returns, no matter what this callback does. What it CAN
+    # do is give an operator tailing this process's logs a heartbeat, which
+    # is the only observable difference between "still re-indexing" and
+    # "wedged" available in this architecture. Only wired up for
+    # auto_update=True: the scan-only path finishes in a couple of seconds
+    # and logging per document there would just be noise.
+    progress_callback = None
+    if auto_update:
+        def progress_callback(update):
+            kb.logger.info(f"check_updates: {update.message}")
+
+    results = kb.check_all_updates(auto_update, progress_callback=progress_callback)
 
     output = "Document Update Check:\n\n"
 

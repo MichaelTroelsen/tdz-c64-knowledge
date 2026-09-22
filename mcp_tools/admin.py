@@ -6,8 +6,37 @@ unchanged - this was a move, not a rewrite.
 """
 
 import os
+import sys
 
 from mcp.types import TextContent
+
+
+def _server_module():
+    """The module actually running as the MCP server.
+
+    When the server process is launched as `python server.py` (see
+    MCPSession in test_mcp_startup.py), that file's module object is
+    '__main__' - it is never also registered under the name 'server'. A
+    plain `from server import emit_tool_progress` here would then trigger a
+    FRESH `import server`, creating a second, distinct module object with
+    its own separate `_progress_channel` contextvars.ContextVar. call_tool()
+    in '__main__' sets the real one; emit_tool_progress in the duplicate
+    'server' module would read a different, always-None one and silently
+    report False forever - confirmed live: only the generic
+    "check_updates started" ack reached the client, never a per-document
+    notification, until this indirection was added.
+
+    Everywhere else server.py is a library import (the test suite,
+    rest_server.py, admin_gui.py, cli.py - see the comment above
+    server.py's `kb: Optional['KnowledgeBase'] = None`), '__main__' is
+    something else entirely (pytest, streamlit, ...), so this falls back to
+    the ordinary `import server`, which is what those callers already use.
+    """
+    main_mod = sys.modules.get('__main__')
+    if main_mod is not None and hasattr(main_mod, 'emit_tool_progress'):
+        return main_mod
+    import server
+    return server
 
 
 def handle_kb_stats(kb, name: str, arguments: dict) -> list[TextContent]:
@@ -277,8 +306,23 @@ def handle_check_updates(kb, name: str, arguments: dict) -> list[TextContent]:
     # and logging per document there would just be noise.
     progress_callback = None
     if auto_update:
+        # emit_tool_progress is a cheap no-op when there is no in-flight
+        # call or the client sent no progressToken, so it is safe to call
+        # unconditionally alongside the operator-facing log line below -
+        # neither channel replaces the other.
+        emit_tool_progress = _server_module().emit_tool_progress
+
         def progress_callback(update):
             kb.logger.info(f"check_updates: {update.message}")
+            # update.total is only honest on the up-front and final events,
+            # which both report the real total_docs known before the scan
+            # started. The per-document re-index events set update.item to
+            # the filepath being re-indexed (see check_all_updates) and
+            # their own total is reindexed_count-so-far - always equal to
+            # current, by that method's own comment - so forwarding it
+            # verbatim would render as a finished bar on every document.
+            total = None if update.item is not None else update.total
+            emit_tool_progress(update.current, total, update.message)
 
     results = kb.check_all_updates(auto_update, progress_callback=progress_callback)
 

@@ -2240,6 +2240,133 @@ def test_no_progress_notifications_when_the_client_sends_no_token(data_dir):
     )
 
 
+def test_a_real_client_observes_the_heartbeat_repeat_over_stdio(tmp_path):
+    """The previous test proves the ack; this proves the REPEAT the ack
+    cannot: a client reading real frames off a real stdio session sees more
+    than one heartbeat tick for the same call.
+
+    The obstacle named in the gap this closes is real: no tool in the suite
+    reliably outlives the 15s default interval, so an honest wire-level test
+    either waits 15s+ or shortens the interval for this one session via
+    TDZ_PROGRESS_INTERVAL_S (0.15s here) - the shipped default is untouched,
+    only this child process's env is. That alone would prove nothing if the
+    tool returned in milliseconds regardless of the interval, so this also
+    needs a tool that genuinely outlives it. add_document is real,
+    already-registered production code (no test-only handler, no server.py
+    change) and this test makes ONE call to it outlive the interval by
+    holding, from this process, the exact SQLite write lock add_document's
+    own commit needs on the SAME knowledge_base.db file - a real resource,
+    not a sleep. The child's dispatch stays on a worker thread while the
+    heartbeat runs as a separate asyncio task on its event loop (see
+    _progress_heartbeat / asyncio.to_thread in server.py), so the block is
+    exactly what lets several ticks land on the wire before the call
+    proceeds.
+
+    The lock's release is bounded from THIS process on a background thread
+    (RELEASE_AFTER_S below), not left to expire via SQLite's own busy
+    timeout. Measured with the release left to the busy timeout instead: the
+    call took 29.67s and the whole test 30.81s against a 30s frame-read
+    timeout - a flake on any slower machine. That duration traced to
+    util._retry_on_db_locked (NOT kb/core.py's per-connection
+    PRAGMA busy_timeout alone): add_document's write path retries up to 5
+    times on a "database is locked" OperationalError, each attempt
+    exhausting the full TDZ_DB_BUSY_TIMEOUT_MS=4000 busy-timeout wait before
+    raising, plus exponential backoff (0.5+1+2+4=7.5s) between attempts -
+    5*4s + 7.5s = 27.5s, matching the ~29.67s measured. Releasing the lock
+    from a timed background thread well inside that first 4s busy-timeout
+    window means the connection's internal retry simply succeeds without
+    ever raising "database is locked", so none of _retry_on_db_locked's
+    outer retries fire at all - the stall is now bounded by RELEASE_AFTER_S,
+    not by SQLite/retry internals. Measured after the fix: the call itself
+    took ~5.0s (RELEASE_AFTER_S=1.0s of deliberate lock hold, plus
+    add_document's own extraction/chunking/indexing work, which the lock no
+    longer inflates with retry waits) against the 15s frame-read timeout
+    below - comfortably inside it, versus the previous ~29.67s call against
+    a 30s timeout that left only ~0.3s of headroom.
+    """
+    import sqlite3
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    docfile = data_dir / "heartbeat-doc.txt"
+    docfile.write_text("Heartbeat-over-stdio regression document.", encoding="utf-8")
+
+    extra_env = {
+        "TDZ_PROGRESS_INTERVAL_S": "0.15",
+        "ALLOWED_DOCS_DIRS": str(data_dir),
+        "TDZ_DB_BUSY_TIMEOUT_MS": "4000",
+    }
+
+    with MCPSession(data_dir, client_name="heartbeat-wire", extra_env=extra_env) as s:
+        response, _ = s.initialize(timeout=HANDSHAKE_BUDGET_S)
+        assert response is not None and "result" in response, response
+
+        db_path = Path(data_dir) / "knowledge_base.db"
+        assert db_path.exists(), "server did not create its database at handshake"
+
+        # Hold the write lock add_document's own commit needs, from THIS
+        # process, on the SAME db file - the tool call stalls on that real
+        # lock while the heartbeat (a separate asyncio task, not the blocked
+        # worker thread) keeps ticking on the wire. RELEASE_AFTER_S bounds
+        # the stall deliberately (see docstring for why this replaced
+        # waiting out SQLite's busy timeout): it is long enough for several
+        # 0.15s heartbeat ticks to land, short enough to keep the test fast
+        # and immune to machine-speed flakes.
+        RELEASE_AFTER_S = 1.0
+        locker = sqlite3.connect(str(db_path), timeout=1, check_same_thread=False)
+        locker.isolation_level = None
+        locker.execute("BEGIN IMMEDIATE")
+
+        def _release_lock():
+            time.sleep(RELEASE_AFTER_S)
+            try:
+                locker.execute("ROLLBACK")
+            except Exception:
+                pass
+            finally:
+                locker.close()
+
+        releaser = threading.Thread(target=_release_lock, daemon=True)
+        releaser.start()
+        try:
+            start = time.time()
+            frames = s.call_tool_frames(
+                "add_document", {"filepath": str(docfile)},
+                progress_token="tok-heartbeat", req_id=99, timeout=15,
+            )
+            elapsed = time.time() - start
+        finally:
+            releaser.join(timeout=5)
+
+        stderr = s.stderr_text()
+
+    methods = [f.get("method") or f"response(id={f.get('id')})" for f in frames]
+    progress = [
+        f for f in frames
+        if f.get("method") == "notifications/progress"
+        and f.get("params", {}).get("progressToken") == "tok-heartbeat"
+    ]
+    ticks = [
+        f for f in progress
+        if "still running" in (f["params"].get("message") or "")
+    ]
+
+    assert len(progress) >= 3, (
+        "expected the ack plus at least two heartbeat ticks (the repeat, "
+        f"not just one), got {len(progress)} over {elapsed:.2f}s. frames in "
+        f"wire order: {methods}. server stderr: {stderr[-1500:]!r}"
+    )
+    assert len(ticks) >= 2, (
+        "expected at least two real heartbeat ticks distinct from the ack, "
+        f"got {len(ticks)}: {[p['params'] for p in progress]}"
+    )
+    progresses = [p["params"]["progress"] for p in progress]
+    assert progresses == sorted(progresses) and len(set(progresses)) == len(progresses), (
+        f"progress must strictly increase per the MCP spec: {progresses}"
+    )
+    assert "result" in frames[-1] or "error" in frames[-1], frames[-1]
+
+
 def test_heartbeat_keeps_ticking_while_a_tool_runs():
     """The ack alone would still leave a 30-minute call looking dead after
     the first second. The heartbeat is what answers 'alive or wedged', so

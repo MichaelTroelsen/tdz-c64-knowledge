@@ -293,17 +293,19 @@ def handle_find_by_reference(kb, name: str, arguments: dict) -> list[TextContent
 def handle_check_updates(kb, name: str, arguments: dict) -> list[TextContent]:
     auto_update = arguments.get("auto_update", False)
 
-    # MCP tool calls in this server are a single blocking request/response -
-    # nothing plumbs kb-level ProgressUpdate callbacks into an MCP
-    # notifications/progress message the caller would see (add_documents_bulk
-    # accepts the same kind of callback and doesn't reach the client with it
-    # either). So a caller waiting on this response over stdio sees nothing
-    # at all until it returns, no matter what this callback does. What it CAN
-    # do is give an operator tailing this process's logs a heartbeat, which
-    # is the only observable difference between "still re-indexing" and
-    # "wedged" available in this architecture. Only wired up for
-    # auto_update=True: the scan-only path finishes in a couple of seconds
-    # and logging per document there would just be noise.
+    # A client that sent a progressToken DOES see this: the callback below
+    # forwards kb-level ProgressUpdate events to emit_tool_progress, which
+    # turns them into MCP notifications/progress frames on the wire (see
+    # _server_module()'s docstring for why that indirection, rather than a
+    # plain `from server import emit_tool_progress`, is what actually reaches
+    # the live one). add_documents_bulk's handler below wires up the same
+    # pattern, per file added. The kb.logger.info line alongside the emit is
+    # a second, independent channel: an operator tailing this process's logs
+    # gets the same heartbeat even with no MCP client watching, which was the
+    # only observable difference between "still re-indexing" and "wedged"
+    # before emit_tool_progress existed. Only wired up for auto_update=True:
+    # the scan-only path finishes in a couple of seconds and logging per
+    # document there would just be noise.
     progress_callback = None
     if auto_update:
         # emit_tool_progress is a cheap no-op when there is no in-flight
@@ -361,6 +363,22 @@ def handle_add_documents_bulk(kb, name: str, arguments: dict) -> list[TextConten
     recursive = arguments.get("recursive", True)
     skip_duplicates = arguments.get("skip_duplicates", True)
 
+    # emit_tool_progress is a cheap no-op when there is no in-flight call or
+    # the client sent no progressToken (see handle_check_updates above), so
+    # it is safe to call unconditionally alongside the operator-facing log
+    # line below - neither channel replaces the other.
+    emit_tool_progress = _server_module().emit_tool_progress
+
+    def progress_callback(update):
+        kb.logger.info(f"add_documents_bulk: {update.message}")
+        # Unlike check_all_updates' per-document total (fabricated - always
+        # equal to current, so forwarding it renders as a finished bar every
+        # time), add_documents_bulk's total is len(files): counted once,
+        # up front, before the start event fires, and held constant through
+        # the per-file events and the final one. That is a real, honest
+        # total for the whole call, so it is forwarded verbatim every time.
+        emit_tool_progress(update.current, update.total, update.message)
+
     try:
         # add_documents_bulk's driving loop (`for future in
         # as_completed(...)`) is a plain blocking call. Running it on the
@@ -371,7 +389,10 @@ def handle_add_documents_bulk(kb, name: str, arguments: dict) -> list[TextConten
         # first fixed that is gone: this entire dispatch now runs on a
         # worker thread (see call_tool), so a direct call is already
         # off-loop.
-        results = kb.add_documents_bulk(directory, pattern, tags, recursive, skip_duplicates)
+        results = kb.add_documents_bulk(
+            directory, pattern, tags, recursive, skip_duplicates,
+            progress_callback=progress_callback,
+        )
     except Exception as e:
         return [TextContent(type="text", text=f"Error in bulk add: {str(e)}")]
 

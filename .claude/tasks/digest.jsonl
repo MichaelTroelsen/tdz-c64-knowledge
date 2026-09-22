@@ -14,6 +14,7 @@
 {"id":"bm25-empty-vocabulary-zerodivision","summary":null}
 {"id":"changelog-2-24-0-duplicate","summary":null}
 {"id":"changelog-version-history-overlap","summary":null}
+{"id":"check-updates-adopts-emit-tool-progress","summary":"check_updates now sends a per-document progress notification with no fabricated total (using the item field only per-document events carry), the up-front event keeps its real total_docs, and my sabotage of the total fix failed the new assertion before restore."}
 {"id":"check-updates-auto-update-reports-no-progress","summary":"Added a per-document progress callback to check_all_updates and a cost warning to the tool schema - and established, by reading the server and the mcp package, that no MCP client can see mid-call progress from this server at all, so the honest deliverable is an operator-visible log heartbeat plus a warning before the call; 4 passed."}
 {"id":"check-updates-hangs-on-a-disallowed-path","summary":"Added the missing allowlist guard to check_url_updates before its unbounded network path, with 2 new tests - but the agent proved, and I confirmed, that this is NOT the tool issue #17 names, so the issue stays open and a re-scoping task was opened."}
 {"id":"code-review-md-close-r12","summary":null}
@@ -53,6 +54,7 @@
 {"id":"graphify-root-path-msys-bug","summary":null}
 {"id":"health-check-warning-fires-on-disposable-cards","summary":null}
 {"id":"health-metric-missing-source-files","summary":null}
+{"id":"heartbeat-tick-never-observed-by-a-real-client","summary":"A real stdio client now observes the ack plus repeated heartbeat ticks from one add_document call stalled on a test-held SQLite lock released after 1s (5.8s test, 15s bound, was 30.8s vs 30s), my server-side sabotage of the repeat fails it with \"got 2\", and the full suite is 441 passed / 4 skipped."}
 {"id":"issue-17-second-half-rests-on-a-false-premise","summary":"Re-scoped issue #17's second request out of existence with the measurement rather than a reading: check_updates takes one boolean and no path, so it cannot fail fast on a disallowed one, and the 1800s stall was a 323-document re-index running correctly with no progress output - the read-only scan takes 2.66s over 1,138 documents."}
 {"id":"loader-lock-blocks-five-tools-behind-the-nltk-warmup","summary":"Replaced the parked stdin read with a PeekNamedPipe-polling reader on Windows so the nltk import no longer serialises behind client messages; the liveness sweep went from 4 timeouts in 103s to zero in 34s, the first search from 5.02s degraded to 0.63s with the real stemmer, and my own sabotage of the platform switch fails the new case in 48s naming both tools."}
 {"id":"log-format-carries-no-pid-so-concurrent-servers-are-indistinguishable","summary":"Put the pid in the shared log format with a test that checks the formatted output rather than the source string - and, chasing the one failure the agent wrote off as an unrelated flake, found it was deterministic and its own: MCPSession never drained the server's stderr, and startup logging sits 185 bytes under a 4096-byte pipe buffer. Drain moved into the session; 40 passed."}
@@ -106,9 +108,11 @@
 {"id":"stale-merged-branches","summary":null}
 {"id":"startup-stderr-volume-has-185-bytes-of-headroom","summary":"Chose quieten-startup with a budget: stderr now carries WARNING and above by default while server.log keeps INFO, taking startup stderr from 3911 bytes to ~65 against a 4096-byte buffer; a 1024-byte budget test and a knob test that proves it is not vacuous both pass, and the sabotage fails the budget at 4509 bytes."}
 {"id":"stray-msys-shadow-tree-cleanup","summary":null}
+{"id":"thirteen-tdz-env-vars-are-undocumented","summary":"All 32 TDZ_ variables the code reads are now documented with code-read defaults (the real gap was 16, not 13), CLAUDE.md's stale line count and missing polling-stdin note are fixed, and I re-derived the zero-gap grep and sampled five defaults against the code."}
 {"id":"to-dos-md-deepsid-entry-stale","summary":null}
 {"id":"to-dos-md-markitdown-section-stale","summary":null}
 {"id":"to-dos-md-stale-entries","summary":null}
+{"id":"to-dos-md-still-lists-two-admin-gui-bugs-that-shipped","summary":"TO-DOS.md's two fixed admin-GUI entries are struck through with DONE markers citing 89e7710 and 609f764, confirmed against module-scope imports in the code, and no other section was touched."}
 {"id":"to-dos-repoint-bullet-stale-framing","summary":null}
 {"id":"tool-dispatch-has-no-per-call-timeout","summary":"Bounded tool dispatch with an opt-out default plus a separate lock-wait bound, after measuring that the 'one hang kills the server' half is HTTP-only and stdio was already concurrent; 37 passed and the sabotage failed on a deadline rather than hanging."}
 {"id":"two-tests-queue-extraction-without-an-llm-and-now-get-refused","summary":"Stubbed an LLM into the two tests the queue-time guard had broken - env vars in-process for the figure-OCR one and on the subprocess env for the startup one, since its KB runs in a child interpreter - leaving the guard and the overlap assertion untouched; the full suite is 429 passed, 4 skipped, 0 failed on my own re-run, green for the first time in this drain."}

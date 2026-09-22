@@ -160,9 +160,25 @@ Add to `%APPDATA%\Claude\claude_desktop_config.json`:
 | `TDZ_MCP_HOST` | Bind address for the HTTP transport | `127.0.0.1` |
 | `TDZ_MCP_PORT` | Port for the HTTP transport | `8765` |
 | `TDZ_API_KEYS` | Comma-separated API keys; shared with the REST API. Required to bind the HTTP transport off loopback | *(unset)* |
-| `TDZ_MCP_ALLOW_INSECURE` | `1` permits a non-loopback bind with no API keys | `0` |
+| `TDZ_MCP_ALLOW_INSECURE` | **Disables a refusal.** `1` permits the MCP HTTP transport to bind off loopback with no `TDZ_API_KEYS` configured, i.e. no authentication at all | `0` |
 | `TDZ_MCP_ALLOWED_HOSTS` | `Host` values accepted by DNS-rebinding protection; `*` disables it | *(unset)* |
 | `TDZ_MARKITDOWN` | Set to `0` to disable the markitdown fallback extraction (.docx, .pptx, .epub, .csv, .json, .xml) even when the `markitdown` extra is installed | `1` |
+| `TDZ_ALLOW_CWD` | **Widens the path allowlist.** `1` adds the process's current working directory to the paths `add_document`/`scrape_url` may use, on top of `ALLOWED_DOCS_DIRS` | `0` |
+| `TDZ_REST_ALLOW_INSECURE` | **Disables a refusal.** `1` lets the REST API (`rest_server.py`) bind with no `TDZ_API_KEYS` configured, i.e. no authentication at all | `0` |
+| `TDZ_RESPECT_ROBOTS` | Honour `robots.txt` when scraping. `0` overrides it (self-hosted mirrors only) | `1` |
+| `TDZ_USER_AGENT` | User-Agent string sent on outbound scrapes | `tdz-c64-knowledge/<version> (+https://github.com/Thordanielz/tdz-c64-knowledge)` |
+| `TDZ_DEEPSID_BASE_URL` | Base URL for DeepSID ingestion (`add_deepsid_document`/`add_deepsid_folder`) | `https://deepsid.chordian.net` |
+| `TDZ_DB_BUSY_TIMEOUT_MS` | SQLite busy-timeout, in ms, for WAL-mode concurrent server processes | `30000` |
+| `TDZ_TOOL_TIMEOUT_S` | Max seconds an ordinary MCP tool call may run before it is aborted; `0` disables the bound (unbounded, not zero seconds) | `600` |
+| `TDZ_LONG_TOOL_TIMEOUT_S` | Same bound, applied instead of `TDZ_TOOL_TIMEOUT_S` to tools flagged as long-running; `0` disables it | `0` (unbounded) |
+| `TDZ_TOOL_LOCK_WAIT_S` | Max seconds a tool call waits to acquire the shared dispatch lock before giving up; `0` disables the bound | `600` |
+| `TDZ_PROGRESS_INTERVAL_S` | Seconds between progress notifications on a long-running tool call | `15` |
+| `TDZ_EMBEDDINGS_LOAD_TIMEOUT_S` | Max seconds to wait for the sentence-transformers model to load on first semantic-search use before continuing in the background | `20` |
+| `TDZ_NLTK_IMPORT_TIMEOUT_S` | Max seconds to wait for the lazy NLTK import/download before giving up | `5` |
+| `TDZ_STDERR_LOG_LEVEL` | Console log level; `INFO` restores pre-quiet-mode verbosity | `WARNING` |
+| `TDZ_RECOVER_EXTRACTION_JOBS` | Recover interrupted extraction jobs found stale at startup. `0` disables recovery | `1` |
+| `TDZ_EXTRACTION_STALE_MINUTES` | Minutes since last update before an in-progress extraction job is considered stale and eligible for recovery | `60` |
+| `TDZ_EXTRACTION_RECOVER_LIMIT` | Max number of stale extraction jobs recovered per startup pass | `100` |
 | `USE_FTS5` | Enable FTS5 search (recommended) | `0` |
 | `USE_SEMANTIC_SEARCH` | Enable semantic search | `0` |
 | `SEMANTIC_MODEL` | Sentence-transformers model | `all-MiniLM-L6-v2` |

@@ -18,7 +18,7 @@ MCP server for searching Commodore 64 documentation. Ingests PDFs/text/web pages
 
 ## File Structure
 
-- `server.py` - MCP server entry point (576 lines): transports (stdio + streamable HTTP) and tool dispatch
+- `server.py` - MCP server entry point: transports (stdio + streamable HTTP), the `_PollingStdin` non-blocking stdin reader, tool dispatch with lock/timeout/progress plumbing, and REST/MCP HTTP auth
 - `kb/` - `KnowledgeBase` class, split into domain mixins (`core.py`, `ingest/`, `search/`, `entities/`, `graph.py`, `topics.py`, `temporal.py`, `figures.py`, `admin.py`)
 - `mcp_tools/` - MCP tool layer: `schemas.py` (the 95 `Tool(...)` literals), `handlers.py` (aggregator), plus 8 domain handler modules (`admin.py`, `documents.py`, `entities.py`, `figures.py`, `knowledge_graph.py`, `search.py`, `temporal.py`, `topics.py`)
 - `util.py`, `models.py`, `text_utils.py`, `features.py` - shared module preamble (formerly the top of server.py)
@@ -74,8 +74,16 @@ python -m streamlit run admin_gui.py
   extra (`pip install -e ".[markitdown]"`) is installed. PDF and .zip never
   route through markitdown - see docs/ARCHITECTURE.md's "Extending File Type
   Support" for why.
+- `TDZ_ALLOW_CWD` - **Widens the directory allowlist.** Set to `1` to add the
+  process's current working directory to the set of paths `add_document` and
+  `scrape_url` may read/write from, on top of `ALLOWED_DOCS_DIRS`. Off
+  (default `0`) means cwd is not trusted just because the process happens to
+  be launched there.
 
-See README.md for complete environment variable list.
+See README.md for the complete environment variable list, including the
+transport/timeout/lock knobs (`TDZ_TOOL_TIMEOUT_S`, `TDZ_TOOL_LOCK_WAIT_S`,
+`TDZ_LONG_TOOL_TIMEOUT_S`, `TDZ_PROGRESS_INTERVAL_S`) and the two insecure-mode
+overrides (`TDZ_MCP_ALLOW_INSECURE`, `TDZ_REST_ALLOW_INSECURE`).
 
 ## MCP Configuration Example
 
@@ -148,6 +156,18 @@ feature flags stay accurate without paying the import cost.
 The database runs in **WAL** journal mode so concurrent server processes do not
 serialise behind a single exclusive writer lock. `TDZ_DB_BUSY_TIMEOUT_MS`
 (default 30000) tunes the SQLite busy timeout.
+
+Underneath the lazy-import fix, stdin itself is non-blocking on Windows:
+`_PollingStdin` (`server.py`) polls the pipe with `PeekNamedPipe` instead of
+parking a blocking `readline()` on a worker thread, because a blocking read
+held the same loader lock that lazy imports need and could wedge every tool
+call behind it. It falls back to the stock blocking reader when stdin is not
+a pipe (a console or redirected file) or on POSIX, where there is no loader
+lock to contend for.
+
+`TDZ_RUN_FULL_DISPATCH_TEST=1` enables the one long-lived
+(~100s) full-dispatch pass in `test_mcp_tool_dispatch.py`, skipped by default;
+it is a test-suite knob, not something set at runtime.
 
 ## Windows Notes
 

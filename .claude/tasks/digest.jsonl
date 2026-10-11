@@ -4,6 +4,7 @@
 {"id":"agent-bypassed-bash-guard-via-powershell","summary":"Drafted the upstream issue about the Bash/PowerShell guard inconsistency into the working tree per the human's decision; verified present, all four elements found, and confirmed NOT posted."}
 {"id":"allowed-docs-dirs-cannot-be-extended-without-a-code-change","summary":"Superseded: the brain path is already in the gitignored .env's ALLOWED_DOCS_DIRS, which server.py loads at import, so issue #17's first request is satisfied by configuration on this machine; the remaining gap is that no live test pins the allowlist."}
 {"id":"allowed-docs-dirs-has-no-live-test","summary":"Pinned the directory allowlist with six collected tests covering the four data_dir defaults, the env-var extension, the cwd exclusion and its opt-in, plus a permanent negative control that mutates allowed_dirs in memory; they pass unchanged under a hostile ambient ALLOWED_DOCS_DIRS, and kb/core.py is byte-identical to its pre-dispatch hash."}
+{"id":"allowlist-guard-finish-before-commit","summary":"The allowlist guard now says it deleted 177 indexed copies (not cards), a new test pins handle_check_updates' NOT-re-indexed line, all three files are CRLF-only again, and my sabotage of the report block failed that test before restore."}
 {"id":"architecture-md-json-output-list-incomplete","summary":null}
 {"id":"architecture-md-missing-source-policy-stale","summary":null}
 {"id":"architecture-md-stale-output-list","summary":null}

@@ -1,16 +1,15 @@
 {
   "generated_from": {
-    "head": "1934078",
+    "head": "16e9c1e",
     "sources": [
-      "plugin staleness probe: not applicable in this repo - it compares the installed plugin against a plugins/mit-setup tree this repo does not contain",
-      "issues: NONE open (gh works; the tracker is empty - #19 to #23 closed)",
+      "plugin staleness: installed mit-setup cache 1.15.2 vs claude-setup checkout 1.15.3 (this repo carries no plugins/ tree)",
+      "issues: none open (gh reachable)",
       "PRs: none open",
-      "TO-DOS.md: every open bullet (#16 cross-machine HTTP, the TOCTOU window, the md/txt repoint sweep, c=hacking availability) is already in `closed` from earlier plans",
-      "docs/ROADMAP.md",
-      "whats-next.md - a pointer file, not a task list; it still says it was checked against 19114e3 and is stale on that one line. Contributes no tasks.",
-      ".claude/tasks/runs.jsonl (last line per id; every task from the 6261716 plan is done, the two check-updates/heartbeat partials superseded by done records)",
-      ".claude/tasks/decisions.jsonl (every resolved decision is already done or closed; stray-msys-shadow-tree-cleanup stays closed as measured:2026-09-21)",
-      "graphify code graph (refreshed this pass: 4772 nodes / 6792 edges / 323 communities)"
+      "TO-DOS.md / docs/ROADMAP.md: unchanged since 1934078; every open bullet already in closed",
+      "whats-next.md: pointer file, contributes no tasks",
+      ".claude/tasks/runs.jsonl (145 lines, 127 ids; every non-done or opened id already in closed except progress-values-not-monotonic-...)",
+      ".claude/tasks/decisions.jsonl (20 ids; all honoured by existing closed entries)",
+      "working tree: uncommitted allowlist guard from 2026-10-11"
     ],
     "focus": null
   },
@@ -73,38 +72,74 @@
     "AN EMPTY-DIFF PROOF IS VALID ONLY AGAINST A CLEAN TREE. 'Prove you did not touch this file by showing `git diff --name-only` is empty' is unsatisfiable when the file is already modified-uncommitted, and the only way to satisfy it is a destructive git checkout. THREE agents in one drain were handed this instruction and all three correctly refused it. When a task grants r: on a path that is already dirty, give the agent a sha256 or diff-stat BASELINE to compare against instead.",
     "`pip show <pkg>` ON THIS MACHINE READS THE SYSTEM INTERPRETER, NOT THE VENV, and they differ: mcp is 2.2.0 system-wide and 1.24.0 in .venv. A brief that quotes a dependency version must get it from `.venv/Scripts/python.exe -m pip show`, or it can send a whole task down a false path.",
     "MEASURED 2026-09-22: check_updates is the ONLY handler that emits per-item progress (mcp_tools/admin.py, d90c732); every other tool gets only the generic ack and heartbeat. AND A TRAP ANY NEW ADOPTER WILL HIT: the live server runs server.py as __main__, so `from server import emit_tool_progress` inside a handler imports a SECOND module whose _progress_channel contextvar is always empty, and every emit silently returns False with no error. mcp_tools/admin.py's _server_module() prefers sys.modules['__main__'] when it has emit_tool_progress - reuse it rather than importing server directly. An in-process test that imports server normally does NOT reproduce the trap; only a real stdio session does.",
-    "A WIRE-LEVEL TEST THAT NEEDS A TOOL TO OUTLIVE AN INTERVAL: test_mcp_startup.py's heartbeat case holds a real SQLite write lock (`BEGIN IMMEDIATE`) on the child's knowledge_base.db and releases it from a thread after 1s. Do NOT instead wait for SQLite to give up: util.py's _retry_on_db_locked wraps writes in up to 5 attempts, each waiting the full TDZ_DB_BUSY_TIMEOUT_MS, plus 0.5*2^n backoff, so a 4s busy timeout costs about 27.5s - measured at 29.67s against a 30s frame read before it was fixed."
+    "A WIRE-LEVEL TEST THAT NEEDS A TOOL TO OUTLIVE AN INTERVAL: test_mcp_startup.py's heartbeat case holds a real SQLite write lock (`BEGIN IMMEDIATE`) on the child's knowledge_base.db and releases it from a thread after 1s. Do NOT instead wait for SQLite to give up: util.py's _retry_on_db_locked wraps writes in up to 5 attempts, each waiting the full TDZ_DB_BUSY_TIMEOUT_MS, plus 0.5*2^n backoff, so a 4s busy timeout costs about 27.5s - measured at 29.67s against a 30s frame read before it was fixed.",
+    "MEASURED 2026-10-11: check_all_updates(auto_update=True) re-indexes through _reindex_document_if_changed, which used to remove_document BEFORE add_document's allowlist check, so a changed file outside ALLOWED_DOCS_DIRS was deleted and never re-added - one brain weekly-review run lost 177 indexed copies of sid-reference-project player cards (every card still had a live copy at a staging path). The working tree now refuses before removing and reports the doc under results['failed']. ALLOWED_DOCS_DIRS on this machine is set in BOTH the gitignored .env and sid-reference-project/.mcp.json's env, and the .mcp.json value wins because load_dotenv does not override - change both or neither."
   ],
   "external_locks": [],
   "tasks": [
     {
-      "id": "add-documents-bulk-adopts-emit-tool-progress",
-      "title": "add_documents_bulk still reports no per-file progress to the client, and admin.py carries a comment saying no handler can",
-      "source": "the named next adopter in check-updates-adopts-emit-tool-progress (runs.jsonl, closed at d90c732), plus the stale comment its orchestrator flagged",
-      "model": "sonnet",
-      "effort": "medium",
-      "mode": "subtask",
-      "lane": "parallel",
-      "touches": [
-        "rw:mcp_tools/admin.py",
-        "rw:test_check_updates_progress.py",
-        "r:server.py",
-        "r:kb/ingest/_documents.py",
-        "r:test_mcp_startup.py"
-      ],
       "mcp": [],
       "needs_main": false,
       "needs_main_reason": null,
-      "depends_on": [],
       "fork": null,
       "branch": null,
       "blocked_on": null,
       "decision": null,
-      "verify": "A client that sends a progressToken and calls add_documents_bulk receives a notifications/progress frame per file ingested, beyond the generic ack and heartbeat. THE SEAM: kb.add_documents_bulk already accepts progress_callback, and handle_add_documents_bulk in mcp_tools/admin.py calls it WITHOUT one - pass a callback there, the same way handle_check_updates does. REUSE _server_module() from the same file to reach emit_tool_progress; a plain `from server import ...` reaches a dead contextvar in the live server (see hazards), and only a real stdio session exposes that. DO NOT add a callback parameter to the kb method. TOTAL: forward a total only where the kb layer really knows it. Read the method's ProgressUpdate calls before deciding - grep for operation=\"add_documents_bulk\" in kb/ingest/_documents.py rather than trusting a line number - and do not assume the answer is the same as check_all_updates, whose per-document total was fabricated. Say which events carry a total and why. ALSO REWRITE THE COMMENT above handle_check_updates' callback that says nothing plumbs progress to the client and that add_documents_bulk 'doesn't reach the client with it either' - after this task both statements are false. TEST PAIRING, checked on the filesystem: there is no test file dedicated to add_documents_bulk progress; extend test_check_updates_progress.py, which already owns the in-process contextvar test and the wire-level MCPSession test (it imports MCPSession from test_mcp_startup.py read-only - do not edit that file). A brand-new test_*.py would need a .gitignore allowlist line, which is not granted. Use a temp TDZ_DATA_DIR with a few small files, NEVER the live database. The file gains exactly the new cases you add, and 0 fail. SABOTAGE: remove the new emit call, print the changed region from disk first, confirm the new assertions fail by name, then restore by re-editing. If a total is forwarded, sabotage that too (swap it for None or for current) and confirm the total assertion fails. Scope the footprint check with `git diff --name-only -- mcp_tools/admin.py test_check_updates_progress.py`.",
-      "why_model": "the same one-call adoption just done for check_updates, in the same file, with the trap already documented",
-      "why_effort": "mechanical once the __main__ trap is known; the one judgement is whether each event's total is real",
-      "why_mode": "SUBTASK: one handler, one test file, and a client-observable done-condition",
-      "why_lane": "PARALLEL: the only task in the plan"
+      "offload": null,
+      "why_offload": "not generation from prompt-sized material; needs repo context and test runs",
+      "id": "allowlist-guard-finish-before-commit",
+      "title": "Finish the uncommitted check_updates allowlist guard: correct its '177 player cards' wording to 'indexed copies' and pin handle_check_updates' NOT-re-indexed report line with a test",
+      "source": "working tree 2026-10-11 (kb/ingest/_documents.py, mcp_tools/admin.py, test_check_updates_progress.py uncommitted)",
+      "model": "haiku",
+      "effort": "low",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:kb/ingest/_documents.py",
+        "rw:mcp_tools/admin.py",
+        "rw:test_check_updates_progress.py",
+        "rw:git-worktree"
+      ],
+      "depends_on": [],
+      "verify": "DONE WHEN (1) no comment or docstring in kb/ingest/_documents.py or test_check_updates_progress.py claims player CARDS were deleted - they must say indexed copies of cards, since every card kept a live copy at a staging path; (2) a new test in test_check_updates_progress.py calls handle_check_updates against a temp-dir kb (the existing `kb` fixture, never the live TDZ_DATA_DIR) with a changed document outside the narrowed allowed_dirs and asserts the returned text contains 'NOT re-indexed (old version kept)' and that document's title; (3) SABOTAGE: delete the `if results.get('failed')` output block in mcp_tools/admin.py, show the new test FAIL by name, restore by re-editing (never git checkout/restore), show it pass; (4) `.venv/Scripts/python.exe -m pytest -q test_check_updates_progress.py test_docs_dir_allowlist.py` passes; (5) CRLF preserved on all three files, measured with python byte counts; (6) `git diff --stat -- kb/ingest/_documents.py mcp_tools/admin.py test_check_updates_progress.py` names only those paths. Committing is the human's.",
+      "why_model": "bounded wording fix plus one test against an existing fixture",
+      "why_effort": "mechanical; the guard itself is already written and tested",
+      "why_mode": "self-contained, conclusion is a passing/failing test",
+      "why_lane": "shares admin.py and the test file with the progress task"
+    },
+    {
+      "mcp": [],
+      "needs_main": false,
+      "needs_main_reason": null,
+      "fork": null,
+      "branch": null,
+      "blocked_on": null,
+      "decision": null,
+      "offload": null,
+      "why_offload": "not generation from prompt-sized material; needs repo context and test runs",
+      "id": "progress-values-not-monotonic-when-heartbeat-and-handler-share-a-token",
+      "title": "Heartbeat (elapsed seconds) and handler emits (item counts) share one progressToken with no ordering, so progress can decrease; add_documents_bulk's final event also repeats the last value",
+      "source": "opened by add-documents-bulk-adopts-emit-tool-progress @ 1934078 (runs.jsonl)",
+      "model": "sonnet",
+      "effort": "high",
+      "mode": "subtask",
+      "lane": "serial",
+      "touches": [
+        "rw:server.py",
+        "rw:mcp_tools/admin.py",
+        "rw:kb/ingest/_documents.py",
+        "rw:test_mcp_startup.py",
+        "rw:test_check_updates_progress.py",
+        "rw:git-worktree"
+      ],
+      "depends_on": [
+        "allowlist-guard-finish-before-commit"
+      ],
+      "verify": "DONE WHEN every notifications/progress frame for ONE tool call carries a strictly greater progress value than the previous frame on that token, whichever source (heartbeat or handler emit) sent it - the MCP spec's MUST. Pinned by a test that forces a heartbeat tick to interleave with handler emits on one call (shrink TDZ_PROGRESS_INTERVAL_S, never by sleeping longer) and asserts strict increase across the whole frame sequence; and a test that add_documents_bulk's last frame is not equal to the one before it. SABOTAGE: disable the ordering fix, show the interleave test FAIL with the offending pair of values printed, restore by re-editing (never git checkout/restore). Because this changes what server.py sends on every long call, run the FULL suite `.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider` and report its tail; CRLF preserved on every touched file (python byte counts). Choose and justify the design (e.g. channel-side monotonic clamp vs suppress heartbeat once a handler has emitted) in evidence; do not change the client-visible total semantics check_updates already fixed.",
+      "why_model": "protocol-level change in shared dispatch code, not in the critical-review class",
+      "why_effort": "two progress sources and a design choice; a plausible fix can still let a frame go backwards",
+      "why_mode": "conclusion is mechanical: a frame-order test passes or fails",
+      "why_lane": "writes server.py and both progress test files the guard task also writes"
     }
   ],
   "closed": [
@@ -953,6 +988,16 @@
       "title": "The health_check missing-source test fixture is itself a card",
       "closed_by": "measured:2026-09-22",
       "reason": "SUSPECTED DUPLICATE, not dropped: an opened id from health-check-warning-fires-on-disposable-cards that no plan ever emitted. Its subject (disposable card documents inflating missing_source_files) is the defect missing-source-metric-counts-disposable-cards closed at ab7503a with the _user/_generated split, which test_card_updates.py test_health_check_missing_source_files_splits_user_vs_generated now pins. Overrule this if the fixture itself is still wrong."
+    },
+    {
+      "id": "add-documents-bulk-adopts-emit-tool-progress",
+      "closed_by": "8625ac4",
+      "reason": "runs.jsonl latest record done at 1934078; committed in 8625ac4 and recorded in 16e9c1e."
+    },
+    {
+      "id": "check-updates-deletes-docs-outside-allowlist",
+      "closed_by": "uncommitted:2026-10-11",
+      "reason": "Guard added in the working tree (refuse before remove_document; results['failed'] reported by handle_check_updates); test_auto_update_keeps_document_whose_path_left_the_allowlist fails with the guard disabled and passes with it; 16 passed across test_check_updates_progress.py + test_docs_dir_allowlist.py. Only in the working tree until the human commits it; allowlist-guard-finish-before-commit tidies it first."
     }
   ]
 }

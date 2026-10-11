@@ -2325,8 +2325,13 @@ class _DocumentsMixin:
                 completed += 1
                 file_path = future_to_file[future]
 
-                # Report progress: Processing file
-                if progress_callback:
+                # Report progress: Processing file. Not for the last one: the
+                # completion event below reports the same current=len(files)
+                # with the summary, and two events with one progress value
+                # cannot both go out on an MCP progressToken (the spec requires
+                # strictly increasing progress), so the completion event is
+                # the one that carries it.
+                if progress_callback and completed < len(files):
                     progress_callback(ProgressUpdate(
                         operation="add_documents_bulk",
                         current=completed,

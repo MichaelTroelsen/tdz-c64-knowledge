@@ -282,9 +282,11 @@ def test_handle_add_documents_bulk_emits_progress_per_file(kb, tmp_path):
     finally:
         server_module._progress_channel.reset(token)
 
-    # A start event, one per file (3), and a completion event.
-    assert len(sent) >= 5, (
-        f"expected at least a start event, one event per file (3), and a "
+    # A start event, one per file for all but the last (2), and a completion
+    # event. The last file's own event is folded into the completion event:
+    # both would carry current=3, and one progressToken cannot repeat a value.
+    assert len(sent) >= 4, (
+        f"expected at least a start event, per-file events, and a "
         f"completion event to reach emit_tool_progress, got {len(sent)}: {sent}"
     )
 
@@ -311,6 +313,15 @@ def test_handle_add_documents_bulk_emits_progress_per_file(kb, tmp_path):
     assert any("Bulk add complete" in (m or "") for m in messages), (
         f"expected a completion progress notification, got: {messages}"
     )
+
+    # The MCP spec's MUST: the final frame must not repeat the one before it.
+    # (Before the fix both carried current=3, "Processing file 3/3" then
+    # "Bulk add complete".)
+    assert sent[-1][0] != sent[-2][0], (
+        f"add_documents_bulk's last progress frame repeats the one before it: "
+        f"{sent[-2]} then {sent[-1]}"
+    )
+    assert "Bulk add complete" in (sent[-1][2] or ""), sent[-1]
 
 
 def test_no_progress_reported_for_add_documents_bulk_without_channel(kb, tmp_path):
@@ -356,7 +367,10 @@ def test_client_receives_per_file_progress_for_add_documents_bulk(tmp_path):
         if f.get("method") == "notifications/progress"
         and f.get("params", {}).get("progressToken") == "adb-1"
     ]
-    assert len(progress) >= 5, (
+    # ack + per-file for all but the last (2) + completion; the handler's own
+    # up-front 0 equals the ack's 0.0 and is dropped by the channel's ordering
+    # rule, and the last file's event is folded into the completion event.
+    assert len(progress) >= 4, (
         "expected more than the generic ack/heartbeat for "
         f"add_documents_bulk; got {len(progress)} progress frames: "
         f"{progress}. stderr: {stderr[-1500:]!r}"
@@ -365,6 +379,12 @@ def test_client_receives_per_file_progress_for_add_documents_bulk(tmp_path):
     assert any("Processing file" in (m or "") for m in messages), (
         f"expected a per-file progress notification, got messages: {messages}"
     )
+    values = [p["params"]["progress"] for p in progress]
+    assert all(b > a for a, b in zip(values, values[1:])), (
+        f"progress must strictly increase for one token, got {values} "
+        f"({messages})"
+    )
+    assert "Bulk add complete" in (messages[-1] or ""), messages
     assert "result" in frames[-1] or "error" in frames[-1], frames[-1]
 
 

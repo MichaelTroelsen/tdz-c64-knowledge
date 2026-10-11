@@ -2378,7 +2378,7 @@ def test_heartbeat_keeps_ticking_while_a_tool_runs():
     sent = []
 
     class _FakeChannel:
-        async def asend(self, progress, total=None, message=None):
+        async def asend(self, progress, total=None, message=None, liveness=False):
             sent.append((progress, total, message))
             return True
 
@@ -2402,3 +2402,159 @@ def test_heartbeat_keeps_ticking_while_a_tool_runs():
         f"progress must strictly increase per the MCP spec: {progresses}"
     )
     assert all("check_updates" in (m or "") for _, _, m in sent), sent
+
+
+def _progress_sequence_violations(frames):
+    """(index, previous, current, previous_message, current_message) for every
+    consecutive pair that does not strictly increase - the MCP spec's MUST for
+    one progressToken. Empty list means the sequence is valid."""
+    out = []
+    for i in range(1, len(frames)):
+        prev, cur = frames[i - 1], frames[i]
+        if not cur[0] > prev[0]:
+            out.append((i, prev[0], cur[0], prev[2], cur[2]))
+    return out
+
+
+def test_heartbeat_ticks_interleaved_with_handler_emits_stay_strictly_increasing():
+    """One call, two writers on one progressToken: the generic heartbeat
+    (elapsed SECONDS) and a handler's emit_tool_progress (ITEM COUNTS). Without
+    an ordering rule the wire carries e.g. 0, 100.02, 1, 100.04, 2 - a decrease
+    the spec forbids.
+
+    The interleave is forced, not hoped for: the heartbeat interval is shrunk
+    (TDZ_PROGRESS_INTERVAL_S's module value, 0.02s) and the 'handler' thread
+    does not emit item i until the heartbeat has put i more ticks on the wire.
+    The heartbeat's `started` is backdated 100s so its elapsed value (~100)
+    sits ABOVE every item count, the production shape (15s tick, item 3).
+    """
+    import asyncio as _asyncio
+    import server as srv
+
+    sent = []
+
+    class _FakeSession:
+        async def send_progress_notification(self, token, progress, total=None,
+                                             message=None, related_request_id=None):
+            sent.append((progress, total, message))
+
+    def ticks():
+        return sum(1 for _, _, m in sent if "still running" in (m or ""))
+
+    def wait_for_ticks(n, deadline_s=10):
+        end = time.time() + deadline_s
+        while ticks() < n:
+            assert time.time() < end, f"heartbeat never reached {n} ticks: {sent}"
+            time.sleep(0.005)
+
+    async def drive():
+        loop = _asyncio.get_running_loop()
+        channel = srv._ProgressChannel(_FakeSession(), "tok", 1, loop)
+        original = srv._PROGRESS_INTERVAL_S
+        srv._PROGRESS_INTERVAL_S = 0.02
+        try:
+            await channel.asend(0.0, None, "work started")
+            # handler's up-front event: equal to the ack above, must not repeat it
+            await _asyncio.to_thread(channel.send, 0, 3, "Starting")
+            hb = _asyncio.create_task(
+                srv._progress_heartbeat(channel, "work", time.time() - 100)
+            )
+
+            def handler():
+                base = ticks()
+                for i in (1, 2, 3):
+                    wait_for_ticks(base + i)
+                    channel.send(i, 3, f"item {i}")
+                wait_for_ticks(base + 4)
+
+            try:
+                await _asyncio.to_thread(handler)
+            finally:
+                hb.cancel()
+        finally:
+            srv._PROGRESS_INTERVAL_S = original
+
+    _asyncio.run(drive())
+
+    assert ticks() >= 4, f"no heartbeat interleaved: {sent}"
+    items = [p for p, _, m in sent if (m or "").startswith("item ")]
+    assert items == [1.0, 2.0, 3.0], (
+        f"a handler count was dropped because a heartbeat tick outran it: {sent}"
+    )
+    bad = _progress_sequence_violations(sent)
+    assert not bad, (
+        "progress must strictly increase across the whole frame sequence; "
+        f"offending (index, previous, current, prev_msg, cur_msg): {bad}; "
+        f"all frames: {sent}"
+    )
+
+
+def test_wire_progress_strictly_increases_when_heartbeat_interleaves_add_documents_bulk(tmp_path):
+    """Same rule over a real stdio session: add_documents_bulk's per-file
+    counts and the heartbeat's ticks share one token. Real SQLite write lock,
+    held from this process and released from a thread after 1s (as in
+    test_a_real_client_observes_the_heartbeat_repeat_over_stdio), keeps the
+    first file from finishing while TDZ_PROGRESS_INTERVAL_S=0.15 puts several
+    ticks on the wire, so ticks and per-file frames genuinely interleave.
+    Own data dir: the module-scoped data_dir fixture is shared."""
+    import sqlite3
+
+    data_dir = tmp_path / "data"
+    src = data_dir / "src"
+    src.mkdir(parents=True)
+    for i in range(3):
+        (src / f"d{i}.txt").write_text(f"Interleave document {i}.", encoding="utf-8")
+
+    extra_env = {
+        "TDZ_PROGRESS_INTERVAL_S": "0.15",
+        "ALLOWED_DOCS_DIRS": str(data_dir),
+        "TDZ_DB_BUSY_TIMEOUT_MS": "4000",
+    }
+    with MCPSession(data_dir, client_name="interleave-wire", extra_env=extra_env) as s:
+        response, _ = s.initialize(timeout=HANDSHAKE_BUDGET_S)
+        assert response is not None and "result" in response, response
+        db_path = Path(data_dir) / "knowledge_base.db"
+        assert db_path.exists()
+
+        locker = sqlite3.connect(str(db_path), timeout=1, check_same_thread=False)
+        locker.isolation_level = None
+        locker.execute("BEGIN IMMEDIATE")
+
+        def _release():
+            time.sleep(1.0)
+            try:
+                locker.execute("ROLLBACK")
+            except Exception:
+                pass
+            finally:
+                locker.close()
+
+        releaser = threading.Thread(target=_release, daemon=True)
+        releaser.start()
+        try:
+            frames = s.call_tool_frames(
+                "add_documents_bulk",
+                {"directory": str(src), "pattern": "**/*.txt"},
+                progress_token="tok-interleave", req_id=77, timeout=40,
+            )
+        finally:
+            releaser.join(timeout=5)
+        stderr = s.stderr_text()
+
+    progress = [
+        (f["params"]["progress"], f["params"].get("total"), f["params"].get("message"))
+        for f in frames
+        if f.get("method") == "notifications/progress"
+        and f.get("params", {}).get("progressToken") == "tok-interleave"
+    ]
+    ticks = [p for p in progress if "still running" in (p[2] or "")]
+    per_file = [p for p in progress if "Processing file" in (p[2] or "")]
+    assert len(ticks) >= 2, f"no heartbeat interleaved: {progress}. stderr: {stderr[-1500:]!r}"
+    assert per_file, f"no handler frames on the wire: {progress}"
+    bad = _progress_sequence_violations(progress)
+    assert not bad, (
+        "progress must strictly increase across the whole frame sequence; "
+        f"offending (index, previous, current, prev_msg, cur_msg): {bad}; "
+        f"all frames: {progress}"
+    )
+    assert "result" in frames[-1] or "error" in frames[-1], frames[-1]

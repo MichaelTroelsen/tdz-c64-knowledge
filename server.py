@@ -12,6 +12,7 @@ import json
 import re
 import hashlib
 import logging
+import math
 import time
 import sqlite3
 import threading
@@ -403,23 +404,73 @@ class _ProgressChannel:
         self._token = token
         self._request_id = request_id
         self._loop = loop
+        # MCP spec: "the progress value MUST increase with each notification"
+        # for one token. Two writers share this token on ONE call - the
+        # generic heartbeat (elapsed SECONDS) and a handler's emit_tool_progress
+        # (ITEM COUNTS, see mcp_tools/admin.py) - and neither knows the other's
+        # scale, so ordering is enforced HERE, at the one place every frame
+        # passes through. _last is the progress of the last frame actually put
+        # on the wire; the lock makes check-then-send atomic so wire order
+        # equals value order even with the heartbeat task and a handler's
+        # run_coroutine_threadsafe racing on the loop.
+        self._lock = asyncio.Lock()
+        self._last: Optional[float] = None
+        # Set (from the worker thread) the moment a handler first tries to
+        # report, whether or not that frame survives the ordering check.
+        # From then on the handler's count is the scale of this stream and the
+        # heartbeat must stay inside it - see _next_progress.
+        self._handler_active = False
+
+    def _next_progress(self, progress: float, liveness: bool) -> Optional[float]:
+        """The value to put on the wire for a requested frame, or None to drop it.
+
+        Handler frames (liveness=False) must beat _last or are dropped: a
+        handler's own repeat (its up-front 0 after the generic 0.0 ack, or a
+        final N after a last per-item N) carries no new progress, and
+        inventing some would lie. Heartbeat frames (liveness=True) exist only
+        to say "alive", so they are never dropped - they are bumped instead.
+        Before any handler reports, that is elapsed seconds, as before. Once a
+        handler has, elapsed seconds (15.3) would sit above every item count
+        the handler is about to send (3, 4, ...) and force those to be dropped,
+        so the heartbeat instead steps to the next representable float above
+        _last: the smallest increase the spec allows, below any count step.
+        """
+        last = self._last
+        if last is None:
+            return progress
+        if not liveness:
+            return progress if progress > last else None
+        if self._handler_active or not progress > last:
+            return math.nextafter(last, math.inf)
+        return progress
 
     async def asend(self, progress: float, total: Optional[float] = None,
-                    message: Optional[str] = None) -> bool:
-        """Send from the event loop thread."""
-        try:
-            await self._session.send_progress_notification(
-                self._token, float(progress), total=total, message=message,
-                related_request_id=self._request_id,
-            )
+                    message: Optional[str] = None, liveness: bool = False) -> bool:
+        """Send from the event loop thread. Returns False if the frame was
+        dropped for breaking the strictly-increasing rule, or could not be sent."""
+        async with self._lock:
+            value = self._next_progress(float(progress), liveness)
+            if value is None:
+                logging.getLogger(__name__).debug(
+                    f"progress {progress!r} not above last sent {self._last!r}; "
+                    f"frame dropped ({message!r})"
+                )
+                return False
+            try:
+                await self._session.send_progress_notification(
+                    self._token, value, total=total, message=message,
+                    related_request_id=self._request_id,
+                )
+            except Exception as e:
+                kb.logger.debug(f"progress notification dropped: {e!r}")
+                return False
+            self._last = value
             return True
-        except Exception as e:
-            kb.logger.debug(f"progress notification dropped: {e!r}")
-            return False
 
     def send(self, progress: float, total: Optional[float] = None,
              message: Optional[str] = None) -> bool:
-        """Send from a worker thread."""
+        """Send from a worker thread (a handler's emit_tool_progress)."""
+        self._handler_active = True
         try:
             fut = asyncio.run_coroutine_threadsafe(
                 self.asend(progress, total, message), self._loop
@@ -475,15 +526,19 @@ def _open_progress_channel():
 
 
 async def _progress_heartbeat(channel, name: str, started: float):
-    """Tick until cancelled. Progress is elapsed seconds, so it is strictly
-    increasing, which the spec requires. No total: the runtime is unknown,
-    and inventing one would be a lie the client renders as a progress bar."""
+    """Tick until cancelled. Progress is elapsed seconds until a handler starts
+    reporting item counts on the same token; from then on the channel steps it
+    just above the last frame (liveness=True, see _ProgressChannel._next_progress)
+    so the sequence stays strictly increasing, which the spec requires. No
+    total: the runtime is unknown, and inventing one would be a lie the client
+    renders as a progress bar."""
     if _PROGRESS_INTERVAL_S is None:
         return
     while True:
         await asyncio.sleep(_PROGRESS_INTERVAL_S)
         elapsed = time.time() - started
-        await channel.asend(elapsed, None, f"{name} still running ({elapsed:.0f}s)")
+        await channel.asend(elapsed, None, f"{name} still running ({elapsed:.0f}s)",
+                            liveness=True)
 
 
 @server.call_tool()

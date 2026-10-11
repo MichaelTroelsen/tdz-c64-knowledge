@@ -350,6 +350,11 @@ def handle_check_updates(kb, name: str, arguments: dict) -> list[TextContent]:
         for doc in results['updated']:
             output += f"  - {doc['title']} ({doc['filepath']})\n"
 
+    if auto_update and results.get('failed'):
+        output += f"\n✗ {len(results['failed'])} changed documents NOT re-indexed (old version kept):\n"
+        for doc in results['failed']:
+            output += f"  - {doc['title']} ({doc['filepath']}): {doc['error']}\n"
+
     if not auto_update and results['changed']:
         output += "\nRun with auto_update=true to automatically re-index changed documents.\n"
 

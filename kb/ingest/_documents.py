@@ -1836,6 +1836,20 @@ class _DocumentsMixin:
             self.logger.info(f"Document unchanged, skipping reindex: {filepath}")
             return existing_doc
 
+        # Refuse BEFORE removing. add_document rejects a path outside
+        # allowed_dirs, so checking only there meant remove-then-fail: the old
+        # document was deleted and nothing replaced it. A document indexed
+        # while its directory was allowed (or while cwd was trusted) and since
+        # left outside ALLOWED_DOCS_DIRS must stay indexed and unchanged.
+        # Measured 2026-10-11: one check_updates(auto_update=true) run deleted
+        # 177 indexed copies of sid-reference-project player cards this way
+        # (every card kept a live copy at a staging path).
+        if not self._is_path_allowed(filepath):
+            raise SecurityError(
+                f"Path outside allowed directories, not re-indexed (existing "
+                f"document kept): {filepath}. File must be within: {self.allowed_dirs}"
+            )
+
         # Document has changed, re-index it
         self.logger.info(f"Document changed, re-indexing: {filepath}")
         self.remove_document(existing_doc.doc_id)
@@ -2127,7 +2141,8 @@ class _DocumentsMixin:
             'unchanged': [],
             'changed': [],
             'missing': [],
-            'updated': []  # Only populated if auto_update=True
+            'updated': [],  # Only populated if auto_update=True
+            'failed': []    # Changed but not re-indexed; the old document is kept
         }
 
         total_docs = len(self.documents)
@@ -2173,6 +2188,12 @@ class _DocumentsMixin:
                         })
                     except Exception as e:
                         self.logger.error(f"Failed to update {filepath}: {e}")
+                        results['failed'].append({
+                            'doc_id': doc_id,
+                            'filepath': filepath,
+                            'title': doc.title,
+                            'error': str(e)
+                        })
                     finally:
                         reindexed_count += 1
                         if progress_callback:

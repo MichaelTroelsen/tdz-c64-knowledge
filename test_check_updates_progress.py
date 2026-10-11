@@ -366,3 +366,47 @@ def test_client_receives_per_file_progress_for_add_documents_bulk(tmp_path):
         f"expected a per-file progress notification, got messages: {messages}"
     )
     assert "result" in frames[-1] or "error" in frames[-1], frames[-1]
+
+
+def test_auto_update_keeps_document_whose_path_left_the_allowlist(kb, tmp_path):
+    """Regression, measured 2026-10-11: a changed document whose directory is
+    no longer in allowed_dirs was REMOVED by check_all_updates(auto_update=True)
+    and then refused by add_document, so it vanished from the knowledge base
+    (177 indexed copies of sid-reference-project player cards in one run;
+    every card kept a live copy at a staging path). It must instead stay
+    indexed, unchanged, and be reported in results['failed'].
+    """
+    doc, filepath = _make_changed_doc(kb, tmp_path)
+
+    # Narrow the allowlist IN MEMORY so the already-indexed file now falls
+    # outside it - the same state as a document indexed before ALLOWED_DOCS_DIRS
+    # was narrowed. Confirm the narrowing landed before trusting anything below.
+    kb.allowed_dirs = [d for d in kb.allowed_dirs if d != (tmp_path / "temp").resolve()]
+    assert kb._is_path_allowed(str(filepath)) is False
+
+    results = kb.check_all_updates(auto_update=True)
+
+    assert len(results["changed"]) == 1
+    assert results["updated"] == []
+    assert [f["doc_id"] for f in results["failed"]] == [doc.doc_id]
+    assert doc.doc_id in kb.documents, "the existing document was deleted instead of kept"
+    assert kb.documents[doc.doc_id].file_hash == doc.file_hash
+
+
+def test_handle_check_updates_reports_document_kept_outside_allowlist(kb, tmp_path):
+    """The tool output must name a changed document whose path left
+    allowed_dirs as NOT re-indexed (old version kept), not drop it silently.
+    Uses the isolated kb fixture, never the live TDZ_DATA_DIR.
+    """
+    from mcp_tools.admin import handle_check_updates
+
+    doc, filepath = _make_changed_doc(kb, tmp_path)
+    kb.allowed_dirs = [d for d in kb.allowed_dirs if d != (tmp_path / "temp").resolve()]
+    assert kb._is_path_allowed(str(filepath)) is False
+
+    result = handle_check_updates(kb, "check_updates", {"auto_update": True})
+    text = "\n".join(c.text for c in result)
+
+    assert "NOT re-indexed (old version kept)" in text, text
+    assert doc.title in text, text
+    assert str(filepath) in text, text

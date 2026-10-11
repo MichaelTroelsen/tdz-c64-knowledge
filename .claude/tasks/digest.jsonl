@@ -79,6 +79,7 @@
 {"id":"peer-telemetry-writes-invalidate-every-search-cache","summary":"Replaced the raw PRAGMA data_version gate with a corpus fingerprint over documents and chunks, so a peer's telemetry write no longer drops the chunk cache, the BM25 index and every search cache; 13 passed, both sabotages discriminated, and an existing test caught a real ABA hole in the first design."}
 {"id":"pickle-design-in-plan-docs","summary":null}
 {"id":"plugin-system-phase-5-2","summary":null}
+{"id":"progress-values-not-monotonic-when-heartbeat-and-handler-share-a-token","summary":"Progress on one token now strictly increases: _ProgressChannel serialises sends, drops non-increasing handler frames and steps the heartbeat just above the last value once a handler reports, add_documents_bulk folds its last per-file event into the completion event, my sabotage of the ordering failed both new interleave tests, and the full suite is 448 passed / 4 skipped."}
 {"id":"push-master-to-origin","summary":null}
 {"id":"pyproject-requires-python-understates-312","summary":null}
 {"id":"pytest-testpaths","summary":null}
